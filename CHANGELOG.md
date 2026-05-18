@@ -12,9 +12,22 @@ tag after the repository split.
 
 ### Added
 
-- Documentation site (Starlight) under `packages/polystella/docs/`.
-  Configuration reference auto-generated from the zod schema; CI
-  asserts every public export has a docs entry.
+- Documentation site (Starlight) under `docs/`. Configuration
+  reference auto-generated from the zod schema; CI asserts every
+  public export has a docs entry.
+- `react` declared as an **optional peer dependency**
+  (`^17.0.0 || ^18.0.0 || ^19.0.0`). The `polystella/react`
+  subpath only imports `useMemo`, which is stable across all
+  three React majors. Marked optional so consumers that don't use
+  the React hooks aren't pestered for the dep. `@types/react`
+  added as a dev dependency so contributors get IntelliSense
+  without a manual install.
+- `@astrojs/sitemap` declared as a **dev dependency**. The
+  `polystella/i18n/sitemap` helper produces options for
+  `@astrojs/sitemap` but doesn't import it at runtime; the test
+  `tests/i18n/sitemap-types.test.ts` does, for structural type
+  compatibility. Consumers wire their own `@astrojs/sitemap`
+  install as usual.
 - `polystella/client` export — types-only entrypoint for
   `env.d.ts` virtual-module references.
 - `polystella/runtime/middleware` export — direct middleware
@@ -48,8 +61,21 @@ tag after the repository split.
 - **Breaking:** the CLI is now subcommand-based. Run
   `polystella --help` for the menu. Subcommands own their own argv
   parsing.
-- Test count grew from ~940 to 1168 across the work in this
-  release. The README's "Tests" section reflects the new total.
+- Test count grew from ~940 to 1105 across the work in this
+  release (1168 in the host monorepo; 63 of those were per-
+  publication round-trip cases that were inherently coupled to
+  the host's content corpus). The README's "Tests" section
+  reflects the new total.
+- The parser round-trip test now runs over a bundled
+  `tests/fixtures/parsing/round-trip/` corpus instead of reading
+  from the host monorepo's `content/publications/`. 15 fixtures
+  cover the full feature surface of `remark-parse + remark-gfm +
+  remark-frontmatter`: frontmatter shapes, inline formatting,
+  headings, lists (incl. task lists), code blocks, blockquotes,
+  GFM tables, raw HTML, thematic breaks, empty frontmatter, no
+  frontmatter, footnotes, images, and a punctuation-heavy edge-
+  case file with Unicode + escapes. The standalone repo is now
+  self-contained for testing.
 - `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`,
   `noImplicitReturns`, `noFallthroughCasesInSwitch` enabled in
   `tsconfig.json`. Surfaced 14 errors; all fixed.
@@ -75,6 +101,14 @@ tag after the repository split.
 
 ### Fixed
 
+- `extractSegments` and `selectTranslatableFrontmatter` no longer
+  crash on files with empty YAML frontmatter (`---\n---`). The
+  `yaml` parser returns `null` for empty input, which the old
+  `as Record<string, unknown>` cast didn't guard against. Both
+  functions now coerce non-object YAML to an empty record.
+  Surfaced by the new bundled round-trip fixture corpus; never
+  hit in the host monorepo because no real publication used
+  empty frontmatter.
 - `publishRuntimeBridge` no longer loses its `stagingDir` parameter
   on signature changes (a regression from the comment-cleanup pass
   that only surfaced at typecheck time).

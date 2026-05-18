@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -7,37 +7,41 @@ import { extractSegments } from "../../src/parsing/extract.js";
 import { parseMarkdown } from "../../src/parsing/parse.js";
 
 /**
- * Identity round-trip on the host monorepo's publications corpus.
+ * Identity round-trip over a bundled fixture corpus.
  *
  *   parseMarkdown → extractSegments → applyTranslations(empty Map)
  *   assert output === source
  *
- * Acts as a real-world stress test for the parser/serializer config:
- * any byte-level drift on real markdown surfaces here before it
- * affects translations.
+ * The fixtures under `tests/fixtures/parsing/round-trip/` cover the
+ * full surface of the `remark-parse + remark-frontmatter +
+ * remark-gfm` configuration: every markdown construct the parser
+ * recognises has a representative input here. Any byte-level drift
+ * in the parser/serializer config surfaces as a failing fixture
+ * before it can affect real translations.
  *
- * Skipped when `content/publications` is missing — that's the
- * common case once polystella is extracted into its own repo.
- * The new repo can replace this with its own fixture-based variant.
+ * Adding new fixtures: drop a `.md` file in the fixtures directory;
+ * the file list is discovered dynamically at module-load time.
+ * Prefer one fixture per concern (lists, tables, footnotes, …)
+ * over fat omnibus files; a failure points at the smallest possible
+ * reproducer that way.
  */
 
-const PUBLICATIONS_DIR = resolve(fileURLToPath(import.meta.url), "../../../../../content/publications");
-const hasCorpus = existsSync(PUBLICATIONS_DIR);
+const FIXTURES_DIR = resolve(fileURLToPath(import.meta.url), "../../fixtures/parsing/round-trip");
 
-const publicationFiles = hasCorpus
-  ? readdirSync(PUBLICATIONS_DIR)
-      .filter((name) => name.endsWith(".md"))
-      .sort()
-  : [];
+const fixtureFiles = readdirSync(FIXTURES_DIR)
+  .filter((name) => name.endsWith(".md"))
+  .sort();
 
-describe.skipIf(!hasCorpus)("publications corpus round-trip", () => {
-  it("finds publication files to test", () => {
-    expect(publicationFiles.length).toBeGreaterThan(0);
+describe("parser round-trip over bundled fixtures", () => {
+  it("finds fixture files to test", () => {
+    // Sanity: if this fails, the path resolution above is wrong and
+    // every other assertion below would be vacuously true.
+    expect(fixtureFiles.length).toBeGreaterThan(0);
   });
 
-  for (const fileName of publicationFiles) {
+  for (const fileName of fixtureFiles) {
     it(`${fileName} survives parse → extract → apply(empty) → stringify unchanged`, () => {
-      const path = join(PUBLICATIONS_DIR, fileName);
+      const path = join(FIXTURES_DIR, fileName);
       const source = readFileSync(path, "utf8");
 
       const ast = parseMarkdown(source);
@@ -46,8 +50,8 @@ describe.skipIf(!hasCorpus)("publications corpus round-trip", () => {
       extractSegments(
         ast,
         {
-          sourcePath: `publications/${fileName}`,
-          frontmatter: { "publications/**": ["title", "metaDescription"] },
+          sourcePath: `fixtures/${fileName}`,
+          frontmatter: { "fixtures/**": ["title", "metaDescription"] },
         },
         source,
       );

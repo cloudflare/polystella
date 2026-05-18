@@ -260,7 +260,7 @@ A developer's local build cannot overwrite production. Preview branches stay iso
 pnpm --filter polystella test
 ```
 
-The package has 981 tests across 48 files: parsing, extraction, translation prompt round-trips, R2 cache logic (including bulk pre-list), routing, runtime dispatch (locale-aware entry / collection fetching), middleware bindings, custom-loader wrapping + sibling translation, UI-strings drift detection + sync + AI-fill, and a 9-test end-to-end smoke suite that drives the full integration against a temp project. CI runs them on every PR.
+The package has 1105 tests across 56 files: parsing (including a 15-fixture round-trip corpus that exercises every CommonMark + GFM + frontmatter construct), extraction, translation prompt round-trips, R2 cache logic (including bulk pre-list), routing, runtime dispatch (locale-aware entry / collection fetching), middleware bindings, custom-loader wrapping + sibling translation, UI-strings drift detection + sync + AI-fill, and a 9-test end-to-end smoke suite that drives the full integration against a temp project. CI runs them on every PR.
 
 ## License
 

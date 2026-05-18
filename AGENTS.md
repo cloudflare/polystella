@@ -25,7 +25,7 @@ section numbers. Inserting new sections never breaks links.
 
 | Command                  | What it does                                                                                                                                                                                            |
 | :----------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `pnpm test`              | Run vitest (1152 tests / 55 files / ~1.5s at time of writing).                                                                                                                                          |
+| `pnpm test`              | Run vitest (1105 tests / 56 files / ~1.2s at time of writing).                                                                                                                                          |
 | `pnpm test:watch`        | Vitest in watch mode.                                                                                                                                                                                   |
 | `pnpm build:cli`         | Bundle the standalone `polystella` CLI to `dist/cli.js` via esbuild. The package exposes a single `polystella` binary with verb-style subcommands (`translate`, `check-ui`, `sync-ui`, `translate-ui`). |
 | `pnpm exec tsc --noEmit` | Typecheck. The tsconfig has `noEmit: true`.                                                                                                                                                             |

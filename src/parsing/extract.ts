@@ -60,7 +60,14 @@ export function extractSegments(ast: Root, opts: ExtractOptions, source: string)
   if (frontmatterNode) {
     const keys = resolveFrontmatterKeys(opts.sourcePath, opts.frontmatter);
     if (keys.length > 0) {
-      const data = parseYaml(frontmatterNode.value) as Record<string, unknown>;
+      // Empty / whitespace-only / non-object YAML parses to null,
+      // undefined, or a scalar. Coerce to an empty record so the
+      // configured keys silently miss instead of crashing on a
+      // null-property access. Real-world trigger: a `---\n---`
+      // block with no content (intentional or stripped by a tool).
+      const parsed = parseYaml(frontmatterNode.value);
+      const data: Record<string, unknown> =
+        parsed !== null && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : {};
       for (const key of keys) {
         const value = data[key];
         // Empty strings emit no segment — translating "" is meaningless
@@ -141,7 +148,11 @@ export function selectTranslatableFrontmatter(ast: Root, opts: ExtractOptions): 
   const keys = resolveFrontmatterKeys(opts.sourcePath, opts.frontmatter);
   if (keys.length === 0) return {};
 
-  const data = parseYaml(frontmatterNode.value) as Record<string, unknown>;
+  // Same defensive coercion as `extractSegments`: empty / non-object
+  // YAML (e.g. `---\n---`) parses to null and `key in null` throws.
+  const parsed = parseYaml(frontmatterNode.value);
+  const data: Record<string, unknown> =
+    parsed !== null && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : {};
   const result: Record<string, unknown> = {};
   for (const key of keys) {
     if (key in data) {
