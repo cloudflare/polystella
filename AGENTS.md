@@ -30,7 +30,7 @@ section numbers. Inserting new sections never breaks links.
 | `pnpm build:cli`         | Bundle the standalone `polystella` CLI to `dist/cli.js` via esbuild. The package exposes a single `polystella` binary with verb-style subcommands (`translate`, `check-ui`, `sync-ui`, `translate-ui`). |
 | `pnpm exec tsc --noEmit` | Typecheck. The tsconfig has `noEmit: true`.                                                                                                                                                             |
 
-No lint step yet. Biome adoption planned for the post-split phase.
+No lint step yet.
 
 > Test counts age. The authoritative count is `pnpm test`'s output;
 > the number here is a snapshot pinned by [`tests/docs.test.ts`](./tests/docs.test.ts).

@@ -27,9 +27,9 @@ polystella sync-ui [flags]
 
 ## What it preserves
 
-The host project's UI-string JSONs tend to be hand-curated for
-readability — keys grouped by feature, blank lines between groups.
-`sync-ui` keeps that layout intact across runs:
+UI-string JSONs tend to be hand-curated for readability — keys
+grouped by feature, blank lines between groups. `sync-ui` keeps
+that layout intact across runs:
 
 - **Key order** follows the default-locale source. New keys are
   inserted at the source's position, not appended.

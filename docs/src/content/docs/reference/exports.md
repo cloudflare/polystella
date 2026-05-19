@@ -3,19 +3,18 @@ title: Public exports
 description: "Every export path in package.json — what it provides and when to import from it."
 ---
 
-PolyStella ships eight public import paths. Each has a narrow,
+PolyStella ships seven public import paths. Each has a narrow,
 documented purpose; mixing them up rarely produces a useful build.
 
-| Path                                       | Purpose                                                                                                      |
-| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------ |
-| `polystella`                               | Default export: the Astro integration factory.                                                               |
-| `polystella/content`                       | Content-config helpers: `polystellaCollections`, `file`, `polystellaLoader`.                                 |
-| `polystella/runtime`                       | Runtime API: `getLocalizedEntry`, `getLocalizedCollection`, `localizedHref`, `polystellaMiddleware`.         |
-| `polystella/runtime/middleware`            | Direct middleware entrypoint — used by the integration's `addMiddleware` call. Rarely imported by consumers. |
-| `polystella/i18n`                          | UI-strings glue: `i18nLoader`, `i18nSchema`, `getTranslations`, `getDictionary`, drift helpers.              |
-| `polystella/react`                         | React hooks: `useTranslations`, `useLocalizedHref` — for islands.                                            |
-| `polystella/client`                        | Types only. Reference from `src/env.d.ts` for virtual-module types. No runtime import.                       |
-| `polystella/components/LocalePicker.astro` | Unstyled, accessible locale-switcher component.                                                              |
+| Path                            | Purpose                                                                                                      |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `polystella`                    | Default export: the Astro integration factory.                                                               |
+| `polystella/content`            | Content-config helpers: `polystellaCollections`, `file`, `polystellaLoader`.                                 |
+| `polystella/runtime`            | Runtime API: `getLocalizedEntry`, `getLocalizedCollection`, `localizedHref`, `polystellaMiddleware`.         |
+| `polystella/runtime/middleware` | Direct middleware entrypoint — used by the integration's `addMiddleware` call. Rarely imported by consumers. |
+| `polystella/i18n`               | UI-strings glue: `i18nLoader`, `i18nSchema`, `getTranslations`, `getDictionary`, drift helpers.              |
+| `polystella/react`              | React hooks: `useTranslations`, `useLocalizedHref` — for islands.                                            |
+| `polystella/client`             | Types only. Reference from `src/env.d.ts` for virtual-module types. No runtime import.                       |
 
 ## Which import goes where
 
@@ -61,13 +60,9 @@ import { useTranslations, useLocalizedHref } from "polystella/react";
 
 ### Locale switcher
 
-```astro
----
-import LocalePicker from "polystella/components/LocalePicker.astro";
----
-
-<LocalePicker />
-```
+PolyStella doesn't ship a built-in component. See the
+[locale-picker cookbook recipe](/cookbook/locale-picker/) for a
+copy-paste starting point you can drop into your project.
 
 ## What's NOT public
 

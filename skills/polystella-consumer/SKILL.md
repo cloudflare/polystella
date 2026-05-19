@@ -27,7 +27,7 @@ Visitors get static bytes — no runtime AI calls.
 
 ## Installation
 
-Pre-1.0 the package isn't on npm. Install from GitHub once it lands at `cloudflare/polystella`:
+Pre-1.0 the package isn't on npm. Install from GitHub:
 
 ```bash
 pnpm add github:cloudflare/polystella#vX.Y.Z
@@ -315,4 +315,4 @@ When a translation is wrong:
 | See available exports | `node_modules/polystella/package.json` (`exports` field)              |
 | See CLI flags         | `polystella --help`, `polystella <subcommand> --help`                 |
 | Debug a translation   | `dist/i18n-r2-report.json`, `<root>/.astro/i18n-staging/<locale>/...` |
-| File an issue         | The package's GitHub repo (post-split: `cloudflare/polystella`)       |
+| File an issue         | `https://github.com/cloudflare/polystella/issues`                     |

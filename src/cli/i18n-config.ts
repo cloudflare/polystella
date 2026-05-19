@@ -1,8 +1,8 @@
 /**
- * Shared CLI helpers for loading the host project's Astro / PolyStella
- * config. Extracted from the original monolithic `cli.ts` so the new
- * UI-string subcommands can reuse the same loading semantics without
- * pulling in the entire translation orchestrator.
+ * Shared CLI helpers for loading the consumer project's Astro /
+ * PolyStella config. Used by every CLI subcommand that needs the
+ * resolved locale set or PolyStella options without pulling in the
+ * translation orchestrator.
  *
  * Two public functions:
  *   - `loadAstroI18n(cwd)` — returns the `i18n` object from

@@ -13,8 +13,8 @@ inspection of what a build would do.
 polystella translate [flags]
 ```
 
-The host research-site monorepo wires `pnpm translate` to invoke
-this for muscle-memory continuity.
+A `pnpm translate` script wrapper in your project's `package.json`
+is the common pattern.
 
 ## Flags
 
@@ -33,7 +33,7 @@ this for muscle-memory continuity.
 ```bash
 pnpm translate                          # full run for the current git branch
 pnpm translate --locale pt-BR           # only pt-BR translations
-pnpm translate --file "publications/Davidson2018.md"  # one file
+pnpm translate --file "blog/hello.md"   # one file
 pnpm translate --dry-run                # plan; don't write
 pnpm translate --branch main            # target main's R2 prefix
 ```

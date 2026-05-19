@@ -16,12 +16,6 @@ subcommands:
 Run `polystella --help` for the top-level menu, or
 `polystella <subcommand> --help` for per-subcommand flags.
 
-:::caution[Breaking change (pre-1.0)]
-The legacy `polystella-translate` binary has been renamed to
-`polystella translate`. The host project's `pnpm translate` wrapper
-transparently redirects, but direct invocations need updating.
-:::
-
 ## How the subcommands fit together
 
 `translate` and the `*-ui` subcommands address two distinct surfaces
@@ -41,8 +35,8 @@ in a localised Astro site:
 
 You typically run `translate` infrequently (build-time, in CI) and
 `check-ui` / `sync-ui` / `translate-ui` as you edit UI strings
-locally. The host research site wires `check-ui` into a pre-commit
-hook so the build never fails on drift.
+locally. Wire `check-ui` into a pre-commit hook so the build never
+fails on drift.
 
 ## Exit codes
 
@@ -67,8 +61,8 @@ does that the integration doesn't — it just exposes the entry point
 outside of `astro build`. This matters for two scenarios:
 
 - **One-off re-translations.** `polystella translate --file
-"publications/Davidson2018.md"` retranslates one file without
-  rebuilding the rest of the site.
+"blog/hello.md"` retranslates one file without rebuilding the
+  rest of the site.
 - **CI dispatch.** Workers Builds runs the integration during the
   normal build, but if you want a separate "translate now" job
   (e.g. nightly), the CLI is what it invokes.

@@ -16,7 +16,7 @@ import type { Glossary } from "../glossary/glossary.js";
  * Pure — no I/O, no provider deps — unit-testable without a network.
  */
 
-/** Marker delimiter — `@@` is rare in technical/research prose. */
+/** Marker delimiter — `@@` is rare in technical prose. */
 const MARKER = "@@";
 
 /**

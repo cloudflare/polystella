@@ -186,7 +186,7 @@ Then come back here for step-by-step task recipes.
    - `tests/cli/<name>.test.ts` for the argv parser + handler (with stubbed deps).
    - Extend `tests/cli.test.ts` if the top-level dispatch needs new coverage (it usually does — add at least one "dispatches `my-subcommand` to the right handler" case).
 
-4. If the subcommand needs a `pnpm` wrapper in the host's `package.json`, document it in the package README's CLI section. Don't add the wrapper to this package — host projects own their own scripts.
+4. If consumers typically wrap the subcommand in a `pnpm` script (e.g. `pnpm i18n:sync`), document the pattern in the docs site's CLI section. Don't add the wrapper to this package — consumer projects own their own scripts.
 
 5. Verify:
 
@@ -446,7 +446,7 @@ See [#ui-strings](../../ARCHITECTURE.md#ui-strings).
 
 <a id="strict-tsconfig"></a>
 
-All four codex RFC 009 flags are on. Patterns that come up repeatedly:
+All four stricter TypeScript flags are on (`noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, `noImplicitReturns`, `noFallthroughCasesInSwitch`). Patterns that come up repeatedly:
 
 ### `noUncheckedIndexedAccess`
 

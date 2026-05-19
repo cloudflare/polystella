@@ -7,8 +7,6 @@ canonical home for the longer-form context.
 For task recipes ("I want to add an adapter / a provider / a CLI
 subcommand"), see [`AGENTS.md`](./AGENTS.md). For consumer-side wiring,
 see [`skills/polystella-consumer/SKILL.md`](./skills/polystella-consumer/SKILL.md).
-Future-tense planning lives in `plans/PHASE-PLAN.md` (in the parent
-monorepo, until the split).
 
 All cross-references in this doc and in `AGENTS.md` use **stable slug
 anchors** (e.g. `#cache-key`), not section numbers. Inserting a new

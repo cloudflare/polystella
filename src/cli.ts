@@ -8,16 +8,12 @@
  *   polystella sync-ui        Reconcile UI-string JSON key sets.
  *   polystella translate-ui   Sync + AI-fill empty placeholders.
  *
- * The pre-rename binary `polystella-translate` is gone — this is a
- * breaking change documented in the package README and AGENTS.md.
- * The legacy `pnpm translate` shell script in the host project now
- * invokes `polystella translate` to preserve operator muscle memory.
- *
  * Dispatch is a thin layer: each subcommand owns its argv parsing and
  * `runX(args, deps)` handler. This file only routes.
  */
 
 import { execFileSync } from "node:child_process";
+import { realpathSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
@@ -518,9 +514,24 @@ async function main(): Promise<number> {
   }
 }
 
-// Run if invoked directly. `import.meta.url` check keeps the module
-// importable from tests.
-const invokedDirectly = import.meta.url === pathToFileURL(process.argv[1] ?? "").href;
+// Run if invoked directly. `import.meta.url` is the file Node
+// actually loaded (resolved through any symlinks); `process.argv[1]`
+// is the path the shell handed to Node (might be a symlink, e.g.
+// `node_modules/.bin/polystella` → pnpm content-addressed store).
+// Both must be canonicalised for the comparison to hold across
+// pnpm-style symlinked installs. Falling back to the raw argv1 if
+// realpath errors (file removed mid-run, etc.) keeps the check
+// useful in oddball scenarios. The `import.meta.url` side is
+// already canonical because Node uses the realpath internally when
+// resolving ESM modules.
+const argv1 = process.argv[1] ?? "";
+let resolvedArgv1Url: string;
+try {
+  resolvedArgv1Url = pathToFileURL(realpathSync(argv1)).href;
+} catch {
+  resolvedArgv1Url = pathToFileURL(argv1).href;
+}
+const invokedDirectly = import.meta.url === resolvedArgv1Url;
 if (invokedDirectly) {
   main().then(
     (code) => process.exit(code),

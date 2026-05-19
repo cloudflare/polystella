@@ -12,7 +12,6 @@
   "bugs": {
     "url": "https://github.com/cloudflare/polystella/issues"
   },
-  "author": "Cloudflare, Inc.",
   "keywords": [
     "astro",
     "astro-integration",
@@ -60,12 +59,10 @@
     },
     "./client": {
       "types": "./client.d.ts"
-    },
-    "./components/LocalePicker.astro": "./components/LocalePicker.astro"
+    }
   },
   "files": [
     "src",
-    "components",
     "dist",
     "client.d.ts",
     "AGENTS.md",

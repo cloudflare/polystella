@@ -67,9 +67,8 @@ a sensible starting point for most projects. Reasons to switch:
 - **Throughput.** Some Workers AI models throttle differently;
   switching can change build latency.
 
-There's no universally-right answer. The host research site
-currently uses Qwen 3 30B for CJK and llama 3.1 8B for Latin-script
-locales.
+There's no universally-right answer. A common pattern is Qwen 3
+30B (or similar) for CJK and llama 3.1 8B for Latin-script locales.
 
 ## Documenting your choice
 

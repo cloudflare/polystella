@@ -3,7 +3,7 @@ title: polystella check-ui
 description: "polystella check-ui — offline drift detection over UI-string JSONs."
 ---
 
-Pure drift detection over the host project's UI-string JSON files.
+Pure drift detection over your project's UI-string JSON files.
 Reads `astro.config.mjs` for the locale set, then runs the same
 `loadAndCheckDrift` logic the integration uses, against
 `src/content/i18n/` (or a custom base via `--base`).
@@ -42,9 +42,10 @@ that doesn't apply to that locale).
 
 ## Pre-commit hook
 
-The host research-site monorepo wires this into a pre-commit hook
-that fails the commit when drift is detected. The hook prints
-actionable next-step commands so the operator knows what to run:
+A typical pre-commit hook runs `polystella check-ui` when files
+under `src/content/i18n/` are staged, failing the commit on drift.
+The hook prints actionable next-step commands so the operator
+knows what to run:
 
 ```text
 [polystella check-ui] drift detected

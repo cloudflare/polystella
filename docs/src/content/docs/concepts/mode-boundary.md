@@ -24,7 +24,7 @@ integrations.
 
 ## Starlight mode (planned)
 
-When the host project uses Starlight, defer to Starlight's own
+When your project uses Starlight, defer to Starlight's own
 infrastructure for the parts it already owns:
 
 - **Routing** — Starlight has its own routing system. PolyStella

@@ -4,8 +4,8 @@ description: Anthropic Claude as the translation provider.
 ---
 
 The Anthropic provider routes translation through Anthropic's
-Messages API. Useful when the host project wants Claude's
-translation quality and is willing to pay for it.
+Messages API. Useful when you want Claude's translation quality
+and are willing to pay for it.
 
 ## Configuration
 
@@ -39,10 +39,10 @@ invalidation.
 
 ## Cost
 
-Anthropic bills per token at production rates. For a research-site
-corpus (~hundreds of files × N locales), expect a single full
-translation pass to cost a few dollars. Subsequent builds hit the
-R2 cache and cost effectively nothing.
+Anthropic bills per token at production rates. For a typical site
+(~hundreds of files × N locales), expect a single full translation
+pass to cost a few dollars. Subsequent builds hit the R2 cache and
+cost effectively nothing.
 
 For preview / development workflows, prefer Workers AI as the
 provider and reserve Anthropic for builds where quality matters

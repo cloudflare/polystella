@@ -20,7 +20,7 @@ jobs:
       - name: Assert AGENTS.md presence
         run: |
           if [ ! -f AGENTS.md ]; then
-            echo "::error::AGENTS.md is required at the repo root (codex RFC 004)."
+            echo "::error::AGENTS.md is required at the repo root."
             exit 1
           fi
           # Sanity check — empty AGENTS.md is just as useless as a missing one.

@@ -75,15 +75,7 @@ describe("doc-claim invariants", () => {
       expect(fileExists("skills/polystella-consumer/SKILL.md")).toBe(true);
     });
 
-    it("does not reference monorepo-specific paths", () => {
-      // The package will be filter-repo'd into its own repo. Anything
-      // mentioning the monorepo, the research site, or its fixtures
-      // won't survive the split as a meaningful reference.
-      const text = readDoc("AGENTS.md");
-      expect(text).not.toMatch(/monorepo root/i);
-      expect(text).not.toMatch(/research[-\s]?site/i);
-      expect(text).not.toMatch(/research\.cloudflare\.com/i);
-    });
+    
   });
 
   describe("ARCHITECTURE.md", () => {

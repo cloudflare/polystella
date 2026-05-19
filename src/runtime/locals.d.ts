@@ -8,8 +8,8 @@
  *
  *   <a href={lhref("/foo")}>{t("nav.home")}</a>
  *
- *   const publication = await getLocalizedEntry("publications", "antunes2025");
- *   const people = await getLocalizedCollection("people", ({ data }) => data.type === "active");
+ *   const post = await getLocalizedEntry("blog", "hello-world");
+ *   const posts = await getLocalizedCollection("blog", ({ data }) => data.draft !== true);
  *
  * All fields are typed as required because the integration's
  * default config registers the middleware. If a consumer disables
@@ -58,8 +58,8 @@ declare global {
        * closed over by the middleware, so consumers don't need to
        * thread `Astro.currentLocale` through every call site.
        *
-       *   const entry = await Astro.locals.getLocalizedEntry("publications", "foo");
-       *   const author = await Astro.locals.getLocalizedEntry({ collection: "people", id: "alice" });
+       *   const entry = await Astro.locals.getLocalizedEntry("blog", "hello-world");
+       *   const author = await Astro.locals.getLocalizedEntry({ collection: "authors", id: "alice" });
        *
        * For non-template contexts (`getStaticPaths`, build helpers,
        * React islands), use the explicit-import surface:
@@ -82,10 +82,10 @@ declare global {
        * where translations exist, source entries kept (or dropped,
        * per `fallback`/`noTranslateBehavior`) where they don't.
        *
-       *   const items = await Astro.locals.getLocalizedCollection("people");
-       *   const active = await Astro.locals.getLocalizedCollection(
-       *     "people",
-       *     ({ data }) => data.type === "active",
+       *   const items = await Astro.locals.getLocalizedCollection("blog");
+       *   const published = await Astro.locals.getLocalizedCollection(
+       *     "blog",
+       *     ({ data }) => data.draft !== true,
        *   );
        *
        * The filter receives the merged-and-tagged shape
@@ -97,7 +97,7 @@ declare global {
        * Filter return type is `unknown` (matching Astro's
        * `getCollection` convention) so callers can return a
        * `boolean | undefined` from an optional chain
-       * (`(pub) => pub.data.authors?.some(...)`) without explicit
+       * (`(p) => p.data.tags?.includes("featured")`) without explicit
        * coercion. `Array.prototype.filter` truthiness-checks the
        * result at runtime.
        *

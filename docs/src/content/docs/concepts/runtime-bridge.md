@@ -85,5 +85,4 @@ includes custom-loader entries alongside file-based ones.
 - [Adapters → Custom loader](/adapters/custom-loader/) — the
   consumer-side wrapper API.
 - [`AGENTS.md`](https://github.com/cloudflare/polystella/blob/main/AGENTS.md)
-  in the repo for the contributor-facing gotchas around the bridge
-  lifecycle.
+  for the contributor-facing gotchas around the bridge lifecycle.

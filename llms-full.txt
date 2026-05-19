@@ -40,12 +40,12 @@ section numbers. Inserting new sections never breaks links.
 
 | Command                  | What it does                                                                                                                                                                                            |
 | :----------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `pnpm test`              | Run vitest (1152 tests / 55 files / ~1.5s at time of writing).                                                                                                                                          |
+| `pnpm test`              | Run vitest                                                                                                                                       |
 | `pnpm test:watch`        | Vitest in watch mode.                                                                                                                                                                                   |
 | `pnpm build:cli`         | Bundle the standalone `polystella` CLI to `dist/cli.js` via esbuild. The package exposes a single `polystella` binary with verb-style subcommands (`translate`, `check-ui`, `sync-ui`, `translate-ui`). |
 | `pnpm exec tsc --noEmit` | Typecheck. The tsconfig has `noEmit: true`.                                                                                                                                                             |
 
-No lint step yet. Biome adoption planned for the post-split phase.
+No lint step yet.
 
 > Test counts age. The authoritative count is `pnpm test`'s output;
 > the number here is a snapshot pinned by [`tests/docs.test.ts`](./tests/docs.test.ts).
@@ -196,8 +196,6 @@ canonical home for the longer-form context.
 For task recipes ("I want to add an adapter / a provider / a CLI
 subcommand"), see [`AGENTS.md`](./AGENTS.md). For consumer-side wiring,
 see [`skills/polystella-consumer/SKILL.md`](./skills/polystella-consumer/SKILL.md).
-Future-tense planning lives in `plans/PHASE-PLAN.md` (in the parent
-monorepo, until the split).
 
 All cross-references in this doc and in `AGENTS.md` use **stable slug
 anchors** (e.g. `#cache-key`), not section numbers. Inserting a new
@@ -946,7 +944,7 @@ Visitors get static bytes — no runtime AI calls.
 
 ## Installation
 
-Pre-1.0 the package isn't on npm. Install from GitHub once it lands at `cloudflare/polystella`:
+Pre-1.0 the package isn't on npm. Install from GitHub:
 
 ```bash
 pnpm add github:cloudflare/polystella#vX.Y.Z
@@ -1234,7 +1232,7 @@ When a translation is wrong:
 | See available exports | `node_modules/polystella/package.json` (`exports` field)              |
 | See CLI flags         | `polystella --help`, `polystella <subcommand> --help`                 |
 | Debug a translation   | `dist/i18n-r2-report.json`, `<root>/.astro/i18n-staging/<locale>/...` |
-| File an issue         | The package's GitHub repo (post-split: `cloudflare/polystella`)       |
+| File an issue         | `https://github.com/cloudflare/polystella/issues`                     |
 
 <!-- END skills/polystella-consumer/SKILL.md -->
 
@@ -1430,7 +1428,7 @@ Then come back here for step-by-step task recipes.
    - `tests/cli/<name>.test.ts` for the argv parser + handler (with stubbed deps).
    - Extend `tests/cli.test.ts` if the top-level dispatch needs new coverage (it usually does — add at least one "dispatches `my-subcommand` to the right handler" case).
 
-4. If the subcommand needs a `pnpm` wrapper in the host's `package.json`, document it in the package README's CLI section. Don't add the wrapper to this package — host projects own their own scripts.
+4. If consumers typically wrap the subcommand in a `pnpm` script (e.g. `pnpm i18n:sync`), document the pattern in the docs site's CLI section. Don't add the wrapper to this package — consumer projects own their own scripts.
 
 5. Verify:
 
@@ -1690,7 +1688,7 @@ See [#ui-strings](../../ARCHITECTURE.md#ui-strings).
 
 <a id="strict-tsconfig"></a>
 
-All four codex RFC 009 flags are on. Patterns that come up repeatedly:
+All four stricter TypeScript flags are on (`noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, `noImplicitReturns`, `noFallthroughCasesInSwitch`). Patterns that come up repeatedly:
 
 ### `noUncheckedIndexedAccess`
 

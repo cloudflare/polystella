@@ -108,8 +108,8 @@ Stale variants are deleted in batch.
 ### 7. Report
 
 `astro:build:done` emits `dist/i18n-r2-report.json` summarising
-hits, misses, overrides, errors, and prune outcomes. The host
-research site's CI uses this to track regression.
+hits, misses, overrides, errors, and prune outcomes. Useful in CI
+for tracking translation regressions over time.
 
 ## Mode boundary
 
@@ -117,7 +117,7 @@ Today PolyStella runs in **standalone mode** — it injects its own
 locale-prefixed route shims that re-render your source page
 template against the per-locale sibling content. A planned
 **Starlight mode** will defer routing and `Astro.locals.t` to
-Starlight when the host project uses Starlight. See [Concepts →
+Starlight when your project uses Starlight. See [Concepts →
 Mode boundary](/concepts/mode-boundary/) for the difference.
 
 ## Where to read more

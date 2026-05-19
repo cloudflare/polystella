@@ -4,8 +4,8 @@ description: Cloudflare Workers AI as the translation provider.
 ---
 
 The Workers AI provider routes translation through Cloudflare's
-Workers AI inference platform. It's the default choice when the
-host project is itself a Cloudflare site.
+Workers AI inference platform. A natural choice when your site
+already runs on Cloudflare.
 
 ## Configuration
 

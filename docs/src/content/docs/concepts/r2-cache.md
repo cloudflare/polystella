@@ -53,8 +53,8 @@ of the public contract.
 Examples:
 
 ```text
-i18n/pt-BR/publications/Davidson2018.md#a3f2b1c8....md
-previews/diogo-polystella-v1/i18n/ja-JP/people/alice.md#1234....md
+i18n/pt-BR/blog/hello-world.md#a3f2b1c8....md
+previews/feature-xyz/i18n/ja-JP/authors/alice.md#1234....md
 ```
 
 The `#hash` segment is anchored on the **last** `#` in the key so
@@ -122,7 +122,7 @@ ruled out cheaper alternatives:
   stack already speaks R2.
 
 KV would work for small projects but its read/write cost model
-breaks down at the scale of a research-paper corpus (thousands of
+breaks down at the scale of a large content corpus (thousands of
 files × multiple locales). D1 would be possible but adds row-level
 overhead we don't need. Workers KV is wrong-sized; D1 is the wrong
 shape; R2 fits the workload.

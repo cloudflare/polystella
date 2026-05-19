@@ -36,8 +36,8 @@ doNotTranslate:
   - PolyStella
 
 preferredTranslations:
-  research: pesquisa
-  paper: artigo
+  guide: guia
+  tutorial: tutorial
 
 notes: |
   Use Brazilian Portuguese conventions throughout. Numeric

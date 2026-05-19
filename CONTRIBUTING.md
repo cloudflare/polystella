@@ -1,8 +1,7 @@
 # Contributing to PolyStella
 
-Thanks for the interest. PolyStella is pre-1.0 and the development
-loop is short — feel free to open issues, propose changes, or send
-PRs.
+Thanks for the interest. PolyStella is pre-1.0 and changes land
+quickly — feel free to open issues, propose changes, or send PRs.
 
 ## Repository overview
 

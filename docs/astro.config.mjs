@@ -6,8 +6,7 @@ import starlight from "@astrojs/starlight";
  * Starlight configuration for the PolyStella docs site.
  *
  * Single-language (en-US) for v0.x. Dogfooding polystella's own
- * translation pipeline on the docs is queued for v0.x+1 — see
- * `plans/DOCS-PLAN.md` D.6 for the rationale.
+ * translation pipeline on the docs is queued for a later release.
  */
 export default defineConfig({
   site: "https://polystella.example.com",
@@ -90,7 +89,6 @@ export default defineConfig({
             { label: "Middleware", slug: "runtime-api/middleware" },
             { label: "Explicit imports", slug: "runtime-api/explicit-imports" },
             { label: "React hooks", slug: "runtime-api/react-hooks" },
-            { label: "LocalePicker component", slug: "runtime-api/locale-picker" },
           ],
         },
         {

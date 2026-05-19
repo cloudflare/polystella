@@ -19,22 +19,14 @@ entirely — the output is regular static-Astro bytes.
 
 ## Installation
 
-PolyStella isn't on npm yet. While the package lives inside the
-host research-site monorepo it's consumed as a pnpm workspace
-member (`"polystella": "workspace:*"`).
-
-Once the package is extracted into its own repo, install will be
-via GitHub:
+PolyStella isn't on npm yet. Install from GitHub:
 
 ```bash
 pnpm add github:cloudflare/polystella#vX.Y.Z
 ```
 
-An npm publish will follow once the API has been validated by
-external consumers. The plan is to start with GitHub installs so
-the first external users surface API quirks before the package is
-on a permanent path. See the [roadmap](/roadmap/) for the latest
-status.
+An npm publish will follow once the API stabilises. See the
+[roadmap](/roadmap/) for the latest status.
 
 ## After install
 
