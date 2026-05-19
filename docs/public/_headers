@@ -1,0 +1,28 @@
+# Security + caching headers for the docs site, served by Cloudflare
+# Workers Static Assets. Astro copies `public/` verbatim into `dist/`,
+# so this lands at `dist/_headers` where the Worker picks it up.
+#
+# Syntax: https://developers.cloudflare.com/workers/static-assets/headers/
+#
+# CSP is intentionally omitted: Starlight ships inline
+# `<script type="module">` blocks (sidebar persistence, mobile TOC)
+# that would break under a `script-src 'self'` policy. Adding CSP
+# requires per-build script hashing — a separate task.
+
+/*
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: strict-origin-when-cross-origin
+  Strict-Transport-Security: max-age=63072000; includeSubDomains; preload
+  Permissions-Policy: camera=(), microphone=(), geolocation=(), interest-cohort=()
+  Cross-Origin-Opener-Policy: same-origin
+
+# Astro hashes filenames under `_astro/`, so they're safe to cache
+# aggressively. Browsers revalidate HTML on every navigation by
+# default; only the immutable asset bundles get the year-long TTL.
+/_astro/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# Pagefind ships under `/pagefind/`. Same hashing story.
+/pagefind/*
+  Cache-Control: public, max-age=31536000, immutable

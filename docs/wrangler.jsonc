@@ -1,0 +1,34 @@
+/**
+ * Cloudflare Workers Static Assets configuration for the PolyStella
+ * docs site.
+ *
+ * The Worker serves the Astro build output (`./dist`) directly via
+ * the Static Assets binding. No request-handling code is required —
+ * `main` is omitted, which puts the Worker in assets-only mode.
+ */
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "polystella-docs",
+  "compatibility_date": "2025-05-19",
+  "assets": {
+    /**
+     * Path to the static-assets directory, relative to this config.
+     * Astro's `build` command writes the static bundle here.
+     */
+    "directory": "./dist",
+    /**
+     * On unmatched routes, serve the Astro-generated `404.html` with
+     * a 404 status. Single-page-application mode is wrong for
+     * Starlight (it's MPA); `none` would return a bare 404 with no
+     * branding.
+     */
+    "not_found_handling": "404-page"
+  },
+  "observability": {
+    /**
+     * Enables the built-in Workers Logs UI. Free for low-volume
+     * sites; turn off if observability shows up on the bill.
+     */
+    "enabled": true
+  }
+}

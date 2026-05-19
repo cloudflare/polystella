@@ -40,3 +40,7 @@ coverage/
 # Test artefacts
 i18n-r2-report.json
 .astro-staging/
+
+# Cloudflare Workers / Wrangler local state
+.wrangler/
+.dev.vars

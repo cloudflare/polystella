@@ -9,7 +9,7 @@ import starlight from "@astrojs/starlight";
  * translation pipeline on the docs is queued for a later release.
  */
 export default defineConfig({
-  site: "https://polystella.example.com",
+  site: "https://polystella-docs.pcx-team.workers.dev",
   integrations: [
     starlight({
       title: "PolyStella",

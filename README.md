@@ -43,7 +43,7 @@ export default defineConfig({
 });
 ```
 
-**2. `polystella.config.mjs`** — provider, glossary, R2, format-specific keys. Every option is documented in the [configuration reference](https://polystella.example.com/configuration/reference/).
+**2. `polystella.config.mjs`** — provider, glossary, R2, format-specific keys. Every option is documented in the [configuration reference](https://polystella-docs.pcx-team.workers.dev/configuration/reference/).
 
 **3. `src/content.config.ts`** — register sibling collections so Astro's content layer picks up translations. Locale set is auto-derived from `astro.config.mjs`.
 
@@ -72,12 +72,12 @@ export const collections = {
 
 Full documentation lives at the Starlight docs site (under `docs/` in this repo):
 
-- [Getting started](https://polystella.example.com/getting-started/install/) — install, quick start, mental model
-- [Concepts](https://polystella.example.com/concepts/how-it-works/) — pipeline, cache, overrides, runtime bridge
-- [Configuration reference](https://polystella.example.com/configuration/reference/) — every option
-- [CLI](https://polystella.example.com/cli/) — `translate`, `check-ui`, `sync-ui`, `translate-ui`
-- [Runtime API](https://polystella.example.com/runtime-api/locals/) — `Astro.locals`, middleware, React hooks
-- [Roadmap](https://polystella.example.com/roadmap/) — shipped vs planned features
+- [Getting started](https://polystella-docs.pcx-team.workers.dev/getting-started/install/) — install, quick start, mental model
+- [Concepts](https://polystella-docs.pcx-team.workers.dev/concepts/how-it-works/) — pipeline, cache, overrides, runtime bridge
+- [Configuration reference](https://polystella-docs.pcx-team.workers.dev/configuration/reference/) — every option
+- [CLI](https://polystella-docs.pcx-team.workers.dev/cli/) — `translate`, `check-ui`, `sync-ui`, `translate-ui`
+- [Runtime API](https://polystella-docs.pcx-team.workers.dev/runtime-api/locals/) — `Astro.locals`, middleware, React hooks
+- [Roadmap](https://polystella-docs.pcx-team.workers.dev/roadmap/) — shipped vs planned features
 
 ## Contributing
 

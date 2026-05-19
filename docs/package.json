@@ -13,7 +13,8 @@
     "check": "astro check",
     "prebuild": "tsx scripts/generate-config-ref.ts",
     "check-exports": "tsx scripts/check-exports.ts",
-    "check-examples": "tsx scripts/check-examples.ts"
+    "check-examples": "tsx scripts/check-examples.ts",
+    "deploy": "wrangler deploy"
   },
   "dependencies": {
     "@astrojs/starlight": "^0.39.0",
@@ -24,6 +25,7 @@
     "@astrojs/check": "^0.9.9",
     "@types/node": "^22.0.0",
     "tsx": "^4.19.0",
-    "typescript": "^5.6.0"
+    "typescript": "^5.6.0",
+    "wrangler": "^4.0.0"
   }
 }
