@@ -4,6 +4,7 @@
   "type": "module",
   "description": "AI-driven content localization for Astro (build-time markdown translation, R2-cached).",
   "license": "MIT",
+  "packageManager": "pnpm@10.33.2",
   "homepage": "https://github.com/cloudflare/polystella",
   "repository": {
     "type": "git",
