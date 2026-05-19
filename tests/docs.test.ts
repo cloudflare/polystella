@@ -74,8 +74,6 @@ describe("doc-claim invariants", () => {
       expect(fileExists("skills/polystella-contributor/SKILL.md")).toBe(true);
       expect(fileExists("skills/polystella-consumer/SKILL.md")).toBe(true);
     });
-
-    
   });
 
   describe("ARCHITECTURE.md", () => {

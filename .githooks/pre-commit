@@ -1,0 +1,23 @@
+#!/bin/sh
+# Pre-commit hook: prettier format-check on staged files.
+#
+# Wired up via `core.hooksPath = .githooks`, set by the root
+# package.json `prepare` script on `pnpm install`. Bypass any check
+# with `git commit --no-verify` when needed.
+
+set -eu
+
+STAGED=$(git diff --cached --name-only --diff-filter=ACMR)
+
+# Bail early when nothing is staged so empty commits / merges don't
+# spend ~1s spinning up prettier. `-z` keeps NUL separators so paths
+# with spaces or newlines survive the pipeline to `xargs -0`.
+if [ -n "$STAGED" ]; then
+  # `--ignore-unknown` skips files prettier can't parse.
+  # `--no-error-on-unmatched-pattern` keeps an all-ignored set passing.
+  git diff --cached --name-only --diff-filter=ACMR -z \
+    | xargs -0 pnpm exec prettier \
+        --check \
+        --ignore-unknown \
+        --no-error-on-unmatched-pattern
+fi

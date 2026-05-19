@@ -53,7 +53,7 @@ is on npm.
 - The parser round-trip test runs over a bundled
   `tests/fixtures/parsing/round-trip/` corpus. 15 fixtures cover
   the full feature surface of `remark-parse + remark-gfm +
-  remark-frontmatter`: frontmatter shapes, inline formatting,
+remark-frontmatter`: frontmatter shapes, inline formatting,
   headings, lists (incl. task lists), code blocks, blockquotes,
   GFM tables, raw HTML, thematic breaks, empty frontmatter, no
   frontmatter, footnotes, images, and a punctuation-heavy edge-

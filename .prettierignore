@@ -1,0 +1,18 @@
+dist/
+.astro/
+.wrangler/
+docs/dist/
+docs/.astro/
+node_modules/
+pnpm-lock.yaml
+llms-full.txt
+
+# Auto-generated from the zod schema by `pnpm --filter polystella-docs prebuild`.
+# Re-running prettier would just churn it.
+docs/src/content/docs/configuration/reference.md
+
+# Parser round-trip fixtures use deliberate CommonMark syntactic
+# variants (e.g. `***` / `___` / `---` thematic breaks, inline vs.
+# block footnote definitions). Prettier would normalise them away
+# and defeat the test corpus.
+tests/fixtures/parsing/round-trip/

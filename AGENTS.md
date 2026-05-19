@@ -23,12 +23,12 @@ section numbers. Inserting new sections never breaks links.
 
 ## Commands
 
-| Command                  | What it does                                                                                                                                                                                            |
-| :----------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `pnpm test`              | Run vitest (1104 tests / 56 files / ~1.2s at time of writing).                                                                                                                                                  |
-| `pnpm test:watch`        | Vitest in watch mode.                                                                                                                                                                                           |
-| `pnpm build`             | Compile `src/` → `dist/` via `tsc -p tsconfig.build.json` (mirrored layout, `.js` + `.d.ts` + sourcemaps + declaration maps). Produces the standalone `polystella` CLI at `dist/cli.js` and library entries.    |
-| `pnpm exec tsc --noEmit` | Typecheck against the root `tsconfig.json` (which includes tests). The build config (`tsconfig.build.json`) sets `noEmit: false` and narrows `include` to `src/**`.                                             |
+| Command                  | What it does                                                                                                                                                                                                 |
+| :----------------------- | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm test`              | Run vitest (1104 tests / 56 files / ~1.2s at time of writing).                                                                                                                                               |
+| `pnpm test:watch`        | Vitest in watch mode.                                                                                                                                                                                        |
+| `pnpm build`             | Compile `src/` → `dist/` via `tsc -p tsconfig.build.json` (mirrored layout, `.js` + `.d.ts` + sourcemaps + declaration maps). Produces the standalone `polystella` CLI at `dist/cli.js` and library entries. |
+| `pnpm exec tsc --noEmit` | Typecheck against the root `tsconfig.json` (which includes tests). The build config (`tsconfig.build.json`) sets `noEmit: false` and narrows `include` to `src/**`.                                          |
 
 No lint step yet.
 

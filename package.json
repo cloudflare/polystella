@@ -82,7 +82,9 @@
     "test:watch": "vitest",
     "build": "tsc -p tsconfig.build.json && chmod +x dist/cli.js",
     "build:llms": "node scripts/build-llms-full.mjs",
-    "prepare": "pnpm build",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "prepare": "pnpm build && git config core.hooksPath .githooks 2>/dev/null || true",
     "prepublishOnly": "pnpm build && pnpm build:llms"
   },
   "dependencies": {
@@ -104,7 +106,7 @@
     "@types/mdast": "^4.0.4",
     "@types/picomatch": "^4.0.0",
     "@types/react": "^19.2.14",
-    "prettier": "^3.5.0",
+    "prettier": "3.8.3",
     "typescript": "^5.6.0",
     "vitest": "^3.0.0"
   },

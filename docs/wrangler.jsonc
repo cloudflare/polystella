@@ -22,13 +22,13 @@
      * Starlight (it's MPA); `none` would return a bare 404 with no
      * branding.
      */
-    "not_found_handling": "404-page"
+    "not_found_handling": "404-page",
   },
   "observability": {
     /**
      * Enables the built-in Workers Logs UI. Free for low-volume
      * sites; turn off if observability shows up on the bill.
      */
-    "enabled": true
-  }
+    "enabled": true,
+  },
 }
