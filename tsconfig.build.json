@@ -1,0 +1,30 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "emitDeclarationOnly": false,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "removeComments": false,
+    // The base config (`astro/tsconfigs/base`) sets
+    // `allowImportingTsExtensions: true`, which is incompatible
+    // with a real emit. Source files import each other via `.js`
+    // suffixes (`./foo.js`), not `.ts`, so disabling this is safe.
+    "allowImportingTsExtensions": false,
+    // Module resolution stays bundler-style for the strict tsconfig
+    // semantics, but emit-side we want plain Node ESM (preserve
+    // relative-path extensions, ESM imports). The src tree already
+    // writes `.js` extensions on relative imports.
+    "module": "ESNext",
+    "moduleResolution": "Bundler"
+  },
+  "include": ["src/**/*"],
+  // Ambient declarations get pulled in via `files` so they don't
+  // need to live under `rootDir`. `.d.ts` files are never emitted,
+  // so the rootDir constraint doesn't apply to them.
+  "files": ["types-internal/astro-content.d.ts", "client.d.ts"],
+  "exclude": ["tests/**", "**/*.test.ts", "dist/**"]
+}

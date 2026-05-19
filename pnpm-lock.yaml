@@ -63,9 +63,6 @@ importers:
       '@types/react':
         specifier: ^19.2.14
         version: 19.2.14
-      esbuild:
-        specifier: ^0.28.0
-        version: 0.28.0
       prettier:
         specifier: ^3.5.0
         version: 3.8.3

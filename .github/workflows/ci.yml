@@ -46,8 +46,8 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec prettier --check .
 
-  cli-bundle:
-    name: CLI bundle builds
+  build:
+    name: Library + CLI build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -57,6 +57,23 @@ jobs:
           node-version: 24.x
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm build:cli
-      - name: Verify dist/cli.js was produced
-        run: test -f dist/cli.js
+      - run: pnpm build
+      - name: Verify dist tree
+        # Smoke-check every exports entry resolves to an emitted file.
+        run: |
+          test -f dist/cli.js
+          test -x dist/cli.js
+          test -f dist/index.js
+          test -f dist/index.d.ts
+          test -f dist/runtime/index.js
+          test -f dist/runtime/middleware.js
+          test -f dist/runtime/locals.d.ts
+          test -f dist/content/index.js
+          test -f dist/i18n/index.js
+          test -f dist/react/index.js
+      - name: Smoke-test the CLI bundle under bare Node
+        # No tsx, no Vite — exactly the environment a downstream
+        # consumer's standalone `polystella <subcommand>` invocation
+        # uses. Regression guard for the Node 24
+        # `ERR_UNSUPPORTED_NODE_MODULES_TYPESCRIPT` class of bug.
+        run: node dist/cli.js --version

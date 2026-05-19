@@ -711,10 +711,13 @@ boundaries that could otherwise run indefinitely.
 "json" }`). Re-exported from `src/index.ts`, consumed directly by
 `src/cli.ts`.
 
-The CLI is bundled via esbuild (`pnpm build:cli`), which inlines the
-JSON content at build time. The library itself ships as raw TS, so
-the JSON import resolves naturally through Astro/Vite at consumer
-build time.
+Both the CLI (`dist/cli.js`) and the library entries (`dist/index.js`,
+`dist/runtime/index.js`, …) are produced by `tsc -p
+tsconfig.build.json` (`pnpm build`). tsc preserves the `with { type:
+"json" }` import attribute, so `dist/version.js` resolves
+`../package.json` (i.e. the package root) at module-load time inside
+the consumer's `node_modules/polystella/`. No version inlining; one
+source of truth.
 
 Bump `package.json` only; both surfaces follow. The constant is baked
 into R2 metadata and the build report but is NOT in the cache key

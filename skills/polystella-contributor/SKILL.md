@@ -193,8 +193,8 @@ Then come back here for step-by-step task recipes.
    ```sh
    pnpm test
    pnpm exec tsc --noEmit
-   pnpm build:cli
-   node dist/cli.js my-subcommand --help    # sanity-check the bundle
+   pnpm build
+   node dist/cli.js my-subcommand --help    # sanity-check the emitted CLI
    ```
 
 ---
@@ -397,7 +397,7 @@ Then come back here for step-by-step task recipes.
 - `src/runtime/get-localized-entry.ts`, `get-localized-collection.ts` — fetcher implementations.
 - `src/runtime/localized-href.ts` — URL prefixer.
 - `src/runtime/custom-loader-runtime.ts` — the **bridge** (module-scoped singleton shared with sibling collections).
-- `src/runtime/locals.d.ts` — TypeScript ambient declarations for `Astro.locals`.
+- `src/runtime/locals.ts` — TypeScript ambient declarations for `Astro.locals`. Was `locals.d.ts` until the dist-emit rework; renamed so tsc emits both an empty `.js` and the `.d.ts` declarations, and `runtime/index.ts` pulls it in via a side-effect import (the previous triple-slash `<reference path>` directive gets stripped by tsc at emit time).
 - `src/react/index.ts` — `useTranslations`, `useLocalizedHref` hooks.
 
 **Key contracts:**
@@ -408,7 +408,7 @@ Then come back here for step-by-step task recipes.
 **Steps:**
 
 1. Edit the relevant runtime file.
-2. Update `src/runtime/locals.d.ts` if you're changing the shape of `Astro.locals`.
+2. Update `src/runtime/locals.ts` if you're changing the shape of `Astro.locals`.
 3. Update the `polystella-consumer` skill's "Runtime APIs" section.
 4. Add tests under `tests/runtime/`:
    - Behaviour test for the new/changed function.

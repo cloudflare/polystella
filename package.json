@@ -27,35 +27,35 @@
   "publishConfig": {
     "access": "public"
   },
-  "main": "./src/index.ts",
-  "types": "./src/index.ts",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "bin": {
     "polystella": "./dist/cli.js"
   },
   "exports": {
     ".": {
-      "types": "./src/index.ts",
-      "default": "./src/index.ts"
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
     },
     "./runtime": {
-      "types": "./src/runtime/index.ts",
-      "default": "./src/runtime/index.ts"
+      "types": "./dist/runtime/index.d.ts",
+      "default": "./dist/runtime/index.js"
     },
     "./runtime/middleware": {
-      "types": "./src/runtime/middleware.ts",
-      "default": "./src/runtime/middleware.ts"
+      "types": "./dist/runtime/middleware.d.ts",
+      "default": "./dist/runtime/middleware.js"
     },
     "./content": {
-      "types": "./src/content/index.ts",
-      "default": "./src/content/index.ts"
+      "types": "./dist/content/index.d.ts",
+      "default": "./dist/content/index.js"
     },
     "./i18n": {
-      "types": "./src/i18n/index.ts",
-      "default": "./src/i18n/index.ts"
+      "types": "./dist/i18n/index.d.ts",
+      "default": "./dist/i18n/index.js"
     },
     "./react": {
-      "types": "./src/react/index.ts",
-      "default": "./src/react/index.ts"
+      "types": "./dist/react/index.d.ts",
+      "default": "./dist/react/index.js"
     },
     "./client": {
       "types": "./client.d.ts"
@@ -71,15 +71,18 @@
     "README.md",
     "llms.txt",
     "llms-full.txt",
-    "skills"
+    "skills",
+    "tsconfig.json",
+    "tsconfig.build.json",
+    "types-internal"
   ],
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
-    "build:cli": "esbuild src/cli.ts --bundle --platform=node --format=esm --outfile=dist/cli.js --packages=external --sourcemap=linked",
+    "build": "tsc -p tsconfig.build.json && chmod +x dist/cli.js",
     "build:llms": "node scripts/build-llms-full.mjs",
-    "prepare": "pnpm build:cli",
-    "prepublishOnly": "pnpm build:cli && pnpm build:llms"
+    "prepare": "pnpm build",
+    "prepublishOnly": "pnpm build && pnpm build:llms"
   },
   "dependencies": {
     "p-retry": "^8.0.0",
@@ -100,7 +103,6 @@
     "@types/mdast": "^4.0.4",
     "@types/picomatch": "^4.0.0",
     "@types/react": "^19.2.14",
-    "esbuild": "^0.28.0",
     "prettier": "^3.5.0",
     "typescript": "^5.6.0",
     "vitest": "^3.0.0"

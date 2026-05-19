@@ -1,4 +1,5 @@
-/// <reference path="./locals.d.ts" />
+import "./locals.js";
+
 import { getCollection, getEntry, type CollectionEntry } from "astro:content";
 import { defaultLocale, fallback, locales, noPrefixUrls, noTranslateBehavior } from "polystella:runtime-config";
 

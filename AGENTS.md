@@ -25,10 +25,10 @@ section numbers. Inserting new sections never breaks links.
 
 | Command                  | What it does                                                                                                                                                                                            |
 | :----------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `pnpm test`              | Run vitest (1105 tests / 56 files / ~1.2s at time of writing).                                                                                                                                          |
-| `pnpm test:watch`        | Vitest in watch mode.                                                                                                                                                                                   |
-| `pnpm build:cli`         | Bundle the standalone `polystella` CLI to `dist/cli.js` via esbuild. The package exposes a single `polystella` binary with verb-style subcommands (`translate`, `check-ui`, `sync-ui`, `translate-ui`). |
-| `pnpm exec tsc --noEmit` | Typecheck. The tsconfig has `noEmit: true`.                                                                                                                                                             |
+| `pnpm test`              | Run vitest (1104 tests / 56 files / ~1.2s at time of writing).                                                                                                                                                  |
+| `pnpm test:watch`        | Vitest in watch mode.                                                                                                                                                                                           |
+| `pnpm build`             | Compile `src/` → `dist/` via `tsc -p tsconfig.build.json` (mirrored layout, `.js` + `.d.ts` + sourcemaps + declaration maps). Produces the standalone `polystella` CLI at `dist/cli.js` and library entries.    |
+| `pnpm exec tsc --noEmit` | Typecheck against the root `tsconfig.json` (which includes tests). The build config (`tsconfig.build.json`) sets `noEmit: false` and narrows `include` to `src/**`.                                             |
 
 No lint step yet.
 
@@ -85,9 +85,9 @@ to the explanatory section when adding code that touches one.
 
 - Run `pnpm test` before pushing. Tests must stay green.
 - Bump the package version in `package.json` only — `POLYSTELLA_VERSION`
-  (in `src/version.ts`) reads it at module-load time. The CLI bundle
-  (`dist/cli.js`) inlines it via esbuild at build time, so
-  `pnpm build:cli` after a version bump. [→ #version-constant](./ARCHITECTURE.md#version-constant)
+  (in `src/version.ts`) reads it at module-load time via a JSON
+  import attribute, so the constant flows automatically through to
+  `dist/version.js` after `pnpm build`. [→ #version-constant](./ARCHITECTURE.md#version-constant)
 - Mirror filesystem path semantics across OS: forward slashes for R2
   keys, `path.sep` for local I/O.
 - Forward `signal: AbortSignal` when adding a new async function on

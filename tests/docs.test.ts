@@ -167,19 +167,44 @@ describe("doc-claim invariants", () => {
       }
     });
 
-    it("every entry-point file in `exports` exists", () => {
+    it("every entry-point file in `exports` exists (or maps to a `src/` source)", () => {
       const pkg = JSON.parse(readDoc("package.json")) as {
         exports?: Record<string, unknown>;
       };
       const exports = pkg.exports ?? {};
+
+      // Paths under `./dist/` are produced by `pnpm build`. The
+      // source tree they're emitted from is `src/`. In CI and a
+      // fresh checkout, `dist/` may not exist yet — accept either
+      // (a) the literal dist path exists, OR (b) the corresponding
+      // source-tree `.ts` file exists.
+      function distMapsToSource(distPath: string): boolean {
+        if (!distPath.startsWith("./dist/")) return false;
+        const inner = distPath.slice("./dist/".length);
+        // Strip the emitted extension; check every plausible source.
+        const stem = inner.replace(/\.(js|d\.ts)$/, "");
+        return fileExists(`src/${stem}.ts`) || fileExists(`src/${stem}.d.ts`);
+      }
+
+      function checkPath(subpath: string, target: string): void {
+        if (fileExists(target)) return;
+        if (distMapsToSource(target)) return;
+        expect.fail(
+          `exports["${subpath}"] = ${target}, but no matching file exists ` +
+            `(neither the literal path nor the corresponding src/ source).`,
+        );
+      }
+
       for (const [subpath, value] of Object.entries(exports)) {
         if (typeof value === "string") {
-          expect(fileExists(value), `exports["${subpath}"] = ${value}, but file does not exist`).toBe(true);
+          checkPath(subpath, value);
         } else if (value && typeof value === "object") {
-          // Conditional exports — pick the default target.
-          const entry = (value as { default?: unknown }).default;
-          if (typeof entry === "string") {
-            expect(fileExists(entry), `exports["${subpath}"].default = ${entry}, but file does not exist`).toBe(true);
+          const cond = value as { default?: unknown; types?: unknown };
+          if (typeof cond.default === "string") {
+            checkPath(`${subpath} (default)`, cond.default);
+          }
+          if (typeof cond.types === "string") {
+            checkPath(`${subpath} (types)`, cond.types);
           }
         }
       }

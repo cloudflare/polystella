@@ -33,7 +33,7 @@ Pre-1.0 the package isn't on npm. Install from GitHub:
 pnpm add github:cloudflare/polystella#vX.Y.Z
 ```
 
-The package has a `prepare` script that builds the CLI bundle on install (`pnpm build:cli` → `dist/cli.js`).
+The package has a `prepare` script that compiles `src/` → `dist/` on install (`pnpm build` → `dist/cli.js` plus the library tree). pnpm runs `prepare` automatically for `github:` installs as long as `polystella` is listed in the host project's `onlyBuiltDependencies` (pnpm-workspace.yaml).
 
 Peer dependency: `astro ^6.0.0`.
 

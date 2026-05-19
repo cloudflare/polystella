@@ -36,7 +36,7 @@ Required:
 | ------------------------------------- | --------------------------------------------------------------- |
 | `pnpm test`                           | Run the package's unit + smoke tests (vitest).                  |
 | `pnpm exec tsc --noEmit`              | Typecheck the package.                                          |
-| `pnpm build:cli`                      | Build the standalone CLI bundle (`dist/cli.js`).                |
+| `pnpm build`                          | Compile `src/` → `dist/` (library + CLI, JS + `.d.ts`).         |
 | `pnpm build:llms`                     | Regenerate `llms-full.txt` from canonical agent docs.           |
 | `pnpm --filter polystella-docs dev`   | Run the Starlight docs site locally.                            |
 | `pnpm --filter polystella-docs build` | Build the docs site (includes auto-generated config reference). |
