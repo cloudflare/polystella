@@ -13,7 +13,7 @@ is on npm.
   reference auto-generated from the zod schema; CI asserts every
   public export has a docs entry.
 - `react` declared as an **optional peer dependency**
-  (`^17.0.0 || ^18.0.0 || ^19.0.0`). The `polystella/react`
+  (`^17.0.0 || ^18.0.0 || ^19.0.0`). The `@cloudflare/polystella/react`
   subpath only imports `useMemo`, which is stable across all
   three React majors. Marked optional so consumers that don't use
   the React hooks aren't pestered for the dep.
@@ -21,9 +21,9 @@ is on npm.
   `polystella/i18n/sitemap` helper produces options for
   `@astrojs/sitemap` but doesn't import it at runtime; consumers
   wire their own `@astrojs/sitemap` install as usual.
-- `polystella/client` export — types-only entrypoint for
+- `@cloudflare/polystella/client` export — types-only entrypoint for
   `env.d.ts` virtual-module references.
-- `polystella/runtime/middleware` export — direct middleware
+- `@cloudflare/polystella/runtime/middleware` export — direct middleware
   entrypoint used by `addMiddleware`. Rarely imported directly.
 - `r2.bulkListOnStart` config option (default `true`). Issues one
   `r2.list()` per locale at the start of the live phase to populate

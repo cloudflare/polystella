@@ -36,7 +36,7 @@ export default {
 ```ts
 // src/middleware.ts
 import { sequence } from "astro:middleware";
-import { polystellaMiddleware } from "polystella/runtime";
+import { polystellaMiddleware } from "@cloudflare/polystella/runtime";
 
 import { myAuthMiddleware } from "./auth";
 

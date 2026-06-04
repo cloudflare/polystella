@@ -13,7 +13,7 @@ the translation pipeline.
 
 ```ts
 // src/loaders/blog.ts
-import { polystellaLoader } from "polystella/content";
+import { polystellaLoader } from "@cloudflare/polystella/content";
 
 export function blogLoader() {
   const raw = {
@@ -47,7 +47,7 @@ sibling collections per non-default locale:
 
 ```ts
 // src/content.config.ts
-import { polystellaCollections } from "polystella/content";
+import { polystellaCollections } from "@cloudflare/polystella/content";
 import { blogLoader } from "./loaders/blog.ts";
 
 export const collections = {

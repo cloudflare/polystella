@@ -130,7 +130,7 @@ describe("doc-claim invariants", () => {
     it("package.json `bin` points to a built path", () => {
       const pkg = JSON.parse(readDoc("package.json")) as { bin?: Record<string, string> };
       expect(pkg.bin).toBeDefined();
-      expect(pkg.bin?.["polystella"]).toBe("./dist/cli.js");
+      expect(pkg.bin?.["polystella"]).toBe("dist/cli.js");
     });
 
     it("`parseSubcommand` accepts every documented subcommand", () => {
@@ -159,7 +159,17 @@ describe("doc-claim invariants", () => {
       const pkg = JSON.parse(readDoc("package.json")) as {
         exports?: Record<string, unknown>;
       };
-      const documented = [".", "./runtime", "./content", "./i18n", "./react", "./client"];
+      const documented = [
+        ".",
+        "./runtime",
+        "./content",
+        "./i18n",
+        "./catalog",
+        "./catalog/middleware",
+        "./catalog/astro",
+        "./react",
+        "./client",
+      ];
       for (const subpath of documented) {
         expect(pkg.exports?.[subpath], `package.json exports does not declare ${subpath}`).toBeDefined();
       }

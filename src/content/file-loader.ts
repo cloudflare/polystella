@@ -15,7 +15,7 @@ import { file as astroFile } from "astro/loaders";
  * is the cleanest way to surface it back.
  *
  * **Drop-in replacement.** Swap `import { file } from "astro/loaders"`
- * for `import { file } from "polystella/content"`. No other code
+ * for `import { file } from "@cloudflare/polystella/content"`. No other code
  * changes.
  *
  * **Non-enumerable on purpose.** `JSON.stringify(loader)` and

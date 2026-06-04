@@ -8,7 +8,7 @@ quickly — feel free to open issues, propose changes, or send PRs.
 PolyStella is a pnpm workspace with two members:
 
 - **The package itself** at the repo root (`package.json` →
-  `polystella`).
+  `@cloudflare/polystella`).
 - **The docs site** under `docs/` (`docs/package.json` →
   `polystella-docs`).
 
@@ -111,6 +111,17 @@ Providers implement the `Translator` interface in
 4xx HTTP responses that retries can't fix (401/403/404/422); throw
 plain `Error` on anything retriable. See [`ARCHITECTURE.md`](./ARCHITECTURE.md)
 `#translator-contract` for the detail.
+
+## Publishing
+
+Public npm releases publish `@cloudflare/polystella` via npm Trusted
+Publishing from `.github/workflows/publish.yml` on `v*` tags. Do not
+store an npm token in GitHub secrets for routine releases.
+
+Before the workflow can publish, the package must have a first
+token-based publish and UI Platform must register Trusted Publishing
+for GitHub repository `cloudflare/polystella` with workflow file
+`publish.yml`.
 
 ## Reporting bugs
 

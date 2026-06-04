@@ -20,8 +20,8 @@ docs/examples/custom-loader/    # paired with cookbook/custom-loader.md (planned
 
 Each example project must:
 
-- Have its own `package.json` declaring `polystella` as a workspace
-  dependency (`"polystella": "workspace:*"`).
+- Have its own `package.json` declaring `@cloudflare/polystella` as a
+  workspace dependency (`"@cloudflare/polystella": "workspace:*"`).
 - Be buildable in isolation via `pnpm --filter polystella-example-<slug> build`.
 - Include a `README.md` pointing back to the cookbook recipe it
   illustrates.

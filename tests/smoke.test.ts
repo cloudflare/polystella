@@ -227,7 +227,7 @@ describe("smoke: polystella(options) integration end-to-end", () => {
 
     expect(harness.capturedMiddleware).toHaveLength(1);
     expect(harness.capturedMiddleware[0]).toEqual({
-      entrypoint: "polystella/runtime/middleware",
+      entrypoint: "@cloudflare/polystella/runtime/middleware",
       order: "pre",
     });
   });

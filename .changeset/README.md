@@ -12,7 +12,7 @@ pnpm changeset
 
 …which interactively asks:
 
-- **Which packages are affected?** Just `polystella` for most
+- **Which packages are affected?** Just `@cloudflare/polystella` for most
   changes. The `polystella-docs` site is ignored (`ignore` list in
   `config.json`).
 - **Is the change major / minor / patch?** Pre-1.0, "major" stays
@@ -25,14 +25,13 @@ with the PR.
 
 ## What happens at release time
 
-The `Release` workflow in `.github/workflows/release.yml` opens a
-"Version Packages" PR when there are pending changesets on `main`.
-That PR:
+Pending changesets are consumed by the versioning step for a release.
+That step:
 
 - Bumps `package.json`'s version per the changeset severities.
 - Updates `CHANGELOG.md` with each changeset's summary.
 - Deletes the consumed changeset files.
 
-Merging the "Version Packages" PR triggers a second run of the
-workflow that creates the git tag (currently `changeset tag`; npm
-publish wired separately when v1 is ready).
+Publishing is wired separately: pushing a `v*` tag runs
+`.github/workflows/publish.yml`, which uses npm Trusted Publishing and
+must not use an npm token secret.

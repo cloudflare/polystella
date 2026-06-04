@@ -11,7 +11,7 @@
  *   - operator-declared exemption via `noPrefixUrls` → unchanged;
  *   - otherwise → `/{locale}/{path}{?query}{#fragment}`.
  *
- * No Astro deps; the `polystella/runtime` wrapper binds them.
+ * No Astro deps; the `@cloudflare/polystella/runtime` wrapper binds them.
  */
 
 import picomatch from "picomatch";

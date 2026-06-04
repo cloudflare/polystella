@@ -8,10 +8,10 @@ give up? The `PermanentProviderError` class encodes that decision.
 
 ## The class
 
-Exported from `polystella` as a named export:
+Exported from `@cloudflare/polystella` as a named export:
 
 ```ts
-import { PermanentProviderError } from "polystella";
+import { PermanentProviderError } from "@cloudflare/polystella";
 ```
 
 Both built-in providers (`workers-ai`, `anthropic`) throw it from

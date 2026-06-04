@@ -1,6 +1,6 @@
 # PolyStella
 
-> ⚠️ **Work in progress.** PolyStella is in active development and not yet published to npm. APIs, configuration shapes, and internal behaviour may change without notice. Do not adopt for new projects yet.
+> ⚠️ **Work in progress.** PolyStella is in active development. APIs, configuration shapes, and internal behaviour may change without notice. Do not adopt for new projects yet.
 
 PolyStella is an [Astro](https://astro.build) integration that translates content into additional locales at build time using AI, caches translations in Cloudflare R2, and injects locale-prefixed routes for the translated pages.
 
@@ -15,10 +15,10 @@ PolyStella is an [Astro](https://astro.build) integration that translates conten
 
 ## Install
 
-PolyStella isn't on npm yet. Install from GitHub:
+Install from npm:
 
 ```bash
-pnpm add github:cloudflare/polystella#vX.Y.Z
+pnpm add @cloudflare/polystella
 ```
 
 Peer dependencies: `astro ^6.0.0`, optionally `react ^17 || ^18 || ^19`.
@@ -31,7 +31,7 @@ Four files participate in a typical setup.
 
 ```js
 import { defineConfig } from "astro/config";
-import polystella from "polystella";
+import polystella from "@cloudflare/polystella";
 import polystellaConfig from "./polystella.config.mjs";
 
 export default defineConfig({
@@ -49,8 +49,8 @@ export default defineConfig({
 
 ```ts
 import { defineCollection } from "astro:content";
-import { polystellaCollections } from "polystella/content";
-import { i18nLoader, i18nSchema } from "polystella/i18n";
+import { polystellaCollections } from "@cloudflare/polystella/content";
+import { i18nLoader, i18nSchema } from "@cloudflare/polystella/i18n";
 
 import { blog, authors } from "./content-schemas";
 
@@ -65,8 +65,26 @@ export const collections = {
 **4. `src/env.d.ts`** — pick up types for PolyStella's virtual modules:
 
 ```ts
-/// <reference types="polystella/client" />
+/// <reference types="@cloudflare/polystella/client" />
 ```
+
+## Catalog-Only Usage
+
+Projects that already handle localized content and routing can adopt only
+PolyStella's JSON catalog flow:
+
+```ts
+import catalogAstro from "@cloudflare/polystella/catalog/astro";
+
+export default defineConfig({
+  i18n: { defaultLocale: "en-US", locales: ["en-US", "pt-BR"] },
+  integrations: [catalogAstro({ baseDir: "./src/i18n" })],
+});
+```
+
+This binds `Astro.locals.t` and `Astro.locals.lhref` only. It does not
+run content translation, route shims, R2 cache setup, or localized
+collection APIs.
 
 ## Documentation
 

@@ -5,7 +5,7 @@ description: Add or maintain PolyStella in an existing Astro project. Use when i
 
 # polystella-consumer
 
-You are working in an Astro project that consumes the `polystella`
+You are working in an Astro project that consumes the `@cloudflare/polystella`
 package. This skill covers integration, configuration, common
 pitfalls, and the debug flow.
 
@@ -27,13 +27,13 @@ Visitors get static bytes — no runtime AI calls.
 
 ## Installation
 
-Pre-1.0 the package isn't on npm. Install from GitHub:
+Install from npm:
 
 ```bash
-pnpm add github:cloudflare/polystella#vX.Y.Z
+pnpm add @cloudflare/polystella
 ```
 
-The package has a `prepare` script that compiles `src/` → `dist/` on install (`pnpm build` → `dist/cli.js` plus the library tree). pnpm runs `prepare` automatically for `github:` installs as long as `polystella` is listed in the host project's `onlyBuiltDependencies` (pnpm-workspace.yaml).
+The standalone CLI binary is still named `polystella`.
 
 Peer dependency: `astro ^6.0.0`.
 
@@ -47,7 +47,7 @@ ONLY — everything else derives from it.
 ```js
 import { defineConfig } from "astro/config";
 import sitemap from "@astrojs/sitemap";
-import polystella, { astroSitemapI18n } from "polystella";
+import polystella, { astroSitemapI18n } from "@cloudflare/polystella";
 import polystellaConfig from "./polystella.config.mjs";
 
 // Hoist `i18n` so the same object feeds Astro routing, PolyStella
@@ -125,8 +125,8 @@ export default {
 
 ```ts
 import { defineCollection } from "astro:content";
-import { polystellaCollections } from "polystella/content";
-import { i18nLoader, i18nSchema } from "polystella/i18n";
+import { polystellaCollections } from "@cloudflare/polystella/content";
+import { i18nLoader, i18nSchema } from "@cloudflare/polystella/i18n";
 
 import { publications, people } from "./content-schemas";
 
@@ -142,7 +142,7 @@ export const collections = {
 ### 4. `src/env.d.ts`
 
 ```ts
-/// <reference types="polystella/client" />
+/// <reference types="@cloudflare/polystella/client" />
 ```
 
 Picks up types for PolyStella's virtual modules (`polystella:runtime-config`).
@@ -169,6 +169,62 @@ if printf '%s\n' "$STAGED" | grep -qE '^src/content/i18n/'; then
 fi
 ```
 
+## Catalog-Only Adoption
+
+<a id="catalog-only-adoption"></a>
+
+Use this path when a project wants PolyStella's JSON catalog flow but
+already owns content localization, routing, or collection lookups. It
+does not register translated content collections, route shims, R2 cache
+clients, or localized collection APIs.
+
+Astro integration:
+
+```ts
+import { defineConfig } from "astro/config";
+import catalogAstro from "@cloudflare/polystella/catalog/astro";
+
+export default defineConfig({
+  i18n: {
+    defaultLocale: "en-US",
+    locales: ["en-US", "pt-BR", "ja-JP"],
+  },
+  integrations: [
+    catalogAstro({
+      baseDir: "./src/i18n",
+      middleware: true,
+      driftCheck: true,
+    }),
+  ],
+});
+```
+
+Manual middleware with explicit dictionaries:
+
+```ts
+import { catalogMiddleware } from "@cloudflare/polystella/catalog/middleware";
+
+export const onRequest = catalogMiddleware({
+  defaultLocale: "en-US",
+  locales: ["en-US", "pt-BR"],
+  getDictionary: async (locale) => {
+    if (locale === "en-US") return (await import("./i18n/en-US.json")).default;
+    if (locale === "pt-BR") return (await import("./i18n/pt-BR.json")).default;
+    return undefined;
+  },
+});
+```
+
+The catalog middleware binds only `Astro.locals.t` and
+`Astro.locals.lhref`. The CLI commands still apply; use `--base` if the
+catalog directory is not `./src/content/i18n`:
+
+```sh
+polystella check-ui --base ./src/i18n
+polystella sync-ui --base ./src/i18n
+polystella translate-ui --base ./src/i18n
+```
+
 ## Runtime APIs
 
 In `.astro` files:
@@ -192,10 +248,10 @@ const activePeople = await getLocalizedCollection(
 Outside `.astro` (utility scripts, getStaticPaths, React islands):
 
 ```ts
-import { getLocalizedEntry, getLocalizedCollection, localizedHref } from "polystella/runtime";
+import { getLocalizedEntry, getLocalizedCollection, localizedHref } from "@cloudflare/polystella/runtime";
 
-import { useTranslations, useLocalizedHref } from "polystella/react";
-import { getDictionary } from "polystella/i18n";
+import { useTranslations, useLocalizedHref } from "@cloudflare/polystella/react";
+import { getDictionary } from "@cloudflare/polystella/i18n";
 ```
 
 ## Branch-isolated R2 cache

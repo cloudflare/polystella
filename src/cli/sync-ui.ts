@@ -10,7 +10,7 @@
 
 import path from "node:path";
 
-import { DEFAULT_I18N_BASE } from "../i18n/loader.js";
+import { DEFAULT_CATALOG_BASE } from "../catalog/constants.js";
 import { applySyncToDisk, formatSyncSummary } from "../i18n/sync.js";
 
 import { loadAstroI18n } from "./i18n-config.js";
@@ -33,7 +33,7 @@ Usage:
 
 Flags:
   --base <dir>   UI-strings base directory, relative to project root.
-                 Default: ${DEFAULT_I18N_BASE}.
+                 Default: ${DEFAULT_CATALOG_BASE}.
   --check        Don't write — exit 2 if changes would be made.
                  Useful for CI verification of an already-synced tree.
   --help         Print this message.
@@ -104,7 +104,7 @@ export async function runSyncUi(args: SyncUiArgs, deps: SyncUiDeps): Promise<num
     return 1;
   }
 
-  const baseDir = args.base ?? DEFAULT_I18N_BASE;
+  const baseDir = args.base ?? DEFAULT_CATALOG_BASE;
 
   if (args.check) {
     // Dry-run path: compute the result but never write.
@@ -156,7 +156,7 @@ interface SyncCheckArgs {
  */
 async function runSyncCheck(args: SyncCheckArgs): Promise<number> {
   const { readFile } = await import("node:fs/promises");
-  const { applySyncToDisk: _apply, syncLocaleDict, parseSourceLayout, formatLocaleFile } = await import("../i18n/sync.js");
+  const { syncLocaleDict, parseSourceLayout, formatLocaleFile } = await import("../catalog/index.js");
   // Re-walk in-memory.
   const sourcePath = path.resolve(args.cwd, args.baseDir, `${args.defaultLocale}.json`);
   let sourceRaw: string;

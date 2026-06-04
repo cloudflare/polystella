@@ -5,7 +5,7 @@
  * `src/content/i18n/<locale>.json`, each holding a flat
  * `Record<key, translation>` map. Wire up in `src/content.config.ts`:
  *
- *   import { i18nLoader, i18nSchema } from "polystella/i18n";
+ *   import { i18nLoader, i18nSchema } from "@cloudflare/polystella/i18n";
  *   const i18n = defineCollection({
  *     loader: i18nLoader(),
  *     schema: i18nSchema(),
@@ -26,11 +26,13 @@
 
 import { z } from "astro/zod";
 
+import { DEFAULT_CATALOG_BASE, DEFAULT_CATALOG_PATTERN } from "../catalog/constants.js";
+
 /** Relative to project root. */
-export const DEFAULT_I18N_BASE = "./src/content/i18n";
+export const DEFAULT_I18N_BASE = DEFAULT_CATALOG_BASE;
 
 /** `**\/*.json` so subdirectory layouts (`nav/en-US.json` etc.) work. */
-export const DEFAULT_I18N_PATTERN = "**/*.json";
+export const DEFAULT_I18N_PATTERN = DEFAULT_CATALOG_PATTERN;
 
 export interface I18nLoaderOptions {
   /** Default: `./src/content/i18n`. Relative to project root. */

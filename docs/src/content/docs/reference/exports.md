@@ -3,25 +3,28 @@ title: Public exports
 description: "Every export path in package.json — what it provides and when to import from it."
 ---
 
-PolyStella ships seven public import paths. Each has a narrow,
+PolyStella ships ten public import paths. Each has a narrow,
 documented purpose; mixing them up rarely produces a useful build.
 
-| Path                            | Purpose                                                                                                      |
-| ------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| `polystella`                    | Default export: the Astro integration factory.                                                               |
-| `polystella/content`            | Content-config helpers: `polystellaCollections`, `file`, `polystellaLoader`.                                 |
-| `polystella/runtime`            | Runtime API: `getLocalizedEntry`, `getLocalizedCollection`, `localizedHref`, `polystellaMiddleware`.         |
-| `polystella/runtime/middleware` | Direct middleware entrypoint — used by the integration's `addMiddleware` call. Rarely imported by consumers. |
-| `polystella/i18n`               | UI-strings glue: `i18nLoader`, `i18nSchema`, `getTranslations`, `getDictionary`, drift helpers.              |
-| `polystella/react`              | React hooks: `useTranslations`, `useLocalizedHref` — for islands.                                            |
-| `polystella/client`             | Types only. Reference from `src/env.d.ts` for virtual-module types. No runtime import.                       |
+| Path                                        | Purpose                                                                                                      |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `@cloudflare/polystella`                    | Default export: the Astro integration factory.                                                               |
+| `@cloudflare/polystella/content`            | Content-config helpers: `polystellaCollections`, `file`, `polystellaLoader`.                                 |
+| `@cloudflare/polystella/runtime`            | Runtime API: `getLocalizedEntry`, `getLocalizedCollection`, `localizedHref`, `polystellaMiddleware`.         |
+| `@cloudflare/polystella/runtime/middleware` | Direct middleware entrypoint — used by the integration's `addMiddleware` call. Rarely imported by consumers. |
+| `@cloudflare/polystella/i18n`               | UI-strings glue: `i18nLoader`, `i18nSchema`, `getTranslations`, `getDictionary`, drift helpers.              |
+| `@cloudflare/polystella/catalog`            | Pure catalog helpers for JSON UI-string dictionaries.                                                        |
+| `@cloudflare/polystella/catalog/middleware` | Catalog-only middleware that binds `Astro.locals.t` and `Astro.locals.lhref`.                                |
+| `@cloudflare/polystella/catalog/astro`      | Catalog-only Astro integration factory.                                                                      |
+| `@cloudflare/polystella/react`              | React hooks: `useTranslations`, `useLocalizedHref` — for islands.                                            |
+| `@cloudflare/polystella/client`             | Types only. Reference from `src/env.d.ts` for virtual-module types. No runtime import.                       |
 
 ## Which import goes where
 
 ### `astro.config.mjs`
 
 ```js
-import polystella from "polystella";
+import polystella from "@cloudflare/polystella";
 ```
 
 ### `polystella.config.mjs`
@@ -31,14 +34,14 @@ No imports needed — it's a plain config object.
 ### `src/content.config.ts`
 
 ```ts
-import { polystellaCollections } from "polystella/content";
-import { i18nLoader, i18nSchema } from "polystella/i18n";
+import { polystellaCollections } from "@cloudflare/polystella/content";
+import { i18nLoader, i18nSchema } from "@cloudflare/polystella/i18n";
 ```
 
 ### `src/env.d.ts`
 
 ```ts
-/// <reference types="polystella/client" />
+/// <reference types="@cloudflare/polystella/client" />
 ```
 
 ### `.astro` page templates
@@ -49,13 +52,13 @@ required. The middleware populates these automatically.
 For explicit imports (uncommon — `getStaticPaths` and similar):
 
 ```ts
-import { getLocalizedEntry, getLocalizedCollection, localizedHref } from "polystella/runtime";
+import { getLocalizedEntry, getLocalizedCollection, localizedHref } from "@cloudflare/polystella/runtime";
 ```
 
 ### React islands
 
 ```tsx
-import { useTranslations, useLocalizedHref } from "polystella/react";
+import { useTranslations, useLocalizedHref } from "@cloudflare/polystella/react";
 ```
 
 ### Locale switcher

@@ -20,7 +20,7 @@ import { resolveOptions, type PolyStellaResolvedOptions } from "../config/option
 import { EMPTY_GLOSSARY, loadGlossaries } from "../glossary/glossary.js";
 import { applySyncToDisk, formatLocaleFile, formatSyncSummary, parseSourceLayout, syncLocaleDict } from "../i18n/sync.js";
 import { translateUiStringsForLocale, type TokenValidationIssue } from "../i18n/ui-translate.js";
-import { DEFAULT_I18N_BASE } from "../i18n/loader.js";
+import { DEFAULT_CATALOG_BASE } from "../catalog/constants.js";
 import { runWithConcurrency } from "../source/pool.js";
 import { createTranslator } from "../translation/provider.js";
 
@@ -47,7 +47,7 @@ Usage:
 
 Flags:
   --base <dir>     UI-strings base directory, relative to project root.
-                   Default: ${DEFAULT_I18N_BASE}.
+                   Default: ${DEFAULT_CATALOG_BASE}.
   --locale <code>  Restrict to a single locale; must be declared in
                    astro.config.mjs i18n.locales.
   --sync-only      Run the sync step only — no AI calls. Equivalent
@@ -139,7 +139,7 @@ export async function runTranslateUi(args: TranslateUiArgs, deps: TranslateUiDep
     return 1;
   }
 
-  const baseDir = args.base ?? DEFAULT_I18N_BASE;
+  const baseDir = args.base ?? DEFAULT_CATALOG_BASE;
 
   // Step 1 — sync (mechanical).
   let syncResult;

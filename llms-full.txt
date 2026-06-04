@@ -38,12 +38,12 @@ section numbers. Inserting new sections never breaks links.
 
 ## Commands
 
-| Command                  | What it does                                                                                                                                                                                            |
-| :----------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `pnpm test`              | Run vitest (1104 tests / 56 files / ~1.2s at time of writing).                                                                                                                                                  |
-| `pnpm test:watch`        | Vitest in watch mode.                                                                                                                                                                                           |
-| `pnpm build`             | Compile `src/` → `dist/` via `tsc -p tsconfig.build.json` (mirrored layout, `.js` + `.d.ts` + sourcemaps + declaration maps). Produces the standalone `polystella` CLI at `dist/cli.js` and library entries.    |
-| `pnpm exec tsc --noEmit` | Typecheck against the root `tsconfig.json` (which includes tests). The build config (`tsconfig.build.json`) sets `noEmit: false` and narrows `include` to `src/**`.                                             |
+| Command                  | What it does                                                                                                                                                                                                 |
+| :----------------------- | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm test`              | Run vitest (1104 tests / 56 files / ~1.2s at time of writing).                                                                                                                                               |
+| `pnpm test:watch`        | Vitest in watch mode.                                                                                                                                                                                        |
+| `pnpm build`             | Compile `src/` → `dist/` via `tsc -p tsconfig.build.json` (mirrored layout, `.js` + `.d.ts` + sourcemaps + declaration maps). Produces the standalone `polystella` CLI at `dist/cli.js` and library entries. |
+| `pnpm exec tsc --noEmit` | Typecheck against the root `tsconfig.json` (which includes tests). The build config (`tsconfig.build.json`) sets `noEmit: false` and narrows `include` to `src/**`.                                          |
 
 No lint step yet.
 
@@ -67,6 +67,7 @@ Task → entry-point file(s) → key contract → deep-dive link.
 | Modify runtime APIs (entry/collection/href/middleware) | `src/runtime/*`                                                                                  | Bridge timing (**Invariant 5**); per-locale closures                  | [#runtime-bridge](./ARCHITECTURE.md#runtime-bridge)                                                                                                 |
 | Modify routing shims                                   | `src/routing/{shim,expand-routes,walk-pages}.ts`                                                 | Stale shims nuked per build; CSS via `routesImports`                  | [#routing-shims](./ARCHITECTURE.md#routing-shims)                                                                                                   |
 | Edit UI-string handling                                | `src/i18n/*`, `src/cli/{check,sync,translate}-ui.ts`                                             | Three drift modes; layout-aware writer; `{{token}}` preservation      | [#ui-strings](./ARCHITECTURE.md#ui-strings)                                                                                                         |
+| Edit catalog-only adoption                             | `src/catalog/*`, `src/i18n/{translate,drift,sync}.ts`                                            | Pure imports; middleware binds only `t` + `lhref`                     | [`CATALOG_ONLY_PLAN.md`](./CATALOG_ONLY_PLAN.md); [consumer SKILL](./skills/polystella-consumer/SKILL.md#catalog-only-adoption)                     |
 | Edit content-collection wiring                         | `src/content/*`                                                                                  | Sibling collections; custom-loader wrapper; bridge timing             | [#runtime-bridge](./ARCHITECTURE.md#runtime-bridge)                                                                                                 |
 | Debug a translation that's wrong                       | Start: `pnpm translate --dry-run` to inspect planned R2 keys; `LOG_LEVEL=debug` for batch detail | —                                                                     | Recipe in [contributor SKILL](./skills/polystella-contributor/SKILL.md#debug-translation)                                                           |
 | Tune cold-cache build performance                      | `r2.bulkListOnStart`, `concurrency`, `batchInputTokenBudget` knobs                               | —                                                                     | [#bulk-prelist](./ARCHITECTURE.md#bulk-prelist), [#translation-batching](./ARCHITECTURE.md#translation-batching)                                    |
@@ -925,7 +926,7 @@ description: Add or maintain PolyStella in an existing Astro project. Use when i
 
 # polystella-consumer
 
-You are working in an Astro project that consumes the `polystella`
+You are working in an Astro project that consumes the `@cloudflare/polystella`
 package. This skill covers integration, configuration, common
 pitfalls, and the debug flow.
 
@@ -947,13 +948,13 @@ Visitors get static bytes — no runtime AI calls.
 
 ## Installation
 
-Pre-1.0 the package isn't on npm. Install from GitHub:
+Install from npm:
 
 ```bash
-pnpm add github:cloudflare/polystella#vX.Y.Z
+pnpm add @cloudflare/polystella
 ```
 
-The package has a `prepare` script that compiles `src/` → `dist/` on install (`pnpm build` → `dist/cli.js` plus the library tree). pnpm runs `prepare` automatically for `github:` installs as long as `polystella` is listed in the host project's `onlyBuiltDependencies` (pnpm-workspace.yaml).
+The standalone CLI binary is still named `polystella`.
 
 Peer dependency: `astro ^6.0.0`.
 
@@ -967,7 +968,7 @@ ONLY — everything else derives from it.
 ```js
 import { defineConfig } from "astro/config";
 import sitemap from "@astrojs/sitemap";
-import polystella, { astroSitemapI18n } from "polystella";
+import polystella, { astroSitemapI18n } from "@cloudflare/polystella";
 import polystellaConfig from "./polystella.config.mjs";
 
 // Hoist `i18n` so the same object feeds Astro routing, PolyStella
@@ -1045,8 +1046,8 @@ export default {
 
 ```ts
 import { defineCollection } from "astro:content";
-import { polystellaCollections } from "polystella/content";
-import { i18nLoader, i18nSchema } from "polystella/i18n";
+import { polystellaCollections } from "@cloudflare/polystella/content";
+import { i18nLoader, i18nSchema } from "@cloudflare/polystella/i18n";
 
 import { publications, people } from "./content-schemas";
 
@@ -1062,7 +1063,7 @@ export const collections = {
 ### 4. `src/env.d.ts`
 
 ```ts
-/// <reference types="polystella/client" />
+/// <reference types="@cloudflare/polystella/client" />
 ```
 
 Picks up types for PolyStella's virtual modules (`polystella:runtime-config`).
@@ -1089,6 +1090,62 @@ if printf '%s\n' "$STAGED" | grep -qE '^src/content/i18n/'; then
 fi
 ```
 
+## Catalog-Only Adoption
+
+<a id="catalog-only-adoption"></a>
+
+Use this path when a project wants PolyStella's JSON catalog flow but
+already owns content localization, routing, or collection lookups. It
+does not register translated content collections, route shims, R2 cache
+clients, or localized collection APIs.
+
+Astro integration:
+
+```ts
+import { defineConfig } from "astro/config";
+import catalogAstro from "@cloudflare/polystella/catalog/astro";
+
+export default defineConfig({
+  i18n: {
+    defaultLocale: "en-US",
+    locales: ["en-US", "pt-BR", "ja-JP"],
+  },
+  integrations: [
+    catalogAstro({
+      baseDir: "./src/i18n",
+      middleware: true,
+      driftCheck: true,
+    }),
+  ],
+});
+```
+
+Manual middleware with explicit dictionaries:
+
+```ts
+import { catalogMiddleware } from "@cloudflare/polystella/catalog/middleware";
+
+export const onRequest = catalogMiddleware({
+  defaultLocale: "en-US",
+  locales: ["en-US", "pt-BR"],
+  getDictionary: async (locale) => {
+    if (locale === "en-US") return (await import("./i18n/en-US.json")).default;
+    if (locale === "pt-BR") return (await import("./i18n/pt-BR.json")).default;
+    return undefined;
+  },
+});
+```
+
+The catalog middleware binds only `Astro.locals.t` and
+`Astro.locals.lhref`. The CLI commands still apply; use `--base` if the
+catalog directory is not `./src/content/i18n`:
+
+```sh
+polystella check-ui --base ./src/i18n
+polystella sync-ui --base ./src/i18n
+polystella translate-ui --base ./src/i18n
+```
+
 ## Runtime APIs
 
 In `.astro` files:
@@ -1112,10 +1169,10 @@ const activePeople = await getLocalizedCollection(
 Outside `.astro` (utility scripts, getStaticPaths, React islands):
 
 ```ts
-import { getLocalizedEntry, getLocalizedCollection, localizedHref } from "polystella/runtime";
+import { getLocalizedEntry, getLocalizedCollection, localizedHref } from "@cloudflare/polystella/runtime";
 
-import { useTranslations, useLocalizedHref } from "polystella/react";
-import { getDictionary } from "polystella/i18n";
+import { useTranslations, useLocalizedHref } from "@cloudflare/polystella/react";
+import { getDictionary } from "@cloudflare/polystella/i18n";
 ```
 
 ## Branch-isolated R2 cache
@@ -1648,7 +1705,7 @@ Then come back here for step-by-step task recipes.
 **Key contracts:**
 
 - **Bridge timing (Invariant 5)** — the bridge must be set in `astro:config:setup` before sibling collections register. Edits that defer bridge setup will silently break sibling content loading.
-- **Per-locale closures** — `t`, `lhref`, `getLocalizedEntry`, `getLocalizedCollection` are pre-bound to the request's locale by the middleware. Don't expose unbound versions in `.astro` files — they're imported separately from `polystella/runtime` for non-template contexts.
+- **Per-locale closures** — `t`, `lhref`, `getLocalizedEntry`, `getLocalizedCollection` are pre-bound to the request's locale by the middleware. Don't expose unbound versions in `.astro` files — they're imported separately from `@cloudflare/polystella/runtime` for non-template contexts.
 
 **Steps:**
 
@@ -1674,6 +1731,7 @@ Then come back here for step-by-step task recipes.
 - `src/i18n/sync.ts` — key reconciliation; **layout-aware** JSON writer (`formatLocaleFile`).
 - `src/i18n/ui-translate.ts` — AI-fill orchestrator; parallel-locale execution; `{{token}}` validator + retry wrapper.
 - `src/i18n/loader.ts`, `i18n/index.ts` — content-layer loader, dictionary fetcher.
+- `src/catalog/*` — catalog-only public exports, middleware, and Astro integration. Must stay free of content translation, R2, route shims, and localized collection imports.
 - `src/cli/check-ui.ts`, `sync-ui.ts`, `translate-ui.ts` — CLI handlers.
 
 **Key contracts:**
@@ -1682,6 +1740,7 @@ Then come back here for step-by-step task recipes.
 - **Layout-aware sync writer** — parses the source file's text (not just its JSON) to recover key order and blank-line section breaks. The output mirrors that layout for every locale. Don't drop this — every sync would churn diffs.
 - **`{{token}}` validator runs OUTSIDE `translateBatch`** — the orchestrator's retry wrapper sets `maxRetries: 0` on `translateBatch`. Don't add a second retry layer.
 - **Parallel locales catch errors internally** — `translate-ui` runs locales in parallel via `runWithConcurrency`. Workers MUST catch every error and record it on the per-locale outcome — never re-throw. Re-throwing kills the whole run.
+- **Catalog-only middleware scope** — `polystella/catalog/middleware` binds `Astro.locals.t` and `Astro.locals.lhref` only. Do not add localized collection APIs to that surface.
 
 See [#ui-strings](../../ARCHITECTURE.md#ui-strings).
 

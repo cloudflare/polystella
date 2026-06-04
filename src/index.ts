@@ -190,7 +190,7 @@ export default function polystella(options: PolyStellaOptions): AstroIntegration
         // URL) so Vite resolves through the package's `exports` map.
         // Opt out via `middleware: false` + manual `sequence(...)`.
         if (resolved.middleware) {
-          addMiddleware({ entrypoint: "polystella/runtime/middleware", order: "pre" });
+          addMiddleware({ entrypoint: "@cloudflare/polystella/runtime/middleware", order: "pre" });
           logger.info("registered Astro.locals middleware (t + lhref)");
         }
 

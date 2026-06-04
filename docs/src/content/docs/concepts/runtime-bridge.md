@@ -42,7 +42,7 @@ The bridge has to be discoverable from inside the sibling
 collection's `load(ctx)` function, which runs in a context the
 integration doesn't directly control. The options were:
 
-- Module-level singleton in `polystella/runtime`. Works but is
+- Module-level singleton in `@cloudflare/polystella/runtime`. Works but is
   fragile if `vite` reloads the module mid-build.
 - `globalThis` symbol-keyed property. Survives Vite module
   reloads. The chosen approach.

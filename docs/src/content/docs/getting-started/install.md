@@ -19,14 +19,11 @@ entirely — the output is regular static-Astro bytes.
 
 ## Installation
 
-PolyStella isn't on npm yet. Install from GitHub:
+Install from npm:
 
 ```bash
-pnpm add github:cloudflare/polystella#vX.Y.Z
+pnpm add @cloudflare/polystella
 ```
-
-An npm publish will follow once the API stabilises. See the
-[roadmap](/roadmap/) for the latest status.
 
 ## After install
 

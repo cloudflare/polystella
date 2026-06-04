@@ -1,5 +1,5 @@
 {
-  "name": "polystella",
+  "name": "@cloudflare/polystella",
   "version": "0.2.0",
   "type": "module",
   "description": "AI-driven content localization for Astro (build-time markdown translation, R2-cached).",
@@ -26,12 +26,13 @@
     "r2"
   ],
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "bin": {
-    "polystella": "./dist/cli.js"
+    "polystella": "dist/cli.js"
   },
   "exports": {
     ".": {
@@ -53,6 +54,18 @@
     "./i18n": {
       "types": "./dist/i18n/index.d.ts",
       "default": "./dist/i18n/index.js"
+    },
+    "./catalog": {
+      "types": "./dist/catalog/index.d.ts",
+      "default": "./dist/catalog/index.js"
+    },
+    "./catalog/middleware": {
+      "types": "./dist/catalog/middleware.d.ts",
+      "default": "./dist/catalog/middleware.js"
+    },
+    "./catalog/astro": {
+      "types": "./dist/catalog/astro.d.ts",
+      "default": "./dist/catalog/astro.js"
     },
     "./react": {
       "types": "./dist/react/index.d.ts",

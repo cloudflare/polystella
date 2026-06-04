@@ -7,7 +7,7 @@ For client-rendered React islands inside an Astro project,
 PolyStella exports two hooks:
 
 ```tsx
-import { useTranslations, useLocalizedHref } from "polystella/react";
+import { useTranslations, useLocalizedHref } from "@cloudflare/polystella/react";
 ```
 
 ## Pattern: dictionary fetched server-side
@@ -22,7 +22,7 @@ The recommended pattern is:
 ```astro
 ---
 // src/pages/[lang]/index.astro
-import { getDictionary } from "polystella/i18n";
+import { getDictionary } from "@cloudflare/polystella/i18n";
 import { NavMenu } from "../components/NavMenu";
 
 const navDict = await getDictionary(Astro.currentLocale, "nav");
@@ -33,7 +33,7 @@ const navDict = await getDictionary(Astro.currentLocale, "nav");
 
 ```tsx
 // src/components/NavMenu.tsx
-import { useTranslations, useLocalizedHref } from "polystella/react";
+import { useTranslations, useLocalizedHref } from "@cloudflare/polystella/react";
 
 export function NavMenu({ locale, dict }: { locale: string | undefined; dict: Record<string, string> }) {
   const t = useTranslations(dict);

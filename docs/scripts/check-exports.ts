@@ -36,8 +36,8 @@ async function main(): Promise<void> {
 
   // Build the list of import paths a consumer can write. The map's
   // keys are subpaths starting with `.` (e.g. `.`, `./content`).
-  // Translate to the consumer-facing form: `polystella`,
-  // `polystella/content`, etc.
+  // Translate to the consumer-facing form: `@cloudflare/polystella`,
+  // `@cloudflare/polystella/content`, etc.
   const importPaths = Object.keys(exportsField).map((key) => {
     if (key === ".") return pkg.name;
     return `${pkg.name}${key.slice(1)}`;

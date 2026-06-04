@@ -14,7 +14,7 @@
 
 import path from "node:path";
 
-import { DEFAULT_I18N_BASE } from "../i18n/loader.js";
+import { DEFAULT_CATALOG_BASE } from "../catalog/constants.js";
 import { formatDriftIssues, loadAndCheckDrift } from "../i18n/drift.js";
 
 import { loadAstroI18n } from "./i18n-config.js";
@@ -35,7 +35,7 @@ Usage:
 
 Flags:
   --base <dir>   UI-strings base directory, relative to project root.
-                 Default: ${DEFAULT_I18N_BASE}.
+                 Default: ${DEFAULT_CATALOG_BASE}.
   --help         Print this message.
 
 Exit codes:
@@ -103,7 +103,7 @@ export async function runCheckUi(args: CheckUiArgs, deps: CheckUiDeps): Promise<
     return 1;
   }
 
-  const baseDir = args.base ?? DEFAULT_I18N_BASE;
+  const baseDir = args.base ?? DEFAULT_CATALOG_BASE;
   const result = await loadAndCheckDrift({
     rootDir: deps.cwd,
     baseDir,

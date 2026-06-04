@@ -1,9 +1,9 @@
 /**
- * `polystella/react` — React hooks for client-side translation and
+ * `@cloudflare/polystella/react` — React hooks for client-side translation and
  * locale-aware URL resolution. Both mirror the shape of the Astro-
  * side helpers so the surface is consistent across boundaries.
  *
- *   import { useTranslations, useLocalizedHref } from "polystella/react";
+ *   import { useTranslations, useLocalizedHref } from "@cloudflare/polystella/react";
  *
  *   export function NavMenu({ locale, dict }) {
  *     const t = useTranslations(dict);

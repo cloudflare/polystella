@@ -49,7 +49,7 @@ declare global {
        * Short name (`lhref`, not `localizedHref`) so templates stay
        * terse: `<a href={Astro.locals.lhref("/foo")}>`. The verbose
        * name is preserved on the explicit-import surface
-       * (`polystella/runtime`'s `localizedHref(href, locale?)`).
+       * (`@cloudflare/polystella/runtime`'s `localizedHref(href, locale?)`).
        */
       lhref: (href: string) => string;
 
@@ -64,7 +64,7 @@ declare global {
        * For non-template contexts (`getStaticPaths`, build helpers,
        * React islands), use the explicit-import surface:
        * `getLocalizedEntry(collection, id, locale)` from
-       * `polystella/runtime`.
+       * `@cloudflare/polystella/runtime`.
        *
        * The collection-pinned generic resolves the entry shape to
        * Astro's `CollectionEntry<C>` so consumers (after `astro
@@ -105,7 +105,7 @@ declare global {
        * `getStaticPaths` (which runs at build time outside the
        * request lifecycle) — use the explicit-import
        * `getLocalizedCollection(collection, filter?, locale?)` from
-       * `polystella/runtime` there.
+       * `@cloudflare/polystella/runtime` there.
        */
       getLocalizedCollection: <C extends string>(
         collection: C,

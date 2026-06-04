@@ -403,7 +403,7 @@ Then come back here for step-by-step task recipes.
 **Key contracts:**
 
 - **Bridge timing (Invariant 5)** — the bridge must be set in `astro:config:setup` before sibling collections register. Edits that defer bridge setup will silently break sibling content loading.
-- **Per-locale closures** — `t`, `lhref`, `getLocalizedEntry`, `getLocalizedCollection` are pre-bound to the request's locale by the middleware. Don't expose unbound versions in `.astro` files — they're imported separately from `polystella/runtime` for non-template contexts.
+- **Per-locale closures** — `t`, `lhref`, `getLocalizedEntry`, `getLocalizedCollection` are pre-bound to the request's locale by the middleware. Don't expose unbound versions in `.astro` files — they're imported separately from `@cloudflare/polystella/runtime` for non-template contexts.
 
 **Steps:**
 
@@ -429,6 +429,7 @@ Then come back here for step-by-step task recipes.
 - `src/i18n/sync.ts` — key reconciliation; **layout-aware** JSON writer (`formatLocaleFile`).
 - `src/i18n/ui-translate.ts` — AI-fill orchestrator; parallel-locale execution; `{{token}}` validator + retry wrapper.
 - `src/i18n/loader.ts`, `i18n/index.ts` — content-layer loader, dictionary fetcher.
+- `src/catalog/*` — catalog-only public exports, middleware, and Astro integration. Must stay free of content translation, R2, route shims, and localized collection imports.
 - `src/cli/check-ui.ts`, `sync-ui.ts`, `translate-ui.ts` — CLI handlers.
 
 **Key contracts:**
@@ -437,6 +438,7 @@ Then come back here for step-by-step task recipes.
 - **Layout-aware sync writer** — parses the source file's text (not just its JSON) to recover key order and blank-line section breaks. The output mirrors that layout for every locale. Don't drop this — every sync would churn diffs.
 - **`{{token}}` validator runs OUTSIDE `translateBatch`** — the orchestrator's retry wrapper sets `maxRetries: 0` on `translateBatch`. Don't add a second retry layer.
 - **Parallel locales catch errors internally** — `translate-ui` runs locales in parallel via `runWithConcurrency`. Workers MUST catch every error and record it on the per-locale outcome — never re-throw. Re-throwing kills the whole run.
+- **Catalog-only middleware scope** — `polystella/catalog/middleware` binds `Astro.locals.t` and `Astro.locals.lhref` only. Do not add localized collection APIs to that surface.
 
 See [#ui-strings](../../ARCHITECTURE.md#ui-strings).
 

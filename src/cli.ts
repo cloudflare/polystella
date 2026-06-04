@@ -19,16 +19,9 @@ import path from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
 
-import { resolveOptions, type PolyStellaResolvedOptions } from "./config/options.js";
-import { computeBuildReportTotals, emitBuildReport, type BuildReport } from "./storage/report.js";
-import { DEFAULT_STAGING_DIR } from "./storage/paths.js";
-import { runTranslationPass, type Logger } from "./translation/run.js";
+import type { PolyStellaResolvedOptions } from "./config/options.js";
+import type { BuildReport } from "./storage/report.js";
 import { POLYSTELLA_VERSION } from "./version.js";
-
-import { loadAstroI18n, loadPolystellaConfig } from "./cli/i18n-config.js";
-import { parseCheckUiArgs, runCheckUi, CHECK_UI_USAGE } from "./cli/check-ui.js";
-import { parseSyncUiArgs, runSyncUi, SYNC_UI_USAGE } from "./cli/sync-ui.js";
-import { parseTranslateUiArgs, runTranslateUi, TRANSLATE_UI_USAGE } from "./cli/translate-ui.js";
 
 // ---------------------------------------------------------------
 // Top-level dispatch
@@ -217,8 +210,15 @@ export function parseTranslateArgs(argv: ReadonlyArray<string>): TranslateCliArg
   return out;
 }
 
+interface CliLogger {
+  info: (msg: string) => void;
+  warn: (msg: string) => void;
+  error: (msg: string) => void;
+  debug: (msg: string) => void;
+}
+
 /** Console-backed logger matching Astro's channel contract. */
-const cliLogger: Logger = {
+const cliLogger: CliLogger = {
   info: (msg) => console.log(msg),
   warn: (msg) => console.warn(msg),
   error: (msg) => console.error(msg),
@@ -330,6 +330,15 @@ async function runTranslateSubcommand(rest: ReadonlyArray<string>): Promise<numb
   // to allow R2 writes from outside CI.
   process.env["POLYSTELLA_CLI"] = "1";
 
+  const [{ loadAstroI18n, loadPolystellaConfig }, { resolveOptions }, { DEFAULT_STAGING_DIR }, { runTranslationPass }, reportModule] =
+    await Promise.all([
+      import("./cli/i18n-config.js"),
+      import("./config/options.js"),
+      import("./storage/paths.js"),
+      import("./translation/run.js"),
+      import("./storage/report.js"),
+    ]);
+
   const branchResolution = resolveCliBranch({
     flag: args.branch,
     envBranch: process.env["WORKERS_CI_BRANCH"],
@@ -384,7 +393,7 @@ async function runTranslateSubcommand(rest: ReadonlyArray<string>): Promise<numb
   process.on("SIGINT", onSignal);
   process.on("SIGTERM", onSignal);
 
-  let result;
+  let result: Awaited<ReturnType<typeof runTranslationPass>>;
   try {
     result = await runTranslationPass({
       resolved,
@@ -418,12 +427,12 @@ async function runTranslateSubcommand(rest: ReadonlyArray<string>): Promise<numb
       defaultLocale: resolved.defaultLocale,
       glossaries: result.glossariesForReport,
       entries: result.entries,
-      totals: computeBuildReportTotals(result.entries),
+      totals: reportModule.computeBuildReportTotals(result.entries),
       pruning: result.pruning,
     };
     const reportTarget = args.reportPath ? path.resolve(cwd, args.reportPath) : path.resolve(cwd, "i18n-r2-report.json");
     try {
-      const reportPath = await emitBuildReport({
+      const reportPath = await reportModule.emitBuildReport({
         outDir: path.dirname(reportTarget),
         filename: path.basename(reportTarget),
         report,
@@ -466,7 +475,8 @@ async function main(): Promise<number> {
     case "translate":
       return runTranslateSubcommand(dispatch.rest);
     case "check-ui": {
-      let args;
+      const { CHECK_UI_USAGE, parseCheckUiArgs, runCheckUi } = await import("./cli/check-ui.js");
+      let args: ReturnType<typeof parseCheckUiArgs>;
       try {
         args = parseCheckUiArgs(dispatch.rest);
       } catch (err) {
@@ -481,7 +491,8 @@ async function main(): Promise<number> {
       });
     }
     case "sync-ui": {
-      let args;
+      const { SYNC_UI_USAGE, parseSyncUiArgs, runSyncUi } = await import("./cli/sync-ui.js");
+      let args: ReturnType<typeof parseSyncUiArgs>;
       try {
         args = parseSyncUiArgs(dispatch.rest);
       } catch (err) {
@@ -496,7 +507,8 @@ async function main(): Promise<number> {
       });
     }
     case "translate-ui": {
-      let args;
+      const { TRANSLATE_UI_USAGE, parseTranslateUiArgs, runTranslateUi } = await import("./cli/translate-ui.js");
+      let args: ReturnType<typeof parseTranslateUiArgs>;
       try {
         args = parseTranslateUiArgs(dispatch.rest);
       } catch (err) {
