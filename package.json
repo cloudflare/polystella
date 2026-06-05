@@ -4,7 +4,7 @@
   "type": "module",
   "description": "AI-driven content localization for Astro (build-time markdown translation, R2-cached).",
   "license": "MIT",
-  "packageManager": "pnpm@10.33.2",
+  "packageManager": "pnpm@11.5.2",
   "homepage": "https://github.com/cloudflare/polystella",
   "repository": {
     "type": "git",
@@ -97,7 +97,7 @@
     "build:llms": "node scripts/build-llms-full.mjs",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "prepare": "pnpm build && git config core.hooksPath .githooks 2>/dev/null || true",
+    "prepare": "pnpm build && (git config core.hooksPath .githooks 2>/dev/null || true)",
     "prepublishOnly": "pnpm build && pnpm build:llms"
   },
   "dependencies": {
