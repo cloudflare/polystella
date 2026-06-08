@@ -1,9 +1,10 @@
 /**
  * `polystella translate-ui` — sync (key add/remove) followed by AI
- * fill of empty values, one batched LLM call per locale. Uses the
- * same provider stack as the markdown pipeline. Token placeholders
- * (`{{name}}`) are validated post-translation; failures retry the
- * batch and, if persistent, leave the key empty for manual fix-up.
+ * fill of empty values, one batched LLM call per locale with work.
+ * Uses the same provider stack as the markdown pipeline. Token
+ * placeholders (`{{name}}`) are validated post-translation; failures
+ * retry the batch and, if persistent, leave the key empty for manual
+ * fix-up.
  *
  * R2 caching is intentionally NOT used here: ~118 strings × 3
  * locales is a trivial workload and the cache-key design (per-file
@@ -19,7 +20,7 @@ import { pathToFileURL } from "node:url";
 import { resolveOptions, type PolyStellaResolvedOptions } from "../config/options.js";
 import { EMPTY_GLOSSARY, loadGlossaries } from "../glossary/glossary.js";
 import { applySyncToDisk, formatLocaleFile, formatSyncSummary, parseSourceLayout, syncLocaleDict } from "../i18n/sync.js";
-import { translateUiStringsForLocale, type TokenValidationIssue } from "../i18n/ui-translate.js";
+import { selectEmptyKeys, translateUiStringsForLocale, type TokenValidationIssue } from "../i18n/ui-translate.js";
 import { DEFAULT_CATALOG_BASE } from "../catalog/constants.js";
 import { runWithConcurrency } from "../source/pool.js";
 import { createTranslator } from "../translation/provider.js";
@@ -38,9 +39,9 @@ export interface TranslateUiArgs {
 export const TRANSLATE_UI_USAGE = `polystella translate-ui
 
 Sync UI-string JSON files (key add/remove) and fill empty placeholders
-via the configured AI provider. One batched LLM call per locale.
-Locales run in parallel up to the \`concurrency\` cap in
-polystella.config.mjs (default 4).
+via the configured AI provider. Complete locale JSONs are skipped
+before provider setup. Locales with work run in parallel up to 3 at a
+time (also capped by polystella.config.mjs \`concurrency\`).
 
 Usage:
   polystella translate-ui [flags]
@@ -72,6 +73,8 @@ export interface TranslateUiDeps {
   err: (msg: string) => void;
   signal?: AbortSignal | undefined;
 }
+
+const TRANSLATE_UI_MAX_CONCURRENCY = 3;
 
 export function parseTranslateUiArgs(argv: ReadonlyArray<string>): TranslateUiArgs {
   const out: TranslateUiArgs = { syncOnly: false, help: false };
@@ -165,21 +168,9 @@ export async function runTranslateUi(args: TranslateUiArgs, deps: TranslateUiDep
     return 0;
   }
 
-  // Step 2 — AI fill. Requires PolyStella config + provider.
-  let resolved: PolyStellaResolvedOptions;
-  try {
-    const polyConfig = await loadPolystellaConfig(deps.cwd);
-    resolved = resolveOptions(polyConfig, i18n);
-  } catch (err) {
-    deps.err(`[polystella] ${(err as Error).message}`);
-    return 1;
-  }
-  if (resolved.provider === undefined) {
-    deps.err(
-      `[polystella] no provider configured in polystella.config.mjs — translate-ui needs one. Add a \`provider\` block or use \`pnpm i18n:sync\` for offline key reconciliation only.`,
-    );
-    return 1;
-  }
+  // Step 2 — scan locale files before touching provider config. Fully
+  // translated JSONs should not produce provider setup or "starting"
+  // lines; they are skipped immediately with progress context.
   // `dryRun` is intentionally NOT honoured here. It governs the
   // markdown pipeline (R2 writes, paid provider calls, branch
   // dispatch) where a no-op preview run is genuinely useful. UI-
@@ -191,10 +182,74 @@ export async function runTranslateUi(args: TranslateUiArgs, deps: TranslateUiDep
   // Re-read the synced source + locale files. (applySyncToDisk
   // already wrote them; we re-read so the in-memory state matches
   // what landed on disk byte-for-byte.)
-  const sourcePath = path.resolve(deps.cwd, baseDir, `${resolved.defaultLocale}.json`);
+  const sourcePath = path.resolve(deps.cwd, baseDir, `${i18n.defaultLocale}.json`);
   const sourceRaw = await readFile(sourcePath, "utf8");
   const sourceDict = JSON.parse(sourceRaw) as Record<string, string>;
   const layout = parseSourceLayout(sourceRaw);
+
+  const targets = args.locale !== undefined ? [args.locale] : localeStrings.filter((locale) => locale !== i18n.defaultLocale);
+  if (targets.length === 0) {
+    return 0;
+  }
+
+  const results: PerLocaleOutcome[] = [];
+  const pending: PendingLocale[] = [];
+
+  for (let i = 0; i < targets.length; i++) {
+    const locale = targets[i];
+    if (locale === undefined) continue;
+    const position = i + 1;
+    const progress = progressLabel(position, targets.length);
+    const outcome: PerLocaleOutcome = {
+      locale,
+      filled: [],
+      tokenFailures: [],
+      error: undefined,
+    };
+    results.push(outcome);
+
+    const localePath = path.resolve(deps.cwd, baseDir, `${locale}.json`);
+    let localeRaw: string;
+    let localeDict: Record<string, string>;
+    try {
+      localeRaw = await readFile(localePath, "utf8");
+      localeDict = JSON.parse(localeRaw) as Record<string, string>;
+    } catch (caught) {
+      outcome.error = caught as Error;
+      deps.err(`[polystella] translate-ui: ${progress} ${locale} — failed: ${(caught as Error).message}`);
+      continue;
+    }
+
+    const emptyCount = selectEmptyKeys(sourceDict, localeDict).length;
+    if (emptyCount === 0) {
+      deps.log(`[polystella] translate-ui: ${progress} ${locale} — skipped, no empty placeholders to fill.`);
+      continue;
+    }
+
+    deps.log(`[polystella] translate-ui: ${progress} ${locale} — queued ${emptyCount} empty placeholder(s).`);
+    pending.push({ locale, position, localePath, localeRaw, localeDict, emptyCount, outcome });
+  }
+
+  if (pending.length === 0) {
+    return results.some((r) => r.error !== undefined) ? 2 : 0;
+  }
+
+  // Step 3 — AI fill for locales that actually have work.
+  let resolved: PolyStellaResolvedOptions;
+  try {
+    const polyConfig = await loadPolystellaConfig(deps.cwd);
+    resolved = resolveOptions(polyConfig, i18n);
+  } catch (err) {
+    deps.err(`[polystella] ${(err as Error).message}`);
+    return 1;
+  }
+  const provider = resolved.provider;
+  if (provider === undefined) {
+    deps.err(
+      `[polystella] no provider configured in polystella.config.mjs — translate-ui needs one when empty placeholders exist. Add a \`provider\` block or use \`pnpm i18n:sync\` for offline key reconciliation only.`,
+    );
+    return 1;
+  }
 
   // Glossaries live under `projectRoot` per `loadGlossaries`'s
   // contract. The standalone CLI doesn't have an Astro `URL` for
@@ -208,71 +263,34 @@ export async function runTranslateUi(args: TranslateUiArgs, deps: TranslateUiDep
     return 1;
   }
 
-  const targets = args.locale !== undefined ? [args.locale] : resolved.locales;
-  if (targets.length === 0) {
-    return 0;
-  }
+  const activeConcurrency = Math.min(pending.length, resolved.concurrency, TRANSLATE_UI_MAX_CONCURRENCY);
+  deps.log(
+    `[polystella] translate-ui: translating ${pending.length} locale(s) out of ${targets.length} checked (concurrency ${activeConcurrency}, max ${TRANSLATE_UI_MAX_CONCURRENCY}).`,
+  );
 
-  // Per-locale work runs in parallel. Each locale = one batched LLM
-  // round-trip + one file write — independent, no shared state. The
-  // concurrency cap comes from polystella.config.mjs (`concurrency`,
-  // default 4); same knob the markdown pipeline uses, so an operator
-  // who's already capped for rate-limit reasons doesn't have to
-  // configure a second one. With ~3 typical non-default locales the
-  // cap is rarely hit; with many locales the cap is what keeps us
-  // from torching the provider's per-account rate limit.
-  //
-  // Output is buffered per-locale and flushed in `targets` order so
-  // the final log block is deterministic even though completion
-  // order is non-deterministic. A single "starting" line per locale
-  // fires live so the user has progress signal during the wait.
-  const results: PerLocaleOutcome[] = targets.map((locale) => ({
-    locale,
-    filled: [],
-    tokenFailures: [],
-    error: undefined,
-    logs: [],
-  }));
+  let startedCount = 0;
 
-  for (const locale of targets) {
-    deps.log(`[polystella] translate-ui: starting locale ${locale} …`);
-  }
-
-  await runWithConcurrency(targets, resolved.concurrency, async (locale) => {
-    const idx = targets.indexOf(locale);
-    const outcome = results[idx];
-    if (outcome === undefined) return;
-    // Local logger writes to the per-locale buffer. The pool's
-    // worker contract is `Promise<void>` with rejection short-
-    // circuiting the pool (matches Promise.all), so we MUST catch
-    // every error in here — a single locale's provider failure
-    // can't be allowed to kill the rest of the run.
-    const log = (msg: string) => outcome.logs.push({ level: "log", msg });
-    const warn = (msg: string) => outcome.logs.push({ level: "warn", msg });
-    const err = (msg: string) => outcome.logs.push({ level: "err", msg });
+  await runWithConcurrency(pending, activeConcurrency, async (job) => {
+    const translatePosition = ++startedCount;
+    const translateProgress = progressLabel(translatePosition, pending.length);
+    const totalProgress = progressLabel(job.position, targets.length);
+    const progress = `${translateProgress} to translate, ${totalProgress} total`;
+    // The pool rejects on uncaught worker errors. Catch every locale
+    // failure so one provider/read/write problem doesn't kill the run.
 
     try {
-      const localePath = path.resolve(deps.cwd, baseDir, `${locale}.json`);
-      let localeRaw: string;
-      try {
-        localeRaw = await readFile(localePath, "utf8");
-      } catch (readErr) {
-        err(`[polystella]   ${locale}: failed to read ${localePath}: ${(readErr as Error).message}`);
-        outcome.error = readErr as Error;
-        return;
-      }
-      const localeDict = JSON.parse(localeRaw) as Record<string, string>;
+      deps.log(`[polystella] translate-ui: ${progress} — starting locale ${job.locale} (${job.emptyCount} empty placeholder(s)) …`);
 
-      const translator = createTranslator(resolved.provider!, locale);
-      const glossary = glossaries.get(locale) ?? EMPTY_GLOSSARY;
+      const translator = createTranslator(provider, job.locale);
+      const glossary = glossaries.get(job.locale) ?? EMPTY_GLOSSARY;
 
       const result = await translateUiStringsForLocale({
         translator,
         glossary,
         sourceDict,
-        localeDict,
+        localeDict: job.localeDict,
         sourceLocale: resolved.defaultLocale,
-        targetLocale: locale,
+        targetLocale: job.locale,
         ...(resolved.prompt.context !== undefined ? { context: resolved.prompt.context } : {}),
         maxRetries: resolved.maxRetries,
         retryMinTimeoutMs: 250,
@@ -280,7 +298,7 @@ export async function runTranslateUi(args: TranslateUiArgs, deps: TranslateUiDep
         retryRandomize: true,
         ...(deps.signal !== undefined ? { signal: deps.signal } : {}),
         onRetry: ({ attempt, totalAttempts, error: retryErr }) => {
-          warn(`[polystella]   ${locale}: attempt ${attempt}/${totalAttempts} failed: ${retryErr.message}`);
+          deps.warn(`[polystella]   ${progress} — ${job.locale}: attempt ${attempt}/${totalAttempts} failed: ${retryErr.message}`);
         },
       });
 
@@ -294,40 +312,32 @@ export async function runTranslateUi(args: TranslateUiArgs, deps: TranslateUiDep
         sourceKeyOrder: layout.keys,
       });
       const nextText = formatLocaleFile({ dict: reconciled.dict, layout });
-      if (nextText !== localeRaw) {
-        await writeFile(localePath, nextText, "utf8");
+      if (nextText !== job.localeRaw) {
+        await writeFile(job.localePath, nextText, "utf8");
       }
 
-      outcome.filled = result.filled;
-      outcome.tokenFailures = result.tokenFailures;
+      job.outcome.filled = result.filled;
+      job.outcome.tokenFailures = result.tokenFailures;
 
       if (result.filled.length > 0) {
-        log(`[polystella] translate-ui: ${locale} — filled ${result.filled.length} key(s): ${result.filled.join(", ")}`);
+        deps.log(
+          `[polystella] translate-ui: ${progress} — ${job.locale} filled ${result.filled.length} key(s): ${result.filled.join(", ")}`,
+        );
       } else {
-        log(`[polystella] translate-ui: ${locale} — no empty placeholders to fill.`);
+        deps.log(`[polystella] translate-ui: ${progress} — ${job.locale} had no empty placeholders left to fill.`);
       }
       if (result.tokenFailures.length > 0) {
-        warn(`[polystella]   ${locale}: token-preservation failed for ${result.tokenFailures.length} key(s):`);
+        deps.warn(`[polystella]   ${progress} — ${job.locale}: token-preservation failed for ${result.tokenFailures.length} key(s):`);
         for (const f of result.tokenFailures) {
-          warn(`      - ${f.key}: missing=[${f.missing.join(", ")}], spurious=[${f.spurious.join(", ")}]`);
+          deps.warn(`      - ${f.key}: missing=[${f.missing.join(", ")}], spurious=[${f.spurious.join(", ")}]`);
         }
-        warn(`[polystella]   ${locale}: these keys were left empty; fix manually then re-run.`);
+        deps.warn(`[polystella]   ${progress} — ${job.locale}: these keys were left empty; fix manually then re-run.`);
       }
     } catch (caught) {
-      outcome.error = caught as Error;
-      err(`[polystella] translate-ui: ${locale} — failed: ${(caught as Error).message}`);
+      job.outcome.error = caught as Error;
+      deps.err(`[polystella] translate-ui: ${progress} — ${job.locale} failed: ${(caught as Error).message}`);
     }
   });
-
-  // Flush in target order so logs are stable across runs even when
-  // completion order varies.
-  for (const r of results) {
-    for (const { level, msg } of r.logs) {
-      if (level === "log") deps.log(msg);
-      else if (level === "warn") deps.warn(msg);
-      else deps.err(msg);
-    }
-  }
 
   const anyTokenFailures = results.some((r) => r.tokenFailures.length > 0 || r.error !== undefined);
   return anyTokenFailures ? 2 : 0;
@@ -339,5 +349,19 @@ interface PerLocaleOutcome {
   tokenFailures: TokenValidationIssue[];
   /** Set on read failure or unexpected throw inside the worker. */
   error: Error | undefined;
-  logs: Array<{ level: "log" | "warn" | "err"; msg: string }>;
+}
+
+interface PendingLocale {
+  locale: string;
+  /** 1-indexed position in the full target locale list. */
+  position: number;
+  localePath: string;
+  localeRaw: string;
+  localeDict: Record<string, string>;
+  emptyCount: number;
+  outcome: PerLocaleOutcome;
+}
+
+function progressLabel(position: number, total: number): string {
+  return `[${position}/${total}]`;
 }

@@ -427,7 +427,7 @@ Then come back here for step-by-step task recipes.
 
 - `src/i18n/drift.ts` — `checkI18nDrift`, `loadAndCheckDrift`.
 - `src/i18n/sync.ts` — key reconciliation; **layout-aware** JSON writer (`formatLocaleFile`).
-- `src/i18n/ui-translate.ts` — AI-fill orchestrator; parallel-locale execution; `{{token}}` validator + retry wrapper.
+- `src/i18n/ui-translate.ts` — AI-fill orchestrator; `{{token}}` validator + retry wrapper.
 - `src/i18n/loader.ts`, `i18n/index.ts` — content-layer loader, dictionary fetcher.
 - `src/catalog/*` — catalog-only public exports, middleware, and Astro integration. Must stay free of content translation, R2, route shims, and localized collection imports.
 - `src/cli/check-ui.ts`, `sync-ui.ts`, `translate-ui.ts` — CLI handlers.
@@ -437,7 +437,7 @@ Then come back here for step-by-step task recipes.
 - **Three drift failure modes** — missing keys, extra keys, **empty-placeholder values** (a non-default locale has `""` where the source has a non-empty string). The build's `astro:config:setup` drift check and the `check-ui` CLI use the SAME predicate. If you add a fourth failure mode, update both.
 - **Layout-aware sync writer** — parses the source file's text (not just its JSON) to recover key order and blank-line section breaks. The output mirrors that layout for every locale. Don't drop this — every sync would churn diffs.
 - **`{{token}}` validator runs OUTSIDE `translateBatch`** — the orchestrator's retry wrapper sets `maxRetries: 0` on `translateBatch`. Don't add a second retry layer.
-- **Parallel locales catch errors internally** — `translate-ui` runs locales in parallel via `runWithConcurrency`. Workers MUST catch every error and record it on the per-locale outcome — never re-throw. Re-throwing kills the whole run.
+- **Queued locales catch errors internally** — `translate-ui` pre-scans locale JSONs, skips complete catalogs before provider setup, then runs queued locales in parallel via `runWithConcurrency` with a hard cap of 3. Workers MUST catch every error and record it on the per-locale outcome — never re-throw. Re-throwing kills the whole run.
 - **Catalog-only middleware scope** — `polystella/catalog/middleware` binds `Astro.locals.t` and `Astro.locals.lhref` only. Do not add localized collection APIs to that surface.
 
 See [#ui-strings](../../ARCHITECTURE.md#ui-strings).

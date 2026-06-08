@@ -30,9 +30,10 @@ polystella translate-ui [flags]
    add missing as empty placeholders.
 2. For each non-default locale, collect every key whose value is
    `""` (and whose source value is non-empty — intentional blanks
-   stay blank).
-3. Make one batched `translateBatch` call per locale, feeding all
-   empty keys into a single LLM round-trip.
+   stay blank). Locale JSONs with no empty placeholders are skipped
+   before provider setup.
+3. Make one batched `translateBatch` call per queued locale, feeding
+   all empty keys into a single LLM round-trip.
 4. Validate that every translation preserves the source's
    `{{token}}` placeholders. Token mismatches retry the batch with
    the same prompt (sampling variance usually recovers).
@@ -41,9 +42,10 @@ polystella translate-ui [flags]
    fixes it by hand or re-runs `translate-ui` after editing the
    source.
 
-Locales run in parallel up to `polystella.config.mjs`'s
-`concurrency` cap (default 4). Independent file writes, independent
-provider calls, no shared state.
+Queued locales run in parallel up to `polystella.config.mjs`'s
+`concurrency` cap, with a hard UI-locale maximum of 3. Output includes
+`[n/total]` progress markers during the scan and translation phases so
+large locale sets show how many catalogs are being handled.
 
 ## Why no R2 caching
 

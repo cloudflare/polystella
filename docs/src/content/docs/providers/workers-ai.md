@@ -7,6 +7,39 @@ The Workers AI provider routes translation through Cloudflare's
 Workers AI inference platform. A natural choice when your site
 already runs on Cloudflare.
 
+## Cloudflare setup
+
+PolyStella calls Workers AI from your build process through the REST
+API. You do not need a Worker binding; you need an account ID, API
+token, and model id.
+
+1. In the Cloudflare dashboard, open **Workers AI** and choose **Use
+   REST API**.
+2. Choose **Create a Workers AI API Token**, copy the token, then copy
+   the account ID shown on the same page. If you create a custom API
+   token instead of using Cloudflare's template, grant account-level
+   `Workers AI - Read` and `Workers AI - Edit` permissions.
+3. Store those values as secrets in your shell / CI environment. The
+   examples below use `CF_ACCOUNT_ID` and `CF_API_TOKEN`, but the names
+   are only conventions:
+
+   ```bash
+   export CF_ACCOUNT_ID="..."
+   export CF_API_TOKEN="..."
+   ```
+
+4. Pick a model from the Workers AI model catalog. The examples use
+   `@cf/meta/llama-3.1-8b-instruct`, which is a reasonable starting
+   point for most projects.
+5. Add the provider block to `polystella.config.mjs` and keep the
+   token out of source control. Pass only the raw token value;
+   PolyStella adds the `Bearer` authorization header.
+
+Run `polystella translate --dry-run` first to verify PolyStella can
+load the project and plan the work without calling Workers AI. Then
+run a normal translation or `astro build` to make the first live
+provider call.
+
 ## Configuration
 
 ```js
@@ -44,15 +77,18 @@ The `default` key is consulted for any locale not in the map.
 
 ## Endpoint override
 
-For AI Gateway proxying:
+`endpoint` is an escape hatch for tests or proxy deployments. When it
+is set, PolyStella sends the Workers AI request body to that exact URL
+instead of constructing Cloudflare's native
+`/accounts/{accountId}/ai/run/{model}` URL:
 
 ```js
-endpoint: "https://gateway.ai.cloudflare.com/v1/{account}/{gateway}/workers-ai/run",
+endpoint: "https://gateway.example/run",
 ```
 
-The endpoint is template-substituted at request time; account /
-model identifiers are URL-path components in Workers AI's native
-API.
+PolyStella does not template-substitute this value and does not add
+gateway-specific headers. If your proxy needs the model id in the URL,
+include it in the `endpoint` value you configure.
 
 ## Token budgets
 

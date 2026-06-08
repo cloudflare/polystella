@@ -47,6 +47,34 @@ async function tmpProjectWithAstroConfig(opts: {
   return dir;
 }
 
+function workersAiResponseFromPrompt(userPrompt: string): string {
+  const ids: string[] = [];
+  for (const match of userPrompt.matchAll(/^@@([^@\n]+?)@@$/gm)) {
+    const id = match[1];
+    if (id !== undefined) ids.push(id);
+  }
+  return ids.map((id) => `@@${id}@@\ntranslated ${id}`).join("\n\n");
+}
+
+function workersAiUserPrompt(init: RequestInit | undefined): string {
+  const rawBody = init?.body;
+  if (typeof rawBody !== "string") {
+    throw new Error("expected Workers AI request body to be a string");
+  }
+  const parsed = JSON.parse(rawBody) as {
+    messages?: Array<{ role?: unknown; content?: unknown }>;
+  };
+  const userMessage = parsed.messages?.find((message) => message.role === "user");
+  if (typeof userMessage?.content !== "string") {
+    throw new Error("expected Workers AI user message");
+  }
+  return userMessage.content;
+}
+
+async function wait(ms: number): Promise<void> {
+  await new Promise<void>((resolve) => setTimeout(resolve, ms));
+}
+
 describe("parseTranslateUiArgs", () => {
   it("parses an empty argv to defaults", () => {
     expect(parseTranslateUiArgs([])).toEqual({ syncOnly: false, help: false });
@@ -138,5 +166,91 @@ describe("runTranslateUi", () => {
     const code = await runTranslateUi({ syncOnly: false, help: false }, { cwd, log: vi.fn(), warn: vi.fn(), err });
     expect(code).toBe(1);
     expect(err.mock.calls.some((c) => c[0].includes("no provider configured"))).toBe(true);
+  });
+
+  it("skips complete locale files before requiring a provider", async () => {
+    const cwd = await tmpProjectWithAstroConfig({
+      defaultLocale: "en-US",
+      locales: ["en-US", "pt-BR"],
+      polystellaConfig: `export default {};\n`,
+      files: {
+        "src/content/i18n/en-US.json": `{ "a": "A" }`,
+        "src/content/i18n/pt-BR.json": `{ "a": "Já traduzido" }`,
+      },
+    });
+    const log = vi.fn();
+    const err = vi.fn();
+    const code = await runTranslateUi({ syncOnly: false, help: false }, { cwd, log, warn: vi.fn(), err });
+    const lines = log.mock.calls.map((call) => String(call[0]));
+
+    expect(code).toBe(0);
+    expect(err).not.toHaveBeenCalled();
+    expect(lines.some((line) => line.includes("[1/1] pt-BR — skipped, no empty placeholders"))).toBe(true);
+    expect(lines.some((line) => line.includes("starting locale pt-BR"))).toBe(false);
+  });
+
+  it("pre-scans locales, logs progress, and caps translation concurrency at 3", async () => {
+    const targetLocales = ["de-DE", "es-ES", "fr-FR", "it-IT", "pt-BR"];
+    const files: Record<string, string> = {
+      "src/content/i18n/en-US.json": `{ "a": "A", "b": "B" }`,
+    };
+    for (const locale of targetLocales) {
+      files[`src/content/i18n/${locale}.json`] = `{ "a": "", "b": "" }`;
+    }
+
+    const cwd = await tmpProjectWithAstroConfig({
+      defaultLocale: "en-US",
+      locales: ["en-US", ...targetLocales],
+      polystellaConfig: `export default {
+  concurrency: 9,
+  maxRetries: 0,
+  provider: {
+    kind: "workers-ai",
+    accountId: "fake-account",
+    apiToken: "fake-token",
+    endpoint: "https://example.test/workers-ai",
+    model: "fake/model",
+  },
+};
+`,
+      files,
+    });
+
+    const originalFetch = globalThis.fetch;
+    let active = 0;
+    let maxActive = 0;
+    globalThis.fetch = (async (_url: string, init?: RequestInit) => {
+      active++;
+      maxActive = Math.max(maxActive, active);
+      try {
+        const userPrompt = workersAiUserPrompt(init);
+        await wait(10);
+        return new Response(JSON.stringify({ result: { response: workersAiResponseFromPrompt(userPrompt) }, success: true }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      } finally {
+        active--;
+      }
+    }) as typeof fetch;
+
+    try {
+      const log = vi.fn();
+      const err = vi.fn();
+      const code = await runTranslateUi({ syncOnly: false, help: false }, { cwd, log, warn: vi.fn(), err });
+      const lines = log.mock.calls.map((call) => String(call[0]));
+      const firstStarting = lines.findIndex((line) => line.includes("starting locale"));
+      const lastQueued = lines.reduce((last, line, index) => (line.includes("queued") ? index : last), -1);
+
+      expect(code).toBe(0);
+      expect(err).not.toHaveBeenCalled();
+      expect(maxActive).toBe(3);
+      expect(lines.some((line) => line.includes("translating 5 locale(s) out of 5 checked (concurrency 3, max 3)"))).toBe(true);
+      expect(firstStarting).toBeGreaterThan(lastQueued);
+      expect(lines.some((line) => line.includes("[1/5] de-DE — queued 2 empty placeholder(s)"))).toBe(true);
+      expect(lines.some((line) => line.includes("[1/5] to translate, [1/5] total — starting locale de-DE"))).toBe(true);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 });

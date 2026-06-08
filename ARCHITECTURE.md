@@ -604,7 +604,9 @@ Three CLI subcommands maintain the invariant:
 - **`translate-ui`** (`src/cli/translate-ui.ts` +
   `src/i18n/ui-translate.ts`) — runs sync, then for each locale calls
   `translateBatch` once with every empty-valued key as a segment.
-  Locales run in parallel via `runWithConcurrency`.
+  Fully translated locale JSONs are skipped before provider setup;
+  queued locales run in parallel via `runWithConcurrency` with a hard
+  max concurrency of 3.
 
 **Layout-aware writer.** `formatLocaleFile` in `src/i18n/sync.ts`
 parses the source file's text (not just its JSON) to recover top-level
@@ -624,13 +626,14 @@ the key empty and reports it — a broken `{{year}}` placeholder breaks
 the page at runtime, so "obviously untranslated" is safer than
 "subtly broken".
 
-**Parallel locale execution.** `translate-ui` runs locales in
-parallel via `runWithConcurrency`. The pool primitive short-circuits
-on the first worker rejection (matches `Promise.all`), which would
-let one locale's failure kill the rest. Workers MUST catch every
-error internally and record it on the per-locale outcome — never
-re-throw. Per-locale logs are buffered and flushed in `targets`
-order so the final output is deterministic.
+**Parallel locale execution.** `translate-ui` first scans every target
+locale JSON and logs skip/queue progress (`[n/total]`). Only queued
+locales run in parallel via `runWithConcurrency`, capped by both
+`polystella.config.mjs` `concurrency` and a hard UI-locale max of 3.
+The pool primitive short-circuits on the first worker rejection
+(matches `Promise.all`), which would let one locale's failure kill the
+rest. Workers MUST catch every error internally and record it on the
+per-locale outcome — never re-throw.
 
 **No R2 caching.** Intentionally not wired into `translate-ui`. The
 content-collection cache keys files by SHA-256 of full file body, so
