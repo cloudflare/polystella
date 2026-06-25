@@ -8,6 +8,7 @@
     "dev": "astro dev",
     "build": "astro build",
     "preview": "astro preview",
+    "audit-mdx": "polystella audit-mdx",
     "translate:dry-run": "polystella translate --dry-run --report ./i18n-r2-report.json"
   },
   "dependencies": {

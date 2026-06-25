@@ -1,17 +1,18 @@
 ---
 title: CLI overview
-description: The polystella binary and its four verb-style subcommands.
+description: The polystella binary and its verb-style subcommands.
 ---
 
 The package exposes a single `polystella` binary with verb-style
 subcommands:
 
-| Command                   | Purpose                                        | Network          |
-| ------------------------- | ---------------------------------------------- | ---------------- |
-| `polystella translate`    | Markdown pipeline outside `astro build`        | AI provider + R2 |
-| `polystella check-ui`     | Drift detection over UI-string JSONs           | None (offline)   |
-| `polystella sync-ui`      | Mechanical key reconciliation (no AI)          | None (offline)   |
-| `polystella translate-ui` | Sync + AI-fill of empty UI-string placeholders | AI provider only |
+| Command                   | Purpose                                          | Network          |
+| ------------------------- | ------------------------------------------------ | ---------------- |
+| `polystella translate`    | Markdown pipeline outside `astro build`          | AI provider + R2 |
+| `polystella audit-mdx`    | Warn about likely missed MDX translation surfaces | None (offline)   |
+| `polystella check-ui`     | Drift detection over UI-string JSONs             | None (offline)   |
+| `polystella sync-ui`      | Mechanical key reconciliation (no AI)            | None (offline)   |
+| `polystella translate-ui` | Sync + AI-fill of empty UI-string placeholders   | AI provider only |
 
 Run `polystella --help` for the top-level menu, or
 `polystella <subcommand> --help` for per-subcommand flags.
@@ -37,6 +38,10 @@ You typically run `translate` infrequently (build-time, in CI) and
 `check-ui` / `sync-ui` / `translate-ui` as you edit UI strings
 locally. Wire `check-ui` into a pre-commit hook so the build never
 fails on drift.
+
+Run `audit-mdx` while onboarding an MDX-heavy project or adding a
+new component recipe. It is warn-only and does not need provider or
+R2 credentials.
 
 ## Exit codes
 

@@ -3,7 +3,7 @@ title: Public exports
 description: "Every export path in package.json — what it provides and when to import from it."
 ---
 
-PolyStella ships ten public import paths. Each has a narrow,
+PolyStella ships twelve public import paths. Each has a narrow,
 documented purpose; mixing them up rarely produces a useful build.
 
 | Path                                        | Purpose                                                                                                      |
@@ -17,6 +17,8 @@ documented purpose; mixing them up rarely produces a useful build.
 | `@cloudflare/polystella/catalog/middleware` | Catalog-only middleware that binds `Astro.locals.t` and `Astro.locals.lhref`.                                |
 | `@cloudflare/polystella/catalog/astro`      | Catalog-only Astro integration factory.                                                                      |
 | `@cloudflare/polystella/react`              | React hooks: `useTranslations`, `useLocalizedHref` — for islands.                                            |
+| `@cloudflare/polystella/recipes`            | MDX recipe helpers and built-in recipes.                                                                     |
+| `@cloudflare/polystella/recipes/starlight`  | Conservative Starlight MDX recipe.                                                                          |
 | `@cloudflare/polystella/client`             | Types only. Reference from `src/env.d.ts` for virtual-module types. No runtime import.                       |
 
 ## Which import goes where
@@ -29,7 +31,12 @@ import polystella from "@cloudflare/polystella";
 
 ### `polystella.config.mjs`
 
-No imports needed — it's a plain config object.
+Usually no imports are needed — it's a plain config object. If you
+use MDX recipes, import them here:
+
+```js
+import { starlightRecipe } from "@cloudflare/polystella/recipes/starlight";
+```
 
 ### `src/content.config.ts`
 

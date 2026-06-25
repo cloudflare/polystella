@@ -1,4 +1,5 @@
 import type { Segment } from "./extract.js";
+import type { NormalizedMdxRules } from "./mdx-rules.js";
 
 /**
  * Pluggable file-format adapter interface.
@@ -165,12 +166,18 @@ export interface AdapterExtractOptions {
    * key paths use the adapter's ID grammar.
    */
   translatableKeys: Record<string, string[]>;
+  /** Normalized MDX rules for `.mdx` sources. Omitted for non-MDX formats. */
+  mdxRules?: NormalizedMdxRules | undefined;
 }
 
 /**
  * Per-pair options threaded through `applyTranslations`.
  */
 export interface AdapterApplyOptions {
+  /** Forward-slash path relative to `sourceDir`, when known. */
+  sourcePath?: string | undefined;
+  /** Normalized MDX rules for `.mdx` sources. Omitted for non-MDX formats. */
+  mdxRules?: NormalizedMdxRules | undefined;
   /**
    * Top-level key/value pairs merged into the output. Used by the
    * AI-translation marker injection. Keys here override same-named

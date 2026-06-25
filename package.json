@@ -71,6 +71,14 @@
       "types": "./dist/react/index.d.ts",
       "default": "./dist/react/index.js"
     },
+    "./recipes": {
+      "types": "./dist/recipes/index.d.ts",
+      "default": "./dist/recipes/index.js"
+    },
+    "./recipes/starlight": {
+      "types": "./dist/recipes/starlight.d.ts",
+      "default": "./dist/recipes/starlight.js"
+    },
     "./client": {
       "types": "./client.d.ts"
     }
@@ -96,6 +104,7 @@
     "build": "tsc -p tsconfig.build.json && chmod +x dist/cli.js",
     "build:llms": "node scripts/build-llms-full.mjs",
     "playground:mdx-jsx:build": "pnpm --filter polystella-playground-mdx-jsx build",
+    "playground:mdx-jsx:audit": "pnpm --filter polystella-playground-mdx-jsx audit-mdx",
     "playground:mdx-jsx:translate:dry-run": "pnpm --filter polystella-playground-mdx-jsx translate:dry-run",
     "format": "prettier --write .",
     "format:check": "prettier --check .",

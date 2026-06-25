@@ -1,6 +1,7 @@
 import type { Root, Yaml } from "mdast";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
-import { inlineSpan, visitTranslatableBlocks } from "./traverse.js";
+import { collectMarkdownSegments } from "./extract.js";
+import { restoreInlineMdxPlaceholders } from "./mdx-placeholders.js";
 
 /**
  * Replace translatable segments in `source` with their translations
@@ -21,6 +22,10 @@ import { inlineSpan, visitTranslatableBlocks } from "./traverse.js";
  * range are preserved.
  */
 export interface ApplyTranslationsOptions {
+  /** Forward-slash path relative to `sourceDir`, when known. */
+  sourcePath?: string | undefined;
+  /** Normalized MDX rules for `.mdx` sources. */
+  mdxRules?: Parameters<typeof collectMarkdownSegments>[1]["mdxRules"] | undefined;
   /**
    * Frontmatter keys merged into the translated output. Used by the
    * AI-translation marker injection. Keys here override same-named
@@ -55,16 +60,22 @@ export function applyTranslations(
   // while we splice.
   const edits: Array<{ start: number; end: number; replacement: string }> = [];
 
-  visitTranslatableBlocks(ast, ({ block, id }) => {
-    const translation = translations.get(id);
-    if (translation === undefined) return;
+  const collected = collectMarkdownSegments(
+    ast,
+    { sourcePath: options.sourcePath ?? "", frontmatter: {}, mdxRules: options.mdxRules },
+    source,
+  );
+  for (const entry of collected) {
+    if (entry.kind === "frontmatter") continue;
+    const translation = translations.get(entry.segment.id);
+    if (translation === undefined) continue;
+    if (!entry.span) continue;
+    const replacement = formatSegmentReplacement(entry, translation);
     // Inline span (children's range), not the whole block — keeps
     // heading/list/blockquote markers in place. The extractor reads
     // the same range, so the round-trip works.
-    const span = inlineSpan(block);
-    if (!span) return;
-    edits.push({ ...span, replacement: translation });
-  });
+    edits.push({ ...entry.span, replacement });
+  }
 
   const frontmatterNode = ast.children.find((child): child is Yaml => child.type === "yaml");
   if (frontmatterNode) {
@@ -107,6 +118,75 @@ export function applyTranslations(
     output = output.slice(0, edit.start) + edit.replacement + output.slice(edit.end);
   }
   return output;
+}
+
+function formatSegmentReplacement(entry: { placeholders?: Parameters<typeof restoreInlineMdxPlaceholders>[1] | undefined; replacement?: { kind: "js-string" | "quoted-attribute"; quote: "'" | '"' } | undefined }, value: string): string {
+  const restored = entry.placeholders !== undefined ? restoreInlineMdxPlaceholders(value, entry.placeholders) : value;
+  return formatCollectedReplacement(entry.replacement, restored);
+}
+
+function formatCollectedReplacement(
+  replacement: { kind: "js-string" | "quoted-attribute"; quote: "'" | '"' } | undefined,
+  value: string,
+): string {
+  if (replacement?.kind === "js-string") return escapeJsStringContent(value, replacement.quote);
+  if (replacement?.kind === "quoted-attribute") return escapeQuotedAttributeContent(value, replacement.quote);
+  return value;
+}
+
+function escapeJsStringContent(value: string, quote: "'" | '"'): string {
+  let out = "";
+  for (const char of value) {
+    switch (char) {
+      case "\\":
+        out += "\\\\";
+        break;
+      case "\n":
+        out += "\\n";
+        break;
+      case "\r":
+        out += "\\r";
+        break;
+      case "\t":
+        out += "\\t";
+        break;
+      case "'":
+        out += quote === "'" ? "\\'" : char;
+        break;
+      case '"':
+        out += quote === '"' ? '\\"' : char;
+        break;
+      default:
+        out += char;
+        break;
+    }
+  }
+  return out;
+}
+
+function escapeQuotedAttributeContent(value: string, quote: "'" | '"'): string {
+  let out = "";
+  for (const char of value) {
+    switch (char) {
+      case "&":
+        out += "&amp;";
+        break;
+      case "'":
+        out += quote === "'" ? "&#39;" : char;
+        break;
+      case '"':
+        out += quote === '"' ? "&quot;" : char;
+        break;
+      case "\n":
+      case "\r":
+        out += " ";
+        break;
+      default:
+        out += char;
+        break;
+    }
+  }
+  return out;
 }
 
 /** Pull `start`/`end` offsets off an mdast node's position. */

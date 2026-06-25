@@ -200,6 +200,69 @@ describe("runTranslationPass — staging output", () => {
     expect(jaBody).toContain("TR:");
   });
 
+  it("translates MDX static data, configured props, and restores inline JSX placeholders", async () => {
+    const mdx = [
+      "---",
+      "title: MDX Sample",
+      "---",
+      "",
+      'export const features = [{ title: "Fast setup", description: "Start quickly.", icon: "rocket" }];',
+      "",
+      "# MDX Sample",
+      "",
+      "This feature is <Badge>new</Badge> and experimental.",
+      "",
+      '<Callout title="Beta notice" type="warning" />',
+      "",
+    ].join("\n");
+    const { rootDir, stagingDir } = await makeProjectFixture({
+      files: { "content/docs/sample.mdx": mdx },
+    });
+    const r2 = makeInMemoryR2();
+    const translator = makeStubTranslator("stub/mdx-1");
+    const resolved = resolveOptions(
+      {
+        sourceDir: "./content",
+        include: ["**/*.mdx"],
+        markdown: {
+          keys: { "docs/**": ["title"] },
+          mdx: {
+            components: { Callout: { props: ["title"] } },
+            data: { "docs/**": { features: ["[].title", "[].description"] } },
+          },
+        },
+      },
+      { defaultLocale: "en-US", locales: ["en-US", "pt-BR"] },
+    );
+    resolved.provider = {
+      kind: "workers-ai",
+      accountId: "fake",
+      apiToken: "fake",
+      model: "stub/mdx-1",
+      maxTokens: 8192,
+      batchInputTokenBudget: 4000,
+    };
+
+    await runTranslationPass({
+      resolved,
+      rootDir,
+      stagingDir,
+      logger: NULL_LOGGER,
+      polystellaVersion: "0.2.0",
+      r2Override: r2.client,
+      translatorOverrides: new Map([["pt-BR", translator]]),
+    });
+
+    const staged = await readFile(path.join(stagingDir, "pt-BR", "docs/sample.mdx"), "utf8");
+    expect(staged).toContain("title: TR:MDX Sample");
+    expect(staged).toContain('title: "TR:Fast setup"');
+    expect(staged).toContain('description: "TR:Start quickly."');
+    expect(staged).toContain('icon: "rocket"');
+    expect(staged).toContain("TR:This feature is <Badge>new</Badge> and experimental.");
+    expect(staged).toContain('title="TR:Beta notice"');
+    expect(staged).toContain('type="warning"');
+  });
+
   it("a second run on unchanged input is all cache hits (translator never called)", async () => {
     const { rootDir, stagingDir } = await makeProjectFixture({
       files: { "content/publications/sample.md": SAMPLE_MD },

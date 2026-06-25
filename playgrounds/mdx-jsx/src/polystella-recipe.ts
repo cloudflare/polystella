@@ -1,3 +1,5 @@
+import { defineMdxRecipe } from "@cloudflare/polystella/recipes";
+
 /**
  * Future recipe fixture for the MDX JSX playground.
  *
@@ -6,7 +8,7 @@
  * implementation step a concrete design-system-style shape to enable.
  */
 export function playgroundDesignSystemRecipe() {
-  return {
+  return defineMdxRecipe({
     htmlAttributes: {
       "*": ["alt", "title", "aria-label", "placeholder"],
     },
@@ -38,5 +40,5 @@ export function playgroundDesignSystemRecipe() {
         annotatedCards: ["[].title", "[].description"],
       },
     },
-  };
+  });
 }

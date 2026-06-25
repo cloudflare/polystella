@@ -1,65 +1,116 @@
 ---
 title: MDX adapter
-description: "Translating .mdx files — what's supported and what's not."
+description: "Translating .mdx files — JSX, props, static data, and limits."
 ---
 
-The MDX adapter reuses most of the Markdown adapter's logic but
-parses with `remark-mdx` to recognise JSX and ESM constructs.
+The MDX adapter reuses the Markdown adapter but parses `.mdx` with
+`remark-mdx`, so imports, exports, JSX, and expressions are recognised
+as first-class syntax instead of raw Markdown text.
 
-## What translates
+## What Translates Automatically
 
-Same as Markdown:
+- Markdown prose in paragraphs, headings, lists, and table cells.
+- Markdown prose nested inside block-level JSX wrappers.
+- Inline JSX children through placeholders, so the model sees the
+  full sentence but not raw component syntax.
+- Frontmatter scalars configured through `markdown.keys`.
+- Safe lowercase HTML attributes: `alt`, `title`, `aria-label`, and
+  `placeholder`.
 
-- Frontmatter scalars for keys listed in `markdown.keys` (the
-  config is shared between `.md` and `.mdx`; the adapter just
-  registers under both extensions).
-- Body inline text inside paragraphs, headings, lists, table cells.
-
-## What stays verbatim
-
-- **ESM imports/exports** at the top of the file.
-- **JSX component invocations** — `<MyComponent prop="value" />`
-  is preserved entirely. The model doesn't see component names,
-  props, or attribute values.
-- **Expressions** — `{frontmatter.title}`, `{1 + 1}`, etc. Treated
-  as opaque.
-- **Code blocks, fences, raw HTML** — same as `.md`.
-
-## What's NOT supported
-
-JSX **children** are currently preserved as opaque markup, not
-translated. If you have:
+Example inline JSX input:
 
 ```mdx
-<Callout type="warning">This page is in beta. Some sections may be incomplete.</Callout>
+This feature is <Badge>new</Badge> and experimental.
 ```
 
-…the text inside `<Callout>` doesn't go to the translator. The
-component's children are part of the JSX subtree, not a markdown
-paragraph.
+The translator sees a protected segment like:
 
-Workarounds today:
+```text
+This feature is <ph id="0">new</ph> and experimental.
+```
 
-- Move translatable copy to frontmatter (`metaDescription`-style
-  fields) and have the component pull it from there.
-- Move translatable copy to the UI-strings JSON and have the
-  component pull it via `t()`.
-- Or pull it out of the component entirely — write it as plain
-  markdown and have the component wrap surrounding context.
+The placeholder may move in the translated sentence, then PolyStella
+restores the original JSX wrapper.
 
-JSX-child translation is on the roadmap but the model contract is
-non-trivial (you need to preserve component boundaries while
-translating children) and there's no clear "right answer" yet.
+## Explicit MDX Rules
 
-## Practical guidance
+Custom component props are not translated by default. Configure the
+component API explicitly:
 
-For an MDX-heavy docs site, the most common pattern is:
+```js
+export default {
+  markdown: {
+    mdx: {
+      components: {
+        Callout: { children: true, props: ["title"] },
+        Hero: { props: ["headline", "subheadline", "ctaLabel"] },
+      },
+    },
+  },
+};
+```
 
-- Plain markdown for prose-heavy pages.
-- MDX for pages with significant component composition, where the
-  components own their own translatable strings via the UI-strings
-  JSON.
+Page-local static arrays and objects can be configured centrally:
 
-Mixing the two within one page works but produces fewer translation
-points than a pure-markdown page; the AI marker still applies to
-the file as a whole.
+```js
+export default {
+  markdown: {
+    mdx: {
+      data: {
+        "docs/**": {
+          features: ["[].title", "[].description"],
+        },
+      },
+    },
+  },
+};
+```
+
+Or locally with annotations:
+
+```mdx
+export const cards = /** @polystella translate title, description */ [
+  { title: "Fast setup", description: "Start in minutes.", icon: "rocket" },
+];
+```
+
+The annotation marks the next static object/array literal. It does
+not execute a function or evaluate runtime code.
+
+## Recipes
+
+Recipes are reusable MDX rule fragments for frameworks or design
+systems:
+
+```js
+import { starlightRecipe } from "@cloudflare/polystella/recipes/starlight";
+
+export default {
+  markdown: {
+    mdx: {
+      recipes: [starlightRecipe()],
+    },
+  },
+};
+```
+
+Project config overrides recipe rules. Inline annotations are the
+strongest signal because they sit next to the content.
+
+## What Stays Verbatim
+
+- Imports and exports, except static data string fields selected by
+  `markdown.mdx.data` or annotations.
+- Code blocks and fences.
+- Machine props such as `type`, `variant`, `icon`, `class`, `id`,
+  `href`, and `src`, unless you explicitly configure otherwise.
+- Expression props such as `` title={`Hello ${name}`} ``.
+
+Dynamic expressions belong in catalogs/runtime i18n, not content
+translation. PolyStella does not evaluate JavaScript inside MDX.
+
+## Auditing
+
+Use `polystella audit-mdx` to find likely missed MDX translation
+surfaces, such as unconfigured component props or expression props
+that should move to a catalog.

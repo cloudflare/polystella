@@ -435,6 +435,88 @@ describe("resolveOptions — markdown.contextKeys", () => {
   });
 });
 
+describe("resolveOptions — markdown.mdx", () => {
+  it("defaults to an empty MDX config with no recipes", () => {
+    const resolved = resolveOptions({}, HAPPY_I18N);
+
+    expect(resolved.markdown.mdx).toEqual({ recipes: [] });
+  });
+
+  it("accepts HTML attributes, component rules, data rules, and recipes", () => {
+    const resolved = resolveOptions(
+      {
+        markdown: {
+          mdx: {
+            htmlAttributes: { "*": ["alt"], button: ["aria-label"] },
+            components: {
+              Callout: { children: true, props: ["title"] },
+              CodeBlock: { children: false, props: [] },
+            },
+            data: {
+              "docs/**": {
+                features: ["[].title", "[].description"],
+              },
+            },
+            recipes: [
+              {
+                components: {
+                  Badge: { children: true },
+                },
+              },
+              {
+                include: ["docs/**"],
+                use: {
+                  data: {
+                    "docs/**": {
+                      faqs: ["[].question", "[].answer"],
+                    },
+                  },
+                },
+              },
+            ],
+          },
+        },
+      },
+      HAPPY_I18N,
+    );
+
+    expect(resolved.markdown.mdx.htmlAttributes?.button).toEqual(["aria-label"]);
+    expect(resolved.markdown.mdx.components?.Callout?.props).toEqual(["title"]);
+    expect(resolved.markdown.mdx.data?.["docs/**"]?.features).toEqual(["[].title", "[].description"]);
+    expect(resolved.markdown.mdx.recipes).toHaveLength(2);
+  });
+
+  it("rejects unknown fields inside MDX config", () => {
+    expect(() =>
+      resolveOptions(
+        {
+          markdown: {
+            mdx: { widgets: {} } as Record<string, unknown>,
+          },
+        },
+        HAPPY_I18N,
+      ),
+    ).toThrowError();
+  });
+
+  it("rejects unknown fields inside component rules", () => {
+    expect(() =>
+      resolveOptions(
+        {
+          markdown: {
+            mdx: {
+              components: {
+                Callout: { children: true, propz: ["title"] } as Record<string, unknown>,
+              },
+            },
+          },
+        },
+        HAPPY_I18N,
+      ),
+    ).toThrowError();
+  });
+});
+
 describe("resolveOptions — provider.batchInputTokenBudget", () => {
   // Soft cap on per-batch input tokens. Sized to leave room for the
   // model's response within `maxTokens`. Provider-agnostic — lives on

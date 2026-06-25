@@ -56,11 +56,21 @@ export const markdownAdapter: FileTypeAdapter<Root> = {
     // The existing extractor takes the user-facing `frontmatter` map;
     // the adapter interface generalises that to `translatableKeys`.
     // For markdown the two are interchangeable.
-    return extractSegments(parsed, { sourcePath: opts.sourcePath, frontmatter: opts.translatableKeys }, source);
+    return extractSegments(
+      parsed,
+      {
+        sourcePath: opts.sourcePath,
+        frontmatter: opts.translatableKeys,
+        ...(opts.mdxRules !== undefined ? { mdxRules: opts.mdxRules } : {}),
+      },
+      source,
+    );
   },
 
   applyTranslations(parsed: Root, source: string, translations: Map<string, string>, opts: AdapterApplyOptions): string {
     return applyTranslations(parsed, translations, source, {
+      ...(opts.sourcePath !== undefined ? { sourcePath: opts.sourcePath } : {}),
+      ...(opts.mdxRules !== undefined ? { mdxRules: opts.mdxRules } : {}),
       ...(opts.topLevelAdditions ? { frontmatterAdditions: opts.topLevelAdditions } : {}),
     });
   },
@@ -166,7 +176,13 @@ export const markdownAdapter: FileTypeAdapter<Root> = {
       if (seg.id.startsWith("fm:")) fmGroup.push(seg);
     }
 
+    const mdxDataGroup: Segment[] = [];
+    for (const seg of segments) {
+      if (!seg.id.startsWith("body:") && !seg.id.startsWith("fm:")) mdxDataGroup.push(seg);
+    }
+
     const groups: Segment[][] = [...bodyGroups];
+    if (mdxDataGroup.length > 0) groups.push(mdxDataGroup);
     if (fmGroup.length > 0) groups.push(fmGroup);
 
     // Always-on invariant check: flat(groups) must equal segments

@@ -21,10 +21,15 @@ For prose context on individual options, see the
 | `sourceDir` | string | `"./content"` | Optional | Project-relative path to the content root the walker scans. |
 | `include` | array of string | `["**/*.md","**/*.mdx"]` | Optional | Glob patterns (relative to `sourceDir`) for files the pipeline picks up. |
 | `exclude` | array of string | `[]` | Optional | Glob patterns to skip even when they match `include`. |
-| `markdown` | object | `{"keys":{},"urls":{},"contextKeys":{}}` | Optional | Markdown / MDX adapter configuration. |
+| `markdown` | object | `{"keys":{},"urls":{},"contextKeys":{},"mdx":{"recipes":[]}}` | Optional | Markdown / MDX adapter configuration. |
 | `markdown.keys` | record (string → array of string) | `{}` | Optional | Per-glob → frontmatter keys to translate. Body inline text is automatic. |
 | `markdown.urls` | record (string → array of string) | `{}` | Optional | Per-glob → frontmatter URL keys that should be locale-prefixed at staging. |
 | `markdown.contextKeys` | record (string → array of string) | `{}` | Optional | Per-glob → frontmatter keys whose source-language values feed the per-batch document-context block. Untranslated. NOT in the cache-key hash. |
+| `markdown.mdx` | object | `{"recipes":[]}` | Optional | MDX-specific JSX, recipe, and static-data extraction rules. |
+| `markdown.mdx.htmlAttributes` | record (string → array of string) | — | Optional | Lowercase HTML element attributes to translate, keyed by tag name or `*`. |
+| `markdown.mdx.components` | record (string → object) | — | Optional | Custom component translation rules keyed by component name. |
+| `markdown.mdx.data` | record (string → record (string → array of string)) | — | Optional | Per-glob static MDX data rules: export/variable name -> translatable paths. |
+| `markdown.mdx.recipes` | array of object | `[]` | Optional | Reusable MDX rule fragments applied before project config. |
 | `toml` | object | `{"keys":{},"urls":{}}` | Optional | TOML adapter configuration. |
 | `toml.keys` | record (string → array of string) | `{}` | Optional | Per-glob → dotted key-paths to translate. |
 | `toml.urls` | record (string → array of string) | `{}` | Optional | Per-glob → dotted key-paths of URL fields that should be locale-prefixed. |
