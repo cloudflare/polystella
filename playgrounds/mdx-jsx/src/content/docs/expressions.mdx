@@ -1,0 +1,23 @@
+---
+title: Expressions And Catalog Boundaries
+description: Dynamic expressions should stay outside content translation.
+canonicalUrl: /docs/expressions
+---
+
+import Callout from "../../components/Callout.astro";
+
+export const name = "Ada";
+
+# Expressions And Catalog Boundaries
+
+<Callout title={`Hello ${name}`} type="info">
+
+Dynamic expressions should not be translated by evaluating JavaScript. They belong in catalogs, frontmatter, or explicitly annotated static data.
+
+</Callout>
+
+<Callout title={"Static expression string"} type="success">
+
+Even static expression strings are intentionally not part of the first safe boundary.
+
+</Callout>

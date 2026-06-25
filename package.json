@@ -95,6 +95,8 @@
     "test:watch": "vitest",
     "build": "tsc -p tsconfig.build.json && chmod +x dist/cli.js",
     "build:llms": "node scripts/build-llms-full.mjs",
+    "playground:mdx-jsx:build": "pnpm --filter polystella-playground-mdx-jsx build",
+    "playground:mdx-jsx:translate:dry-run": "pnpm --filter polystella-playground-mdx-jsx translate:dry-run",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "prepare": "pnpm build && (git config core.hooksPath .githooks 2>/dev/null || true)",

@@ -8,9 +8,9 @@
  *   - `extractTokens` — set of `{{name}}` placeholders in a string
  *   - `validateTokenPreservation` — same set source vs. translation
  *   - `selectEmptyKeys` — pairs that need translating
- *   - `translateUiStringsForLocale` — one `translateBatch` round-trip
- *     per locale, plus a post-hoc token validator that re-throws to
- *     trigger the existing retry loop.
+ *   - `translateUiStringsForLocale` — one or more `translateBatch`
+ *     round-trips per locale, plus a post-hoc token validator that
+ *     re-throws to trigger the existing retry loop.
  *
  * Token preservation matters because the runtime `interpolate()`
  * (`i18n/translate.ts`) replaces `{{name}}` with caller-supplied
@@ -21,6 +21,7 @@
 
 import type { Glossary } from "../glossary/glossary.js";
 import type { Segment } from "../parsing/extract.js";
+import { packGroupsIntoBatches } from "../translation/batch.js";
 import type { Translator } from "../translation/provider.js";
 import { translateBatch, type TranslateBatchRetryEvent } from "../translation/provider.js";
 
@@ -32,6 +33,13 @@ import { translateBatch, type TranslateBatchRetryEvent } from "../translation/pr
  * `{{ year }}` fails validation.
  */
 const TOKEN_RE = /\{\{(\w+)\}\}/g;
+
+/**
+ * UI strings are short, so token-budget packing alone can still put
+ * too many response items in one provider call. Keep requests small
+ * enough that providers don't time out on large catalogs.
+ */
+export const DEFAULT_UI_STRING_BATCH_SIZE = 25;
 
 /**
  * Set of distinct token names appearing in `text`. Empty for strings
@@ -57,7 +65,7 @@ export interface TokenValidationIssue {
  * Compare token sets. Returns `null` if the translation preserves
  * every source token verbatim (and adds none extra); otherwise a
  * structured issue. The orchestrator wraps a returned issue in a
- * plain `Error` so `translateBatch`'s retry loop picks it up.
+ * plain `Error` so its retry loop picks it up.
  */
 export function validateTokenPreservation(key: string, source: string, translation: string): TokenValidationIssue | null {
   const sourceTokens = extractTokens(source);
@@ -132,6 +140,10 @@ export interface TranslateUiStringsOptions {
   retryMinTimeoutMs?: number;
   retryFactor?: number;
   retryRandomize?: boolean;
+  /** Soft cap on per-batch input tokens; defaults applied in batch.ts. */
+  inputTokenBudget?: number;
+  /** Max UI-string segments per provider request. Defaults to 25. */
+  maxSegmentsPerBatch?: number;
   signal?: AbortSignal;
   /** Fires after each failed attempt that triggers another retry. */
   onRetry?: (event: TranslateBatchRetryEvent) => void;
@@ -150,15 +162,17 @@ export interface TranslateUiStringsResult {
    * all retries — value left empty so a human can intervene.
    */
   tokenFailures: TokenValidationIssue[];
+  /** Number of provider requests dispatched for this locale. */
+  batchCount: number;
 }
 
 /**
  * Translate every empty-valued key in `localeDict` whose source is
- * non-empty. One batched LLM call per locale (the marker protocol
- * was designed for this). The token validator runs after
- * `parseResponse`; on failure we throw a plain Error so `p-retry`
- * inside `translateBatch` re-issues the same prompt — sampling
- * variance is what makes attempt N+1 succeed.
+ * non-empty. Large catalogs are split into sequential provider
+ * requests by input-token budget and max UI-string count. The token
+ * validator runs after each request's `parseResponse`; on failure we
+ * throw a plain Error so the local retry loop re-issues that batch —
+ * sampling variance is what makes attempt N+1 succeed.
  *
  * Token failures that survive all retries are reported, NOT fatal:
  * the key is left empty and the caller surfaces the list. Hard-
@@ -169,84 +183,39 @@ export async function translateUiStringsForLocale(opts: TranslateUiStringsOption
   const empties = selectEmptyKeys(opts.sourceDict, opts.localeDict);
   const dict: Record<string, string> = { ...opts.localeDict };
   if (empties.length === 0) {
-    return { dict, filled: [], tokenFailures: [] };
+    return { dict, filled: [], tokenFailures: [], batchCount: 0 };
   }
 
   const segments: Segment[] = empties.map(({ key, source }) => ({ id: key, text: source }));
+  const batches = packUiStringBatches(segments, {
+    ...(opts.inputTokenBudget !== undefined ? { inputTokenBudget: opts.inputTokenBudget } : {}),
+    ...(opts.maxSegmentsPerBatch !== undefined ? { maxSegmentsPerBatch: opts.maxSegmentsPerBatch } : {}),
+  });
   const glossaryWithRule = withTokenPreservationRule(opts.glossary);
 
-  // Token validation lives outside `translateBatch`, so a validation
-  // failure here doesn't trigger that function's internal retry. We
-  // implement our own retry wrapping: on validation failure, throw
-  // and re-invoke the whole batch. That's coarse-grained (one bad
-  // segment retries every segment), but the alternative — a
-  // per-segment retry — defeats the batching point. With glossary
-  // + style-rule guidance the validator failure rate is low.
-  const totalAttempts = Math.max(1, (opts.maxRetries ?? 0) + 1);
-  let translations: Map<string, string> | undefined;
-  let tokenFailures: TokenValidationIssue[] = [];
-  let lastTokenErr: Error | undefined;
+  const translations = new Map<string, string>();
+  const tokenFailures: TokenValidationIssue[] = [];
 
-  for (let attempt = 1; attempt <= totalAttempts; attempt++) {
-    try {
-      const result = await translateBatch({
-        translator: opts.translator,
-        segments,
-        glossary: glossaryWithRule,
-        sourceLocale: opts.sourceLocale,
-        targetLocale: opts.targetLocale,
-        // Don't double-retry: we handle retries here so the token
-        // validator sees every attempt's output.
-        maxRetries: 0,
-        ...(opts.context !== undefined ? { context: opts.context } : {}),
-        ...(opts.retryMinTimeoutMs !== undefined ? { retryMinTimeoutMs: opts.retryMinTimeoutMs } : {}),
-        ...(opts.retryFactor !== undefined ? { retryFactor: opts.retryFactor } : {}),
-        ...(opts.retryRandomize !== undefined ? { retryRandomize: opts.retryRandomize } : {}),
-        ...(opts.signal !== undefined ? { signal: opts.signal } : {}),
-      });
-
-      // Validate token preservation across every translated segment.
-      const failures: TokenValidationIssue[] = [];
-      for (const { key, source } of empties) {
-        const translation = result.get(key);
-        if (translation === undefined) continue;
-        const issue = validateTokenPreservation(key, source, translation);
-        if (issue !== null) failures.push(issue);
-      }
-
-      if (failures.length === 0) {
-        translations = result;
-        tokenFailures = [];
-        break;
-      }
-
-      lastTokenErr = new Error(
-        `[polystella] token-preservation validation failed for ${failures.length} key(s): ${failures
-          .map((f) => `${f.key} (missing: [${f.missing.join(", ")}], spurious: [${f.spurious.join(", ")}])`)
-          .join("; ")}`,
-      );
-      tokenFailures = failures;
-      translations = result;
-
-      // Last attempt → fall through to "land partial results + report".
-      if (attempt < totalAttempts) {
-        opts.onRetry?.({ attempt, totalAttempts, error: lastTokenErr });
-        continue;
-      }
-    } catch (err) {
-      // Provider / parse failure. Re-throw on the final attempt so the
-      // caller sees the real error; otherwise log via onRetry and try
-      // again. `translateBatch` itself does not retry (we set
-      // maxRetries: 0 above), so this is the sole retry surface.
-      if (attempt >= totalAttempts) throw err;
-      opts.onRetry?.({ attempt, totalAttempts, error: err as Error });
+  for (const batch of batches) {
+    opts.signal?.throwIfAborted();
+    const result = await translateUiBatchWithRetries({
+      segments: batch,
+      translator: opts.translator,
+      glossary: glossaryWithRule,
+      sourceLocale: opts.sourceLocale,
+      targetLocale: opts.targetLocale,
+      ...(opts.maxRetries !== undefined ? { maxRetries: opts.maxRetries } : {}),
+      ...(opts.context !== undefined ? { context: opts.context } : {}),
+      ...(opts.retryMinTimeoutMs !== undefined ? { retryMinTimeoutMs: opts.retryMinTimeoutMs } : {}),
+      ...(opts.retryFactor !== undefined ? { retryFactor: opts.retryFactor } : {}),
+      ...(opts.retryRandomize !== undefined ? { retryRandomize: opts.retryRandomize } : {}),
+      ...(opts.signal !== undefined ? { signal: opts.signal } : {}),
+      ...(opts.onRetry !== undefined ? { onRetry: opts.onRetry } : {}),
+    });
+    for (const [id, text] of result.translations) {
+      translations.set(id, text);
     }
-  }
-
-  if (translations === undefined) {
-    // Shouldn't be reachable: the loop either succeeds, returns a
-    // partial result with tokenFailures, or rethrows. Defensive.
-    return { dict, filled: [], tokenFailures };
+    tokenFailures.push(...result.tokenFailures);
   }
 
   // Apply: for every empty pair, if the model returned a token-valid
@@ -263,5 +232,118 @@ export async function translateUiStringsForLocale(opts: TranslateUiStringsOption
   }
   filled.sort();
 
-  return { dict, filled, tokenFailures };
+  return { dict, filled, tokenFailures, batchCount: batches.length };
+}
+
+interface PackUiStringBatchesOptions {
+  inputTokenBudget?: number;
+  maxSegmentsPerBatch?: number;
+}
+
+function packUiStringBatches(segments: Segment[], opts: PackUiStringBatchesOptions): Segment[][] {
+  const tokenBatches = packGroupsIntoBatches(
+    segments.map((segment) => [segment]),
+    {
+      ...(opts.inputTokenBudget !== undefined ? { inputTokenBudget: opts.inputTokenBudget } : {}),
+    },
+  );
+  const requestedMax = opts.maxSegmentsPerBatch ?? DEFAULT_UI_STRING_BATCH_SIZE;
+  const maxSegments = Number.isFinite(requestedMax) ? Math.max(1, Math.floor(requestedMax)) : DEFAULT_UI_STRING_BATCH_SIZE;
+  const batches: Segment[][] = [];
+
+  for (const tokenBatch of tokenBatches) {
+    for (let i = 0; i < tokenBatch.length; i += maxSegments) {
+      batches.push(tokenBatch.slice(i, i + maxSegments));
+    }
+  }
+
+  return batches;
+}
+
+interface TranslateUiBatchWithRetriesOptions {
+  segments: Segment[];
+  translator: Translator;
+  glossary: Glossary;
+  sourceLocale: string;
+  targetLocale: string;
+  context?: string | undefined;
+  maxRetries?: number;
+  retryMinTimeoutMs?: number;
+  retryFactor?: number;
+  retryRandomize?: boolean;
+  signal?: AbortSignal;
+  onRetry?: (event: TranslateBatchRetryEvent) => void;
+}
+
+interface TranslateUiBatchWithRetriesResult {
+  translations: Map<string, string>;
+  tokenFailures: TokenValidationIssue[];
+}
+
+async function translateUiBatchWithRetries(opts: TranslateUiBatchWithRetriesOptions): Promise<TranslateUiBatchWithRetriesResult> {
+  const totalAttempts = Math.max(1, (opts.maxRetries ?? 0) + 1);
+  let translations: Map<string, string> | undefined;
+  let tokenFailures: TokenValidationIssue[] = [];
+
+  for (let attempt = 1; attempt <= totalAttempts; attempt++) {
+    try {
+      const result = await translateBatch({
+        translator: opts.translator,
+        segments: opts.segments,
+        glossary: opts.glossary,
+        sourceLocale: opts.sourceLocale,
+        targetLocale: opts.targetLocale,
+        // Don't double-retry: we handle retries here so the token
+        // validator sees every attempt's output.
+        maxRetries: 0,
+        ...(opts.context !== undefined ? { context: opts.context } : {}),
+        ...(opts.retryMinTimeoutMs !== undefined ? { retryMinTimeoutMs: opts.retryMinTimeoutMs } : {}),
+        ...(opts.retryFactor !== undefined ? { retryFactor: opts.retryFactor } : {}),
+        ...(opts.retryRandomize !== undefined ? { retryRandomize: opts.retryRandomize } : {}),
+        ...(opts.signal !== undefined ? { signal: opts.signal } : {}),
+      });
+
+      // Validate token preservation across every translated segment.
+      const failures: TokenValidationIssue[] = [];
+      for (const segment of opts.segments) {
+        const translation = result.get(segment.id);
+        if (translation === undefined) continue;
+        const issue = validateTokenPreservation(segment.id, segment.text, translation);
+        if (issue !== null) failures.push(issue);
+      }
+
+      if (failures.length === 0) {
+        return { translations: result, tokenFailures: [] };
+      }
+
+      const tokenErr = new Error(
+        `[polystella] token-preservation validation failed for ${failures.length} key(s): ${failures
+          .map((f) => `${f.key} (missing: [${f.missing.join(", ")}], spurious: [${f.spurious.join(", ")}])`)
+          .join("; ")}`,
+      );
+      tokenFailures = failures;
+      translations = result;
+
+      // Last attempt → fall through to "land partial results + report".
+      if (attempt < totalAttempts) {
+        opts.onRetry?.({ attempt, totalAttempts, error: tokenErr });
+        continue;
+      }
+    } catch (err) {
+      // Provider / parse failure. Re-throw on the final attempt so the
+      // caller sees the real error; otherwise log via onRetry and try
+      // again. `translateBatch` itself does not retry (we set
+      // maxRetries: 0 above), so this is the sole retry surface.
+      if (attempt >= totalAttempts) throw err;
+      opts.onRetry?.({ attempt, totalAttempts, error: err as Error });
+    }
+  }
+
+  if (translations === undefined) {
+    // Shouldn't be reachable: the loop either succeeds, returns a
+    // partial result with tokenFailures, or rethrows. Defensive.
+    return { translations: new Map(), tokenFailures };
+  }
+
+  return { translations, tokenFailures };
 }

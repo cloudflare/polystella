@@ -22,7 +22,7 @@ import {
  * behaviour and partial-result reporting are pinned by name.
  */
 
-function makeStubTranslator(responses: string[]): Translator & { calls: number } {
+function makeStubTranslator(responses: Array<string | Error>): Translator & { calls: number } {
   let i = 0;
   const t = {
     modelId: "stub/ui",
@@ -30,6 +30,9 @@ function makeStubTranslator(responses: string[]): Translator & { calls: number }
       const next = responses[i++];
       if (next === undefined) {
         throw new Error("stub translator exhausted");
+      }
+      if (next instanceof Error) {
+        throw next;
       }
       return next;
     }),
@@ -186,6 +189,51 @@ describe("translateUiStringsForLocale", () => {
     expect(result.dict).toEqual({ a: "Atrad", b: "Btrad", c: "Ctrad" });
     expect(result.filled).toEqual(["a", "b", "c"]);
     expect(result.tokenFailures).toEqual([]);
+    expect(result.batchCount).toBe(1);
+  });
+
+  it("splits UI strings into multiple provider requests", async () => {
+    const translator = makeStubTranslator([
+      markerResponse([
+        ["a", "Atrad"],
+        ["b", "Btrad"],
+      ]),
+      markerResponse([["c", "Ctrad"]]),
+    ]);
+    const result = await translateUiStringsForLocale({
+      translator,
+      glossary: EMPTY_GLOSSARY,
+      sourceDict: { a: "A", b: "B", c: "C" },
+      localeDict: { a: "", b: "", c: "" },
+      sourceLocale: "en-US",
+      targetLocale: "pt-BR",
+      maxSegmentsPerBatch: 2,
+    });
+    expect(translator.calls).toBe(2);
+    expect(result.batchCount).toBe(2);
+    expect(result.dict).toEqual({ a: "Atrad", b: "Btrad", c: "Ctrad" });
+    expect(result.filled).toEqual(["a", "b", "c"]);
+  });
+
+  it("retries only the failed UI-string request batch", async () => {
+    const translator = makeStubTranslator([
+      markerResponse([["a", "Atrad"]]),
+      new Error("provider timeout"),
+      markerResponse([["b", "Btrad"]]),
+    ]);
+    const result = await translateUiStringsForLocale({
+      translator,
+      glossary: EMPTY_GLOSSARY,
+      sourceDict: { a: "A", b: "B" },
+      localeDict: { a: "", b: "" },
+      sourceLocale: "en-US",
+      targetLocale: "pt-BR",
+      maxRetries: 1,
+      maxSegmentsPerBatch: 1,
+    });
+    expect(translator.calls).toBe(3);
+    expect(result.batchCount).toBe(2);
+    expect(result.dict).toEqual({ a: "Atrad", b: "Btrad" });
   });
 
   it("preserves existing non-empty locale values", async () => {

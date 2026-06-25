@@ -1,0 +1,16 @@
+---
+interface Props {
+  title: string;
+  description: string;
+  icon?: string;
+  variant?: "default" | "highlight";
+}
+
+const { title, description, icon, variant = "default" } = Astro.props;
+---
+
+<article class={`feature-card feature-card-${variant}`}>
+  {icon && <span aria-hidden="true" class="feature-card-icon">{icon}</span>}
+  <h3>{title}</h3>
+  <p>{description}</p>
+</article>

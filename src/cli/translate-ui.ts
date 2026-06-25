@@ -1,6 +1,6 @@
 /**
  * `polystella translate-ui` — sync (key add/remove) followed by AI
- * fill of empty values, one batched LLM call per locale with work.
+ * fill of empty values, one or more batched LLM calls per locale with work.
  * Uses the same provider stack as the markdown pipeline. Token
  * placeholders (`{{name}}`) are validated post-translation; failures
  * retry the batch and, if persistent, leave the key empty for manual
@@ -20,7 +20,12 @@ import { pathToFileURL } from "node:url";
 import { resolveOptions, type PolyStellaResolvedOptions } from "../config/options.js";
 import { EMPTY_GLOSSARY, loadGlossaries } from "../glossary/glossary.js";
 import { applySyncToDisk, formatLocaleFile, formatSyncSummary, parseSourceLayout, syncLocaleDict } from "../i18n/sync.js";
-import { selectEmptyKeys, translateUiStringsForLocale, type TokenValidationIssue } from "../i18n/ui-translate.js";
+import {
+  DEFAULT_UI_STRING_BATCH_SIZE,
+  selectEmptyKeys,
+  translateUiStringsForLocale,
+  type TokenValidationIssue,
+} from "../i18n/ui-translate.js";
 import { DEFAULT_CATALOG_BASE } from "../catalog/constants.js";
 import { runWithConcurrency } from "../source/pool.js";
 import { createTranslator } from "../translation/provider.js";
@@ -279,7 +284,9 @@ export async function runTranslateUi(args: TranslateUiArgs, deps: TranslateUiDep
     // failure so one provider/read/write problem doesn't kill the run.
 
     try {
-      deps.log(`[polystella] translate-ui: ${progress} — starting locale ${job.locale} (${job.emptyCount} empty placeholder(s)) …`);
+      deps.log(
+        `[polystella] translate-ui: ${progress} — starting locale ${job.locale} (${job.emptyCount} empty placeholder(s), up to ${DEFAULT_UI_STRING_BATCH_SIZE} per request) …`,
+      );
 
       const translator = createTranslator(provider, job.locale);
       const glossary = glossaries.get(job.locale) ?? EMPTY_GLOSSARY;
@@ -293,6 +300,7 @@ export async function runTranslateUi(args: TranslateUiArgs, deps: TranslateUiDep
         targetLocale: job.locale,
         ...(resolved.prompt.context !== undefined ? { context: resolved.prompt.context } : {}),
         maxRetries: resolved.maxRetries,
+        inputTokenBudget: provider.batchInputTokenBudget,
         retryMinTimeoutMs: 250,
         retryFactor: 2,
         retryRandomize: true,
@@ -321,10 +329,12 @@ export async function runTranslateUi(args: TranslateUiArgs, deps: TranslateUiDep
 
       if (result.filled.length > 0) {
         deps.log(
-          `[polystella] translate-ui: ${progress} — ${job.locale} filled ${result.filled.length} key(s): ${result.filled.join(", ")}`,
+          `[polystella] translate-ui: ${progress} — ${job.locale} filled ${result.filled.length} key(s) across ${result.batchCount} request batch(es): ${result.filled.join(", ")}`,
         );
       } else {
-        deps.log(`[polystella] translate-ui: ${progress} — ${job.locale} had no empty placeholders left to fill.`);
+        deps.log(
+          `[polystella] translate-ui: ${progress} — ${job.locale} had no empty placeholders left to fill across ${result.batchCount} request batch(es).`,
+        );
       }
       if (result.tokenFailures.length > 0) {
         deps.warn(`[polystella]   ${progress} — ${job.locale}: token-preservation failed for ${result.tokenFailures.length} key(s):`);

@@ -1,0 +1,22 @@
+{
+  "name": "polystella-playground-mdx-jsx",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "PolyStella MDX/JSX behavior playground.",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "translate:dry-run": "polystella translate --dry-run --report ./i18n-r2-report.json"
+  },
+  "dependencies": {
+    "@astrojs/mdx": "^5.0.0",
+    "@cloudflare/polystella": "workspace:*",
+    "astro": "^6.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0"
+  }
+}

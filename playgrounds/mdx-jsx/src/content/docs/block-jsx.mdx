@@ -1,0 +1,35 @@
+---
+title: Block JSX Wrappers
+description: Prose inside block-level components should remain discoverable.
+canonicalUrl: /docs/block-jsx
+---
+
+import Callout from "../../components/Callout.astro";
+import FeatureGrid from "../../components/FeatureGrid.astro";
+
+export const blockFeatures = [
+  {
+    title: "Nested markdown survives",
+    description: "The wrapper remains untouched while inner prose becomes a translation segment.",
+    icon: "layers",
+  },
+  {
+    title: "Component props stay stable",
+    description: "Machine props such as type and icon should not be translated by default.",
+    icon: "shield",
+  },
+];
+
+# Block JSX Wrappers
+
+<Callout type="warning" title="Beta notice">
+
+This page is in beta. Some sections may be incomplete.
+
+## Markdown Inside A Component
+
+Nested headings and paragraphs should be translated without changing the component tags.
+
+</Callout>
+
+<FeatureGrid items={blockFeatures} />

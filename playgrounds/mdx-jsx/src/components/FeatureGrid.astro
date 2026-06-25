@@ -1,0 +1,20 @@
+---
+import FeatureCard from "./FeatureCard.astro";
+
+interface FeatureItem {
+  title: string;
+  description: string;
+  icon?: string;
+  variant?: "default" | "highlight";
+}
+
+interface Props {
+  items: FeatureItem[];
+}
+
+const { items } = Astro.props;
+---
+
+<section class="feature-grid">
+  {items.map((item) => <FeatureCard {...item} />)}
+</section>

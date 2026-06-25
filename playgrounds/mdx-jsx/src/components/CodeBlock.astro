@@ -1,0 +1,12 @@
+---
+interface Props {
+  label?: string;
+}
+
+const { label = "Code example" } = Astro.props;
+---
+
+<figure class="code-block">
+  <figcaption>{label}</figcaption>
+  <pre><slot /></pre>
+</figure>
