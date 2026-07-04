@@ -13,11 +13,11 @@ polystella audit-mdx [flags]
 
 ## Flags
 
-| Flag            | Purpose                                                        |
-| --------------- | -------------------------------------------------------------- |
+| Flag            | Purpose                                                              |
+| --------------- | -------------------------------------------------------------------- |
 | `--file <glob>` | Replace configured include globs with one `sourceDir`-relative glob. |
-| `--json`        | Emit structured JSON for tooling.                              |
-| `--help`        | Print command help.                                            |
+| `--json`        | Emit structured JSON for tooling.                                    |
+| `--help`        | Print command help.                                                  |
 
 ## What It Reports
 

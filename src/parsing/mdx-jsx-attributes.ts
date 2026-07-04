@@ -7,11 +7,7 @@ export interface CollectMdxJsxAttributeOptions {
   mdxRules: NormalizedMdxRules;
 }
 
-export function collectMdxJsxAttributeSegments(
-  ast: Root,
-  source: string,
-  opts: CollectMdxJsxAttributeOptions,
-): MarkdownCollectedSegment[] {
+export function collectMdxJsxAttributeSegments(ast: Root, source: string, opts: CollectMdxJsxAttributeOptions): MarkdownCollectedSegment[] {
   const out: MarkdownCollectedSegment[] = [];
   walkUnknown(ast, (node) => {
     if (!isMdxJsxElement(node)) return;
@@ -75,9 +71,7 @@ function findQuotedAttributeValueSpan(
 function isMdxJsxElement(node: unknown): node is { type: string; name: string } {
   if (typeof node !== "object" || node === null) return false;
   const candidate = node as { type?: unknown; name?: unknown };
-  return (
-    candidate.type === "mdxJsxFlowElement" && typeof candidate.name === "string"
-  );
+  return candidate.type === "mdxJsxFlowElement" && typeof candidate.name === "string";
 }
 
 function isMdxJsxAttribute(node: unknown): node is { type: string; name: string; value: unknown } {

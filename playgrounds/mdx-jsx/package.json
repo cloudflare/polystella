@@ -9,7 +9,9 @@
     "build": "astro build",
     "preview": "astro preview",
     "audit-mdx": "polystella audit-mdx",
-    "translate:dry-run": "polystella translate --dry-run --report ./i18n-r2-report.json"
+    "translate:dry-run": "polystella translate --dry-run --report ./i18n-r2-report.json",
+    "translate:local": "node ./scripts/translate-local.mjs",
+    "translate:workers-ai": "node ./scripts/translate-workers-ai.mjs"
   },
   "dependencies": {
     "@astrojs/mdx": "^5.0.0",

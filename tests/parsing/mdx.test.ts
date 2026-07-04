@@ -282,7 +282,7 @@ describe("markdownAdapter — MDX static data config", () => {
   });
 
   it("escapes translated quote characters for the original JS string quote", () => {
-    const one = 'export const features = [{ title: "Fast setup", description: \'Start here.\' }];\n';
+    const one = "export const features = [{ title: \"Fast setup\", description: 'Start here.' }];\n";
     const parsed = markdownAdapter.parse(one, sourcePath);
     const rules = mdxRules();
     const translations = new Map([
@@ -325,14 +325,22 @@ describe("markdownAdapter — MDX static data annotations", () => {
     });
     const annotationSegments = segments.filter((segment) => segment.id.startsWith("mdx:annotation:"));
 
-    expect(annotationSegments.map((segment) => segment.text)).toEqual(["Local", "Local body", "Returned", "Return body", "Inline", "Inline body"]);
+    expect(annotationSegments.map((segment) => segment.text)).toEqual([
+      "Local",
+      "Local body",
+      "Returned",
+      "Return body",
+      "Inline",
+      "Inline body",
+    ]);
     expect(segments.map((segment) => segment.text)).not.toContain("highlight");
     expect(segments.map((segment) => segment.text)).not.toContain("box");
     expect(segments.map((segment) => segment.text)).not.toContain("bolt");
   });
 
   it("applies annotated static literal translations", () => {
-    const source = 'export const cards = /** @polystella translate title, description */ [{ title: "Local", description: "Local body" }];\n';
+    const source =
+      'export const cards = /** @polystella translate title, description */ [{ title: "Local", description: "Local body" }];\n';
     const parsed = markdownAdapter.parse(source, sourcePath);
     const rules = defaultMdxRules();
     const segments = markdownAdapter.extractSegments(parsed, source, {
@@ -409,6 +417,46 @@ describe("markdownAdapter — MDX JSX attributes", () => {
     expect(out).toContain("title='Beta notice &amp; \"translated\"'");
     expect(out).toContain('type="warning"');
   });
+
+  it("throws before splicing if replacement spans overlap", () => {
+    const source = 'aaaa title="Copy" zzzz';
+    const parsed = {
+      type: "root",
+      children: [
+        {
+          type: "paragraph",
+          children: [
+            {
+              type: "text",
+              value: source,
+              position: { start: { offset: 0 }, end: { offset: source.length } },
+            },
+          ],
+        },
+        {
+          type: "mdxJsxFlowElement",
+          name: "Callout",
+          attributes: [
+            {
+              type: "mdxJsxAttribute",
+              name: "title",
+              value: "Copy",
+              position: { start: { offset: 5 }, end: { offset: 17 } },
+            },
+          ],
+          children: [],
+        },
+      ],
+    } as unknown as Parameters<typeof markdownAdapter.applyTranslations>[0];
+    const translations = new Map([
+      ["body:0", "TR:body"],
+      ["mdx:attr:Callout.title:12", "TR:prop"],
+    ]);
+
+    expect(() => markdownAdapter.applyTranslations(parsed, source, translations, { sourcePath, mdxRules: rules() })).toThrowError(
+      /overlapping markdown replacement spans/,
+    );
+  });
 });
 
 describe("markdownAdapter — placeholder-protected inline JSX", () => {
@@ -420,7 +468,7 @@ describe("markdownAdapter — placeholder-protected inline JSX", () => {
         markdown: {
           mdx: {
             components: {
-              Icon: { children: false },
+              Icon: { children: false, props: ["label"] },
             },
           },
         },
@@ -446,12 +494,10 @@ describe("markdownAdapter — placeholder-protected inline JSX", () => {
     const source = "This feature is <Badge>new</Badge> and experimental.\n";
     const parsed = markdownAdapter.parse(source, sourcePath);
     const mdxRules = rules();
-    const out = markdownAdapter.applyTranslations(
-      parsed,
-      source,
-      new Map([["body:0", 'Experimental: <ph id="0">nouvelle</ph>.']]),
-      { sourcePath, mdxRules },
-    );
+    const out = markdownAdapter.applyTranslations(parsed, source, new Map([["body:0", 'Experimental: <ph id="0">nouvelle</ph>.']]), {
+      sourcePath,
+      mdxRules,
+    });
 
     expect(out).toBe("Experimental: <Badge>nouvelle</Badge>.\n");
   });
@@ -473,6 +519,33 @@ describe("markdownAdapter — placeholder-protected inline JSX", () => {
       mdxRules,
     });
     expect(out).toBe('Continue with <Icon name="download" />.\n');
+  });
+
+  it("translates configured props inside opaque inline JSX placeholders", () => {
+    const source = 'Click <Icon name="download" label="Download" /> to continue.\n';
+    const parsed = markdownAdapter.parse(source, sourcePath);
+    const mdxRules = rules();
+    const segments = markdownAdapter.extractSegments(parsed, source, {
+      sourcePath,
+      translatableKeys: {},
+      mdxRules,
+    });
+
+    expect(segments.map((segment) => `${segment.id}=${segment.text}`)).toEqual([
+      'body:0=Click <ph id="0"/> to continue.',
+      expect.stringMatching(/^mdx:inline-attr:Icon\.label:\d+=Download$/),
+    ]);
+
+    const labelSegment = segments.find((segment) => segment.id.startsWith("mdx:inline-attr:Icon.label:"));
+    expect(labelSegment).toBeDefined();
+    const translations = new Map([
+      ["body:0", 'Continue with <ph id="0"/>.'],
+      [labelSegment?.id ?? "", "Baixar"],
+    ]);
+
+    const out = markdownAdapter.applyTranslations(parsed, source, translations, { sourcePath, mdxRules });
+
+    expect(out).toBe('Continue with <Icon name="download" label="Baixar" />.\n');
   });
 
   it("throws when translated output corrupts inline JSX placeholders", () => {

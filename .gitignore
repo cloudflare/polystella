@@ -5,6 +5,7 @@ node_modules/
 dist/
 docs/dist/
 playgrounds/*/dist/
+playgrounds/*/i18n-preview/
 
 # Generated types
 .astro/

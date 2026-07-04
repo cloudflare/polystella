@@ -23,7 +23,7 @@ function baseFiles(polystellaConfig: string): Record<string, string> {
       'import Callout from "../../components/Callout.astro";',
       "",
       '<Callout title="Beta notice" type="warning" />',
-      '<Callout title={`Hello ${name}`} />',
+      "<Callout title={`Hello ${name}`} />",
       "",
     ].join("\n"),
   };

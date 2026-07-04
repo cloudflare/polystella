@@ -20,7 +20,21 @@ export interface AuditMdxAstOptions {
   mdxRules: NormalizedMdxRules;
 }
 
-const TECHNICAL_ATTRS = new Set(["class", "className", "color", "data", "href", "icon", "id", "name", "size", "src", "type", "value", "variant"]);
+const TECHNICAL_ATTRS = new Set([
+  "class",
+  "className",
+  "color",
+  "data",
+  "href",
+  "icon",
+  "id",
+  "name",
+  "size",
+  "src",
+  "type",
+  "value",
+  "variant",
+]);
 const LIKELY_COPY_PROPS = new Set([
   "aria-label",
   "ctaLabel",
@@ -51,7 +65,12 @@ export function auditMdxAst(ast: Root, opts: AuditMdxAstOptions): MdxAuditFindin
         if (allowed.has(attribute.name)) continue;
         if (!shouldAuditStaticAttribute(node.name, attribute.name, attrValue)) continue;
         findings.push(
-          buildStaticAttributeFinding({ sourcePath: opts.sourcePath, elementName: node.name, attribute: { name: attribute.name, value: attrValue }, loc }),
+          buildStaticAttributeFinding({
+            sourcePath: opts.sourcePath,
+            elementName: node.name,
+            attribute: { name: attribute.name, value: attrValue },
+            loc,
+          }),
         );
       } else if (isExpressionAttributeValue(attribute.value) && shouldAuditExpressionAttribute(node.name, attribute.name)) {
         findings.push({
@@ -62,7 +81,8 @@ export function auditMdxAst(ast: Root, opts: AuditMdxAstOptions): MdxAuditFindin
           code: "unsupported-expression-prop",
           text: attribute.value.value,
           message: `JSX expression prop \`${node.name}.${attribute.name}\` is intentionally not translated by MDX content extraction.`,
-          suggestion: "Use a catalog/runtime `t()` call for dynamic UI copy, or move page-local static copy into annotated/configured static data.",
+          suggestion:
+            "Use a catalog/runtime `t()` call for dynamic UI copy, or move page-local static copy into annotated/configured static data.",
         });
       }
     }
@@ -122,9 +142,7 @@ function isLowercaseElementName(name: string): boolean {
 function isMdxJsxElement(node: unknown): node is { type: string; name: string } {
   if (typeof node !== "object" || node === null) return false;
   const candidate = node as { type?: unknown; name?: unknown };
-  return (
-    (candidate.type === "mdxJsxFlowElement" || candidate.type === "mdxJsxTextElement") && typeof candidate.name === "string"
-  );
+  return (candidate.type === "mdxJsxFlowElement" || candidate.type === "mdxJsxTextElement") && typeof candidate.name === "string";
 }
 
 function isMdxJsxAttribute(node: unknown): node is { type: string; name: string; value: unknown } {

@@ -3,6 +3,13 @@ import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { collectMarkdownSegments } from "./extract.js";
 import { restoreInlineMdxPlaceholders } from "./mdx-placeholders.js";
 
+interface TextEdit {
+  start: number;
+  end: number;
+  replacement: string;
+  label: string;
+}
+
 /**
  * Replace translatable segments in `source` with their translations
  * and return the new markdown.
@@ -58,7 +65,7 @@ export function applyTranslations(
 
   // Edits are applied right-to-left so earlier offsets stay valid
   // while we splice.
-  const edits: Array<{ start: number; end: number; replacement: string }> = [];
+  const edits: TextEdit[] = [];
 
   const collected = collectMarkdownSegments(
     ast,
@@ -70,11 +77,11 @@ export function applyTranslations(
     const translation = translations.get(entry.segment.id);
     if (translation === undefined) continue;
     if (!entry.span) continue;
-    const replacement = formatSegmentReplacement(entry, translation);
+    const replacement = formatSegmentReplacement(entry, translation, translations);
     // Inline span (children's range), not the whole block — keeps
     // heading/list/blockquote markers in place. The extractor reads
     // the same range, so the round-trip works.
-    edits.push({ ...entry.span, replacement });
+    edits.push({ ...entry.span, replacement, label: entry.segment.id });
   }
 
   const frontmatterNode = ast.children.find((child): child is Yaml => child.type === "yaml");
@@ -97,6 +104,7 @@ export function applyTranslations(
         edits.push({
           ...fmSpan,
           replacement: `---\n${newInner}\n---`,
+          label: "frontmatter",
         });
       }
     }
@@ -105,13 +113,14 @@ export function applyTranslations(
     // `\n\n` separates the closing `---` from the body.
     const newInner = stringifyYaml(additions).replace(/\n+$/, "");
     const block = `---\n${newInner}\n---\n\n`;
-    edits.push({ start: 0, end: 0, replacement: block });
+    edits.push({ start: 0, end: 0, replacement: block, label: "frontmatter:add" });
   }
 
   if (edits.length === 0) {
     return source;
   }
 
+  assertNonOverlappingEdits(edits, options.sourcePath);
   edits.sort((a, b) => b.start - a.start);
   let output = source;
   for (const edit of edits) {
@@ -120,8 +129,40 @@ export function applyTranslations(
   return output;
 }
 
-function formatSegmentReplacement(entry: { placeholders?: Parameters<typeof restoreInlineMdxPlaceholders>[1] | undefined; replacement?: { kind: "js-string" | "quoted-attribute"; quote: "'" | '"' } | undefined }, value: string): string {
-  const restored = entry.placeholders !== undefined ? restoreInlineMdxPlaceholders(value, entry.placeholders) : value;
+function assertNonOverlappingEdits(edits: readonly TextEdit[], sourcePath: string | undefined): void {
+  for (const edit of edits) {
+    if (edit.start < 0 || edit.end < edit.start) {
+      throw new Error(
+        `[polystella] invalid markdown replacement span${formatSourcePath(sourcePath)}: ${edit.label} [${edit.start}, ${edit.end})`,
+      );
+    }
+  }
+
+  const occupied = edits.filter((edit) => edit.start < edit.end).sort((a, b) => a.start - b.start || a.end - b.end);
+  let previous: TextEdit | undefined;
+  for (const edit of occupied) {
+    if (previous !== undefined && edit.start < previous.end) {
+      throw new Error(
+        `[polystella] overlapping markdown replacement spans${formatSourcePath(sourcePath)}: ${previous.label} [${previous.start}, ${previous.end}) overlaps ${edit.label} [${edit.start}, ${edit.end})`,
+      );
+    }
+    previous = edit;
+  }
+}
+
+function formatSourcePath(sourcePath: string | undefined): string {
+  return sourcePath && sourcePath.length > 0 ? ` in ${sourcePath}` : "";
+}
+
+function formatSegmentReplacement(
+  entry: {
+    placeholders?: Parameters<typeof restoreInlineMdxPlaceholders>[1] | undefined;
+    replacement?: { kind: "js-string" | "quoted-attribute"; quote: "'" | '"' } | undefined;
+  },
+  value: string,
+  translations: ReadonlyMap<string, string>,
+): string {
+  const restored = entry.placeholders !== undefined ? restoreInlineMdxPlaceholders(value, entry.placeholders, translations) : value;
   return formatCollectedReplacement(entry.replacement, restored);
 }
 

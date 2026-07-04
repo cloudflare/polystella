@@ -67,6 +67,7 @@ export function extractSegments(ast: Root, opts: ExtractOptions, source: string)
 
 export function collectMarkdownSegments(ast: Root, opts: ExtractOptions, source: string): MarkdownCollectedSegment[] {
   const segments: MarkdownCollectedSegment[] = [];
+  const placeholderSegments: MarkdownCollectedSegment[] = [];
 
   visitTranslatableBlocks(ast, ({ block, id }) => {
     const span = inlineSpan(block);
@@ -80,10 +81,21 @@ export function collectMarkdownSegments(ast: Root, opts: ExtractOptions, source:
         span,
         ...(protectedText !== undefined ? { placeholders: protectedText.placeholders } : {}),
       });
+      if (protectedText !== undefined) {
+        for (const placeholder of protectedText.placeholders) {
+          for (const attribute of placeholder.attributes) {
+            placeholderSegments.push({
+              segment: { id: attribute.id, text: attribute.text },
+              kind: "placeholder-inline-jsx",
+            });
+          }
+        }
+      }
     }
   });
 
   if (opts.mdxRules !== undefined) {
+    segments.push(...placeholderSegments);
     segments.push(...collectMdxStaticDataSegments(ast, source, { sourcePath: opts.sourcePath, mdxRules: opts.mdxRules }));
     segments.push(...collectMdxJsxAttributeSegments(ast, source, { mdxRules: opts.mdxRules }));
   }

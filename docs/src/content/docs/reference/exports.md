@@ -18,7 +18,7 @@ documented purpose; mixing them up rarely produces a useful build.
 | `@cloudflare/polystella/catalog/astro`      | Catalog-only Astro integration factory.                                                                      |
 | `@cloudflare/polystella/react`              | React hooks: `useTranslations`, `useLocalizedHref` — for islands.                                            |
 | `@cloudflare/polystella/recipes`            | MDX recipe helpers and built-in recipes.                                                                     |
-| `@cloudflare/polystella/recipes/starlight`  | Conservative Starlight MDX recipe.                                                                          |
+| `@cloudflare/polystella/recipes/starlight`  | Conservative Starlight MDX recipe.                                                                           |
 | `@cloudflare/polystella/client`             | Types only. Reference from `src/env.d.ts` for virtual-module types. No runtime import.                       |
 
 ## Which import goes where

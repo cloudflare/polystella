@@ -34,11 +34,7 @@ function getMatcher(pattern: string): (path: string) => boolean {
   return matcher;
 }
 
-export function collectMdxStaticDataSegments(
-  ast: Root,
-  source: string,
-  opts: CollectMdxStaticDataOptions,
-): MarkdownCollectedSegment[] {
+export function collectMdxStaticDataSegments(ast: Root, source: string, opts: CollectMdxStaticDataOptions): MarkdownCollectedSegment[] {
   const bindingRules = resolveBindingRules(opts.mdxRules.data, opts.sourcePath);
   const rulesByBinding = new Map(bindingRules.map((rule) => [rule.bindingName, rule.pathSpecs]));
   const out: MarkdownCollectedSegment[] = [];
@@ -140,9 +136,7 @@ function collectAnnotatedStaticData(args: {
   if (directives.length === 0) return;
   const roots = readLiteralRoots(args.program);
   for (const directive of directives) {
-    const root = roots
-      .filter((candidate) => candidate.range.start >= directive.rangeEnd)
-      .sort((a, b) => a.range.start - b.range.start)[0];
+    const root = roots.filter((candidate) => candidate.range.start >= directive.rangeEnd).sort((a, b) => a.range.start - b.range.start)[0];
     if (root === undefined) continue;
     const pathSpecs = expandAnnotationPathSpecs(directive.pathSpecs, root.node);
     collectFromStaticLiteral({

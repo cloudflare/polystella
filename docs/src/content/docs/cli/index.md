@@ -6,13 +6,13 @@ description: The polystella binary and its verb-style subcommands.
 The package exposes a single `polystella` binary with verb-style
 subcommands:
 
-| Command                   | Purpose                                          | Network          |
-| ------------------------- | ------------------------------------------------ | ---------------- |
-| `polystella translate`    | Markdown pipeline outside `astro build`          | AI provider + R2 |
+| Command                   | Purpose                                           | Network          |
+| ------------------------- | ------------------------------------------------- | ---------------- |
+| `polystella translate`    | Markdown pipeline outside `astro build`           | AI provider + R2 |
 | `polystella audit-mdx`    | Warn about likely missed MDX translation surfaces | None (offline)   |
-| `polystella check-ui`     | Drift detection over UI-string JSONs             | None (offline)   |
-| `polystella sync-ui`      | Mechanical key reconciliation (no AI)            | None (offline)   |
-| `polystella translate-ui` | Sync + AI-fill of empty UI-string placeholders   | AI provider only |
+| `polystella check-ui`     | Drift detection over UI-string JSONs              | None (offline)   |
+| `polystella sync-ui`      | Mechanical key reconciliation (no AI)             | None (offline)   |
+| `polystella translate-ui` | Sync + AI-fill of empty UI-string placeholders    | AI provider only |
 
 Run `polystella --help` for the top-level menu, or
 `polystella <subcommand> --help` for per-subcommand flags.

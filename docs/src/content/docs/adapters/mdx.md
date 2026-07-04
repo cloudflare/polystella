@@ -104,7 +104,7 @@ strongest signal because they sit next to the content.
 - Code blocks and fences.
 - Machine props such as `type`, `variant`, `icon`, `class`, `id`,
   `href`, and `src`, unless you explicitly configure otherwise.
-- Expression props such as `` title={`Hello ${name}`} ``.
+- Expression props such as ``title={`Hello ${name}`}``.
 
 Dynamic expressions belong in catalogs/runtime i18n, not content
 translation. PolyStella does not evaluate JavaScript inside MDX.
