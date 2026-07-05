@@ -17,7 +17,7 @@ on:
 
 permissions:
   issues: write
-  pull-requests: read
+  pull-requests: write
 
 concurrency:
   group: review-state-${{ github.event.pull_request.number || github.run_id }}
@@ -26,11 +26,12 @@ concurrency:
 jobs:
   review-state:
     name: Update review state labels
+    if: github.event_name != 'pull_request_review' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - name: Apply review state labels
-        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        uses: actions/github-script@373c709c69115d41ff229c7e5df9f8788daa9553 # v9
         with:
           script: |
             const owner = context.repo.owner;
