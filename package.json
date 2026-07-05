@@ -114,6 +114,7 @@
     "prepublishOnly": "pnpm build && pnpm build:llms"
   },
   "dependencies": {
+    "acorn": "^8.17.0",
     "p-retry": "^8.0.0",
     "picomatch": "^4.0.4",
     "remark-frontmatter": "^5.0.0",
@@ -121,6 +122,7 @@
     "remark-mdx": "^3.1.1",
     "remark-parse": "^11.0.0",
     "s3mini": "^0.9.4",
+    "satteri": "^0.9.4",
     "smol-toml": "^1.6.1",
     "unified": "^11.0.5",
     "yaml": "^2.8.3"

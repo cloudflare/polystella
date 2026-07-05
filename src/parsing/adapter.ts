@@ -1,5 +1,6 @@
 import type { Segment } from "./extract.js";
 import type { NormalizedMdxRules } from "./mdx-rules.js";
+import type { MarkdownParser } from "./parse.js";
 
 /**
  * Pluggable file-format adapter interface.
@@ -50,7 +51,7 @@ export interface FileTypeAdapter<TParsed = unknown> {
    * `.mdx` (MDX-aware) parsing. Adapters that own a single extension
    * can ignore it.
    */
-  parse(source: string, sourcePath?: string): TParsed;
+  parse(source: string, sourcePath?: string, opts?: AdapterParseOptions): TParsed;
 
   /**
    * Extract translatable segments. `source` is passed through so
@@ -170,6 +171,11 @@ export interface AdapterExtractOptions {
   mdxRules?: NormalizedMdxRules | undefined;
 }
 
+export interface AdapterParseOptions {
+  /** Markdown/MDX parser implementation. Ignored by non-markdown adapters. */
+  markdownParser?: MarkdownParser | undefined;
+}
+
 /**
  * Per-pair options threaded through `applyTranslations`.
  */
@@ -207,6 +213,8 @@ export interface AdapterApplyOptions {
 export interface AdapterRewriteUrlsOptions {
   paths: string[];
   rewriter: (url: string) => string | null;
+  /** Markdown/MDX parser implementation. Ignored by non-markdown adapters. */
+  markdownParser?: MarkdownParser | undefined;
 }
 
 /**

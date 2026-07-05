@@ -92,7 +92,7 @@ export async function runAuditMdx(args: AuditMdxArgs, deps: AuditMdxDeps): Promi
   for (const source of sources) {
     if (!source.relativePath.toLowerCase().endsWith(".mdx")) continue;
     const body = await readFile(source.absolutePath, "utf8");
-    const parsed = markdownAdapter.parse(body, source.relativePath);
+    const parsed = markdownAdapter.parse(body, source.relativePath, { markdownParser: resolved.markdown.parser });
     const mdxRules = normalizeMdxRulesForSource(resolved.markdown.mdx, source.relativePath);
     findings.push(...auditMdxAst(parsed, { sourcePath: source.relativePath, mdxRules, source: body }));
   }

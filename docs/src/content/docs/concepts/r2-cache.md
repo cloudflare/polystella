@@ -15,7 +15,7 @@ local builds can't accidentally overwrite production.
 R2 keys are content-addressed:
 
 ```text
-hash = sha256(body + selectedFrontmatterValues + glossaryHash + modelId)
+hash = sha256(body + selectedFrontmatterValues + glossaryHash + modelId + optionalExtractionPolicyHash)
 ```
 
 Inputs:
@@ -30,6 +30,10 @@ Inputs:
   the whole corpus.
 - **`modelId`** — the per-locale resolved model. Switching models
   is an explicit invalidation.
+- **`optionalExtractionPolicyHash`** — included by adapters whose
+  extraction boundaries are configurable. Markdown/MDX includes the
+  configured parser, and MDX also includes normalized JSX/static-data
+  rules.
 
 ### What's NOT in the hash
 

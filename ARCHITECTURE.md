@@ -137,7 +137,7 @@ Hard contracts. Violating any of these breaks correctness or
 production data. Always link back to the explanatory section when
 adding new code that touches one.
 
-1. **Cache key formula.** `hash = sha256(body + selectedFrontmatterValues + glossaryHash + modelId)`. Any change is a cache-wide invalidation. See [#cache-key](#cache-key).
+1. **Cache key formula.** `hash = sha256(body + selectedFrontmatterValues + glossaryHash + modelId + optionalExtractionPolicyHash)`. Any change is a cache-wide invalidation. See [#cache-key](#cache-key).
 2. **Group flattening.** `flat(adapter.groupSegments(...)) === segments` (reference-equal, order-preserved). Asserted at runtime. See [#translation-batching](#translation-batching).
 3. **Apply before PUT.** `adapter.applyTranslations` must produce the exact bytes that get PUT to R2; any AI-translation marker is woven in inside `apply`, never after. Cache hits return the PUT bytes verbatim. See [#cache-write-order](#cache-write-order).
 4. **Local cache index write isolation.** Pool workers read from `localCacheIndex` (immutable for the run) and write to `nextLocalCacheIndex` (accumulated, persisted at end). A worker MUST NOT read from `nextLocalCacheIndex`. See [#local-staging-index](#local-staging-index).
@@ -247,7 +247,7 @@ pipeline. A future consolidation can extract a shared dep builder.
 R2 keys are content-addressed:
 
 ```
-hash = sha256(body + selectedFrontmatterValues + glossaryHash + modelId)
+hash = sha256(body + selectedFrontmatterValues + glossaryHash + modelId + optionalExtractionPolicyHash)
 ```
 
 Inputs:
@@ -262,6 +262,10 @@ Inputs:
   corpus.
 - **`modelId`** — the per-locale resolved model. Switching models is
   an explicit invalidation.
+- **`optionalExtractionPolicyHash`** — included by adapters whose
+  extraction boundaries are configurable. Markdown/MDX includes the
+  `markdown.parser` choice; MDX also includes normalized JSX/static-data
+  rules.
 
 **Not in the hash:**
 

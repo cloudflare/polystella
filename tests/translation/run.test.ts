@@ -387,6 +387,57 @@ describe("runTranslationPass — staging output", () => {
     // the local cache is to avoid the round-trip when nothing changed.
     expect(r2.calls.get).toBe(0);
   });
+
+  it("separates cache keys by markdown parser policy", async () => {
+    const { rootDir, stagingDir } = await makeProjectFixture({
+      files: { "content/publications/sample.md": SAMPLE_MD },
+    });
+    const r2 = makeInMemoryR2();
+
+    const makeResolved = (parser: "satteri" | "remark") => {
+      const resolved = resolveOptions(
+        {
+          sourceDir: "./content",
+          include: ["**/*.md"],
+          markdown: { parser },
+        },
+        { defaultLocale: "en-US", locales: ["en-US", "pt-BR"] },
+      );
+      resolved.provider = {
+        kind: "workers-ai",
+        accountId: "fake",
+        apiToken: "fake",
+        model: "stub/parser-policy-1",
+        maxTokens: 8192,
+        batchInputTokenBudget: 4000,
+      };
+      return resolved;
+    };
+
+    await runTranslationPass({
+      resolved: makeResolved("satteri"),
+      rootDir,
+      stagingDir,
+      logger: NULL_LOGGER,
+      polystellaVersion: "0.2.0",
+      r2Override: r2.client,
+      translatorOverrides: new Map([["pt-BR", makeStubTranslator("stub/parser-policy-1")]]),
+    });
+
+    await runTranslationPass({
+      resolved: makeResolved("remark"),
+      rootDir,
+      stagingDir,
+      logger: NULL_LOGGER,
+      polystellaVersion: "0.2.0",
+      r2Override: r2.client,
+      translatorOverrides: new Map([["pt-BR", makeStubTranslator("stub/parser-policy-1")]]),
+    });
+
+    expect(r2.store.size).toBe(2);
+    const keys = [...r2.store.keys()];
+    expect(keys[0]).not.toBe(keys[1]);
+  });
 });
 
 describe("runTranslationPass — branch-isolation knobs", () => {

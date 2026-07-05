@@ -31,6 +31,8 @@ Every `(file, locale)` pair has a cache key derived from:
   translatable parts — content hashes are over the whole file).
 - The glossary hash for the target locale.
 - The resolved model id for the target locale.
+- Adapter extraction policy when it affects segment boundaries, such
+  as the configured Markdown/MDX parser.
 
 Edit any of those and the cache key changes; that pair re-translates.
 Leave them alone and the build is essentially free even with a cold

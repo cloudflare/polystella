@@ -68,7 +68,7 @@ matching one of the subsystem sections in
 Hard contracts. Don't violate without thinking carefully — link back
 to the explanatory section when adding code that touches one.
 
-1. **Cache key formula** — `sha256(body + selectedFrontmatterValues + glossaryHash + modelId)`. Changing any input is a cache-wide invalidation. [→ #cache-key](./ARCHITECTURE.md#cache-key)
+1. **Cache key formula** — `sha256(body + selectedFrontmatterValues + glossaryHash + modelId + optionalExtractionPolicyHash)`. Changing any input is a cache-wide invalidation. [→ #cache-key](./ARCHITECTURE.md#cache-key)
 2. **Group flattening** — `flat(adapter.groupSegments(...)) === segments` (reference-equal, order-preserved). Asserted at runtime. [→ #translation-batching](./ARCHITECTURE.md#translation-batching)
 3. **Apply before PUT** — `applyTranslations` produces the exact bytes PUT to R2; markers woven inside `apply`, never after. [→ #cache-write-order](./ARCHITECTURE.md#cache-write-order)
 4. **Local cache index write isolation** — workers write to `nextLocalCacheIndex` only; read only from `localCacheIndex`. [→ #local-staging-index](./ARCHITECTURE.md#local-staging-index)
@@ -130,7 +130,7 @@ Tiered so you can scan the ones that matter for your change.
 ### Will produce confusing failures
 
 - **Override files at `i18n/overrides/{locale}/<path>`** win over AI output verbatim. They run through the URL rewriter (idempotent) but are NOT written to R2. Cache key changes don't affect overrides.
-- **MDX vs MD** — `remark-mdx` disables indented code, autolinks, and raw-HTML blocks. Route through the right parser by extension; never apply MDX rules to `.md`.
+- **MDX vs MD** — `.mdx` uses MDX syntax rules (imports/exports, JSX, expressions); `.md` stays plain Markdown. Route by extension; never apply MDX rules to `.md`.
 - **Drift check fails on empty placeholders** ([#ui-strings](./ARCHITECTURE.md#ui-strings)). `pnpm i18n:sync` alone leaves the tree non-shippable until `pnpm i18n:translate` (or a hand-edit) fills the placeholders. Intentionally-blank labels are supported via matching `""` in the source dict.
 - **UI-string sync writer is layout-aware** ([#ui-strings](./ARCHITECTURE.md#ui-strings)). Running `prettier --write` on a synced file collapses the blank-line section breaks. The pre-commit hook only runs `prettier --check`, so it doesn't trip — but a manual `pnpm format` will churn diffs.
 - **`translate-ui` pre-scans, then runs queued locales in parallel** ([#ui-strings](./ARCHITECTURE.md#ui-strings)). Complete locale JSONs are skipped before provider setup. Queued locales are capped at 3 concurrent workers; each locale is internally split into small sequential request batches. Workers MUST catch every error internally and record it on the per-locale outcome — never re-throw. Re-throwing kills the rest of the run.

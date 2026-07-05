@@ -297,7 +297,7 @@ Then come back here for step-by-step task recipes.
 1. Read [#cache-key](../../ARCHITECTURE.md#cache-key). The current formula is:
 
    ```
-   hash = sha256(body + selectedFrontmatterValues + glossaryHash + modelId)
+   hash = sha256(body + selectedFrontmatterValues + glossaryHash + modelId + optionalExtractionPolicyHash)
    ```
 
 2. **Stop.** Coordinate with the owner before merging. This is **Invariant 1** in `AGENTS.md`. The change needs to be in a major version bump and called out in CHANGELOG.
