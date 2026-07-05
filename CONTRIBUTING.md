@@ -1,7 +1,12 @@
 # Contributing to PolyStella
 
 Thanks for the interest. PolyStella is pre-1.0 and changes land
-quickly — feel free to open issues, propose changes, or send PRs.
+quickly. Contributions, issues, and proposals are welcome.
+
+PolyStella is maintained by a small team. We cannot guarantee that
+issues, discussions, or pull requests will be reviewed promptly, or
+reviewed at all. The guidance below is meant to make contributions
+easier to evaluate when maintainer time is available.
 
 ## Repository overview
 
@@ -44,9 +49,11 @@ Required:
 
 ## Pull request workflow
 
-1. **Open an issue first** for anything non-trivial. PolyStella
-   has tight coupling between adapters / providers / the cache
-   layer; a 5-minute up-front discussion saves a rebase later.
+1. **Open a Discussion first** for features, refactors, and
+   performance work. PolyStella has tight coupling between adapters /
+   providers / the cache layer; a 5-minute up-front discussion saves
+   a rebase later. Bug fixes and docs-only changes can go straight to
+   a PR if the scope is clear.
 2. **Branch from `main`**. Branch names like
    `<type>/<short-slug>` are nice but not enforced.
 3. **Add a changeset** for any user-visible change. Run
@@ -54,7 +61,8 @@ Required:
    The Changesets bot will pick this up at release time.
 4. **Run the test suite + typecheck + docs build** locally before
    pushing. CI does the same but local-first saves round-trips.
-5. **Reference the issue** in the PR description if you opened one.
+5. **Reference the issue or Discussion** in the PR description if you
+   opened one.
 
 ## Coding conventions
 
@@ -111,17 +119,6 @@ Providers implement the `Translator` interface in
 4xx HTTP responses that retries can't fix (401/403/404/422); throw
 plain `Error` on anything retriable. See [`ARCHITECTURE.md`](./ARCHITECTURE.md)
 `#translator-contract` for the detail.
-
-## Publishing
-
-Public npm releases publish `@cloudflare/polystella` via npm Trusted
-Publishing from `.github/workflows/publish.yml` on `v*` tags. Do not
-store an npm token in GitHub secrets for routine releases.
-
-Before the workflow can publish, the package must have a first
-token-based publish and UI Platform must register Trusted Publishing
-for GitHub repository `cloudflare/polystella` with workflow file
-`publish.yml`.
 
 ## Reporting bugs
 

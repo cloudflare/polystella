@@ -1,6 +1,6 @@
 {
   "name": "@cloudflare/polystella",
-  "version": "0.2.1",
+  "version": "0.3.1",
   "type": "module",
   "description": "AI-driven content localization for Astro (build-time markdown translation, R2-cached).",
   "license": "MIT",

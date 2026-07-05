@@ -1,0 +1,126 @@
+name: Bug Report
+description: Report something that does not work as expected
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. A small reproduction is the fastest path to a fix.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Which part of PolyStella is affected?
+      options:
+        - Content translation
+        - UI strings
+        - Routing / shims
+        - Runtime API / middleware
+        - R2 cache / storage
+        - CLI
+        - Docs
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Describe the unexpected behavior and what you expected instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: Include the smallest config and source file that trigger the issue.
+      placeholder: |
+        1. Configure PolyStella with ...
+        2. Add this source file ...
+        3. Run ...
+        4. See ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: config
+    attributes:
+      label: Relevant config
+      description: Paste the relevant `polystella.config.mjs` and `astro.config.mjs` slices. Redact credentials.
+      render: js
+    validations:
+      required: false
+
+  - type: textarea
+    id: source
+    attributes:
+      label: Source fixture
+      description: Paste a minimal source file if the bug depends on content shape.
+      render: markdown
+    validations:
+      required: false
+
+  - type: dropdown
+    id: provider
+    attributes:
+      label: Provider
+      options:
+        - workers-ai
+        - anthropic
+        - none / dry-run / local
+        - other
+    validations:
+      required: true
+
+  - type: input
+    id: polystella-version
+    attributes:
+      label: PolyStella version
+      placeholder: "0.2.1"
+    validations:
+      required: true
+
+  - type: input
+    id: astro-version
+    attributes:
+      label: Astro version
+      placeholder: "6.x"
+    validations:
+      required: true
+
+  - type: input
+    id: node-version
+    attributes:
+      label: Node version
+      placeholder: "24.x"
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: OS
+      placeholder: "macOS, Linux, Windows"
+    validations:
+      required: true
+
+  - type: textarea
+    id: report
+    attributes:
+      label: Build report
+      description: If relevant, paste `dist/i18n-r2-report.json` or the relevant entries.
+      render: json
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Paste relevant build or CLI output.
+      render: shell
+    validations:
+      required: false

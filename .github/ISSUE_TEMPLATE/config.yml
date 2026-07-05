@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Feature request
+    url: https://github.com/cloudflare/polystella/discussions/categories/ideas
+    about: Propose new features in Discussions before opening a PR.
+  - name: Question
+    url: https://github.com/cloudflare/polystella/discussions/categories/q-a
+    about: Ask usage and design questions in Discussions.
+  - name: Security report
+    url: https://github.com/cloudflare/polystella/security/advisories/new
+    about: Please report vulnerabilities privately instead of opening a public issue.
