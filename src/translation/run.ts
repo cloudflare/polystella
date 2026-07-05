@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -9,6 +10,7 @@ import { EMPTY_GLOSSARY, EMPTY_GLOSSARY_HASH, hashGlossary, loadGlossaries, type
 import type { AdapterExtractOptions, FileTypeAdapter } from "../parsing/adapter.js";
 import { computeMdxRulesPolicyHash, normalizeMdxRulesForSource } from "../parsing/mdx-rules.js";
 import { rewriteInternalLinks, rewriteUrlIfInternal, type RewriteInternalLinksOptions } from "../parsing/rewrite-links.js";
+import { rewriteMdxRelativeImportsForStaging } from "../parsing/rewrite-mdx-imports.js";
 import { getAdapter, listRegisteredExtensions } from "../parsing/registry.js";
 import { readOverride } from "../source/overrides.js";
 import { runWithConcurrency } from "../source/pool.js";
@@ -114,11 +116,18 @@ async function writeStagedTranslation(args: {
   stagingDir: string;
   locale: string;
   relativeSourcePath: string;
+  sourceAbsolutePath: string;
   bytes: string;
 }): Promise<void> {
   const target = path.join(args.stagingDir, args.locale, args.relativeSourcePath);
+  const bytes = args.relativeSourcePath.toLowerCase().endsWith(".mdx")
+    ? rewriteMdxRelativeImportsForStaging(args.bytes, {
+        sourceFilePath: args.sourceAbsolutePath,
+        stagedFilePath: target,
+      })
+    : args.bytes;
   await mkdir(path.dirname(target), { recursive: true });
-  await writeFile(target, args.bytes, "utf8");
+  await writeFile(target, bytes, "utf8");
 }
 
 /**
@@ -189,8 +198,13 @@ function pickContextKeysForAdapter(adapter: FileTypeAdapter, resolved: PolyStell
 }
 
 function extractionPolicyHashForSource(relativePath: string, resolved: PolyStellaResolvedOptions): string | undefined {
-  if (!relativePath.toLowerCase().endsWith(".mdx")) return undefined;
-  return computeMdxRulesPolicyHash(normalizeMdxRulesForSource(resolved.markdown.mdx, relativePath));
+  const lower = relativePath.toLowerCase();
+  if (!lower.endsWith(".md") && !lower.endsWith(".mdx")) return undefined;
+  const parts = [`markdown-parser:${resolved.markdown.parser}`];
+  if (lower.endsWith(".mdx")) {
+    parts.push(`mdx-rules:${computeMdxRulesPolicyHash(normalizeMdxRulesForSource(resolved.markdown.mdx, relativePath))}`);
+  }
+  return createHash("sha256").update(parts.join("\n"), "utf8").digest("hex");
 }
 
 /** Per-pattern compiled-matcher cache. Bounded by config size. */
@@ -392,7 +406,7 @@ export async function runTranslationPass(opts: RunTranslationOptions): Promise<R
           const adapter = getAdapter(ext);
           if (!adapter) return;
           const body = await readFile(source.absolutePath, "utf8");
-          const parsed = adapter.parse(body, source.relativePath);
+          const parsed = adapter.parse(body, source.relativePath, { markdownParser: resolved.markdown.parser });
           const adapterOpts: AdapterExtractOptions = {
             sourcePath: source.relativePath,
             translatableKeys: pickTranslatableKeysForAdapter(adapter, resolved),
@@ -552,6 +566,7 @@ export async function runTranslationPass(opts: RunTranslationOptions): Promise<R
   const buildRewriteOpts = (locale: string): RewriteInternalLinksOptions => ({
     targetLocale: locale,
     locales: allLocalesForRewrite,
+    markdownParser: resolved.markdown.parser,
     ...(resolved.noPrefixUrls.length > 0 ? { noPrefixUrls: resolved.noPrefixUrls } : {}),
   });
   /** Apply post-cache URL rewrites to staged bytes. See ARCHITECTURE.md §12. */
@@ -561,7 +576,7 @@ export async function runTranslationPass(opts: RunTranslationOptions): Promise<R
     let next = bytes;
     if (adapter.rewriteUrls && urlPathsForSource.length > 0) {
       const rewriter = (url: string) => rewriteUrlIfInternal(url, rewriteOpts);
-      next = adapter.rewriteUrls(next, { paths: urlPathsForSource, rewriter });
+      next = adapter.rewriteUrls(next, { paths: urlPathsForSource, rewriter, markdownParser: resolved.markdown.parser });
     }
     // Body-link rewriter is markdown-only (parses with `parseMarkdown`).
     const isMarkdown = adapter.extensions.includes(".md") || adapter.extensions.includes(".mdx");
@@ -596,7 +611,7 @@ export async function runTranslationPass(opts: RunTranslationOptions): Promise<R
       return;
     }
     const body = await readFile(source.absolutePath, "utf8");
-    const parsed = adapter.parse(body, source.relativePath);
+    const parsed = adapter.parse(body, source.relativePath, { markdownParser: resolved.markdown.parser });
     const mdxRulesForSource = source.relativePath.toLowerCase().endsWith(".mdx")
       ? normalizeMdxRulesForSource(resolved.markdown.mdx, source.relativePath)
       : undefined;
@@ -613,7 +628,7 @@ export async function runTranslationPass(opts: RunTranslationOptions): Promise<R
     // Computed once per source so all branches (noTranslate, override,
     // translate, error) push consistent report entries.
     const selectedValuesForReport = adapter.selectedValuesForHash(parsed, body, adapterOpts);
-    const policyHashForSource = mdxRulesForSource !== undefined ? computeMdxRulesPolicyHash(mdxRulesForSource) : undefined;
+    const policyHashForSource = extractionPolicyHashForSource(source.relativePath, resolved);
     const reportKeysFor = (locale: string) => {
       const modelId = translatorByLocale.get(locale)?.modelId ?? "";
       const sourceHash = computeSourceHash({
@@ -663,6 +678,7 @@ export async function runTranslationPass(opts: RunTranslationOptions): Promise<R
             stagingDir,
             locale,
             relativeSourcePath: source.relativePath,
+            sourceAbsolutePath: source.absolutePath,
             bytes: overrideStaged,
           });
           counts.override++;
@@ -725,6 +741,7 @@ export async function runTranslationPass(opts: RunTranslationOptions): Promise<R
             stagingDir,
             locale,
             relativeSourcePath: source.relativePath,
+            sourceAbsolutePath: source.absolutePath,
             bytes: overrideStaged,
           });
           counts.override++;
@@ -898,6 +915,7 @@ export async function runTranslationPass(opts: RunTranslationOptions): Promise<R
           stagingDir,
           locale,
           relativeSourcePath: source.relativePath,
+          sourceAbsolutePath: source.absolutePath,
           bytes: stagedBody,
         });
         // Record staged hash AFTER the write so a crashed build

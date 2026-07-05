@@ -24,7 +24,7 @@ import path from "node:path";
  *   - Same read-cost win as the index in aggregate, but harder to
  *     diff/debug than a single JSON.
  *
- * Schema is versioned (`version: 1`); a mismatch on read is treated
+ * Schema is versioned; a mismatch on read is treated
  * as a missing index (full run, then rewrite). Same for parse
  * failures and any other corruption — never propagate; always
  * degrade to "do the full run". Skipping an unchanged pair is an
@@ -42,8 +42,10 @@ export interface LocalCacheEntry {
   stagedAt: string;
 }
 
+const LOCAL_CACHE_INDEX_VERSION = 2;
+
 interface LocalCacheIndexFile {
-  version: 1;
+  version: typeof LOCAL_CACHE_INDEX_VERSION;
   entries: Record<string, LocalCacheEntry>;
 }
 
@@ -87,7 +89,7 @@ export async function readLocalCacheIndex(stagingDir: string): Promise<Map<strin
   if (
     typeof parsed !== "object" ||
     parsed === null ||
-    (parsed as { version?: unknown }).version !== 1 ||
+    (parsed as { version?: unknown }).version !== LOCAL_CACHE_INDEX_VERSION ||
     typeof (parsed as { entries?: unknown }).entries !== "object" ||
     (parsed as { entries: unknown }).entries === null
   ) {
@@ -127,7 +129,7 @@ export async function writeLocalCacheIndex(stagingDir: string, entries: Map<stri
   const sortedEntries: Record<string, LocalCacheEntry> = {};
   for (const k of sortedKeys) sortedEntries[k] = entries.get(k)!;
   const data: LocalCacheIndexFile = {
-    version: 1,
+    version: LOCAL_CACHE_INDEX_VERSION,
     entries: sortedEntries,
   };
   const tmpPath = `${filePath}.tmp`;

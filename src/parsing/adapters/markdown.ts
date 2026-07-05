@@ -5,6 +5,7 @@ import type {
   AdapterApplyOptions,
   AdapterDocumentContextOptions,
   AdapterExtractOptions,
+  AdapterParseOptions,
   AdapterRewriteUrlsOptions,
   FileTypeAdapter,
 } from "../adapter.js";
@@ -25,13 +26,8 @@ import { visitTranslatableBlocks } from "../traverse.js";
  * Existing tests against `extractSegments` / `applyTranslations` /
  * `peekNoTranslate` continue to exercise the same code paths.
  *
- * **Note on MDX.** v0.1 ships markdown-only parsing (remark-parse +
- * remark-frontmatter + remark-gfm). Real MDX support — JSX-aware
- * extraction, prop allowlist, import/export skipping — is deferred
- * to v0.2 alongside the docs platform. Today, `.mdx` files round-
- * trip through the markdown parser and any embedded JSX is treated
- * as raw HTML; suitable when MDX content is structurally markdown-
- * shaped but unsuitable for component-heavy MDX.
+ * `.mdx` sources use the MDX-aware parser path; `.md` sources keep
+ * plain Markdown parsing rules.
  */
 export const markdownAdapter: FileTypeAdapter<Root> = {
   extensions: [".md", ".mdx"],
@@ -45,11 +41,11 @@ export const markdownAdapter: FileTypeAdapter<Root> = {
    * still get plain-markdown parsing, which matches the historical
    * behaviour for `.mdx` files (treated as markdown with HTML).
    */
-  parse(source: string, sourcePath?: string): Root {
+  parse(source: string, sourcePath?: string, opts: AdapterParseOptions = {}): Root {
     if (sourcePath !== undefined && sourcePath.toLowerCase().endsWith(".mdx")) {
-      return parseMdx(source);
+      return parseMdx(source, { parser: opts.markdownParser });
     }
-    return parseMarkdown(source);
+    return parseMarkdown(source, { parser: opts.markdownParser });
   },
 
   extractSegments(parsed: Root, source: string, opts: AdapterExtractOptions): Segment[] {
@@ -101,7 +97,7 @@ export const markdownAdapter: FileTypeAdapter<Root> = {
    */
   rewriteUrls(bytes: string, opts: AdapterRewriteUrlsOptions): string {
     if (opts.paths.length === 0) return bytes;
-    const ast = parseMarkdown(bytes);
+    const ast = parseMarkdown(bytes, { parser: opts.markdownParser });
     const fm = ast.children.find((child): child is Yaml => child.type === "yaml");
     if (!fm || typeof fm.position?.start?.offset !== "number" || typeof fm.position?.end?.offset !== "number") {
       return bytes;

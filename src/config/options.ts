@@ -233,6 +233,10 @@ export const polystellaOptionsSchema = z
      */
     markdown: z
       .object({
+        parser: z
+          .enum(["satteri", "remark"])
+          .default("satteri")
+          .describe('Markdown/MDX parser implementation. Default "satteri"; use "remark" as a legacy compatibility escape hatch.'),
         keys: z
           .record(z.string(), z.array(z.string()))
           .default({})
@@ -265,7 +269,7 @@ export const polystellaOptionsSchema = z
         mdx: mdxOptionsSchema.describe("MDX-specific JSX, recipe, and static-data extraction rules."),
       })
       .strict()
-      .default({ keys: {}, urls: {}, contextKeys: {}, mdx: { recipes: [] } })
+      .default({ parser: "satteri", keys: {}, urls: {}, contextKeys: {}, mdx: { recipes: [] } })
       .describe("Markdown / MDX adapter configuration."),
 
     toml: z

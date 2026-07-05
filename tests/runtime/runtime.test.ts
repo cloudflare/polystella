@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi, type MockedFunction } from "vitest";
 
 import {
   normaliseGetLocalizedEntryArgs,
@@ -21,14 +21,15 @@ import {
  */
 
 const DEFAULT_LOCALE = "en-US";
+type GetEntry = ResolveLocalizedEntryDeps["getEntry"];
 
 /**
  * Stub for `deps.getEntry`. Configured per-test via the `entries`
  * map (keyed by `<collection>:<slug>`). Returns `undefined` for
  * keys not in the map, matching Astro's missing-entry sentinel.
  */
-function makeGetEntry(entries: Record<string, SourceEntryShape>): ReturnType<typeof vi.fn> {
-  return vi.fn(async (collection: string, slug: string) => {
+function makeGetEntry(entries: Record<string, SourceEntryShape>): MockedFunction<GetEntry> {
+  return vi.fn<GetEntry>(async (collection: string, slug: string) => {
     return entries[`${collection}:${slug}`];
   });
 }
@@ -38,7 +39,7 @@ function makeDeps(overrides: Partial<ResolveLocalizedEntryDeps> = {}): ResolveLo
     defaultLocale: DEFAULT_LOCALE,
     // Default: source entry exists for any (collection, slug). Tests
     // that need miss behaviour override this with a curated map.
-    getEntry: vi.fn(async (collection: string, slug: string) => ({
+    getEntry: vi.fn<GetEntry>(async (collection: string, slug: string) => ({
       id: slug,
       collection,
       data: { title: `Source: ${slug}` },

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi, type MockedFunction } from "vitest";
 
 import { resolveLocalizedCollection, type ResolveLocalizedCollectionDeps } from "../../src/runtime/get-localized-collection.js";
 import type { SourceEntryShape } from "../../src/runtime/get-localized-entry.js";
@@ -19,6 +19,7 @@ import type { SourceEntryShape } from "../../src/runtime/get-localized-entry.js"
  */
 
 const DEFAULT_LOCALE = "en-US";
+type GetCollection = ResolveLocalizedCollectionDeps["getCollection"];
 
 /**
  * Build a stub for `deps.getCollection`. Configured per-test via the
@@ -26,8 +27,8 @@ const DEFAULT_LOCALE = "en-US";
  * collection names not in the map, matching Astro's behaviour for
  * an empty / unregistered sibling collection.
  */
-function makeGetCollection(collections: Record<string, SourceEntryShape[]>): ReturnType<typeof vi.fn> {
-  return vi.fn(async (collection: string) => {
+function makeGetCollection(collections: Record<string, SourceEntryShape[]>): MockedFunction<GetCollection> {
+  return vi.fn<GetCollection>(async (collection: string) => {
     return collections[collection] ?? [];
   });
 }
@@ -35,7 +36,7 @@ function makeGetCollection(collections: Record<string, SourceEntryShape[]>): Ret
 function makeDeps(overrides: Partial<ResolveLocalizedCollectionDeps> = {}): ResolveLocalizedCollectionDeps {
   return {
     defaultLocale: DEFAULT_LOCALE,
-    getCollection: vi.fn(async () => []),
+    getCollection: vi.fn<GetCollection>(async () => []),
     ...overrides,
   };
 }

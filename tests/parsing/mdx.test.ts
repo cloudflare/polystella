@@ -355,6 +355,36 @@ describe("markdownAdapter — MDX static data annotations", () => {
     expect(out).toContain('title: "TR:Local"');
     expect(out).toContain('description: "TR:Local body"');
   });
+
+  it("applies multiline annotated JSX prop literal translations at source byte offsets", () => {
+    const source = [
+      "<FeatureGrid",
+      "  items={",
+      "    /* @polystella translate title, description */",
+      "    [",
+      "      {",
+      '        title: "Inline prop data",',
+      '        description: "Static arrays passed directly to components.",',
+      "      },",
+      "    ]",
+      "  }",
+      "/>",
+      "",
+    ].join("\n");
+    const parsed = markdownAdapter.parse(source, sourcePath);
+    const rules = defaultMdxRules();
+    const segments = markdownAdapter.extractSegments(parsed, source, {
+      sourcePath,
+      translatableKeys: {},
+      mdxRules: rules,
+    });
+    const translations = new Map(segments.map((segment) => [segment.id, `TR:${segment.text}`]));
+
+    const out = markdownAdapter.applyTranslations(parsed, source, translations, { sourcePath, mdxRules: rules });
+
+    expect(out).toContain('title: "TR:Inline prop data"');
+    expect(out).toContain('description: "TR:Static arrays passed directly to components."');
+  });
 });
 
 describe("markdownAdapter — MDX JSX attributes", () => {

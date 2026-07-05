@@ -21,7 +21,7 @@ Install from npm:
 pnpm add @cloudflare/polystella
 ```
 
-Peer dependencies: `astro ^6.0.0`, optionally `react ^17 || ^18 || ^19`.
+Peer dependencies: `astro ^7.0.0`, optionally `react ^17 || ^18 || ^19`.
 
 ## Quick start
 

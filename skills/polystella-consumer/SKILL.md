@@ -35,7 +35,7 @@ pnpm add @cloudflare/polystella
 
 The standalone CLI binary is still named `polystella`.
 
-Peer dependency: `astro ^6.0.0`.
+Peer dependency: `astro ^7.0.0`.
 
 ## Four-file integration
 
@@ -305,7 +305,7 @@ After every translation pass, `astro build` (and `polystella translate`) writes 
 6. **`prettier --write` collapses sync writer's blank lines** — The UI-string sync writer preserves blank-line section breaks between key groups. `prettier --write` collapses them. The pre-commit hook should use `prettier --check` (not `--write`).
 7. **`{{token}}` placeholders dropped by AI** — Validated post-translation; if a token is missing or renamed after all retries, the key is left empty for manual fix-up. Hand-edit the locale JSON in that case.
 8. **Override files don't get cache-invalidated** — Edits to overrides aren't reflected in the cache (overrides aren't cached). The override is read fresh every build.
-9. **MDX vs MD** — `remark-mdx` disables indented code, autolinks, and raw-HTML blocks. If your `.md` files use any of these, don't accidentally rename them to `.mdx`.
+9. **MDX vs MD** — `.mdx` uses MDX syntax rules (imports/exports, JSX, expressions); `.md` stays plain Markdown. If your `.md` files use Markdown-only constructs, don't accidentally rename them to `.mdx`.
 10. **R2 credentials in repo** — Never commit credentials. Use `.env` (gitignored) + `dotenv/config` at the top of `polystella.config.mjs`. Workers Builds inject credentials via env vars; local development reads from `.env`.
 
 ## CLI quick reference

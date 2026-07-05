@@ -113,7 +113,7 @@ describe("readLocalCacheIndex — failure modes", () => {
     // A future bumped-version index is incompatible by definition;
     // we treat it as missing and let the run rebuild a fresh one.
     const stagingDir = await makeStagingDir();
-    await writeFile(path.join(stagingDir, LOCAL_CACHE_INDEX_FILENAME), JSON.stringify({ version: 2, entries: { "x::y": {} } }), "utf8");
+    await writeFile(path.join(stagingDir, LOCAL_CACHE_INDEX_FILENAME), JSON.stringify({ version: 999, entries: { "x::y": {} } }), "utf8");
     const loaded = await readLocalCacheIndex(stagingDir);
     expect(loaded.size).toBe(0);
   });
@@ -126,7 +126,7 @@ describe("readLocalCacheIndex — failure modes", () => {
     await writeFile(
       path.join(stagingDir, LOCAL_CACHE_INDEX_FILENAME),
       JSON.stringify({
-        version: 1,
+        version: 2,
         entries: {
           "pt-BR::good.md": {
             hash: "abc",

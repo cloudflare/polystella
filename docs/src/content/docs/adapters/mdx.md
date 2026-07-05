@@ -4,8 +4,9 @@ description: "Translating .mdx files — JSX, props, static data, and limits."
 ---
 
 The MDX adapter reuses the Markdown adapter but parses `.mdx` with
-`remark-mdx`, so imports, exports, JSX, and expressions are recognised
-as first-class syntax instead of raw Markdown text.
+Satteri by default, so imports, exports, JSX, and expressions are
+recognised as first-class syntax instead of raw Markdown text. Use
+`markdown.parser: "remark"` to force the legacy `remark-mdx` path.
 
 ## What Translates Automatically
 

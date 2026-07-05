@@ -163,6 +163,20 @@ describe("resolveOptions — option-surface", () => {
     const resolved = resolveOptions({}, HAPPY_I18N);
     expect(resolved.noTranslateBehavior).toBe("fallback");
   });
+
+  it('defaults markdown.parser to "satteri"', () => {
+    const resolved = resolveOptions({}, HAPPY_I18N);
+    expect(resolved.markdown.parser).toBe("satteri");
+  });
+
+  it('accepts markdown.parser: "remark" as the legacy parser escape hatch', () => {
+    const resolved = resolveOptions({ markdown: { parser: "remark" } }, HAPPY_I18N);
+    expect(resolved.markdown.parser).toBe("remark");
+  });
+
+  it("rejects unknown markdown.parser values", () => {
+    expect(() => resolveOptions({ markdown: { parser: "other" } }, HAPPY_I18N)).toThrowError(/markdown\.parser/);
+  });
 });
 
 describe("resolveOptions — routes normalisation", () => {

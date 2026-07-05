@@ -72,8 +72,9 @@ export const collections = {
 At content-sync time, the sibling collection's loader:
 
 1. Calls `marker.captureEntries()` to get the captured array.
-2. For each entry, builds the translation cache key from
-   `(translatableKeys' values, glossary, model)`.
+2. For each entry, builds the translation cache key from the
+   translatable values, glossary, model, and any adapter extraction
+   policy that affects segment boundaries.
 3. Looks up R2 (via the runtime bridge), translates on miss, applies
    the AI marker.
 4. Calls `ctx.store.set` with the translated entry.

@@ -78,7 +78,7 @@ O(1) lookups instead of HTTP round-trips. See
 For each `(file, locale)` pair the worker pool runs:
 
 1. Compute the source hash. The formula is
-   `sha256(body + selectedFrontmatterValues + glossaryHash + modelId)`.
+   `sha256(body + selectedFrontmatterValues + glossaryHash + modelId + optionalExtractionPolicyHash)`.
    See the [cache-key contract](/concepts/r2-cache/#cache-key).
 2. Check the in-memory key set for the primary R2 key, then any
    configured `readFallbackPrefixes` keys in order.

@@ -3,9 +3,10 @@ title: Markdown adapter
 description: "Translating .md files: frontmatter keys, body inline text, internal links."
 ---
 
-The Markdown adapter handles `.md` files via `remark-parse` plus
-`remark-frontmatter` and `remark-gfm`. It's the default adapter
-and the most-used in practice.
+The Markdown adapter handles `.md` files via Satteri by default. Use
+`markdown.parser: "remark"` as a legacy compatibility escape hatch if a
+site depends on the old `remark-parse` + `remark-frontmatter` +
+`remark-gfm` edge-case behaviour.
 
 ## What it translates
 
@@ -32,6 +33,7 @@ and the most-used in practice.
 
 ```js
 markdown: {
+  parser: "satteri", // default; use "remark" for legacy parsing
   keys: {
     "publications/**": ["title", "metaDescription"],
     "blog/**": ["title", "excerpt", "tags"],
@@ -46,6 +48,10 @@ markdown: {
 ```
 
 - **`keys`** — frontmatter scalars to translate.
+- **`parser`** — Markdown/MDX parser implementation. The default is
+  `"satteri"`; `"remark"` keeps the old parser. The parser choice is
+  part of the cache extraction policy, so the two modes do not share
+  cache entries.
 - **`urls`** — frontmatter URL keys to locale-prefix at staging
   (e.g. `heroImage: /images/...` becomes `heroImage: /pt-BR/images/...`).
 - **`contextKeys`** — frontmatter scalars whose source-language

@@ -1,6 +1,6 @@
 import type { Link, Root } from "mdast";
 import picomatch from "picomatch";
-import { parseMarkdown } from "./parse.js";
+import { parseMarkdown, type MarkdownParser } from "./parse.js";
 
 /**
  * Per-array cache of compiled picomatch matchers. `noPrefixUrls`
@@ -33,6 +33,8 @@ export interface RewriteInternalLinksOptions {
    * so it has no effect on those.
    */
   noPrefixUrls?: ReadonlyArray<string>;
+  /** Markdown parser implementation used for this reparse. */
+  markdownParser?: MarkdownParser | undefined;
 }
 
 /**
@@ -50,7 +52,7 @@ export interface RewriteInternalLinksOptions {
  * concerns of their own.
  */
 export function rewriteInternalLinks(text: string, options: RewriteInternalLinksOptions): string {
-  const ast = parseMarkdown(text);
+  const ast = parseMarkdown(text, { parser: options.markdownParser });
   const edits: Array<{ start: number; end: number; replacement: string }> = [];
 
   visitLinks(ast, (link) => {

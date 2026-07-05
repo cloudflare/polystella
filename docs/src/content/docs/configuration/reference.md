@@ -21,7 +21,8 @@ For prose context on individual options, see the
 | `sourceDir` | string | `"./content"` | Optional | Project-relative path to the content root the walker scans. |
 | `include` | array of string | `["**/*.md","**/*.mdx"]` | Optional | Glob patterns (relative to `sourceDir`) for files the pipeline picks up. |
 | `exclude` | array of string | `[]` | Optional | Glob patterns to skip even when they match `include`. |
-| `markdown` | object | `{"keys":{},"urls":{},"contextKeys":{},"mdx":{"recipes":[]}}` | Optional | Markdown / MDX adapter configuration. |
+| `markdown` | object | `{"parser":"satteri","keys":{},"urls":{},"contextKeys":{},"mdx":{"recipes":[]}}` | Optional | Markdown / MDX adapter configuration. |
+| `markdown.parser` | enum: `satteri` \| `remark` | `"satteri"` | Optional | Markdown/MDX parser implementation. Default "satteri"; use "remark" as a legacy compatibility escape hatch. |
 | `markdown.keys` | record (string → array of string) | `{}` | Optional | Per-glob → frontmatter keys to translate. Body inline text is automatic. |
 | `markdown.urls` | record (string → array of string) | `{}` | Optional | Per-glob → frontmatter URL keys that should be locale-prefixed at staging. |
 | `markdown.contextKeys` | record (string → array of string) | `{}` | Optional | Per-glob → frontmatter keys whose source-language values feed the per-batch document-context block. Untranslated. NOT in the cache-key hash. |
