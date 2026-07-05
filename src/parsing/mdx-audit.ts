@@ -124,8 +124,7 @@ function auditOpaqueComponentChildren(ast: Root, opts: AuditMdxAstOptions, findi
       code: "opaque-component-children",
       text: candidate.text,
       message: `Custom component \`${node.name}\` has child text but is not configured with \`children: true\` for MDX translation.`,
-      suggestion:
-        `Add \`${node.name}: { children: true }\` to \`markdown.mdx.components\` or a recipe if this child content is visible copy, or add \`@polystella ignore\` if it is intentionally opaque.`,
+      suggestion: `Add \`${node.name}: { children: true }\` to \`markdown.mdx.components\` or a recipe if this child content is visible copy, or add \`@polystella ignore\` if it is intentionally opaque.`,
     });
   });
 }
@@ -199,10 +198,7 @@ function auditStaticData(ast: Root, opts: AuditMdxAstOptions & { source: string 
   }
 }
 
-function buildUnsupportedStaticDataFindings(
-  root: EstreeNode,
-  opts: AuditMdxAstOptions & { source: string },
-): MdxAuditFinding[] {
+function buildUnsupportedStaticDataFindings(root: EstreeNode, opts: AuditMdxAstOptions & { source: string }): MdxAuditFinding[] {
   const findings: MdxAuditFinding[] = [];
   const seen = new Set<string>();
   walkUnknown(root, (node) => {
@@ -541,7 +537,11 @@ function walkUnknown(value: unknown, visitor: (node: unknown) => void): void {
   }
 }
 
-function walkWithAncestors(value: unknown, ancestors: readonly EstreeNode[], visitor: (node: EstreeNode, ancestors: readonly EstreeNode[]) => void): void {
+function walkWithAncestors(
+  value: unknown,
+  ancestors: readonly EstreeNode[],
+  visitor: (node: EstreeNode, ancestors: readonly EstreeNode[]) => void,
+): void {
   if (!isNode(value)) return;
   visitor(value, ancestors);
   const nextAncestors = [...ancestors, value];

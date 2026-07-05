@@ -97,7 +97,7 @@ describe("audit-mdx CLI", () => {
       "polystella.config.mjs": `export default { sourceDir: "./content", include: ["**/*.mdx"] };\n`,
       "content/docs/static.mdx": [
         'export const cards = [{ title: "Read the guide", icon: "book" }];',
-        'export const weird = /** @polystella translate title, description */ [',
+        "export const weird = /** @polystella translate title, description */ [",
         '  { ...shared, ["title"]: "Computed title", title: `Hello ${name}`, description: ok ? "Yes please" : "No thanks" },',
         "];",
         "",

@@ -46,6 +46,7 @@ for the comment line and following contiguous non-blank block:
 
 ```mdx
 {/* @polystella ignore */}
+
 <Callout title="Machine-only title" />
 ```
 
