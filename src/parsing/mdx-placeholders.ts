@@ -1,6 +1,15 @@
 import type { NormalizedMdxRules } from "./mdx-rules.js";
 import type { TranslatableBlock } from "./traverse.js";
 
+export class MdxPlaceholderError extends Error {
+  readonly _tag = "MdxPlaceholderError" as const;
+
+  constructor(message: string) {
+    super(message);
+    this.name = "MdxPlaceholderError";
+  }
+}
+
 export interface InlineMdxPlaceholderAttribute {
   id: string;
   text: string;
@@ -76,7 +85,7 @@ export function restoreInlineMdxPlaceholders(
         return `${opening}${inner}${placeholder.closing}`;
       });
       if (count !== 1) {
-        throw new Error(`[polystella] translated segment lost or duplicated inline MDX placeholder id=${placeholder.id}`);
+        throw new MdxPlaceholderError(`[polystella] translated segment lost or duplicated inline MDX placeholder id=${placeholder.id}`);
       }
     } else {
       const pattern = new RegExp(`<ph\\s+id=["']${escapeRegExp(placeholder.id)}["']\\s*\\/>`, "g");
@@ -86,12 +95,12 @@ export function restoreInlineMdxPlaceholders(
         return applyInlinePlaceholderAttributeTranslations(placeholder.source, placeholder.attributes, translations);
       });
       if (count !== 1) {
-        throw new Error(`[polystella] translated segment lost or duplicated inline MDX placeholder id=${placeholder.id}`);
+        throw new MdxPlaceholderError(`[polystella] translated segment lost or duplicated inline MDX placeholder id=${placeholder.id}`);
       }
     }
   }
   if (/<ph\s+id=/.test(output)) {
-    throw new Error("[polystella] translated segment contains unknown inline MDX placeholder");
+    throw new MdxPlaceholderError("[polystella] translated segment contains unknown inline MDX placeholder");
   }
   return output;
 }

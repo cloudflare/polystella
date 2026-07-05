@@ -90,4 +90,124 @@ describe("audit-mdx CLI", () => {
     const parsed = JSON.parse(lines.join("\n")) as { findings: unknown[] };
     expect(parsed.findings.length).toBeGreaterThan(0);
   });
+
+  it("reports unannotated static data and unsupported static-data shapes", async () => {
+    const cwd = await makeProject({
+      "astro.config.mjs": `export default { i18n: { defaultLocale: "en-US", locales: ["en-US", "pt-BR"] } };\n`,
+      "polystella.config.mjs": `export default { sourceDir: "./content", include: ["**/*.mdx"] };\n`,
+      "content/docs/static.mdx": [
+        'export const cards = [{ title: "Read the guide", icon: "book" }];',
+        'export const weird = /** @polystella translate title, description */ [',
+        '  { ...shared, ["title"]: "Computed title", title: `Hello ${name}`, description: ok ? "Yes please" : "No thanks" },',
+        "];",
+        "",
+      ].join("\n"),
+    });
+    const lines: string[] = [];
+
+    const code = await runAuditMdx(
+      { json: false, help: false },
+      {
+        cwd,
+        log: (msg) => lines.push(msg),
+        err: (msg) => lines.push(msg),
+      },
+    );
+
+    const output = lines.join("\n");
+    expect(code).toBe(0);
+    expect(output).toContain("unannotated-static-data");
+    expect(output).toContain("unsupported-static-data-shape");
+    expect(output).toContain("spread syntax");
+    expect(output).toContain("computed key");
+    expect(output).toContain("template literal");
+    expect(output).toContain("conditional expression");
+  });
+
+  it("honours @polystella ignore comments", async () => {
+    const cwd = await makeProject({
+      "astro.config.mjs": `export default { i18n: { defaultLocale: "en-US", locales: ["en-US", "pt-BR"] } };\n`,
+      "polystella.config.mjs": `export default { sourceDir: "./content", include: ["**/*.mdx"] };\n`,
+      "content/docs/page.mdx": [
+        'import Callout from "../../components/Callout.astro";',
+        "",
+        "{/* @polystella ignore */}",
+        '<Callout title="Ignored title" />',
+        "",
+        '<Callout title="Reported title" />',
+        "",
+      ].join("\n"),
+    });
+    const lines: string[] = [];
+
+    await runAuditMdx(
+      { json: false, help: false },
+      {
+        cwd,
+        log: (msg) => lines.push(msg),
+        err: (msg) => lines.push(msg),
+      },
+    );
+
+    const output = lines.join("\n");
+    expect(output).not.toContain("Ignored title");
+    expect(output).toContain("Reported title");
+  });
+
+  it("reports opaque custom component children that may need a children rule", async () => {
+    const cwd = await makeProject({
+      "astro.config.mjs": `export default { i18n: { defaultLocale: "en-US", locales: ["en-US", "pt-BR"] } };\n`,
+      "polystella.config.mjs": `export default { sourceDir: "./content", include: ["**/*.mdx"] };\n`,
+      "content/docs/page.mdx": [
+        'import Mystery from "../../components/Mystery.astro";',
+        "",
+        "<Mystery>",
+        "This copy might be hidden by the component.",
+        "</Mystery>",
+        "",
+      ].join("\n"),
+    });
+    const lines: string[] = [];
+
+    await runAuditMdx(
+      { json: false, help: false },
+      {
+        cwd,
+        log: (msg) => lines.push(msg),
+        err: (msg) => lines.push(msg),
+      },
+    );
+
+    const output = lines.join("\n");
+    expect(output).toContain("opaque-component-children");
+    expect(output).toContain("Mystery");
+    expect(output).toContain("children: true");
+  });
+
+  it("does not report opaque children when the component has children: true", async () => {
+    const cwd = await makeProject({
+      "astro.config.mjs": `export default { i18n: { defaultLocale: "en-US", locales: ["en-US", "pt-BR"] } };\n`,
+      "polystella.config.mjs": `export default { sourceDir: "./content", include: ["**/*.mdx"], markdown: { mdx: { components: { Mystery: { children: true } } } } };\n`,
+      "content/docs/page.mdx": [
+        'import Mystery from "../../components/Mystery.astro";',
+        "",
+        "<Mystery>",
+        "This copy is configured for traversal.",
+        "</Mystery>",
+        "",
+      ].join("\n"),
+    });
+    const lines: string[] = [];
+
+    await runAuditMdx(
+      { json: false, help: false },
+      {
+        cwd,
+        log: (msg) => lines.push(msg),
+        err: (msg) => lines.push(msg),
+      },
+    );
+
+    expect(lines.join("\n")).not.toContain("opaque-component-children");
+  });
 });

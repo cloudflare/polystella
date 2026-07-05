@@ -4,7 +4,7 @@ import { applyTranslations } from "../../src/parsing/apply.js";
 import { extractSegments, type Segment } from "../../src/parsing/extract.js";
 import { EMPTY_GLOSSARY, hashGlossary, type Glossary } from "../../src/glossary/glossary.js";
 import { computeSourceHash } from "../../src/storage/hash.js";
-import { parseMarkdown } from "../../src/parsing/parse.js";
+import { parseMarkdown, parseMdx } from "../../src/parsing/parse.js";
 import { buildR2Key, type R2Client, type R2GetResult } from "../../src/storage/r2.js";
 import type { Translator } from "../../src/translation/provider.js";
 
@@ -273,6 +273,50 @@ describe("translateOrLoadFromCache — fallback paths", () => {
     };
     await expect(translateOrLoadFromCache(makeOptions({ r2: flakyR2, translator }))).rejects.toThrow(/R2 unreachable/);
     expect(translator.calls).toBe(0);
+  });
+});
+
+describe("translateOrLoadFromCache — apply validation retries", () => {
+  it("retries when MDX placeholder restoration detects model corruption", async () => {
+    const source = "This feature is <Badge>new</Badge> and experimental.\n";
+    const ast = parseMdx(source);
+    const segments = extractSegments(ast, { sourcePath: "docs/inline.mdx", frontmatter: {} }, source);
+    const translate = vi
+      .fn<Translator["translate"]>()
+      .mockResolvedValueOnce("@@body:0@@\nCette fonctionnalite est nouvelle.")
+      .mockResolvedValueOnce('@@body:0@@\nCette fonctionnalite est <ph id="0">nouvelle</ph> et experimentale.');
+    const translator: Translator = { modelId: "stub/placeholder", translate };
+    const onRetry = vi.fn();
+
+    const result = await translateOrLoadFromCache({
+      segments,
+      apply: (translations) => applyTranslations(ast, translations, source, { sourcePath: "docs/inline.mdx" }),
+      locale: "fr-FR",
+      key: "i18n/fr-FR/docs/inline.mdx#abc123.md",
+      r2: null,
+      translator,
+      glossary: EMPTY_GLOSSARY,
+      sourceLocale: "en-US",
+      metadata: buildCacheMetadata({
+        sourcePath: "docs/inline.mdx",
+        locale: "fr-FR",
+        sourceHash: "abc123",
+        glossaryHash: "",
+        modelId: translator.modelId,
+        translatedAt: "2026-04-29T12:00:00.000Z",
+        polystellaVersion: "0.1.0",
+      }),
+      maxRetries: 1,
+      retryMinTimeoutMs: 0,
+      retryRandomize: false,
+      onRetry,
+    });
+
+    expect(result.outcome).toBe("miss");
+    expect(result.body).toBe("Cette fonctionnalite est <Badge>nouvelle</Badge> et experimentale.\n");
+    expect(translate).toHaveBeenCalledTimes(2);
+    expect(onRetry).toHaveBeenCalledTimes(1);
+    expect(onRetry.mock.calls[0]?.[0]?.error.message).toContain("inline MDX placeholder");
   });
 });
 

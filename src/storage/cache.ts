@@ -1,4 +1,7 @@
+import pRetry from "p-retry";
+
 import type { Segment } from "../parsing/extract.js";
+import { MdxPlaceholderError } from "../parsing/mdx-placeholders.js";
 import type { Glossary } from "../glossary/glossary.js";
 import type { Logger } from "../translation/logger.js";
 import { type TranslateBatchRetryEvent, type Translator } from "../translation/provider.js";
@@ -70,11 +73,13 @@ export interface TranslateOrLoadOptions {
    */
   fallbackKeys?: string[];
   /**
-   * Retries on translator/parse failure. Forwarded to
-   * `translateBatch`. `0` (default) = single attempt.
+   * Retries on translator/parse failure and MDX placeholder
+   * corruption detected during apply. Forwarded to `translateBatch`
+   * for provider attempts; also used by the cache miss apply wrapper.
+   * `0` (default) = single attempt.
    */
   maxRetries?: number;
-  /** Fires per failed-and-retried translator attempt. */
+  /** Fires per failed-and-retried translator/apply-validation attempt. */
   onRetry?: (event: TranslateBatchRetryEvent) => void;
   /** Backoff between retries; forwarded to `translateBatch`. */
   retryMinTimeoutMs?: number;
@@ -203,28 +208,49 @@ export async function translateOrLoadFromCache(opts: TranslateOrLoadOptions): Pr
   // later hits return them verbatim. `translateSegments` wraps
   // `translateBatch` with token-aware batching; absent
   // `groups`/`documentContext` it sends one batch indistinguishable
-  // from the pre-batching path.
+  // from the pre-batching path. Placeholder-restore failures are
+  // retried here because they are model-output corruption detected
+  // only after all translated segments are applied.
   signal?.throwIfAborted();
-  const { translations, batchCount } = await translateSegments({
-    translator,
-    segments,
-    ...(groups !== undefined ? { groups } : {}),
-    ...(documentContext !== undefined ? { documentContext } : {}),
-    ...(inputTokenBudget !== undefined ? { inputTokenBudget } : {}),
-    ...(logger !== undefined ? { logger } : {}),
-    ...(sourcePath !== undefined ? { sourcePath } : {}),
-    glossary,
-    sourceLocale,
-    targetLocale: locale,
-    context,
-    ...(maxRetries !== undefined ? { maxRetries } : {}),
-    ...(onRetry !== undefined ? { onRetry } : {}),
-    ...(retryMinTimeoutMs !== undefined ? { retryMinTimeoutMs } : {}),
-    ...(retryFactor !== undefined ? { retryFactor } : {}),
-    ...(retryRandomize !== undefined ? { retryRandomize } : {}),
-    ...(signal !== undefined ? { signal } : {}),
-  });
-  const translated = apply(translations);
+  const totalApplyAttempts = Math.max(1, (maxRetries ?? 0) + 1);
+  const { translated, batchCount } = await pRetry(
+    async () => {
+      signal?.throwIfAborted();
+      const { translations, batchCount: translatedBatchCount } = await translateSegments({
+        translator,
+        segments,
+        ...(groups !== undefined ? { groups } : {}),
+        ...(documentContext !== undefined ? { documentContext } : {}),
+        ...(inputTokenBudget !== undefined ? { inputTokenBudget } : {}),
+        ...(logger !== undefined ? { logger } : {}),
+        ...(sourcePath !== undefined ? { sourcePath } : {}),
+        glossary,
+        sourceLocale,
+        targetLocale: locale,
+        context,
+        ...(maxRetries !== undefined ? { maxRetries } : {}),
+        ...(onRetry !== undefined ? { onRetry } : {}),
+        ...(retryMinTimeoutMs !== undefined ? { retryMinTimeoutMs } : {}),
+        ...(retryFactor !== undefined ? { retryFactor } : {}),
+        ...(retryRandomize !== undefined ? { retryRandomize } : {}),
+        ...(signal !== undefined ? { signal } : {}),
+      });
+      return { translated: apply(translations), batchCount: translatedBatchCount };
+    },
+    {
+      retries: maxRetries ?? 0,
+      minTimeout: retryMinTimeoutMs ?? 0,
+      factor: retryFactor ?? 2,
+      randomize: retryRandomize ?? false,
+      ...(signal !== undefined ? { signal } : {}),
+      shouldRetry: ({ error }) => error instanceof MdxPlaceholderError,
+      onFailedAttempt: ({ error, attemptNumber, retriesLeft }) => {
+        if (retriesLeft > 0 && error instanceof MdxPlaceholderError) {
+          onRetry?.({ attempt: attemptNumber, totalAttempts: totalApplyAttempts, error });
+        }
+      },
+    },
+  );
 
   // PUT failures are caught, not rethrown — translator already
   // ran; dropping bytes would compound the cost. `readOnly`

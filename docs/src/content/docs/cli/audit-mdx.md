@@ -27,7 +27,31 @@ polystella audit-mdx [flags]
   not evaluate.
 - Static HTML attributes that look user-facing but are not in the
   HTML attribute allowlist.
+- Static MDX arrays/objects with likely user-facing copy that are not
+  configured or annotated for translation.
+- Unsupported static-data syntax inside likely/content-configured data,
+  such as spreads, computed keys, template literals, and conditionals.
+- Custom component children that look like visible copy but the
+  component is not configured with `children: true`.
 
 The command is warn-only. Use the findings to add a component rule,
 import a recipe, annotate static page data, move dynamic strings into
-a catalog, or add an ignore once that exists for the audit surface.
+a catalog, or add an ignore comment when the string is intentionally
+not translated.
+
+## Ignore Comments
+
+Use `@polystella ignore` or `polystella-ignore` to suppress findings
+for the comment line and following contiguous non-blank block:
+
+```mdx
+{/* @polystella ignore */}
+<Callout title="Machine-only title" />
+```
+
+For static MDX data:
+
+```mdx
+// @polystella ignore
+export const machineData = [{ label: "Internal code name" }];
+```
