@@ -135,7 +135,7 @@
     "pkg-pr-new": "^0.0.75",
     "prettier": "3.8.3",
     "typescript": "^5.6.0",
-    "vitest": "^3.0.0"
+    "vitest": "^4.1.9"
   },
   "peerDependencies": {
     "astro": "^6.0.0",
