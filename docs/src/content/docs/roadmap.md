@@ -6,38 +6,38 @@ description: Status of shipped + planned features.
 PolyStella is in active pre-1.0 development. The table below
 reflects the current state.
 
-| Area                                                | Status      |
-| --------------------------------------------------- | ----------- |
-| Markdown adapter                                    | Shipped     |
-| MDX adapter (frontmatter + body inline)             | Shipped     |
-| TOML adapter                                        | Shipped     |
-| JSON adapter                                        | Shipped     |
-| YAML adapter                                        | Shipped     |
-| Custom-loader adapter                               | Shipped     |
-| Workers AI provider                                 | Shipped     |
-| Anthropic provider                                  | Shipped     |
-| R2 cache + branch dispatch                          | Shipped     |
-| R2 bulk pre-list optimisation                       | Shipped     |
-| Token-aware translation batching                    | Shipped     |
-| Per-batch document context                          | Shipped     |
-| Glossary (file + inline)                            | Shipped     |
-| Hand-translation overrides                          | Shipped     |
-| AI marker (frontmatter fields)                      | Shipped     |
-| Build report                                        | Shipped     |
-| Standalone routing + shims                          | Shipped     |
-| Locale-aware `Astro.locals` middleware              | Shipped     |
-| React hooks (`useTranslations`, `useLocalizedHref`) | Shipped     |
-| UI-strings collection + drift detection             | Shipped     |
-| UI-strings sync + AI-fill                           | Shipped     |
-| `polystella` CLI with subcommands                   | Shipped     |
-| `PermanentProviderError` + retry contract           | Shipped     |
-| `AbortSignal` threading                             | Shipped     |
-| End-to-end smoke test                               | Shipped     |
-| MDX JSX-children translation                        | Planned     |
-| OpenAPI preset                                      | Planned     |
-| Starlight mode                                      | Planned     |
-| `hreflang` sitemap generator                        | Planned     |
-| Public npm release                                  | In progress |
+| Area                                                | Status  |
+| --------------------------------------------------- | ------- |
+| Markdown adapter                                    | Shipped |
+| MDX adapter (frontmatter + body inline)             | Shipped |
+| TOML adapter                                        | Shipped |
+| JSON adapter                                        | Shipped |
+| YAML adapter                                        | Shipped |
+| Custom-loader adapter                               | Shipped |
+| Workers AI provider                                 | Shipped |
+| Anthropic provider                                  | Shipped |
+| R2 cache + branch dispatch                          | Shipped |
+| R2 bulk pre-list optimisation                       | Shipped |
+| Token-aware translation batching                    | Shipped |
+| Per-batch document context                          | Shipped |
+| Glossary (file + inline)                            | Shipped |
+| Hand-translation overrides                          | Shipped |
+| AI marker (frontmatter fields)                      | Shipped |
+| Build report                                        | Shipped |
+| Standalone routing + shims                          | Shipped |
+| Locale-aware `Astro.locals` middleware              | Shipped |
+| React hooks (`useTranslations`, `useLocalizedHref`) | Shipped |
+| UI-strings collection + drift detection             | Shipped |
+| UI-strings sync + AI-fill                           | Shipped |
+| `polystella` CLI with subcommands                   | Shipped |
+| `PermanentProviderError` + retry contract           | Shipped |
+| `AbortSignal` threading                             | Shipped |
+| End-to-end smoke test                               | Shipped |
+| MDX JSX-children translation                        | Planned |
+| OpenAPI preset                                      | Planned |
+| Starlight mode                                      | Planned |
+| `hreflang` sitemap generator                        | Planned |
+| Public npm release                                  | Shipped |
 
 ## What "planned" doesn't mean
 

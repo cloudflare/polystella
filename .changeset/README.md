@@ -32,6 +32,8 @@ That step:
 - Updates `CHANGELOG.md` with each changeset's summary.
 - Deletes the consumed changeset files.
 
-Publishing is wired separately: pushing a `v*` tag runs
-`.github/workflows/publish.yml`, which uses npm Trusted Publishing and
-must not use an npm token secret.
+Publishing is automated from `.github/workflows/release.yml`. Merging
+the generated release PR back to `main` publishes to npm via Trusted
+Publishing, so routine releases must not use an npm token secret. The
+tag-based `.github/workflows/publish.yml` workflow remains a manual
+fallback for `v*` tags.

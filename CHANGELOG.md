@@ -2,8 +2,8 @@
 
 All notable changes to PolyStella are tracked here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
-versioning will follow [semver](https://semver.org/) once the package
-is on npm.
+published releases follow [semver](https://semver.org/) pre-1.0
+versioning.
 
 ## [Unreleased]
 

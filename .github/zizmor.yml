@@ -1,0 +1,17 @@
+# Configuration for zizmor, the static analyzer for GitHub Actions.
+# https://docs.zizmor.sh/configuration/
+#
+# Ignores here are deliberate decisions. Add new ignores only with a
+# comment explaining why the finding is acceptable.
+
+rules:
+  dangerous-triggers:
+    ignore:
+      # Metadata-only PR policy check. Does not checkout or execute PR code.
+      - pr-compliance.yml
+      # Metadata-only labeler. Reads PR file metadata through the GitHub API;
+      # does not checkout or execute PR code.
+      - pr-triage.yml
+      # Metadata-only review labeler. Reads PR/review metadata through the
+      # GitHub API; does not checkout or execute PR code.
+      - review-state.yml
