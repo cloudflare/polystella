@@ -121,7 +121,12 @@ function attachPositionsToMdxJsxAttributes(node: { type: string }, source: strin
     if (isMdxJsxAttributeValueExpression(attribute.value) && span.value !== undefined && span.value.kind === "expression") {
       (attribute.value as { position?: unknown }).position = positionFromOffsets(source, span.value.start, span.value.end);
       const rawExpression = source.slice(span.value.start, span.value.end);
-      const program = parseEstreeProgram(rawExpression, span.value.start, pointForOffset(source, span.value.start).line, pointForOffset(source, span.value.start).column);
+      const program = parseEstreeProgram(
+        rawExpression,
+        span.value.start,
+        pointForOffset(source, span.value.start).line,
+        pointForOffset(source, span.value.start).column,
+      );
       if (program !== undefined) {
         const existingData = readObjectProperty(attribute.value, "data") ?? {};
         (attribute.value as { data?: Record<string, unknown> }).data = { ...existingData, estree: program };
@@ -185,7 +190,13 @@ function findAttributeSpan(
   start: number,
   end: number,
   name: string,
-): { start: number; end: number; value?: { kind: "expression"; start: number; end: number } | { kind: "quoted"; start: number; end: number } } | undefined {
+):
+  | {
+      start: number;
+      end: number;
+      value?: { kind: "expression"; start: number; end: number } | { kind: "quoted"; start: number; end: number };
+    }
+  | undefined {
   let nameStart = start;
   while (nameStart < end) {
     nameStart = source.indexOf(name, nameStart);
@@ -262,7 +273,11 @@ function isAttributeNameBoundary(char: string | undefined): boolean {
   return char === undefined || /[\s=<>/{}]/.test(char);
 }
 
-function positionFromOffsets(source: string, start: number, end: number): { start: { offset: number; line: number; column: number }; end: { offset: number; line: number; column: number } } {
+function positionFromOffsets(
+  source: string,
+  start: number,
+  end: number,
+): { start: { offset: number; line: number; column: number }; end: { offset: number; line: number; column: number } } {
   return {
     start: { offset: start, ...pointForOffset(source, start) },
     end: { offset: end, ...pointForOffset(source, end) },
@@ -338,11 +353,21 @@ function isNode(node: unknown): node is { type: string } {
 }
 
 function isMdxJsxAttribute(node: unknown): node is { type: string; name: string; value: unknown } {
-  return typeof node === "object" && node !== null && (node as { type?: unknown }).type === "mdxJsxAttribute" && typeof (node as { name?: unknown }).name === "string";
+  return (
+    typeof node === "object" &&
+    node !== null &&
+    (node as { type?: unknown }).type === "mdxJsxAttribute" &&
+    typeof (node as { name?: unknown }).name === "string"
+  );
 }
 
 function isMdxJsxAttributeValueExpression(node: unknown): node is { type: string; value: string } {
-  return typeof node === "object" && node !== null && (node as { type?: unknown }).type === "mdxJsxAttributeValueExpression" && typeof (node as { value?: unknown }).value === "string";
+  return (
+    typeof node === "object" &&
+    node !== null &&
+    (node as { type?: unknown }).type === "mdxJsxAttributeValueExpression" &&
+    typeof (node as { value?: unknown }).value === "string"
+  );
 }
 
 function readPositionSpan(node: unknown): { start: number; end: number } | undefined {
