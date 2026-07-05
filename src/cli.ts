@@ -27,7 +27,7 @@ import { POLYSTELLA_VERSION } from "./version.js";
 // Top-level dispatch
 // ---------------------------------------------------------------
 
-export type Subcommand = "translate" | "check-ui" | "sync-ui" | "translate-ui";
+export type Subcommand = "translate" | "check-ui" | "sync-ui" | "translate-ui" | "audit-mdx";
 
 export const TOP_LEVEL_USAGE = `polystella v${POLYSTELLA_VERSION}
 
@@ -43,6 +43,7 @@ Subcommands:
                   remove extras). Runs offline.
   translate-ui    sync-ui, then AI-fill empty placeholders via the
                   configured provider.
+  audit-mdx       Warn about likely missed MDX translation surfaces.
 
 Run \`polystella <subcommand> --help\` for subcommand-specific flags.
 
@@ -77,7 +78,7 @@ export function parseSubcommand(argv: ReadonlyArray<string>): SubcommandDispatch
   if (first === "--version" || first === "-v") {
     return { name: "version", rest: argv.slice(1) };
   }
-  if (first === "translate" || first === "check-ui" || first === "sync-ui" || first === "translate-ui") {
+  if (first === "translate" || first === "check-ui" || first === "sync-ui" || first === "translate-ui" || first === "audit-mdx") {
     return { name: first, rest: argv.slice(1) };
   }
   return { name: "unknown", raw: first, rest: argv.slice(1) };
@@ -520,6 +521,22 @@ async function main(): Promise<number> {
         cwd,
         log: (msg) => console.log(msg),
         warn: (msg) => console.warn(msg),
+        err: (msg) => console.error(msg),
+      });
+    }
+    case "audit-mdx": {
+      const { AUDIT_MDX_USAGE, parseAuditMdxArgs, runAuditMdx } = await import("./cli/audit-mdx.js");
+      let args: ReturnType<typeof parseAuditMdxArgs>;
+      try {
+        args = parseAuditMdxArgs(dispatch.rest);
+      } catch (err) {
+        console.error(`[polystella] ${(err as Error).message}\n`);
+        console.error(AUDIT_MDX_USAGE);
+        return 1;
+      }
+      return runAuditMdx(args, {
+        cwd,
+        log: (msg) => console.log(msg),
         err: (msg) => console.error(msg),
       });
     }

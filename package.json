@@ -71,6 +71,14 @@
       "types": "./dist/react/index.d.ts",
       "default": "./dist/react/index.js"
     },
+    "./recipes": {
+      "types": "./dist/recipes/index.d.ts",
+      "default": "./dist/recipes/index.js"
+    },
+    "./recipes/starlight": {
+      "types": "./dist/recipes/starlight.d.ts",
+      "default": "./dist/recipes/starlight.js"
+    },
     "./client": {
       "types": "./client.d.ts"
     }
@@ -95,6 +103,11 @@
     "test:watch": "vitest",
     "build": "tsc -p tsconfig.build.json && chmod +x dist/cli.js",
     "build:llms": "node scripts/build-llms-full.mjs",
+    "playground:mdx-jsx:build": "pnpm --filter polystella-playground-mdx-jsx build",
+    "playground:mdx-jsx:audit": "pnpm --filter polystella-playground-mdx-jsx audit-mdx",
+    "playground:mdx-jsx:translate:dry-run": "pnpm --filter polystella-playground-mdx-jsx translate:dry-run",
+    "playground:mdx-jsx:translate:local": "pnpm --filter polystella-playground-mdx-jsx translate:local",
+    "playground:mdx-jsx:translate:workers-ai": "pnpm --filter polystella-playground-mdx-jsx translate:workers-ai",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "prepare": "pnpm build && (git config core.hooksPath .githooks 2>/dev/null || true)",

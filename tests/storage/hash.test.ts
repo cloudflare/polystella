@@ -72,6 +72,20 @@ describe("computeSourceHash", () => {
     expect(a).not.toBe(b);
   });
 
+  it("keeps the historical hash when policyHash is omitted", () => {
+    const implicit = computeSourceHash(baseInput);
+    const alsoImplicit = computeSourceHash({ ...baseInput, policyHash: undefined });
+
+    expect(implicit).toBe(alsoImplicit);
+  });
+
+  it("is sensitive to optional extraction policy hash changes", () => {
+    const a = computeSourceHash({ ...baseInput, policyHash: "policy-a" });
+    const b = computeSourceHash({ ...baseInput, policyHash: "policy-b" });
+
+    expect(a).not.toBe(b);
+  });
+
   it("treats segment boundaries unambiguously (length-prefixing)", () => {
     // If we just concatenated body + frontmatter + glossary + model, then
     // moving content between adjacent segments would yield the same hash.

@@ -1,6 +1,11 @@
 import type { Root, Yaml } from "mdast";
 import picomatch from "picomatch";
 import { parse as parseYaml } from "yaml";
+import { collectMdxJsxAttributeSegments } from "./mdx-jsx-attributes.js";
+import type { InlineMdxPlaceholder } from "./mdx-placeholders.js";
+import { protectInlineMdxJsx } from "./mdx-placeholders.js";
+import { collectMdxStaticDataSegments } from "./mdx-static-data.js";
+import type { NormalizedMdxRules } from "./mdx-rules.js";
 import { inlineSpan, visitTranslatableBlocks } from "./traverse.js";
 
 /**
@@ -36,6 +41,18 @@ export interface ExtractOptions {
   sourcePath: string;
   /** Per-glob → translatable frontmatter keys. */
   frontmatter: Record<string, string[]>;
+  /** Normalized MDX rules for `.mdx` sources. */
+  mdxRules?: NormalizedMdxRules | undefined;
+}
+
+export type MarkdownSegmentKind = "body" | "frontmatter" | "mdx-static-data" | "jsx-attribute" | "placeholder-inline-jsx";
+
+export interface MarkdownCollectedSegment {
+  segment: Segment;
+  kind: MarkdownSegmentKind;
+  span?: { start: number; end: number } | undefined;
+  replacement?: { kind: "js-string" | "quoted-attribute"; quote: "'" | '"' } | undefined;
+  placeholders?: InlineMdxPlaceholder[] | undefined;
 }
 
 /**
@@ -45,16 +62,43 @@ export interface ExtractOptions {
  * Frontmatter segments hold parsed YAML scalars.
  */
 export function extractSegments(ast: Root, opts: ExtractOptions, source: string): Segment[] {
-  const segments: Segment[] = [];
+  return collectMarkdownSegments(ast, opts, source).map((entry) => entry.segment);
+}
+
+export function collectMarkdownSegments(ast: Root, opts: ExtractOptions, source: string): MarkdownCollectedSegment[] {
+  const segments: MarkdownCollectedSegment[] = [];
+  const placeholderSegments: MarkdownCollectedSegment[] = [];
 
   visitTranslatableBlocks(ast, ({ block, id }) => {
     const span = inlineSpan(block);
     if (!span) return;
-    const text = source.slice(span.start, span.end);
+    const protectedText = protectInlineMdxJsx(block, source, span, opts.mdxRules);
+    const text = protectedText?.text ?? source.slice(span.start, span.end);
     if (text.length > 0) {
-      segments.push({ id, text });
+      segments.push({
+        segment: { id, text },
+        kind: "body",
+        span,
+        ...(protectedText !== undefined ? { placeholders: protectedText.placeholders } : {}),
+      });
+      if (protectedText !== undefined) {
+        for (const placeholder of protectedText.placeholders) {
+          for (const attribute of placeholder.attributes) {
+            placeholderSegments.push({
+              segment: { id: attribute.id, text: attribute.text },
+              kind: "placeholder-inline-jsx",
+            });
+          }
+        }
+      }
     }
   });
+
+  if (opts.mdxRules !== undefined) {
+    segments.push(...placeholderSegments);
+    segments.push(...collectMdxStaticDataSegments(ast, source, { sourcePath: opts.sourcePath, mdxRules: opts.mdxRules }));
+    segments.push(...collectMdxJsxAttributeSegments(ast, source, { mdxRules: opts.mdxRules }));
+  }
 
   const frontmatterNode = ast.children.find((child): child is Yaml => child.type === "yaml");
   if (frontmatterNode) {
@@ -76,11 +120,11 @@ export function extractSegments(ast: Root, opts: ExtractOptions, source: string)
         // extractor uses for inline spans, and the equivalent check
         // in the structured-data adapters (TOML / JSON / YAML).
         if (typeof value === "string" && value.length > 0) {
-          segments.push({ id: `fm:${key}`, text: value });
+          segments.push({ segment: { id: `fm:${key}`, text: value }, kind: "frontmatter" });
         } else if (Array.isArray(value)) {
           value.forEach((item, i) => {
             if (typeof item === "string" && item.length > 0) {
-              segments.push({ id: `fm:${key}[${i}]`, text: item });
+              segments.push({ segment: { id: `fm:${key}[${i}]`, text: item }, kind: "frontmatter" });
             }
           });
         }

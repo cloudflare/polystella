@@ -5,6 +5,10 @@ import { createHash } from "node:crypto";
  *
  *     sha256( body || canonicalFrontmatter || glossaryHash || modelId )
  *
+ * Adapters with configurable extraction policy may append a fifth
+ * policy segment. Omitted policy keeps the historical four-segment
+ * formula byte-for-byte.
+ *
  * Each component is length-prefixed and null-terminated so component
  * bytes can never collide with another's separator.
  *
@@ -20,11 +24,16 @@ export interface HashInput {
   glossaryHash: string;
   /** Resolved model id for this locale. */
   modelId: string;
+  /** Optional hash of adapter extraction policy relevant to this source. */
+  policyHash?: string | undefined;
 }
 
 /** 64-char lowercase hex SHA-256 digest. */
 export function computeSourceHash(input: HashInput): string {
   const segments: string[] = [input.body, canonicalJSON(input.frontmatter), input.glossaryHash, input.modelId];
+  if (input.policyHash !== undefined) {
+    segments.push(input.policyHash);
+  }
 
   const hasher = createHash("sha256");
   for (const segment of segments) {

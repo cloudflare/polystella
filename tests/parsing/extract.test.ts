@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { extractSegments, peekNoTranslate, selectTranslatableFrontmatter } from "../../src/parsing/extract.js";
+import { collectMarkdownSegments, extractSegments, peekNoTranslate, selectTranslatableFrontmatter } from "../../src/parsing/extract.js";
 import { parseMarkdown } from "../../src/parsing/parse.js";
 import { computeSourceHash } from "../../src/storage/hash.js";
 
@@ -14,6 +14,17 @@ describe("extractSegments — body", () => {
     expect(segments).toEqual([
       { id: "body:0", text: "First paragraph." },
       { id: "body:1", text: "Second paragraph." },
+    ]);
+  });
+
+  it("collector preserves segment metadata and body source spans", () => {
+    const source = "First paragraph.\n\nSecond paragraph.\n";
+    const ast = parseMarkdown(source);
+    const collected = collectMarkdownSegments(ast, noFrontmatterRules, source);
+
+    expect(collected).toEqual([
+      { segment: { id: "body:0", text: "First paragraph." }, kind: "body", span: { start: 0, end: 16 } },
+      { segment: { id: "body:1", text: "Second paragraph." }, kind: "body", span: { start: 18, end: 35 } },
     ]);
   });
 

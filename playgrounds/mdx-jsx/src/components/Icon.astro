@@ -1,0 +1,10 @@
+---
+interface Props {
+  name: string;
+  label?: string;
+}
+
+const { name, label } = Astro.props;
+---
+
+<span aria-label={label} class="icon" data-icon={name}></span>

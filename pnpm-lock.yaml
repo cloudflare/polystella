@@ -101,6 +101,25 @@ importers:
         specifier: ^4.0.0
         version: 4.93.0
 
+  playgrounds/mdx-jsx:
+    dependencies:
+      '@astrojs/mdx':
+        specifier: ^5.0.0
+        version: 5.0.6(astro@6.3.4(@types/node@22.19.19)(rollup@4.60.4)(tsx@4.22.2)(yaml@2.9.0))
+      '@cloudflare/polystella':
+        specifier: workspace:*
+        version: link:../..
+      astro:
+        specifier: ^6.0.0
+        version: 6.3.4(@types/node@22.19.19)(rollup@4.60.4)(tsx@4.22.2)(yaml@2.9.0)
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.19
+      typescript:
+        specifier: ^5.6.0
+        version: 5.9.3
+
 packages:
 
   '@astrojs/check@0.9.9':

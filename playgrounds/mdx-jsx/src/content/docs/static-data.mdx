@@ -1,0 +1,60 @@
+---
+title: Static Data Arrays
+description: Page-local arrays are content, not catalog strings.
+canonicalUrl: /docs/static-data
+---
+
+import FeatureGrid from "../../components/FeatureGrid.astro";
+
+export const features = [
+  {
+    title: "Fast setup",
+    description: "Start translating content in minutes.",
+    icon: "rocket",
+  },
+  {
+    title: "Cached by default",
+    description: "Translations are reused across builds.",
+    icon: "database",
+  },
+];
+
+export const annotatedCards = /** @polystella translate title, description */ [
+  {
+    title: "Local author intent",
+    description: "Annotations keep translation rules next to one-off page content.",
+    variant: "highlight",
+  },
+];
+
+export function getReturnItems() {
+  /** @polystella translate title, description */
+  return [
+    {
+      title: "Returned static data",
+      description: "The future extractor should mark the next static literal without executing the function.",
+    },
+  ];
+}
+
+# Static Data Arrays
+
+The cards below are rendered from page-local static arrays.
+
+<FeatureGrid items={features} />
+
+<FeatureGrid items={annotatedCards} />
+
+<FeatureGrid items={getReturnItems()} />
+
+<FeatureGrid
+  items={
+    /* @polystella translate title, description */
+    [
+      {
+        title: "Inline prop data",
+        description: "A future extractor should support static arrays passed directly to components.",
+      },
+    ]
+  }
+/>

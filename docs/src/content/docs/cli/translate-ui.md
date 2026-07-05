@@ -3,11 +3,12 @@ title: polystella translate-ui
 description: "polystella translate-ui — sync followed by AI-fill of empty placeholders."
 ---
 
-Sync (key add/remove) followed by AI-fill of empty values, one
-batched LLM call per locale. Uses the same provider stack as the
-markdown pipeline. Token placeholders (`{{name}}`) are validated
-post-translation; failures retry the batch and, if persistent,
-leave the key empty for manual fix-up.
+Sync (key add/remove) followed by AI-fill of empty values. Queued
+locale catalogs are split into small provider request batches. Uses
+the same provider stack as the markdown pipeline. Token placeholders
+(`{{name}}`) are validated post-translation; failures retry the
+affected batch and, if persistent, leave the key empty for manual
+fix-up.
 
 ## Usage
 
@@ -32,8 +33,9 @@ polystella translate-ui [flags]
    `""` (and whose source value is non-empty — intentional blanks
    stay blank). Locale JSONs with no empty placeholders are skipped
    before provider setup.
-3. Make one batched `translateBatch` call per queued locale, feeding
-   all empty keys into a single LLM round-trip.
+3. Split each queued locale into request batches capped by
+   `provider.batchInputTokenBudget` and 25 UI strings per request.
+   Batches for a locale run sequentially.
 4. Validate that every translation preserves the source's
    `{{token}}` placeholders. Token mismatches retry the batch with
    the same prompt (sampling variance usually recovers).

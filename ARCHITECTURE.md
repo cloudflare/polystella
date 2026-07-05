@@ -602,11 +602,12 @@ Three CLI subcommands maintain the invariant:
   files in source-file key order with blank-line section breaks
   preserved.
 - **`translate-ui`** (`src/cli/translate-ui.ts` +
-  `src/i18n/ui-translate.ts`) — runs sync, then for each locale calls
-  `translateBatch` once with every empty-valued key as a segment.
-  Fully translated locale JSONs are skipped before provider setup;
-  queued locales run in parallel via `runWithConcurrency` with a hard
-  max concurrency of 3.
+  `src/i18n/ui-translate.ts`) — runs sync, skips fully translated
+  locale JSONs before provider setup, then translates each queued
+  locale in small sequential request batches capped by
+  `provider.batchInputTokenBudget` and 25 UI strings per request.
+  Queued locales run in parallel via `runWithConcurrency` with a hard
+  max locale concurrency of 3.
 
 **Layout-aware writer.** `formatLocaleFile` in `src/i18n/sync.ts`
 parses the source file's text (not just its JSON) to recover top-level
@@ -619,12 +620,12 @@ keys alphabetically.
 extracting `{{\w+}}` tokens from both source and translation and
 comparing the sets. Validator lives _outside_ `translateBatch` (in
 `src/i18n/ui-translate.ts`) because `translateBatch` doesn't expose
-a post-parse hook. The orchestrator runs its own retry wrapper with
-`maxRetries: 0` passed to `translateBatch` so the retry loop is
-single-layer. A token-invalid translation after all retries leaves
-the key empty and reports it — a broken `{{year}}` placeholder breaks
-the page at runtime, so "obviously untranslated" is safer than
-"subtly broken".
+a post-parse hook. The orchestrator runs its own per-request-batch
+retry wrapper with `maxRetries: 0` passed to `translateBatch` so the
+retry loop is single-layer. A token-invalid translation after all
+retries leaves the key empty and reports it — a broken `{{year}}`
+placeholder breaks the page at runtime, so "obviously untranslated" is
+safer than "subtly broken".
 
 **Parallel locale execution.** `translate-ui` first scans every target
 locale JSON and logs skip/queue progress (`[n/total]`). Only queued

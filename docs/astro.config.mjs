@@ -99,6 +99,7 @@ export default defineConfig({
             { label: "check-ui", slug: "cli/check-ui" },
             { label: "sync-ui", slug: "cli/sync-ui" },
             { label: "translate-ui", slug: "cli/translate-ui" },
+            { label: "audit-mdx", slug: "cli/audit-mdx" },
           ],
         },
         {

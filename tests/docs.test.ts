@@ -138,7 +138,7 @@ describe("doc-claim invariants", () => {
       // dispatcher must recognise each one as a known subcommand
       // (not "unknown"). This catches rename-doc-without-rename-code
       // and vice versa.
-      const documented = ["translate", "check-ui", "sync-ui", "translate-ui"];
+      const documented = ["translate", "check-ui", "sync-ui", "translate-ui", "audit-mdx"];
       for (const verb of documented) {
         const result = parseSubcommand([verb]);
         expect(result.name, `subcommand "${verb}" not recognised by parseSubcommand`).toBe(verb);
@@ -151,6 +151,7 @@ describe("doc-claim invariants", () => {
       expect(fileExists("src/cli/check-ui.ts")).toBe(true);
       expect(fileExists("src/cli/sync-ui.ts")).toBe(true);
       expect(fileExists("src/cli/translate-ui.ts")).toBe(true);
+      expect(fileExists("src/cli/audit-mdx.ts")).toBe(true);
     });
   });
 

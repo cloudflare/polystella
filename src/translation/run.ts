@@ -7,6 +7,7 @@ import picomatch from "picomatch";
 import type { PolyStellaResolvedOptions } from "../config/options.js";
 import { EMPTY_GLOSSARY, EMPTY_GLOSSARY_HASH, hashGlossary, loadGlossaries, type Glossary } from "../glossary/glossary.js";
 import type { AdapterExtractOptions, FileTypeAdapter } from "../parsing/adapter.js";
+import { computeMdxRulesPolicyHash, normalizeMdxRulesForSource } from "../parsing/mdx-rules.js";
 import { rewriteInternalLinks, rewriteUrlIfInternal, type RewriteInternalLinksOptions } from "../parsing/rewrite-links.js";
 import { getAdapter, listRegisteredExtensions } from "../parsing/registry.js";
 import { readOverride } from "../source/overrides.js";
@@ -185,6 +186,11 @@ function pickContextKeysForAdapter(adapter: FileTypeAdapter, resolved: PolyStell
     }
   }
   return {};
+}
+
+function extractionPolicyHashForSource(relativePath: string, resolved: PolyStellaResolvedOptions): string | undefined {
+  if (!relativePath.toLowerCase().endsWith(".mdx")) return undefined;
+  return computeMdxRulesPolicyHash(normalizeMdxRulesForSource(resolved.markdown.mdx, relativePath));
 }
 
 /** Per-pattern compiled-matcher cache. Bounded by config size. */
@@ -390,6 +396,9 @@ export async function runTranslationPass(opts: RunTranslationOptions): Promise<R
           const adapterOpts: AdapterExtractOptions = {
             sourcePath: source.relativePath,
             translatableKeys: pickTranslatableKeysForAdapter(adapter, resolved),
+            ...(source.relativePath.toLowerCase().endsWith(".mdx")
+              ? { mdxRules: normalizeMdxRulesForSource(resolved.markdown.mdx, source.relativePath) }
+              : {}),
           };
           const selectedValues = adapter.selectedValuesForHash(parsed, body, adapterOpts);
           for (const locale of resolved.locales) {
@@ -398,6 +407,7 @@ export async function runTranslationPass(opts: RunTranslationOptions): Promise<R
               frontmatter: selectedValues,
               glossaryHash: glossaryHashByLocale.get(locale) ?? EMPTY_GLOSSARY_HASH,
               modelId: translatorByLocale.get(locale)?.modelId ?? "",
+              policyHash: extractionPolicyHashForSource(source.relativePath, resolved),
             });
             const key = buildR2Key({
               locale,
@@ -587,9 +597,13 @@ export async function runTranslationPass(opts: RunTranslationOptions): Promise<R
     }
     const body = await readFile(source.absolutePath, "utf8");
     const parsed = adapter.parse(body, source.relativePath);
+    const mdxRulesForSource = source.relativePath.toLowerCase().endsWith(".mdx")
+      ? normalizeMdxRulesForSource(resolved.markdown.mdx, source.relativePath)
+      : undefined;
     const adapterOpts: AdapterExtractOptions = {
       sourcePath: source.relativePath,
       translatableKeys: pickTranslatableKeysForAdapter(adapter, resolved),
+      ...(mdxRulesForSource !== undefined ? { mdxRules: mdxRulesForSource } : {}),
     };
     // URL key paths apply per-source via the configured globs.
     // Resolved once per source so the adapter's `applyTranslations`
@@ -599,6 +613,7 @@ export async function runTranslationPass(opts: RunTranslationOptions): Promise<R
     // Computed once per source so all branches (noTranslate, override,
     // translate, error) push consistent report entries.
     const selectedValuesForReport = adapter.selectedValuesForHash(parsed, body, adapterOpts);
+    const policyHashForSource = mdxRulesForSource !== undefined ? computeMdxRulesPolicyHash(mdxRulesForSource) : undefined;
     const reportKeysFor = (locale: string) => {
       const modelId = translatorByLocale.get(locale)?.modelId ?? "";
       const sourceHash = computeSourceHash({
@@ -606,6 +621,7 @@ export async function runTranslationPass(opts: RunTranslationOptions): Promise<R
         frontmatter: selectedValuesForReport,
         glossaryHash: glossaryHashByLocale.get(locale) ?? EMPTY_GLOSSARY_HASH,
         modelId,
+        policyHash: policyHashForSource,
       });
       const r2Key = buildR2Key({
         locale,
@@ -747,6 +763,7 @@ export async function runTranslationPass(opts: RunTranslationOptions): Promise<R
           frontmatter: selectedValues,
           glossaryHash,
           modelId: translator.modelId,
+          policyHash: policyHashForSource,
         });
         const key = buildR2Key({
           locale,
@@ -806,6 +823,8 @@ export async function runTranslationPass(opts: RunTranslationOptions): Promise<R
           sourcePath: source.relativePath,
           apply: (translations) =>
             adapter.applyTranslations(parsed, body, translations, {
+              sourcePath: source.relativePath,
+              ...(adapterOpts.mdxRules !== undefined ? { mdxRules: adapterOpts.mdxRules } : {}),
               topLevelAdditions,
             }),
           locale,

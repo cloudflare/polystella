@@ -158,6 +158,48 @@ const glossaryInlineSchema = z.object({
 
 const glossarySchema = z.union([glossaryFileSchema, glossaryInlineSchema]);
 
+const mdxComponentRuleSchema = z
+  .object({
+    children: z.boolean().optional().describe("Whether Markdown/MDX children inside this component are translatable."),
+    props: z.array(z.string()).optional().describe("Static quoted JSX props to translate for this component."),
+  })
+  .strict();
+
+const mdxRuleFragmentSchema = z
+  .object({
+    htmlAttributes: z
+      .record(z.string(), z.array(z.string()))
+      .optional()
+      .describe("Lowercase HTML element attributes to translate, keyed by tag name or `*`."),
+    components: z
+      .record(z.string(), mdxComponentRuleSchema)
+      .optional()
+      .describe("Custom component translation rules keyed by component name."),
+    data: z
+      .record(z.string(), z.record(z.string(), z.array(z.string())))
+      .optional()
+      .describe("Per-glob static MDX data rules: export/variable name -> translatable paths."),
+  })
+  .strict();
+
+const mdxRecipeEntrySchema = z.union([
+  mdxRuleFragmentSchema,
+  z
+    .object({
+      include: z.array(z.string()).optional().describe("Source globs this recipe applies to."),
+      exclude: z.array(z.string()).optional().describe("Source globs this recipe skips."),
+      use: mdxRuleFragmentSchema.describe("Recipe rule fragment."),
+    })
+    .strict(),
+]);
+
+const mdxOptionsSchema = mdxRuleFragmentSchema
+  .extend({
+    recipes: z.array(mdxRecipeEntrySchema).default([]).describe("Reusable MDX rule fragments applied before project config."),
+  })
+  .strict()
+  .default({ recipes: [] });
+
 export const polystellaOptionsSchema = z
   .object({
     // Locales: NOT here, derived from Astro's `config.i18n`.
@@ -220,9 +262,10 @@ export const polystellaOptionsSchema = z
           .describe(
             "Per-glob → frontmatter keys whose source-language values feed the per-batch document-context block. Untranslated. NOT in the cache-key hash.",
           ),
+        mdx: mdxOptionsSchema.describe("MDX-specific JSX, recipe, and static-data extraction rules."),
       })
       .strict()
-      .default({ keys: {}, urls: {}, contextKeys: {} })
+      .default({ keys: {}, urls: {}, contextKeys: {}, mdx: { recipes: [] } })
       .describe("Markdown / MDX adapter configuration."),
 
     toml: z
