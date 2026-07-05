@@ -31,11 +31,24 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Apply review state labels
-        uses: actions/github-script@373c709c69115d41ff229c7e5df9f8788daa9553 # v9
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
             const owner = context.repo.owner;
             const repo = context.repo.repo;
+
+            async function tryWrite(description, fn) {
+              try {
+                return await fn();
+              } catch (error) {
+                if (error.status === 403 || error.status === 422) {
+                  core.warning(`${description} skipped: ${error.message}`);
+                  return null;
+                }
+                throw error;
+              }
+            }
+
             const states = {
               "review/needs-review": { color: "fbca04", description: "No maintainer review yet" },
               "review/awaiting-author": { color: "c5def5", description: "Reviewed; waiting on author" },
@@ -53,13 +66,17 @@ jobs:
             }
             for (const [name, meta] of Object.entries(states)) {
               if (!existingLabels.has(name)) {
-                await github.rest.issues.createLabel({ owner, repo, name, color: meta.color, description: meta.description });
+                await tryWrite(`Create label ${name}`, () =>
+                  github.rest.issues.createLabel({ owner, repo, name, color: meta.color, description: meta.description }),
+                );
               }
             }
 
             async function safeRemove(prNumber, label) {
               try {
-                await github.rest.issues.removeLabel({ owner, repo, issue_number: prNumber, name: label });
+                await tryWrite(`Remove label ${label}`, () =>
+                  github.rest.issues.removeLabel({ owner, repo, issue_number: prNumber, name: label }),
+                );
               } catch (error) {
                 if (error.status !== 404) throw error;
               }
@@ -128,7 +145,9 @@ jobs:
                     : "review/awaiting-author";
 
               if (!currentLabels.has(desired)) {
-                await github.rest.issues.addLabels({ owner, repo, issue_number: pr.number, labels: [desired] });
+                await tryWrite(`Add label ${desired}`, () =>
+                  github.rest.issues.addLabels({ owner, repo, issue_number: pr.number, labels: [desired] }),
+                );
               }
               for (const label of stateNames) {
                 if (label !== desired && currentLabels.has(label)) await safeRemove(pr.number, label);

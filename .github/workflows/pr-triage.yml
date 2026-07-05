@@ -23,11 +23,23 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Apply labels
-        uses: actions/github-script@373c709c69115d41ff229c7e5df9f8788daa9553 # v9
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
             const pr = context.payload.pull_request;
             const labels = new Set();
+
+            async function tryWrite(description, fn) {
+              try {
+                return await fn();
+              } catch (error) {
+                if (error.status === 403 || error.status === 422) {
+                  core.warning(`${description} skipped: ${error.message}`);
+                  return null;
+                }
+                throw error;
+              }
+            }
 
             const files = await github.paginate(github.rest.pulls.listFiles, {
               owner: context.repo.owner,
@@ -119,13 +131,15 @@ jobs:
 
             for (const [name, meta] of Object.entries(labelMetadata)) {
               if (!existingLabels.has(name)) {
-                await github.rest.issues.createLabel({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  name,
-                  color: meta.color,
-                  description: meta.description,
-                });
+                await tryWrite(`Create label ${name}`, () =>
+                  github.rest.issues.createLabel({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    name,
+                    color: meta.color,
+                    description: meta.description,
+                  }),
+                );
               }
             }
 
@@ -140,12 +154,14 @@ jobs:
             for (const label of managedLabels) {
               if (!labels.has(label) && currentLabels.has(label)) {
                 try {
-                  await github.rest.issues.removeLabel({
-                    owner: context.repo.owner,
-                    repo: context.repo.repo,
-                    issue_number: pr.number,
-                    name: label,
-                  });
+                  await tryWrite(`Remove label ${label}`, () =>
+                    github.rest.issues.removeLabel({
+                      owner: context.repo.owner,
+                      repo: context.repo.repo,
+                      issue_number: pr.number,
+                      name: label,
+                    }),
+                  );
                 } catch (error) {
                   if (error.status !== 404) throw error;
                 }
@@ -154,26 +170,30 @@ jobs:
 
             const toAdd = [...labels].filter((label) => !currentLabels.has(label));
             if (toAdd.length > 0) {
-              await github.rest.issues.addLabels({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: pr.number,
-                labels: toAdd,
-              });
+              await tryWrite(`Add labels ${toAdd.join(", ")}`, () =>
+                github.rest.issues.addLabels({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: pr.number,
+                  labels: toAdd,
+                }),
+              );
             }
 
             if (context.payload.action === "opened" && (linesChanged > 500 || files.length > 20)) {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: pr.number,
-                body: [
-                  "<!-- polystella-scope-guard -->",
-                  "## Scope check",
-                  "",
-                  `This PR changes **${linesChanged.toLocaleString()} lines** across **${files.length} files**. PolyStella is maintained by a small team, so smaller focused PRs are more likely to be reviewed.`,
-                  "",
-                  "If this scope is intentional, no action is required.",
-                ].join("\n"),
-              });
+              await tryWrite("Create scope guard comment", () =>
+                github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: pr.number,
+                  body: [
+                    "<!-- polystella-scope-guard -->",
+                    "## Scope check",
+                    "",
+                    `This PR changes **${linesChanged.toLocaleString()} lines** across **${files.length} files**. PolyStella is maintained by a small team, so smaller focused PRs are more likely to be reviewed.`,
+                    "",
+                    "If this scope is intentional, no action is required.",
+                  ].join("\n"),
+                }),
+              );
             }

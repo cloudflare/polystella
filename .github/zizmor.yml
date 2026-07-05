@@ -15,3 +15,8 @@ rules:
       # Metadata-only review labeler. Reads PR/review metadata through the
       # GitHub API; does not checkout or execute PR code.
       - review-state.yml
+  use-trusted-publishing:
+    ignore:
+      # pkg.pr.new publishes preview artifacts to pkg.pr.new, not to the npm
+      # registry. npm Trusted Publishing does not apply here.
+      - preview-releases.yml
