@@ -14,7 +14,7 @@
     "translate:workers-ai": "node ./scripts/translate-workers-ai.mjs"
   },
   "dependencies": {
-    "@astrojs/mdx": "^5.0.0",
+    "@astrojs/mdx": "^7.0.2",
     "@cloudflare/polystella": "workspace:*",
     "astro": "^6.0.0"
   },
