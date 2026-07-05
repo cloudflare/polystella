@@ -35,7 +35,7 @@ pnpm add @cloudflare/polystella
 
 The standalone CLI binary is still named `polystella`.
 
-Peer dependency: `astro ^6.0.0`.
+Peer dependency: `astro ^7.0.0`.
 
 ## Four-file integration
 

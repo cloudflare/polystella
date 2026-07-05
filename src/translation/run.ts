@@ -9,6 +9,7 @@ import { EMPTY_GLOSSARY, EMPTY_GLOSSARY_HASH, hashGlossary, loadGlossaries, type
 import type { AdapterExtractOptions, FileTypeAdapter } from "../parsing/adapter.js";
 import { computeMdxRulesPolicyHash, normalizeMdxRulesForSource } from "../parsing/mdx-rules.js";
 import { rewriteInternalLinks, rewriteUrlIfInternal, type RewriteInternalLinksOptions } from "../parsing/rewrite-links.js";
+import { rewriteMdxRelativeImportsForStaging } from "../parsing/rewrite-mdx-imports.js";
 import { getAdapter, listRegisteredExtensions } from "../parsing/registry.js";
 import { readOverride } from "../source/overrides.js";
 import { runWithConcurrency } from "../source/pool.js";
@@ -114,11 +115,18 @@ async function writeStagedTranslation(args: {
   stagingDir: string;
   locale: string;
   relativeSourcePath: string;
+  sourceAbsolutePath: string;
   bytes: string;
 }): Promise<void> {
   const target = path.join(args.stagingDir, args.locale, args.relativeSourcePath);
+  const bytes = args.relativeSourcePath.toLowerCase().endsWith(".mdx")
+    ? rewriteMdxRelativeImportsForStaging(args.bytes, {
+        sourceFilePath: args.sourceAbsolutePath,
+        stagedFilePath: target,
+      })
+    : args.bytes;
   await mkdir(path.dirname(target), { recursive: true });
-  await writeFile(target, args.bytes, "utf8");
+  await writeFile(target, bytes, "utf8");
 }
 
 /**
@@ -663,6 +671,7 @@ export async function runTranslationPass(opts: RunTranslationOptions): Promise<R
             stagingDir,
             locale,
             relativeSourcePath: source.relativePath,
+            sourceAbsolutePath: source.absolutePath,
             bytes: overrideStaged,
           });
           counts.override++;
@@ -725,6 +734,7 @@ export async function runTranslationPass(opts: RunTranslationOptions): Promise<R
             stagingDir,
             locale,
             relativeSourcePath: source.relativePath,
+            sourceAbsolutePath: source.absolutePath,
             bytes: overrideStaged,
           });
           counts.override++;
@@ -898,6 +908,7 @@ export async function runTranslationPass(opts: RunTranslationOptions): Promise<R
           stagingDir,
           locale,
           relativeSourcePath: source.relativePath,
+          sourceAbsolutePath: source.absolutePath,
           bytes: stagedBody,
         });
         // Record staged hash AFTER the write so a crashed build

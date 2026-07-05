@@ -263,6 +263,69 @@ describe("runTranslationPass — staging output", () => {
     expect(staged).toContain('type="warning"');
   });
 
+  it("rewrites source-relative MDX ESM imports only in staged bytes", async () => {
+    const mdx = [
+      "---",
+      "title: Import Sample",
+      "---",
+      "",
+      'import Callout from "../../components/Callout.astro";',
+      "import iconUrl from '../../assets/icon.svg?url';",
+      'export { helper } from "../../lib/helper.js";',
+      'import pkg from "pkg";',
+      "",
+      "# Import Sample",
+      "",
+      "Body copy.",
+      "",
+    ].join("\n");
+    const { rootDir, stagingDir } = await makeProjectFixture({
+      files: { "src/content/docs/sample.mdx": mdx },
+    });
+    const r2 = makeInMemoryR2();
+    const translator = makeStubTranslator("stub/mdx-imports-1");
+    const resolved = resolveOptions(
+      {
+        sourceDir: "./src/content",
+        include: ["**/*.mdx"],
+        markdown: {
+          keys: { "docs/**": ["title"] },
+        },
+      },
+      { defaultLocale: "en-US", locales: ["en-US", "pt-BR"] },
+    );
+    resolved.provider = {
+      kind: "workers-ai",
+      accountId: "fake",
+      apiToken: "fake",
+      model: "stub/mdx-imports-1",
+      maxTokens: 8192,
+      batchInputTokenBudget: 4000,
+    };
+
+    await runTranslationPass({
+      resolved,
+      rootDir,
+      stagingDir,
+      logger: NULL_LOGGER,
+      polystellaVersion: "0.2.0",
+      r2Override: r2.client,
+      translatorOverrides: new Map([["pt-BR", translator]]),
+    });
+
+    const staged = await readFile(path.join(stagingDir, "pt-BR", "docs/sample.mdx"), "utf8");
+    expect(staged).toContain('import Callout from "../../../../src/components/Callout.astro";');
+    expect(staged).toContain("import iconUrl from '../../../../src/assets/icon.svg?url';");
+    expect(staged).toContain('export { helper } from "../../../../src/lib/helper.js";');
+    expect(staged).toContain('import pkg from "pkg";');
+
+    const cached = [...r2.store.values()].at(0);
+    if (cached === undefined) throw new Error("expected translated bytes to be cached");
+    const cachedBody = new TextDecoder().decode(cached.body);
+    expect(cachedBody).toContain('import Callout from "../../components/Callout.astro";');
+    expect(cachedBody).not.toContain("../../../../src/components/Callout.astro");
+  });
+
   it("a second run on unchanged input is all cache hits (translator never called)", async () => {
     const { rootDir, stagingDir } = await makeProjectFixture({
       files: { "content/publications/sample.md": SAMPLE_MD },
