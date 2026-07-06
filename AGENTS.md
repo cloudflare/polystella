@@ -29,6 +29,7 @@ section numbers. Inserting new sections never breaks links.
 | `pnpm test:watch`        | Vitest in watch mode.                                                                                                                                                                                        |
 | `pnpm build`             | Compile `src/` → `dist/` via `tsc -p tsconfig.build.json` (mirrored layout, `.js` + `.d.ts` + sourcemaps + declaration maps). Produces the standalone `polystella` CLI at `dist/cli.js` and library entries. |
 | `pnpm exec tsc --noEmit` | Typecheck against the root `tsconfig.json` (which includes tests). The build config (`tsconfig.build.json`) sets `noEmit: false` and narrows `include` to `src/**`.                                          |
+| `pnpm changeset`         | Add a Changesets entry for package-affecting work. Use `pnpm changeset add --empty` only for changes that intentionally do not need a package release.                                                       |
 
 No lint step yet.
 
@@ -85,6 +86,12 @@ to the explanatory section when adding code that touches one.
 ### Always
 
 - Run `pnpm test` before pushing. Tests must stay green.
+- Add a Changesets entry for every change that affects the published
+  package, its documented behaviour, or release-facing contributor
+  guidance. Use `pnpm changeset` for release notes; use
+  `pnpm changeset add --empty` only when the change deliberately does
+  not require a package release (for example, docs-site-only or CI-only
+  maintenance).
 - Bump the package version in `package.json` only — `POLYSTELLA_VERSION`
   (in `src/version.ts`) reads it at module-load time via a JSON
   import attribute, so the constant flows automatically through to
