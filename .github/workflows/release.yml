@@ -40,8 +40,8 @@ jobs:
       - name: Create release PR or publish
         uses: changesets/action@a45c4d594aa4e2c509dc14a9f2b3b67ba3780d0d # v1
         with:
-          version: pnpm changeset version && pnpm install --no-frozen-lockfile
-          publish: pnpm changeset publish
+          version: pnpm run release:version
+          publish: pnpm run release:publish
           commit: "ci: release"
           title: "ci: release"
         env:
