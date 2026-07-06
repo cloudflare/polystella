@@ -1,6 +1,9 @@
 ---
 title: Configuration overview
 description: Where polystella.config.mjs sits and how it relates to astro.config.mjs.
+aiGenerated: true
+sidebar:
+  label: Overview
 ---
 
 PolyStella's configuration lives in two files. Knowing which goes

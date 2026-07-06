@@ -1,6 +1,7 @@
 ---
 title: Middleware
 description: How polystella's request middleware is auto-registered; opting out.
+aiGenerated: true
 ---
 
 PolyStella registers a request middleware via Astro's

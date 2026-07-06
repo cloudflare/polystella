@@ -1,6 +1,7 @@
 ---
 title: Missing translations
 description: Diagnosing when a translated page doesn't render.
+aiGenerated: true
 ---
 
 A page that should be translated isn't showing up under

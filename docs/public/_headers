@@ -4,8 +4,8 @@
 #
 # Syntax: https://developers.cloudflare.com/workers/static-assets/headers/
 #
-# CSP is intentionally omitted: Starlight ships inline
-# `<script type="module">` blocks (sidebar persistence, mobile TOC)
+# CSP is intentionally omitted: Nimbus ships inline
+# scripts for theme setup, sidebar persistence, and mobile navigation
 # that would break under a `script-src 'self'` policy. Adding CSP
 # requires per-build script hashing — a separate task.
 

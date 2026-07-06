@@ -1,6 +1,7 @@
 ---
 title: Glossaries
 description: Per-locale YAML files that pin do-not-translate terms, preferred translations, and style rules.
+aiGenerated: true
 ---
 
 A glossary tells the translator how to handle terminology that

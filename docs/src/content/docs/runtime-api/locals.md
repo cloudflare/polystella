@@ -1,6 +1,7 @@
 ---
 title: Astro.locals
 description: "t, lhref, getLocalizedEntry, getLocalizedCollection."
+aiGenerated: true
 ---
 
 PolyStella's middleware populates four properties on `Astro.locals`

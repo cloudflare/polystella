@@ -7,3 +7,6 @@ allowBuilds:
   esbuild: true
   sharp: true
   workerd: true
+
+minimumReleaseAgeExclude:
+  - nimbus-docs@0.1.22

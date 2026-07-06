@@ -1,6 +1,7 @@
 ---
 title: Quick start
 description: "Five-minute setup — the four files that participate in a typical PolyStella project."
+aiGenerated: true
 ---
 
 Four files participate in a typical PolyStella setup. None of them

@@ -1,6 +1,7 @@
 ---
 title: Markdown adapter
 description: "Translating .md files: frontmatter keys, body inline text, internal links."
+aiGenerated: true
 ---
 
 The Markdown adapter handles `.md` files via Satteri by default. Use

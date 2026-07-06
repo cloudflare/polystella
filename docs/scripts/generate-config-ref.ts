@@ -245,6 +245,7 @@ async function main(): Promise<void> {
     "---",
     "title: Configuration reference",
     "description: Full polystella.config.mjs option reference, generated from the zod schema.",
+    "aiGenerated: true",
     "---",
     "",
     ":::note[Auto-generated]",

@@ -1,6 +1,7 @@
 ---
 title: polystella check-ui
 description: "polystella check-ui — offline drift detection over UI-string JSONs."
+aiGenerated: true
 ---
 
 Pure drift detection over your project's UI-string JSON files.

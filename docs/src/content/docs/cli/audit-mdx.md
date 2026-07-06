@@ -1,6 +1,7 @@
 ---
 title: polystella audit-mdx
 description: "polystella audit-mdx — offline MDX extraction audit."
+aiGenerated: true
 ---
 
 `audit-mdx` scans configured `.mdx` sources for likely missed

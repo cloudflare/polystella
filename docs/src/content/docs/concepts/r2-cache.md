@@ -1,6 +1,7 @@
 ---
 title: R2 cache
 description: How translations are content-addressed and cached in Cloudflare R2.
+aiGenerated: true
 ---
 
 PolyStella's R2 cache is the load-bearing piece of the whole

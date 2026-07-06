@@ -1,6 +1,7 @@
 ---
 title: Workers AI provider
 description: Cloudflare Workers AI as the translation provider.
+aiGenerated: true
 ---
 
 The Workers AI provider routes translation through Cloudflare's

@@ -1,6 +1,7 @@
 ---
 title: Mental model
 description: How PolyStella thinks about content, locales, and the build pipeline.
+aiGenerated: true
 ---
 
 PolyStella has three central ideas. Internalise these and the rest

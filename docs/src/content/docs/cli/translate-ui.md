@@ -1,6 +1,7 @@
 ---
 title: polystella translate-ui
 description: "polystella translate-ui — sync followed by AI-fill of empty placeholders."
+aiGenerated: true
 ---
 
 Sync (key add/remove) followed by AI-fill of empty values. Queued

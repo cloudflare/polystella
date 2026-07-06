@@ -1,6 +1,7 @@
 ---
 title: Runtime bridge
 description: The seam between config-time and content-sync-time for custom-loader translation.
+aiGenerated: true
 ---
 
 Most of PolyStella runs at `astro:config:setup`. File-based content

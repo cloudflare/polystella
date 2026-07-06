@@ -1,6 +1,7 @@
 ---
 title: Overrides
 description: Hand-translated files that win over AI output verbatim.
+aiGenerated: true
 ---
 
 Sometimes the AI gets something wrong. Or a page is too important

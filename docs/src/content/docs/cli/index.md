@@ -1,6 +1,9 @@
 ---
 title: CLI overview
 description: The polystella binary and its verb-style subcommands.
+aiGenerated: true
+sidebar:
+  label: Overview
 ---
 
 The package exposes a single `polystella` binary with verb-style

@@ -1,6 +1,7 @@
 ---
 title: Breaking changes
 description: Pre-1.0 breaking-change log.
+aiGenerated: true
 ---
 
 PolyStella is in pre-1.0 development. Breaking changes happen.

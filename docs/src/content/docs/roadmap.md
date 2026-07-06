@@ -1,6 +1,7 @@
 ---
 title: Roadmap
 description: Status of shipped + planned features.
+aiGenerated: true
 ---
 
 PolyStella is in active pre-1.0 development. The table below

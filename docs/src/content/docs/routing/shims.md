@@ -1,6 +1,7 @@
 ---
 title: Standalone shims
 description: How PolyStella generates locale-prefixed route shims that re-render source pages.
+aiGenerated: true
 ---
 
 In standalone mode, PolyStella owns the routing layer for locale-

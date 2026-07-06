@@ -1,6 +1,7 @@
 ---
 title: Locale picker
 description: A copy-paste locale-switcher component for PolyStella sites.
+aiGenerated: true
 ---
 
 A minimal, unstyled locale-switcher component. Renders a list of

@@ -43,7 +43,7 @@ Required:
 | `pnpm exec tsc --noEmit`              | Typecheck the package.                                          |
 | `pnpm build`                          | Compile `src/` → `dist/` (library + CLI, JS + `.d.ts`).         |
 | `pnpm build:llms`                     | Regenerate `llms-full.txt` from canonical agent docs.           |
-| `pnpm --filter polystella-docs dev`   | Run the Starlight docs site locally.                            |
+| `pnpm --filter polystella-docs dev`   | Run the Nimbus docs site locally.                               |
 | `pnpm --filter polystella-docs build` | Build the docs site (includes auto-generated config reference). |
 | `pnpm --filter polystella-docs check` | Astro check over docs content.                                  |
 

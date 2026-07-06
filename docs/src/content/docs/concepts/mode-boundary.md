@@ -1,6 +1,7 @@
 ---
 title: Mode boundary
 description: Standalone vs Starlight modes — what differs between them.
+aiGenerated: true
 ---
 
 PolyStella ships **standalone mode** today. **Starlight mode** is

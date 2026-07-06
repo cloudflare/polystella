@@ -1,6 +1,7 @@
 ---
 title: polystella sync-ui
 description: "polystella sync-ui — mechanical UI-string key reconciliation."
+aiGenerated: true
 ---
 
 Mechanical (no AI) key reconciliation for UI-string JSONs. Adds

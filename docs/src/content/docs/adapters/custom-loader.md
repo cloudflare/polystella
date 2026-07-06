@@ -1,6 +1,7 @@
 ---
 title: Custom loader
 description: Wrapping a non-glob, non-file Astro loader to opt content into the translation pipeline.
+aiGenerated: true
 ---
 
 Astro's content layer supports custom loaders — functions that
