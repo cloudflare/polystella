@@ -1,4 +1,4 @@
 ---
 ---
 
-Add maintainer-triggered pollybot review automation.
+Add maintainer-triggered pollystellabot review automation.

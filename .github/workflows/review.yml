@@ -58,24 +58,24 @@ jobs:
         with:
           node-version: 24.x
 
-      - name: Check pollybot secrets
+      - name: Check pollystellabot secrets
         if: steps.verify-pr.outputs.exists == 'true'
         env:
-          POLLYBOT_APP_ID: ${{ secrets.POLLYBOT_APP_ID }}
-          POLLYBOT_PRIVATE_KEY: ${{ secrets.POLLYBOT_PRIVATE_KEY }}
+          POLYSTELLABOT_APP_ID: ${{ secrets.POLYSTELLABOT_APP_ID }}
+          POLYSTELLABOT_PRIVATE_KEY: ${{ secrets.POLYSTELLABOT_PRIVATE_KEY }}
         run: |
-          if [[ -z "$POLLYBOT_APP_ID" || -z "$POLLYBOT_PRIVATE_KEY" ]]; then
-            echo "::error::Set POLLYBOT_APP_ID and POLLYBOT_PRIVATE_KEY as Actions secrets before using /review."
+          if [[ -z "$POLYSTELLABOT_APP_ID" || -z "$POLYSTELLABOT_PRIVATE_KEY" ]]; then
+            echo "::error::Set POLYSTELLABOT_APP_ID and POLYSTELLABOT_PRIVATE_KEY as Actions secrets before using /review."
             exit 1
           fi
 
-      - name: Generate pollybot token
+      - name: Generate pollystellabot token
         if: steps.verify-pr.outputs.exists == 'true'
-        id: pollybot-token
+        id: pollystellabot-token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
-          app-id: ${{ secrets.POLLYBOT_APP_ID }}
-          private-key: ${{ secrets.POLLYBOT_PRIVATE_KEY }}
+          app-id: ${{ secrets.POLYSTELLABOT_APP_ID }}
+          private-key: ${{ secrets.POLYSTELLABOT_PRIVATE_KEY }}
           permission-contents: read
           permission-issues: write
           permission-pull-requests: write
@@ -88,7 +88,7 @@ jobs:
         if: steps.verify-pr.outputs.exists == 'true'
         id: pr-details
         env:
-          GH_TOKEN: ${{ steps.pollybot-token.outputs.token }}
+          GH_TOKEN: ${{ steps.pollystellabot-token.outputs.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           PR_NUMBER: ${{ steps.pr-number.outputs.number }}
         run: |
@@ -110,9 +110,9 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.CF_AI_GATEWAY_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || secrets.CF_AI_GATEWAY_TOKEN }}
           CLOUDFLARE_GATEWAY_ID: ${{ secrets.CLOUDFLARE_GATEWAY_ID || secrets.CF_AI_GATEWAY_NAME }}
-          GH_TOKEN: ${{ steps.pollybot-token.outputs.token }}
-          GITHUB_TOKEN: ${{ steps.pollybot-token.outputs.token }}
-          MODEL: ${{ vars.POLLYBOT_MODEL || 'opencode/claude-opus-4-5' }}
+          GH_TOKEN: ${{ steps.pollystellabot-token.outputs.token }}
+          GITHUB_TOKEN: ${{ steps.pollystellabot-token.outputs.token }}
+          MODEL: ${{ vars.POLYSTELLABOT_MODEL || 'opencode/claude-opus-4-5' }}
           AGENT: auto-reviewer
           SHARE: "false"
           USE_GITHUB_TOKEN: "true"
