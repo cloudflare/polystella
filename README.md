@@ -88,7 +88,7 @@ collection APIs.
 
 ## Documentation
 
-Full documentation lives at the Starlight docs site (under `docs/` in this repo):
+Full documentation lives at the Nimbus docs site (under `docs/` in this repo):
 
 - [Getting started](https://polystella-docs.pcx-team.workers.dev/getting-started/install/) — install, quick start, mental model
 - [Concepts](https://polystella-docs.pcx-team.workers.dev/concepts/how-it-works/) — pipeline, cache, overrides, runtime bridge
