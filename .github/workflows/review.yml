@@ -107,9 +107,9 @@ jobs:
         if: steps.verify-pr.outputs.exists == 'true'
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.CF_AI_GATEWAY_ACCOUNT_ID }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || secrets.CF_AI_GATEWAY_TOKEN }}
-          CLOUDFLARE_GATEWAY_ID: ${{ secrets.CLOUDFLARE_GATEWAY_ID || secrets.CF_AI_GATEWAY_NAME }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_GATEWAY_ID: ${{ secrets.CLOUDFLARE_GATEWAY_ID }}
           GH_TOKEN: ${{ steps.pollystellabot-token.outputs.token }}
           GITHUB_TOKEN: ${{ steps.pollystellabot-token.outputs.token }}
           MODEL: ${{ vars.POLYSTELLABOT_MODEL || 'opencode/claude-opus-4-5' }}
