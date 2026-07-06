@@ -1,6 +1,7 @@
 ---
 title: TOML adapter
 description: "Translating structured TOML config: keys, urls, wildcards."
+aiGenerated: true
 ---
 
 The TOML adapter translates structured data files like

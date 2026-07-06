@@ -1,6 +1,7 @@
 ---
 title: React hooks
 description: useTranslations and useLocalizedHref for React islands.
+aiGenerated: true
 ---
 
 For client-rendered React islands inside an Astro project,

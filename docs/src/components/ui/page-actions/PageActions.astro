@@ -6,9 +6,11 @@ import type { HTMLAttributes } from "astro/types";
 interface Props extends HTMLAttributes<"div"> {
   markdownUrl?: string;
   lastUpdated?: Date;
+  /** Page was drafted by an AI agent and not yet reviewed by a human. */
+  aiGenerated?: boolean;
 }
 
-const { markdownUrl, lastUpdated, class: className, ...attrs } = Astro.props;
+const { markdownUrl, lastUpdated, aiGenerated, class: className, ...attrs } = Astro.props;
 
 const baseBtn =
   "inline-flex cursor-pointer items-center gap-1.5 rounded-md bg-transparent px-2 py-1 text-muted-foreground no-underline transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-2";
@@ -18,13 +20,28 @@ const formattedDate = lastUpdated
   : null;
 ---
 
-{(markdownUrl || lastUpdated) && (
+{(markdownUrl || lastUpdated || aiGenerated) && (
   <div
     data-nb-page-actions
     data-md-url={markdownUrl}
     class={cn("not-prose -ml-2 flex flex-wrap items-center gap-y-1 text-[0.8125rem]", className)}
     {...attrs}
   >
+    {aiGenerated && (
+      <>
+        <span
+          class="inline-flex items-center gap-1.5 px-2 py-1 text-muted-foreground"
+          title="This page was drafted by an AI agent and has not yet been reviewed by a human."
+        >
+          <Icon name="ph:sparkle" class="w-3.5 h-3.5" />
+          AI-generated &middot; awaiting review
+        </span>
+        {(lastUpdated || markdownUrl) && (
+          <span aria-hidden="true" class="select-none text-muted-foreground/40">|</span>
+        )}
+      </>
+    )}
+
     {lastUpdated && (
       <span class="inline-flex items-center gap-1.5 px-2 py-1 text-muted-foreground">
         <Icon name="ph:clock" class="w-3.5 h-3.5" />

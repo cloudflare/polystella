@@ -1,6 +1,7 @@
 ---
 title: How it works
 description: End-to-end overview of the PolyStella build pipeline.
+aiGenerated: true
 ---
 
 PolyStella is an Astro integration that translates content into

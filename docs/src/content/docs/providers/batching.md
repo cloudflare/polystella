@@ -1,6 +1,7 @@
 ---
 title: Batching
 description: "How translateBatch groups segments into LLM calls; batchInputTokenBudget."
+aiGenerated: true
 ---
 
 For small files the translator processes the entire file in a

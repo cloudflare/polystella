@@ -1,6 +1,7 @@
 ---
 title: CI / Workers Builds
 description: Wiring up PolyStella in CI so the right R2 prefix is targeted per branch.
+aiGenerated: true
 ---
 
 PolyStella is designed to run inside Cloudflare Workers Builds (or

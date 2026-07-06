@@ -1,6 +1,7 @@
 ---
 title: Anthropic provider
 description: Anthropic Claude as the translation provider.
+aiGenerated: true
 ---
 
 The Anthropic provider routes translation through Anthropic's

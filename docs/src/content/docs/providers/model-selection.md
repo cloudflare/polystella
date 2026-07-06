@@ -1,6 +1,7 @@
 ---
 title: Model selection
 description: Single model id vs per-locale map; how model choice affects the cache.
+aiGenerated: true
 ---
 
 The `provider.model` option is either a single model id or a per-

@@ -1,6 +1,7 @@
 ---
 title: Public exports
 description: "Every export path in package.json — what it provides and when to import from it."
+aiGenerated: true
 ---
 
 PolyStella ships twelve public import paths. Each has a narrow,

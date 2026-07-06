@@ -1,6 +1,7 @@
 ---
 title: AI marker
 description: The aiTranslated frontmatter fields baked into every translated file.
+aiGenerated: true
 ---
 
 Every AI-translated file gets three frontmatter fields added during

@@ -1,6 +1,7 @@
 ---
 title: Route configuration
 description: "The routes and routesImports options."
+aiGenerated: true
 ---
 
 Two `polystella.config.mjs` options control which source pages get

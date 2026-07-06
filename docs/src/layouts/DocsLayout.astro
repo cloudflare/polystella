@@ -18,9 +18,9 @@ import { Badge } from "@/components/ui/badge";
 import type { DocsPageProps } from "nimbus-docs/types";
 import { getVersionStatus, getVersionAlternates } from "nimbus-docs";
 
-type Props = DocsPageProps & { audience?: "human" };
+type Props = DocsPageProps & { audience?: "human"; aiGenerated?: boolean };
 
-const { title, description, sidebar, headings, breadcrumbs, prevNext, mode = "doc", banner, head = [], searchable, noindex, markdownUrl, socialImage, lastUpdated, editUrl, draft, audience, collection, entryId } = Astro.props;
+const { title, description, sidebar, headings, breadcrumbs, prevNext, mode = "doc", banner, head = [], searchable, noindex, markdownUrl, socialImage, lastUpdated, editUrl, draft, audience, aiGenerated, collection, entryId } = Astro.props;
 
 // `searchable` derives from `noindex` when omitted: a non-crawlable page is
 // by default not in the site search either. Explicit `searchable: true`
@@ -188,7 +188,7 @@ const hasPagination = Astro.slots.has("pagination");
                     {description && (
                       <p class="text-[0.9375rem] sm:text-[1.0625rem] text-muted-foreground leading-relaxed mt-2 mb-2 [text-wrap:pretty]">{description}</p>
                     )}
-                    <PageActions markdownUrl={markdownUrl} lastUpdated={lastUpdated} class={description ? undefined : "mt-3"} />
+                    <PageActions markdownUrl={markdownUrl} lastUpdated={lastUpdated} aiGenerated={aiGenerated} class={description ? undefined : "mt-3"} />
                     {(markdownUrl || audience === "human") && (
                       audience === "human" ? (
                         <div class="mt-3 mb-6 flex items-center gap-3" role="none">

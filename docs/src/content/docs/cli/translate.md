@@ -1,6 +1,7 @@
 ---
 title: polystella translate
 description: "polystella translate — markdown pipeline outside astro build."
+aiGenerated: true
 ---
 
 Runs the same translation pipeline as `astro build` without booting

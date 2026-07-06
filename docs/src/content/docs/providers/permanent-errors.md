@@ -1,6 +1,7 @@
 ---
 title: Permanent errors
 description: PermanentProviderError vs retriable failures — how the retry loop decides.
+aiGenerated: true
 ---
 
 When a provider call fails, PolyStella has to decide: retry, or

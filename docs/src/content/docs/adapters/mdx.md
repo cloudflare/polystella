@@ -1,6 +1,7 @@
 ---
 title: MDX adapter
 description: "Translating .mdx files — JSX, props, static data, and limits."
+aiGenerated: true
 ---
 
 The MDX adapter reuses the Markdown adapter but parses `.mdx` with

@@ -1,6 +1,7 @@
 ---
 title: Install
 description: How to install PolyStella in your Astro project.
+aiGenerated: true
 ---
 
 PolyStella is an Astro integration. It runs at build time, talks to

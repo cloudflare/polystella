@@ -1,6 +1,7 @@
 ---
 title: Branch dispatch
 description: How polystella.config.mjs reads WORKERS_CI_BRANCH to switch prefixes.
+aiGenerated: true
 ---
 
 Branch dispatch is a config-side pattern, not built into the

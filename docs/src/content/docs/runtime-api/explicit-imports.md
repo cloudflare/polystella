@@ -1,6 +1,7 @@
 ---
 title: Explicit imports
 description: Calling @cloudflare/polystella/runtime functions directly outside .astro templates.
+aiGenerated: true
 ---
 
 `Astro.locals` only exists in request-scoped contexts (`.astro`

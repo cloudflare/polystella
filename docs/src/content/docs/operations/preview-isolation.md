@@ -1,6 +1,7 @@
 ---
 title: Preview isolation
 description: Using readFallbackPrefixes to read main's cache without writing back.
+aiGenerated: true
 ---
 
 The combination of `r2.readFallbackPrefixes` and `r2.readOnly`

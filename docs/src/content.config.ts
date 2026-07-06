@@ -7,6 +7,7 @@ export const collections = {
     docsCollection({
       schemaFields: {
         audience: z.literal("human").optional(),
+        aiGenerated: z.boolean().optional(),
       },
     }),
   ),
