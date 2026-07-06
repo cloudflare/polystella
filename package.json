@@ -111,7 +111,9 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "prepare": "pnpm build && (git config core.hooksPath .githooks 2>/dev/null || true)",
-    "prepublishOnly": "pnpm build && pnpm build:llms"
+    "prepublishOnly": "pnpm build && pnpm build:llms",
+    "release:version": "changeset version && pnpm install --no-frozen-lockfile",
+    "release:publish": "changeset publish"
   },
   "dependencies": {
     "acorn": "^8.17.0",
