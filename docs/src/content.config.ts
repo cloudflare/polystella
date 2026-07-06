@@ -1,13 +1,14 @@
 import { defineCollection } from "astro:content";
-import { docsLoader } from "@astrojs/starlight/loaders";
-import { docsSchema } from "@astrojs/starlight/schema";
+import { z } from "astro/zod";
+import { docsCollection, partialsCollection } from "nimbus-docs/content";
 
-/**
- * Single docs collection, loaded from `src/content/docs/**` via
- * Starlight's filesystem loader. Schema follows Starlight's
- * canonical shape so every page gets `title`, `description`, and
- * the standard sidebar / hero fields.
- */
 export const collections = {
-  docs: defineCollection({ loader: docsLoader(), schema: docsSchema() }),
+  docs: defineCollection(
+    docsCollection({
+      schemaFields: {
+        audience: z.literal("human").optional(),
+      },
+    }),
+  ),
+  partials: defineCollection(partialsCollection()),
 };

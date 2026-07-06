@@ -19,7 +19,7 @@
     /**
      * On unmatched routes, serve the Astro-generated `404.html` with
      * a 404 status. Single-page-application mode is wrong for
-     * Starlight (it's MPA); `none` would return a bare 404 with no
+     * Nimbus (it's MPA); `none` would return a bare 404 with no
      * branding.
      */
     "not_found_handling": "404-page",
