@@ -136,8 +136,8 @@
     "@types/mdast": "^4.0.4",
     "@types/picomatch": "^4.0.0",
     "@types/react": "^19.2.14",
-    "pkg-pr-new": "^0.0.75",
-    "prettier": "3.9.4",
+    "pkg-pr-new": "^0.0.78",
+    "prettier": "3.9.5",
     "typescript": "^6.0.3",
     "vitest": "^4.1.9"
   },
