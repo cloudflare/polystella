@@ -1,0 +1,51 @@
+packages/adapters/src/adapters/markdown.ts
+  s_52a171cbd695e9::t_4e10c744e0b902 1-79
+packages/adapters/src/extract.ts
+  s_52a171cbd695e9::t_38c0a5bb51612c 1-105
+packages/adapters/src/mdx-static-data.ts
+  s_52a171cbd695e9::t_33d3e95f5b31a1 1-297
+packages/adapters/tests/key-paths.test.ts
+  s_7fb1cb75a77e23::t_05d2b49805f37e 1-56
+packages/adapters/tests/mdx.test.ts
+  s_7fb1cb75a77e23::t_b88d7c42ea804e 1-152
+packages/core/package.json
+  s_7fb1cb75a77e23::t_65372fb122e6b7 1-49
+packages/core/src/prompt.ts
+  s_7fb1cb75a77e23::t_53ddd4ac336632 1-168
+packages/core/tests/prompt.test.ts
+  s_7fb1cb75a77e23::t_54e902eaa127aa 1-123
+packages/core/tests/translate-batch.test.ts
+  s_7fb1cb75a77e23::t_6d4027334a89c0 1-132
+packages/core/tests/translate-segments.test.ts
+  s_7fb1cb75a77e23::t_f6509a069b7222 1-148
+packages/providers/src/http-error.ts
+  s_7fb1cb75a77e23::t_109afda56771e3 1-10
+packages/providers/src/workers-ai.ts
+  s_7fb1cb75a77e23::t_135f4883ed72fe 1-153
+packages/providers/tests/providers.test.ts
+  s_7fb1cb75a77e23::t_7c7c775e071b62 1-251
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "2da854cd1a87dca57cbed88135f294cf354c25a4",
+  "prompts": {},
+  "sessions": {
+    "s_52a171cbd695e9": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_fb81bd768ffe56mguqNuYcrS7v",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Diogo Carneiro <dcarneiro@cloudflare.com>"
+    },
+    "s_7fb1cb75a77e23": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_fbd20ebcaffev025mmzs7vv6jc",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Diogo Carneiro <dcarneiro@cloudflare.com>"
+    }
+  }
+}
