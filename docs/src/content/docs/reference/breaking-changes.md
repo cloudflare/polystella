@@ -7,10 +7,19 @@ aiGenerated: true
 PolyStella is in pre-1.0 development. Breaking changes happen.
 The log below tracks them so consumers can update incrementally.
 
-The package's `CHANGELOG.md` is the authoritative source; this
-page mirrors the breaking entries.
+Each public package's `CHANGELOG.md` is authoritative; this page mirrors
+the breaking entries.
 
 ## Unreleased (v0.x)
+
+### Low-level APIs moved to owning packages
+
+Translation contracts and orchestration now come from
+`@cloudflare/polystella-core`, portable formats from
+`@cloudflare/polystella-adapters`, and provider transports from
+`@cloudflare/polystella-providers`. `@cloudflare/polystella` retains the
+Astro integration and host-owned APIs. No compatibility shims preserve the
+old low-level root imports.
 
 ### `r2.bulkListOnStart` defaults to `true`
 
@@ -34,10 +43,10 @@ value explicitly.
 
 - Every breaking change gets an entry under "Breaking changes" in
   the relevant version's changelog block.
-- Major version bumps (0.x → 0.y) signal "this release contains at
-  least one breaking change; read the entries before upgrading".
-- Minor / patch versions never break; if they do, that's a bug and
-  we'll yank the release.
+- Before 1.0, minor bumps (`0.x` → `0.y`) may contain breaking changes;
+  read their entries before upgrading.
+- Patch bumps (`0.x.y` → `0.x.z`) do not intentionally break public APIs.
+- After 1.0, breaking changes require a major bump.
 
-`CHANGELOG.md` follows the [Keep a Changelog](https://keepachangelog.com/)
+Package changelogs follow the [Keep a Changelog](https://keepachangelog.com/)
 format.

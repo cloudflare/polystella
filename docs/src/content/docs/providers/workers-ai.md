@@ -41,6 +41,33 @@ load the project and plan the work without calling Workers AI. Then
 run a normal translation or `astro build` to make the first live
 provider call.
 
+## Worker binding
+
+Direct Worker consumers can use the binding transport from the providers
+package. Its callback and `WorkersAIInput` are package-owned structural
+types, so the provider package does not import generated Cloudflare types:
+
+```ts
+import { createWorkersAIBindingTranslator, type WorkersAIInput } from "@cloudflare/polystella-providers/workers-ai";
+
+interface Env {
+  AI: {
+    run(modelId: string, input: WorkersAIInput): Promise<unknown>;
+  };
+}
+
+export function createTranslator(env: Env) {
+  return createWorkersAIBindingTranslator({
+    modelId: "@cf/meta/llama-3.1-8b-instruct",
+    maxTokens: 8192,
+    run: (modelId, input) => env.AI.run(modelId, input),
+  });
+}
+```
+
+Core, adapters, and providers use standard Web APIs and work without
+`nodejs_compat`; a consumer may still enable the flag.
+
 ## Configuration
 
 ```js
@@ -105,14 +132,12 @@ include it in the `endpoint` value you configure.
 Workers AI returns three classes of HTTP error PolyStella treats
 differently:
 
-- **401, 403, 404, 422** — permanent. `PermanentProviderError`
+- **400, 401, 403, 404, 422** — permanent. `PermanentProviderError`
   short-circuits the retry loop. Fix your credentials / model id
   and rerun.
 - **429, 500, 502, 503, 504** — retriable. `p-retry` retries with
   exponential backoff and jitter.
-- **Other 4xx (e.g. 400)** — treated as retriable by default. If
-  the request shape is malformed, retries won't help; PolyStella
-  logs the response body and exits non-zero.
+- **Other 4xx** — retriable by default.
 
 See [Providers → Permanent errors](/providers/permanent-errors/)
 for the contract.

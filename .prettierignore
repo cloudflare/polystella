@@ -15,4 +15,4 @@ docs/src/content/docs/configuration/reference.md
 # variants (e.g. `***` / `___` / `---` thematic breaks, inline vs.
 # block footnote definitions). Prettier would normalise them away
 # and defeat the test corpus.
-tests/fixtures/parsing/round-trip/
+packages/astro/tests/fixtures/parsing/round-trip/

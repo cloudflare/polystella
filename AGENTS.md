@@ -23,18 +23,19 @@ section numbers. Inserting new sections never breaks links.
 
 ## Commands
 
-| Command                  | What it does                                                                                                                                                                                                 |
-| :----------------------- | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pnpm test`              | Run vitest (1104 tests / 56 files / ~1.2s at time of writing).                                                                                                                                               |
-| `pnpm test:watch`        | Vitest in watch mode.                                                                                                                                                                                        |
-| `pnpm build`             | Compile `src/` → `dist/` via `tsc -p tsconfig.build.json` (mirrored layout, `.js` + `.d.ts` + sourcemaps + declaration maps). Produces the standalone `polystella` CLI at `dist/cli.js` and library entries. |
-| `pnpm exec tsc --noEmit` | Typecheck against the root `tsconfig.json` (which includes tests). The build config (`tsconfig.build.json`) sets `noEmit: false` and narrows `include` to `src/**`.                                          |
-| `pnpm changeset`         | Add a Changesets entry for package-affecting work. Use `pnpm changeset add --empty` only for changes that intentionally do not need a package release.                                                       |
+| Command               | What it does                                                                                                                                           |
+| :-------------------- | :----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm test`           | Run all package, Astro, workerd, and boundary tests.                                                                                                   |
+| `pnpm test:watch`     | Run the Astro package tests in watch mode.                                                                                                             |
+| `pnpm build`          | Build all four public packages. Astro emits its standalone CLI and library entries under `packages/astro/dist/`.                                       |
+| `pnpm typecheck`      | Build all four packages, then typecheck every public package against its package-local `tsconfig.json`.                                                |
+| `pnpm check:packages` | Pack all four public packages and exercise every export from a clean temporary consumer.                                                               |
+| `pnpm changeset`      | Add a Changesets entry for package-affecting work. Use `pnpm changeset add --empty` only for changes that intentionally do not need a package release. |
 
 No lint step yet.
 
 > Test counts age. The authoritative count is `pnpm test`'s output;
-> the number here is a snapshot pinned by [`tests/docs.test.ts`](./tests/docs.test.ts).
+> the number here is a snapshot pinned by [`packages/astro/tests/docs.test.ts`](./packages/astro/tests/docs.test.ts).
 
 ---
 
@@ -44,23 +45,28 @@ Task → entry-point file(s) → key contract → deep-dive link.
 
 | Task                                                   | Entry point                                                                                      | Contract                                                              | See                                                                                                                                                 |
 | :----------------------------------------------------- | :----------------------------------------------------------------------------------------------- | :-------------------------------------------------------------------- | :-------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Add a file-format adapter                              | `src/parsing/adapters/<name>.ts`; register in `src/parsing/registry.ts`                          | `FileTypeAdapter` in `src/parsing/adapter.ts`                         | [#adapter-contract](./ARCHITECTURE.md#adapter-contract); recipe in [contributor SKILL](./skills/polystella-contributor/SKILL.md#add-adapter)        |
-| Add a CLI subcommand                                   | Handler in `src/cli/<name>.ts`; register in `src/cli.ts` (`parseSubcommand` + switch)            | Argv parser + `run<Name>(args, deps)`                                 | Recipe in [contributor SKILL](./skills/polystella-contributor/SKILL.md#add-cli-subcommand)                                                          |
-| Add a translation provider                             | New branch in `createTranslator` (`src/translation/provider.ts`)                                 | `Translator` interface; permanent vs retriable error classification   | [#translator-contract](./ARCHITECTURE.md#translator-contract); recipe in [contributor SKILL](./skills/polystella-contributor/SKILL.md#add-provider) |
-| Change cache key formula                               | `src/storage/hash.ts`                                                                            | **Invariant 1** — cache-wide invalidation                             | [#cache-key](./ARCHITECTURE.md#cache-key)                                                                                                           |
-| Edit translation batching                              | `src/translation/batch.ts`, `src/translation/translate-segments.ts`                              | **Invariant 2** — `flat(groups) === segments`                         | [#translation-batching](./ARCHITECTURE.md#translation-batching)                                                                                     |
-| Modify cache/storage behaviour                         | `src/storage/{cache,r2,prune,local-cache,report}.ts`                                             | Apply-before-PUT (**Invariant 3**); index isolation (**Invariant 4**) | [#cache-write-order](./ARCHITECTURE.md#cache-write-order), [#local-staging-index](./ARCHITECTURE.md#local-staging-index)                            |
-| Modify runtime APIs (entry/collection/href/middleware) | `src/runtime/*`                                                                                  | Bridge timing (**Invariant 5**); per-locale closures                  | [#runtime-bridge](./ARCHITECTURE.md#runtime-bridge)                                                                                                 |
-| Modify routing shims                                   | `src/routing/{shim,expand-routes,walk-pages}.ts`                                                 | Stale shims nuked per build; CSS via `routesImports`                  | [#routing-shims](./ARCHITECTURE.md#routing-shims)                                                                                                   |
-| Edit UI-string handling                                | `src/i18n/*`, `src/cli/{check,sync,translate}-ui.ts`                                             | Three drift modes; layout-aware writer; `{{token}}` preservation      | [#ui-strings](./ARCHITECTURE.md#ui-strings)                                                                                                         |
-| Edit catalog-only adoption                             | `src/catalog/*`, `src/i18n/{translate,drift,sync}.ts`                                            | Pure imports; middleware binds only `t` + `lhref`                     | [`CATALOG_ONLY_PLAN.md`](./CATALOG_ONLY_PLAN.md); [consumer SKILL](./skills/polystella-consumer/SKILL.md#catalog-only-adoption)                     |
-| Edit content-collection wiring                         | `src/content/*`                                                                                  | Sibling collections; custom-loader wrapper; bridge timing             | [#runtime-bridge](./ARCHITECTURE.md#runtime-bridge)                                                                                                 |
+| Add a file-format adapter                              | `packages/adapters/src/adapters/<name>.ts`; wrap/register in `packages/astro/src/parsing/`       | `FileAdapter` in `packages/adapters/src/adapter.ts`                   | [#adapter-contract](./ARCHITECTURE.md#adapter-contract); recipe in [contributor SKILL](./skills/polystella-contributor/SKILL.md#add-adapter)        |
+| Add a CLI subcommand                                   | Handler in `packages/astro/src/cli/<name>.ts`; register in `packages/astro/src/cli.ts`           | Argv parser + `run<Name>(args, deps)`                                 | Recipe in [contributor SKILL](./skills/polystella-contributor/SKILL.md#add-cli-subcommand)                                                          |
+| Add a translation provider                             | Factory in `packages/providers/src/`; map config in `packages/astro/src/translation/provider.ts` | `Translator` in `packages/core/src/translator.ts`                     | [#translator-contract](./ARCHITECTURE.md#translator-contract); recipe in [contributor SKILL](./skills/polystella-contributor/SKILL.md#add-provider) |
+| Change cache key formula                               | `packages/astro/src/storage/hash.ts`                                                             | **Invariant 1** — cache-wide invalidation                             | [#cache-key](./ARCHITECTURE.md#cache-key)                                                                                                           |
+| Edit translation batching                              | `packages/core/src/{batch,translate-segments}.ts`                                                | **Invariant 2** — `flat(groups) === segments`                         | [#translation-batching](./ARCHITECTURE.md#translation-batching)                                                                                     |
+| Modify cache/storage behaviour                         | `packages/astro/src/storage/{cache,r2,prune,local-cache,report}.ts`                              | Apply-before-PUT (**Invariant 3**); index isolation (**Invariant 4**) | [#cache-write-order](./ARCHITECTURE.md#cache-write-order), [#local-staging-index](./ARCHITECTURE.md#local-staging-index)                            |
+| Modify runtime APIs (entry/collection/href/middleware) | `packages/astro/src/runtime/*`                                                                   | Bridge timing (**Invariant 5**); per-locale closures                  | [#runtime-bridge](./ARCHITECTURE.md#runtime-bridge)                                                                                                 |
+| Modify routing shims                                   | `packages/astro/src/routing/{shim,expand-routes,walk-pages}.ts`                                  | Stale shims nuked per build; CSS via `routesImports`                  | [#routing-shims](./ARCHITECTURE.md#routing-shims)                                                                                                   |
+| Edit UI-string handling                                | `packages/astro/src/i18n/*`, `packages/astro/src/cli/{check,sync,translate}-ui.ts`               | Three drift modes; layout-aware writer; `{{token}}` preservation      | [#ui-strings](./ARCHITECTURE.md#ui-strings)                                                                                                         |
+| Edit catalog-only adoption                             | `packages/astro/src/catalog/*`, `packages/astro/src/i18n/{translate,drift,sync}.ts`              | Pure imports; middleware binds only `t` + `lhref`                     | [`CATALOG_ONLY_PLAN.md`](./CATALOG_ONLY_PLAN.md); [consumer SKILL](./skills/polystella-consumer/SKILL.md#catalog-only-adoption)                     |
+| Edit content-collection wiring                         | `packages/astro/src/content/*`                                                                   | Sibling collections; custom-loader wrapper; bridge timing             | [#runtime-bridge](./ARCHITECTURE.md#runtime-bridge)                                                                                                 |
 | Debug a translation that's wrong                       | Start: `pnpm translate --dry-run` to inspect planned R2 keys; `LOG_LEVEL=debug` for batch detail | —                                                                     | Recipe in [contributor SKILL](./skills/polystella-contributor/SKILL.md#debug-translation)                                                           |
 | Tune cold-cache build performance                      | `r2.bulkListOnStart`, `concurrency`, `batchInputTokenBudget` knobs                               | —                                                                     | [#bulk-prelist](./ARCHITECTURE.md#bulk-prelist), [#translation-batching](./ARCHITECTURE.md#translation-batching)                                    |
 
-If your task isn't on this list, the answer is in `src/<area>/`
+If your task isn't on this list, the answer is in `packages/astro/src/<area>/`
 matching one of the subsystem sections in
 [ARCHITECTURE.md](./ARCHITECTURE.md).
+
+The root is private. Reusable package code uses standard Web APIs and must
+work without `nodejs_compat`, although consumers may enable it. Import
+low-level contracts from core, formats from adapters, and transports from
+providers; do not add compatibility shims to the Astro package.
 
 ---
 
@@ -92,10 +98,11 @@ to the explanatory section when adding code that touches one.
   `pnpm changeset add --empty` only when the change deliberately does
   not require a package release (for example, docs-site-only or CI-only
   maintenance).
-- Bump the package version in `package.json` only — `POLYSTELLA_VERSION`
-  (in `src/version.ts`) reads it at module-load time via a JSON
-  import attribute, so the constant flows automatically through to
-  `dist/version.js` after `pnpm build`. [→ #version-constant](./ARCHITECTURE.md#version-constant)
+- Let Changesets version the fixed four-package group; do not manually bump
+  individual manifests. `POLYSTELLA_VERSION` in
+  `packages/astro/src/version.ts` reads the Astro manifest at module-load time
+  and flows to `packages/astro/dist/version.js` after `pnpm build`.
+  [→ #version-constant](./ARCHITECTURE.md#version-constant)
 - Mirror filesystem path semantics across OS: forward slashes for R2
   keys, `path.sep` for local I/O.
 - Forward `signal: AbortSignal` when adding a new async function on
@@ -156,7 +163,8 @@ Tiered so you can scan the ones that matter for your change.
 Before pushing:
 
 - `pnpm test` must pass.
-- `pnpm exec tsc --noEmit` must pass (strict mode).
+- `pnpm typecheck` must pass (strict mode).
+- `pnpm check:packages` must pass for packaging or export changes.
 - For changes to the translation pipeline, run end-to-end against a
   real consumer's fixtures: `polystella translate --dry-run` walks
   the full pipeline without hitting AI/R2.

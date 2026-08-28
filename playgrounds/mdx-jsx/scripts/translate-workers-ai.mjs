@@ -179,16 +179,20 @@ function stripInlineComment(raw) {
 /** @param {string[]} forwardedArgs */
 function runPolystellaTranslate(forwardedArgs) {
   return new Promise((resolve, reject) => {
-    const bin = process.platform === "win32" ? "polystella.cmd" : "polystella";
-    const child = spawn(bin, ["translate", "--branch", "workers-ai-mdx-jsx", "--report", "./i18n-r2-report.json", ...forwardedArgs], {
-      cwd: playgroundRoot,
-      stdio: "inherit",
-      env: {
-        ...process.env,
-        POLYSTELLA_MDX_JSX_LOADED_ENV_FILES: loadedEnvFiles.join(path.delimiter),
-        POLYSTELLA_MDX_JSX_WORKERS_AI_TRANSLATE: "1",
+    const cli = path.join(playgroundRoot, "node_modules", "@cloudflare", "polystella", "dist", "cli.js");
+    const child = spawn(
+      process.execPath,
+      [cli, "translate", "--branch", "workers-ai-mdx-jsx", "--report", "./i18n-r2-report.json", ...forwardedArgs],
+      {
+        cwd: playgroundRoot,
+        stdio: "inherit",
+        env: {
+          ...process.env,
+          POLYSTELLA_MDX_JSX_LOADED_ENV_FILES: loadedEnvFiles.join(path.delimiter),
+          POLYSTELLA_MDX_JSX_WORKERS_AI_TRANSLATE: "1",
+        },
       },
-    });
+    );
     child.on("error", reject);
     child.on("close", (code, signal) => {
       if (signal !== null) {

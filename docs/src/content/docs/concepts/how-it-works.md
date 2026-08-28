@@ -11,6 +11,16 @@ R2, and injects locale-prefixed routes for the translated pages.
 The same orchestrator powers a standalone `polystella` CLI so
 operators can run the pipeline outside `astro build`.
 
+The package boundary follows this direct in-process flow:
+
+```text
+source/record -> adapter -> core -> provider -> core -> adapter -> output
+```
+
+Adapters parse and reconstruct content, core builds and validates the
+translation protocol, and providers perform inference. Astro adds
+filesystem, cache, marker, URL, and routing policy around that flow.
+
 ## High-level diagram
 
 ```text

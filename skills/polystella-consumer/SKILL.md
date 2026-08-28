@@ -35,7 +35,7 @@ pnpm add @cloudflare/polystella
 
 The standalone CLI binary is still named `polystella`.
 
-Peer dependency: `astro ^7.0.0`.
+Peer dependency: `astro ^7.0.10`.
 
 ## Four-file integration
 
@@ -66,7 +66,9 @@ export default defineConfig({
 
 ### 2. `polystella.config.mjs`
 
-Where provider, glossary, R2, format-specific keys live. Schema source of truth is `src/config/options.ts` in the package; everything is zod-validated at the boundary.
+Where provider, glossary, R2, format-specific keys live. The schema source
+of truth is `packages/astro/src/config/options.ts` in the repository;
+everything is zod-validated at the boundary.
 
 Skeleton:
 
@@ -146,6 +148,26 @@ export const collections = {
 ```
 
 Picks up types for PolyStella's virtual modules (`polystella:runtime-config`).
+
+## Direct package use
+
+Use the lower-level packages when Astro should not own the operation:
+
+```text
+source/record -> adapter -> core -> provider -> core -> adapter -> output
+```
+
+- Import translation contracts, glossaries, prompts, batching, and
+  `PermanentProviderError` from `@cloudflare/polystella-core`.
+- Import portable format adapters from
+  `@cloudflare/polystella-adapters`.
+- Import Workers AI and Anthropic factories from
+  `@cloudflare/polystella-providers` or its provider subpaths.
+
+These packages use standard Web APIs and run in Workers without
+`nodejs_compat`; enabling `nodejs_compat` is also supported. The Astro
+package has no compatibility shims for low-level imports that moved to
+these owners.
 
 ## UI strings
 
@@ -366,9 +388,9 @@ When a translation is wrong:
 
 | You want to           | Look at                                                               |
 | :-------------------- | :-------------------------------------------------------------------- |
-| Understand the system | `node_modules/polystella/ARCHITECTURE.md`                             |
-| See config schema     | `node_modules/polystella/src/config/options.ts`                       |
-| See available exports | `node_modules/polystella/package.json` (`exports` field)              |
+| Understand the system | `https://github.com/cloudflare/polystella/blob/main/ARCHITECTURE.md`  |
+| See config schema     | `node_modules/@cloudflare/polystella/src/config/options.ts`           |
+| See available exports | Each installed `@cloudflare/polystella*` package manifest             |
 | See CLI flags         | `polystella --help`, `polystella <subcommand> --help`                 |
 | Debug a translation   | `dist/i18n-r2-report.json`, `<root>/.astro/i18n-staging/<locale>/...` |
 | File an issue         | `https://github.com/cloudflare/polystella/issues`                     |

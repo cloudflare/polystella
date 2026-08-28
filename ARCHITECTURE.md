@@ -17,6 +17,7 @@ section never invalidates an existing link.
 ## Contents
 
 - [Overview](#overview)
+- [Package boundaries](#package-boundaries)
 - [Glossary](#glossary)
 - [Invariants](#invariants)
 - [Pipeline](#pipeline)
@@ -51,6 +52,15 @@ additional locales at build time using AI, caches translations in
 Cloudflare R2, and injects locale-prefixed routes for the translated
 pages. The same orchestrator powers a standalone `polystella` CLI so
 operators can run the pipeline outside `astro build`.
+
+The direct in-process flow is exact:
+
+```text
+source/record -> adapter -> core -> provider -> core -> adapter -> output
+```
+
+There is no hosted core service or required network hop beyond the
+selected provider transport.
 
 ```
        ┌────────────────────────────────────────────────────────┐
@@ -95,14 +105,40 @@ operators can run the pipeline outside `astro build`.
                             astro build → dist/
 ```
 
-Two entry points share `runTranslationPass` in `src/translation/run.ts`:
+Two entry points share `runTranslationPass` in `packages/astro/src/translation/run.ts`:
 
-- **Astro integration** (`src/index.ts`) — registers hooks, runs the
+- **Astro integration** (`packages/astro/src/index.ts`) — registers hooks, runs the
   pass, publishes the runtime bridge.
-- **CLI** (`src/cli.ts`) — verb-style dispatcher routing to
-  `src/cli/<subcommand>.ts`. `translate` reuses `runTranslationPass`;
+- **CLI** (`packages/astro/src/cli.ts`) — verb-style dispatcher routing to
+  `packages/astro/src/cli/<subcommand>.ts`. `translate` reuses `runTranslationPass`;
   `check-ui`, `sync-ui`, `translate-ui` operate on UI-string JSONs and
   don't touch the markdown pipeline or R2.
+
+## Package boundaries
+
+<a id="package-boundaries"></a>
+
+- `@cloudflare/polystella-core` owns `Segment`, glossaries, the
+  `Translator` contract, prompt construction/response parsing, batching,
+  and retries.
+- `@cloudflare/polystella-adapters` owns portable format parsing,
+  extraction, grouping, and translation application.
+- `@cloudflare/polystella-providers` owns Workers AI HTTP/binding and
+  Anthropic transports.
+- `@cloudflare/polystella` owns Astro hooks, filesystem and R2 access,
+  cache/marker/URL policy, routing, runtime APIs, and the CLI.
+
+The three reusable packages depend only on standard Web APIs at runtime.
+They execute in Workers without `nodejs_compat`; enabling the flag in a
+consumer remains supported. Providers use package-owned structural types
+for bindings and do not import generated Cloudflare types.
+
+Low-level exports moved to their owning packages during extraction. In
+particular, `Segment`, `Glossary`, `Translator`,
+`PermanentProviderError`, prompt helpers, and batching moved from the
+Astro root to core; portable parsing/application moved to adapters; and
+provider factories moved to providers. No compatibility shims preserve
+the old low-level imports.
 
 ---
 
@@ -112,7 +148,7 @@ Two entry points share `runTranslationPass` in `src/translation/run.ts`:
 
 | Term                      | Meaning                                                                                                                                                                                                                                    |
 | :------------------------ | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Adapter**               | A `FileTypeAdapter` implementation owning one file format (markdown, TOML, JSON, YAML). Parses, extracts segments, applies translations. See [adapter contract](#adapter-contract).                                                        |
+| **Adapter**               | A reusable `FileAdapter` implementation owning one file format (markdown, TOML, JSON, YAML). Astro wraps it with host policy as `FileTypeAdapter`. See [adapter contract](#adapter-contract).                                              |
 | **Segment**               | The atomic translatable unit emitted by `adapter.extractSegments`. Has a stable per-file ID (`body:N`, `fm:key`, `fm:key[i]`, or a dotted key path).                                                                                       |
 | **Group**                 | An ordered list of segments inside one section (e.g. all paragraphs under one heading). Produced by `adapter.groupSegments`; the batcher packs groups into batches under a token budget.                                                   |
 | **Batch**                 | One prompt round-trip's worth of segments. Produced by `packGroupsIntoBatches`. Each batch carries its own document-context block.                                                                                                         |
@@ -123,7 +159,7 @@ Two entry points share `runTranslationPass` in `src/translation/run.ts`:
 | **Drift**                 | A non-default-locale UI-string JSON disagreeing with the default-locale source: missing keys, extra keys, or `""` placeholders where the source is non-empty.                                                                              |
 | **Miss path**             | The code branch in the cache layer when an R2 GET returns nothing. Triggers translator + apply + PUT.                                                                                                                                      |
 | **Live phase / live run** | A run that actually translates (provider configured, `dryRun: false`). The pipeline only walks sources once in this mode.                                                                                                                  |
-| **Bridge**                | `src/runtime/custom-loader-runtime.ts` — the module-scoped singleton holding live JS objects (R2 client, translators, glossaries) shared between `astro:config:setup` and the sibling content collections registered at content-sync time. |
+| **Bridge**                | `packages/astro/src/runtime/custom-loader-runtime.ts` — the symbol-keyed `globalThis` value holding live JS objects (R2 client, translators, glossaries) across `astro:config:setup` and sibling content collections at content-sync time. |
 | **Sibling collection**    | A per-locale content collection (`publications__pt-BR`, etc.) auto-registered by `polystellaCollections` alongside the user's source collection.                                                                                           |
 | **Branch dispatch**       | The three-mode R2 prefix selection (local / CI main / CI preview) driven by `WORKERS_CI_BRANCH` and `POLYSTELLA_CLI`. See [R2 dispatch](#r2-dispatch).                                                                                     |
 
@@ -153,20 +189,20 @@ adding new code that touches one.
 
 <a id="pipeline"></a>
 
-`runTranslationPass` (in `src/translation/run.ts`) is the
+`runTranslationPass` (in `packages/astro/src/translation/run.ts`) is the
 orchestrator. Same function powers both the Astro integration and
 the `polystella translate` CLI subcommand. Zero direct dependency on
 Astro's types so the CLI can run without Astro on the import path.
 
 Sequenced steps:
 
-1. Load glossaries (`src/glossary/`).
-2. Walk sources (`src/source/walk.ts`) — respects `include` / `exclude`.
+1. Load glossaries (`packages/astro/src/glossary/`).
+2. Walk sources (`packages/astro/src/source/walk.ts`) — respects `include` / `exclude`.
 3. Bulk pre-list R2 once per (prefix × locale) — populates an
    in-memory existence predicate (see [#bulk-prelist](#bulk-prelist)).
 4. Read the local staging index (see [#local-staging-index](#local-staging-index)).
 5. Run a worker pool over (file, locale) pairs with
-   `runWithConcurrency` (`src/source/pool.ts`).
+   `runWithConcurrency` (`packages/astro/src/source/pool.ts`).
 6. Per pair: short-circuit on local-skip → check override → check R2 →
    translate → apply → PUT → rewrite URLs → stage.
 7. Persist `nextLocalCacheIndex` to disk.
@@ -227,10 +263,10 @@ content-sync time). The two halves need to share live JS objects (R2
 client, translators, glossaries) that can't be serialised through the
 `polystella:runtime-config` virtual module.
 
-The bridge in `src/runtime/custom-loader-runtime.ts` is a module-scoped
-singleton populated by `setRuntimeBridge` during `config:setup` and
-read by the sibling loaders at sync time. Module-scoped state is fine
-because Astro runs both halves in the same Node process.
+The bridge in `packages/astro/src/runtime/custom-loader-runtime.ts` is a
+symbol-keyed `globalThis` value populated by `setRuntimeBridge` during
+`config:setup` and read by sibling loaders at sync time. The global survives
+Vite module-graph reloads while Astro runs both halves in one process.
 
 `publishRuntimeBridge` in `index.ts` re-loads glossaries and constructs
 translators that `runTranslationPass` already built internally. The
@@ -374,7 +410,7 @@ tests must not produce different output.
 
 <a id="cache-write-order"></a>
 
-The cache layer (`src/storage/cache.ts`) is format-agnostic. On a miss
+The cache layer (`packages/astro/src/storage/cache.ts`) is format-agnostic. On a miss
 it:
 
 1. calls the translator,
@@ -416,11 +452,13 @@ exemptions apply uniformly. Both layers are idempotent
 
 <a id="adapter-contract"></a>
 
-Every file format implements `FileTypeAdapter` in
-`src/parsing/adapter.ts` and registers in `src/parsing/registry.ts`.
-No changes to `run.ts` or the cache layer required.
+Every reusable file format implements `FileAdapter` in
+`packages/adapters/src/adapter.ts`. Astro wraps it with cache selection,
+`noTranslate`, URL, document-context, marker, and parser policies in
+`packages/astro/src/parsing/`, then registers it in
+`packages/astro/src/parsing/registry.ts`.
 
-Abbreviated shape:
+The Astro wrapper's abbreviated superset shape:
 
 ```ts
 interface FileTypeAdapter<TParsed = unknown> {
@@ -465,7 +503,9 @@ call `resetRegistry()` before registering.
 
 One `Translator` per (provider, locale). Two concrete providers ship:
 Workers AI and Anthropic. Both speak the same prompt-and-JSON-back
-contract enforced by `src/translation/prompt.ts`.
+contract enforced by `packages/core/src/prompt.ts`.
+`packages/astro/src/translation/provider.ts` only maps validated Astro configuration
+to the concrete factories in `packages/providers`.
 
 ```ts
 interface Translator {
@@ -511,7 +551,7 @@ single-group default in `translateSegments`, which then packs by
 token budget alone.
 
 **Token-aware packing.** `packGroupsIntoBatches` (in
-`src/translation/batch.ts`) is a pure function over `Segment[][]`.
+`packages/core/src/batch.ts`) is a pure function over `Segment[][]`.
 Greedy-fills batches under a soft input-token budget
 (`provider.batchInputTokenBudget`, default `4000`) using
 `Math.ceil((id + text + 8) / 4)` per segment — the `+8` covers the
@@ -594,26 +634,27 @@ source of truth; non-default locales must match its key set.
 
 Three CLI subcommands maintain the invariant:
 
-- **`check-ui`** (`src/cli/check-ui.ts`) — pure drift detection. Zero
+- **`check-ui`** (`packages/astro/src/cli/check-ui.ts`) — pure drift detection. Zero
   writes, zero network. Pre-commit hook target. Catches three failure
   modes: missing keys, extra keys, and **empty-placeholder values**
   (a key shared with the source dict but with `""` in the locale
   where the source value is non-empty). The build's own drift check
   at `astro:config:setup` uses the same predicate.
-- **`sync-ui`** (`src/cli/sync-ui.ts` + `src/i18n/sync.ts`) —
+- **`sync-ui`** (`packages/astro/src/cli/sync-ui.ts` +
+  `packages/astro/src/i18n/sync.ts`) —
   mechanical key reconciliation. Adds missing keys as empty strings,
   drops extras, preserves existing values (empty or not), re-emits
   files in source-file key order with blank-line section breaks
   preserved.
-- **`translate-ui`** (`src/cli/translate-ui.ts` +
-  `src/i18n/ui-translate.ts`) — runs sync, skips fully translated
+- **`translate-ui`** (`packages/astro/src/cli/translate-ui.ts` +
+  `packages/astro/src/i18n/ui-translate.ts`) — runs sync, skips fully translated
   locale JSONs before provider setup, then translates each queued
   locale in small sequential request batches capped by
   `provider.batchInputTokenBudget` and 25 UI strings per request.
   Queued locales run in parallel via `runWithConcurrency` with a hard
   max locale concurrency of 3.
 
-**Layout-aware writer.** `formatLocaleFile` in `src/i18n/sync.ts`
+**Layout-aware writer.** `formatLocaleFile` in `packages/astro/src/i18n/sync.ts`
 parses the source file's text (not just its JSON) to recover top-level
 key order AND which keys start a new "section" (blank line
 immediately before). The output then mirrors that layout for every
@@ -623,7 +664,7 @@ keys alphabetically.
 **`{{token}}` preservation.** Validated post-translation by
 extracting `{{\w+}}` tokens from both source and translation and
 comparing the sets. Validator lives _outside_ `translateBatch` (in
-`src/i18n/ui-translate.ts`) because `translateBatch` doesn't expose
+`packages/astro/src/i18n/ui-translate.ts`) because `translateBatch` doesn't expose
 a post-parse hook. The orchestrator runs its own per-request-batch
 retry wrapper with `maxRetries: 0` passed to `translateBatch` so the
 retry loop is single-layer. A token-invalid translation after all
@@ -714,19 +755,22 @@ boundaries that could otherwise run indefinitely.
 
 <a id="version-constant"></a>
 
-`POLYSTELLA_VERSION` lives in `src/version.ts` as a JSON import from
+`POLYSTELLA_VERSION` lives in `packages/astro/src/version.ts` as a JSON import from
 `package.json` (`import pkg from "../package.json" with { type:
-"json" }`). Re-exported from `src/index.ts`, consumed directly by
-`src/cli.ts`.
+"json" }`). Re-exported from `packages/astro/src/index.ts`, consumed directly by
+`packages/astro/src/cli.ts`.
 
-Both the CLI (`dist/cli.js`) and the library entries (`dist/index.js`,
-`dist/runtime/index.js`, …) are produced by `tsc -p
-tsconfig.build.json` (`pnpm build`). tsc preserves the `with { type:
-"json" }` import attribute, so `dist/version.js` resolves
+Both the CLI (`packages/astro/dist/cli.js`) and the library entries
+(`packages/astro/dist/index.js`, `packages/astro/dist/runtime/index.js`, …)
+are produced by `tsc -p packages/astro/tsconfig.build.json` (`pnpm build`).
+tsc preserves the `with { type: "json" }` import attribute, so
+`packages/astro/dist/version.js` resolves
 `../package.json` (i.e. the package root) at module-load time inside
-the consumer's `node_modules/polystella/`. No version inlining; one
+the consumer's `node_modules/@cloudflare/polystella/`. No version inlining; one
 source of truth.
 
-Bump `package.json` only; both surfaces follow. The constant is baked
-into R2 metadata and the build report but is NOT in the cache key
-formula, so a version bump doesn't re-translate.
+Changesets versions all four public packages as a fixed group. The Astro
+manifest remains this constant's source, so both Astro surfaces follow its
+generated version. The constant is baked into R2 metadata and the build
+report but is NOT in the cache key formula, so a version bump doesn't
+re-translate.

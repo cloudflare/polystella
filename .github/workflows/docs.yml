@@ -6,16 +6,36 @@ on:
       - main
     paths:
       - "docs/**"
-      - "src/config/options.ts"
+      - "packages/astro/src/config/options.ts"
+      - "packages/core/package.json"
+      - "packages/adapters/package.json"
+      - "packages/providers/package.json"
+      - "packages/astro/package.json"
       - "package.json"
+      - "AGENTS.md"
+      - "ARCHITECTURE.md"
+      - "skills/polystella-consumer/SKILL.md"
+      - "skills/polystella-contributor/SKILL.md"
+      - "scripts/build-llms-full.mjs"
+      - "llms-full.txt"
       - ".github/workflows/docs.yml"
   pull_request:
     branches:
       - main
     paths:
       - "docs/**"
-      - "src/config/options.ts"
+      - "packages/astro/src/config/options.ts"
+      - "packages/core/package.json"
+      - "packages/adapters/package.json"
+      - "packages/providers/package.json"
+      - "packages/astro/package.json"
       - "package.json"
+      - "AGENTS.md"
+      - "ARCHITECTURE.md"
+      - "skills/polystella-consumer/SKILL.md"
+      - "skills/polystella-contributor/SKILL.md"
+      - "scripts/build-llms-full.mjs"
+      - "llms-full.txt"
       - ".github/workflows/docs.yml"
 
 permissions:
@@ -40,9 +60,13 @@ jobs:
           node-version: 24.x
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Verify generated agent context is current
+        run: |
+          pnpm build:llms
+          git diff --exit-code llms-full.txt
       - name: Build docs (includes config-reference generation)
         run: pnpm --filter polystella-docs build
       - name: Verify every public export is documented
         run: pnpm --filter polystella-docs check-exports
-      - name: Verify every example builds (currently no-op)
+      - name: Verify examples compile
         run: pnpm --filter polystella-docs check-examples

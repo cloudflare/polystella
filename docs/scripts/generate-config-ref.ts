@@ -1,7 +1,7 @@
 #!/usr/bin/env tsx
 /**
  * Auto-generate the configuration reference markdown page from the
- * canonical zod schema in `src/config/options.ts`. Runs in
+ * canonical zod schema in `packages/astro/src/config/options.ts`. Runs in
  * `pnpm --filter polystella-docs prebuild` so any `astro dev` /
  * `astro build` cycle picks up schema drift automatically.
  *
@@ -20,7 +20,7 @@ import { fileURLToPath } from "node:url";
 
 import { z } from "astro/zod";
 
-import { polystellaOptionsSchema } from "../../src/config/options.js";
+import { polystellaOptionsSchema } from "../../packages/astro/src/config/options.js";
 
 const DOCS_ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const OUTPUT_PATH = path.join(DOCS_ROOT, "src", "content", "docs", "configuration", "reference.md");
@@ -249,7 +249,7 @@ async function main(): Promise<void> {
     "---",
     "",
     ":::note[Auto-generated]",
-    "This page is regenerated from `src/config/options.ts` on every",
+    "This page is regenerated from `packages/astro/src/config/options.ts` on every",
     "`pnpm --filter polystella-docs build`. Don't hand-edit; the",
     "generator overwrites it.",
     ":::",

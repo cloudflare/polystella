@@ -7,9 +7,12 @@
     }
   ],
   "commit": false,
-  "fixed": [],
+  "fixed": [
+    ["@cloudflare/polystella-core", "@cloudflare/polystella-adapters", "@cloudflare/polystella-providers", "@cloudflare/polystella"]
+  ],
   "linked": [],
   "access": "public",
+  "privatePackages": false,
   "baseBranch": "main",
   "updateInternalDependencies": "patch",
   "ignore": ["polystella-docs"]

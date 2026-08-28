@@ -18,6 +18,18 @@ Read first:
 
 Then come back here for step-by-step task recipes.
 
+Package ownership follows the direct in-process flow:
+
+```text
+source/record -> adapter -> core -> provider -> core -> adapter -> output
+```
+
+Core owns low-level translation contracts and orchestration, adapters own
+portable formats, providers own transports, and Astro owns host policy.
+Reusable packages use standard Web APIs and must work without
+`nodejs_compat`; consumers may enable it. Do not add compatibility shims
+for low-level imports that moved out of the Astro package.
+
 ---
 
 ## Recipes
@@ -40,17 +52,17 @@ Then come back here for step-by-step task recipes.
 
 **When to use:** Supporting a new file extension (`.xml`, `.html`, `.po`, custom format).
 
-**Contract:** `FileTypeAdapter` in `src/parsing/adapter.ts`. See [#adapter-contract](../../ARCHITECTURE.md#adapter-contract).
+**Contract:** `FileAdapter` in `packages/adapters/src/adapter.ts`; Astro policies wrap it in `packages/astro/src/parsing/adapter.ts`. See [#adapter-contract](../../ARCHITECTURE.md#adapter-contract).
 
 **Steps:**
 
-1. Implement the adapter at `src/parsing/adapters/<name>.ts`:
+1. Implement the portable adapter at `packages/adapters/src/adapters/<name>.ts`:
 
    ```ts
-   import type { FileTypeAdapter, AdapterExtractOptions, AdapterApplyOptions } from "../adapter.js";
-   import type { Segment } from "../extract.js";
+   import type { Segment } from "@cloudflare/polystella-core";
+   import type { FileAdapter, AdapterExtractOptions, AdapterApplyOptions } from "../adapter.js";
 
-   export const myFormatAdapter: FileTypeAdapter<MyParsedShape> = {
+   export const myFormatAdapter: FileAdapter<MyParsedShape> = {
      extensions: [".myext"],
 
      parse(source, sourcePath) {
@@ -72,24 +84,14 @@ Then come back here for step-by-step task recipes.
        // into the output here, not after.
      },
 
-     selectedValuesForHash(parsed, source, opts): Record<string, unknown> {
-       // Snapshot of values that feed the cache hash. Only fields
-       // your adapter considers translatable should appear here.
-     },
-
-     peekNoTranslate(parsed): boolean {
-       // Return true when the source is opted out via your format's
-       // convention (e.g. top-level `noTranslate: true`).
-     },
-
-     // Optional:
-     rewriteUrls(bytes, opts): string { ... },   // post-cache; idempotent
-     groupSegments(parsed, segments): Segment[][] { ... },  // INVARIANT 2
-     documentContext(parsed, opts): string | undefined { ... },
+     groupSegments(parsed, segments): Segment[][] { ... },  // optional, INVARIANT 2
    };
    ```
 
-2. Register in `src/parsing/registry.ts`:
+2. Add Astro's cache-selection, `noTranslate`, URL, document-context,
+   marker, and parser policies in a small wrapper under
+   `packages/astro/src/parsing/adapters/`, then register that wrapper in
+   `packages/astro/src/parsing/registry.ts`:
 
    ```ts
    import { myFormatAdapter } from "./adapters/myformat.js";
@@ -99,27 +101,23 @@ Then come back here for step-by-step task recipes.
 
    **First-registered wins.** If your adapter claims an extension another adapter already owns, your registration is silently ignored. The order at the bottom of `registry.ts` is the de-facto priority.
 
-3. Add tests under `tests/parsing/adapters/<name>.test.ts`. Mirror the structure of an existing adapter test (`tests/parsing/adapters/toml.test.ts` is a good template — it's structured-data-flavoured like most new adapters will be).
+3. Add portable tests under `packages/adapters/tests/` and retain Astro-policy parity tests under `packages/astro/tests/parsing/`.
 
-   Required test coverage:
-   - `parse` round-trip (parse → reserialize via `applyTranslations` with no translations → byte-identical)
-   - `extractSegments` produces expected IDs
-   - `applyTranslations` splices correctly
-   - `selectedValuesForHash` snapshots ONLY translatable fields
-   - `peekNoTranslate` honours your format's opt-out convention
-   - If you implement `rewriteUrls`: idempotent on already-rewritten input
-   - If you implement `groupSegments`: `flat(result) === segments` (reference-equal)
+   Required portable coverage: parsing/reconstruction, segment IDs,
+   translation application, and group flattening by reference. Astro wrapper
+   tests cover selected hash values, `noTranslate`, markers, context, and
+   idempotent URL rewriting.
 
-4. **No changes to `src/translation/run.ts` or `src/storage/cache.ts`.** The orchestrator dispatches by extension via the registry; the cache layer is format-agnostic. If you find yourself editing either, you're doing something wrong.
+4. **No changes to `packages/astro/src/translation/run.ts` or `packages/astro/src/storage/cache.ts`.** The orchestrator dispatches by extension via the registry; the cache layer is format-agnostic. If you find yourself editing either, you're doing something wrong.
 
 5. Verify:
 
    ```sh
    pnpm test
-   pnpm exec tsc --noEmit
+   pnpm typecheck
    ```
 
-6. Update the contributor README's status table and any per-format docs.
+6. Update the package README and any per-format docs.
 
 ---
 
@@ -129,11 +127,11 @@ Then come back here for step-by-step task recipes.
 
 **When to use:** Adding a new top-level verb (`polystella <verb>`).
 
-**Pattern:** Each subcommand owns its argv parsing and a `run<Name>(args, deps)` handler. The dispatcher in `src/cli.ts` is a thin router.
+**Pattern:** Each subcommand owns its argv parsing and a `run<Name>(args, deps)` handler. The dispatcher in `packages/astro/src/cli.ts` is a thin router.
 
 **Steps:**
 
-1. Create `src/cli/<name>.ts`:
+1. Create `packages/astro/src/cli/<name>.ts`:
 
    ```ts
    export interface MySubcommandArgs {
@@ -176,15 +174,15 @@ Then come back here for step-by-step task recipes.
    }
    ```
 
-2. Wire dispatch in `src/cli.ts`:
+2. Wire dispatch in `packages/astro/src/cli.ts`:
    - Add to the `Subcommand` union type.
    - Add the literal to `parseSubcommand`'s `if (first === "translate" || ...)` check.
    - Add a case to `main()`'s switch statement.
    - Update `TOP_LEVEL_USAGE` to mention the new verb.
 
 3. Add tests:
-   - `tests/cli/<name>.test.ts` for the argv parser + handler (with stubbed deps).
-   - Extend `tests/cli.test.ts` if the top-level dispatch needs new coverage (it usually does — add at least one "dispatches `my-subcommand` to the right handler" case).
+   - `packages/astro/tests/cli/<name>.test.ts` for the argv parser + handler (with stubbed deps).
+   - Extend `packages/astro/tests/cli.test.ts` if the top-level dispatch needs new coverage (it usually does — add at least one "dispatches `my-subcommand` to the right handler" case).
 
 4. If consumers typically wrap the subcommand in a `pnpm` script (e.g. `pnpm i18n:sync`), document the pattern in the docs site's CLI section. Don't add the wrapper to this package — consumer projects own their own scripts.
 
@@ -192,9 +190,9 @@ Then come back here for step-by-step task recipes.
 
    ```sh
    pnpm test
-   pnpm exec tsc --noEmit
+   pnpm typecheck
    pnpm build
-   node dist/cli.js my-subcommand --help    # sanity-check the emitted CLI
+   node packages/astro/dist/cli.js my-subcommand --help    # sanity-check the emitted CLI
    ```
 
 ---
@@ -205,11 +203,11 @@ Then come back here for step-by-step task recipes.
 
 **When to use:** Adding a third translator (e.g. OpenAI, Bedrock).
 
-**Contract:** `Translator` in `src/translation/provider.ts`. See [#translator-contract](../../ARCHITECTURE.md#translator-contract).
+**Contract:** `Translator` in `packages/core/src/translator.ts`. Provider transports live in `packages/providers`; `packages/astro/src/translation/provider.ts` only maps Astro config. See [#translator-contract](../../ARCHITECTURE.md#translator-contract).
 
 **Steps:**
 
-1. Add a config variant to the provider zod schema in `src/config/options.ts`:
+1. Add a config variant to the provider zod schema in `packages/astro/src/config/options.ts`:
 
    ```ts
    const newProviderSchema = z.object({
@@ -224,55 +222,47 @@ Then come back here for step-by-step task recipes.
    const providerSchema = z.discriminatedUnion("kind", [workersAISchema, anthropicSchema, newProviderSchema]);
    ```
 
-2. Implement the translator factory in `src/translation/provider.ts`:
+2. Implement a concrete-model factory in `packages/providers/src/<name>.ts`:
 
    ```ts
-   function createNewProviderTranslator(
-     provider: NewProviderConfig,
-     locale: string,
-     fetchImpl: typeof fetch,
-   ): Translator {
-     const modelId = resolveModelId(provider.model, locale);
-
+   export function createNewProviderTranslator(options: {
+     apiKey: string;
+     modelId: string;
+     maxTokens: number;
+     fetchImpl?: typeof fetch;
+   }): Translator {
      return {
-       modelId,
+       modelId: options.modelId,
        async translate(systemPrompt, userPrompt, signal) {
-         const res = await fetchImpl(endpoint, {
+         const res = await (options.fetchImpl ?? fetch)(endpoint, {
            method: "POST",
            headers: { ... },
            body: JSON.stringify({ ... }),
            ...(signal !== undefined ? { signal } : {}),
          });
 
-         if (!res.ok) {
-           const text = await res.text().catch(() => "");
-           const message = `[polystella] new-provider request failed: ${res.status} ${res.statusText}${text ? `\n${text}` : ""}`;
-           if (PERMANENT_HTTP_STATUSES.has(res.status)) {
-             throw new PermanentProviderError(message);
-           }
-           throw new Error(message);
-         }
-
-         const data = await res.json();
-         // Extract the model's raw text; caller validates via parseResponse.
-         // Round-trip via JSON.stringify if the provider pre-parses on the server.
-         return text;
+         if (!res.ok) throw await createProviderHttpError("New provider", res, signal);
+         return normalizeResponse(await res.json());
        },
      };
    }
    ```
 
-3. Wire into `createTranslator`:
+3. Export the factory from `packages/providers/src/index.ts`, then map the validated config in Astro's `createTranslator`:
 
    ```ts
    if (provider.kind === "new-provider") {
-     return createNewProviderTranslator(provider, locale, fetchImpl);
+     return createNewProviderTranslator({
+       apiKey: provider.apiKey,
+       modelId: resolveModelId(provider.model, locale),
+       maxTokens: provider.maxTokens,
+     });
    }
    ```
 
-4. **Permanent vs retriable** — `PERMANENT_HTTP_STATUSES` is `{400, 401, 403, 404, 422}`. Don't widen this without thinking about what flaky responses might wrongly skip retry. 5xx, 408, 425, 429 are retriable. **Ask first** before adding statuses (per `AGENTS.md` Boundaries).
+4. **Permanent vs retriable** — reuse the providers package's HTTP classifier. The permanent set is `{400, 401, 403, 404, 422}`; 5xx, 408, 425, and 429 are retriable. **Ask first** before adding statuses.
 
-5. Add tests at `tests/translation/provider.test.ts` covering:
+5. Add transport tests under `packages/providers/tests/` and retain Astro facade parity coverage in `packages/astro/tests/translation/provider.test.ts`:
    - Happy path (mock fetch returns expected shape).
    - Each permanent status → `PermanentProviderError`.
    - 5xx → plain `Error` (retriable).
@@ -280,7 +270,7 @@ Then come back here for step-by-step task recipes.
    - Unexpected response shape → clear error message with raw response preview.
    - `signal` propagation to `fetch`.
 
-6. Document the new provider in the package README's config section.
+6. Document the new provider in the package README and docs provider section.
 
 ---
 
@@ -303,10 +293,10 @@ Then come back here for step-by-step task recipes.
 2. **Stop.** Coordinate with the owner before merging. This is **Invariant 1** in `AGENTS.md`. The change needs to be in a major version bump and called out in CHANGELOG.
 
 3. If you're confident this is the right change:
-   - Edit `src/storage/hash.ts` (the `computeSourceHash` function).
+   - Edit `packages/astro/src/storage/hash.ts` (the `computeSourceHash` function).
    - Update the formula description in `ARCHITECTURE.md#cache-key`.
    - Update `AGENTS.md` Invariant #1.
-   - Update the hash test pin in `tests/storage/hash.test.ts` — it pins a literal hash to catch accidental formula drift. Compute the new literal and replace it.
+   - Update the hash test pin in `packages/astro/tests/storage/hash.test.ts` — it pins a literal hash to catch accidental formula drift. Compute the new literal and replace it.
    - Add a CHANGELOG entry under a "Breaking changes" heading.
    - Bump the major version (or 0.x minor pre-1.0).
 
@@ -314,7 +304,7 @@ Then come back here for step-by-step task recipes.
 
    ```sh
    pnpm test
-   pnpm exec tsc --noEmit
+   pnpm typecheck
    ```
 
    The pinned-hash test will catch drift if you missed the test update.
@@ -329,7 +319,7 @@ Then come back here for step-by-step task recipes.
 
 **Diagnostic flow:**
 
-1. **Reproduce on the fixture.** If the regression is reported against a consumer's content, reduce to the smallest source file that reproduces. Add it under `tests/fixtures/` if it's worth a regression test.
+1. **Reproduce on the fixture.** If the regression is reported against a consumer's content, reduce to the smallest source file that reproduces. Add it under `packages/astro/tests/fixtures/` if it's worth a regression test.
 
 2. **Inspect what the cache layer planned:**
 
@@ -355,7 +345,7 @@ Then come back here for step-by-step task recipes.
    cat dist/i18n-r2-report.json | jq '.entries[] | select(.sourcePath == "<path>")'
    ```
 
-   Outcome will be `hit`, `miss`, `override`, `error`, or `localSkipped`. Read the corresponding code path in `src/storage/cache.ts` or `src/source/overrides.ts`.
+   Outcome will be `hit`, `miss`, `override`, `error`, or `localSkipped`. Read the corresponding code path in `packages/astro/src/storage/cache.ts` or `packages/astro/src/source/overrides.ts`.
 
 5. **Crank up verbosity:**
 
@@ -392,13 +382,13 @@ Then come back here for step-by-step task recipes.
 
 **Files:**
 
-- `src/runtime/middleware.ts` — request middleware; pre-binds locale to all four locals.
-- `src/runtime/middleware-core.ts` — middleware body (test-friendly extract).
-- `src/runtime/get-localized-entry.ts`, `get-localized-collection.ts` — fetcher implementations.
-- `src/runtime/localized-href.ts` — URL prefixer.
-- `src/runtime/custom-loader-runtime.ts` — the **bridge** (module-scoped singleton shared with sibling collections).
-- `src/runtime/locals.ts` — TypeScript ambient declarations for `Astro.locals`. Was `locals.d.ts` until the dist-emit rework; renamed so tsc emits both an empty `.js` and the `.d.ts` declarations, and `runtime/index.ts` pulls it in via a side-effect import (the previous triple-slash `<reference path>` directive gets stripped by tsc at emit time).
-- `src/react/index.ts` — `useTranslations`, `useLocalizedHref` hooks.
+- `packages/astro/src/runtime/middleware.ts` — request middleware; pre-binds locale to all four locals.
+- `packages/astro/src/runtime/middleware-core.ts` — middleware body (test-friendly extract).
+- `packages/astro/src/runtime/get-localized-entry.ts`, `get-localized-collection.ts` — fetcher implementations.
+- `packages/astro/src/runtime/localized-href.ts` — URL prefixer.
+- `packages/astro/src/runtime/custom-loader-runtime.ts` — the **bridge** (symbol-keyed `globalThis` state shared with sibling collections across Vite module reloads).
+- `packages/astro/src/runtime/locals.ts` — TypeScript ambient declarations for `Astro.locals`. Was `locals.d.ts` until the dist-emit rework; renamed so tsc emits both an empty `.js` and the `.d.ts` declarations, and `runtime/index.ts` pulls it in via a side-effect import (the previous triple-slash `<reference path>` directive gets stripped by tsc at emit time).
+- `packages/astro/src/react/index.ts` — `useTranslations`, `useLocalizedHref` hooks.
 
 **Key contracts:**
 
@@ -408,11 +398,11 @@ Then come back here for step-by-step task recipes.
 **Steps:**
 
 1. Edit the relevant runtime file.
-2. Update `src/runtime/locals.ts` if you're changing the shape of `Astro.locals`.
+2. Update `packages/astro/src/runtime/locals.ts` if you're changing the shape of `Astro.locals`.
 3. Update the `polystella-consumer` skill's "Runtime APIs" section.
-4. Add tests under `tests/runtime/`:
+4. Add tests under `packages/astro/tests/runtime/`:
    - Behaviour test for the new/changed function.
-   - Middleware-binding test if the locals shape changes (`tests/runtime/middleware.test.ts`).
+   - Middleware-binding test if the locals shape changes (`packages/astro/tests/runtime/middleware.test.ts`).
 5. Don't forget the React side — `useTranslations` / `useLocalizedHref` and their consumer-side wiring (`getDictionary`).
 
 ---
@@ -425,12 +415,12 @@ Then come back here for step-by-step task recipes.
 
 **Files:**
 
-- `src/i18n/drift.ts` — `checkI18nDrift`, `loadAndCheckDrift`.
-- `src/i18n/sync.ts` — key reconciliation; **layout-aware** JSON writer (`formatLocaleFile`).
-- `src/i18n/ui-translate.ts` — AI-fill orchestrator; `{{token}}` validator + retry wrapper.
-- `src/i18n/loader.ts`, `i18n/index.ts` — content-layer loader, dictionary fetcher.
-- `src/catalog/*` — catalog-only public exports, middleware, and Astro integration. Must stay free of content translation, R2, route shims, and localized collection imports.
-- `src/cli/check-ui.ts`, `sync-ui.ts`, `translate-ui.ts` — CLI handlers.
+- `packages/astro/src/i18n/drift.ts` — `checkI18nDrift`, `loadAndCheckDrift`.
+- `packages/astro/src/i18n/sync.ts` — key reconciliation; **layout-aware** JSON writer (`formatLocaleFile`).
+- `packages/astro/src/i18n/ui-translate.ts` — AI-fill orchestrator; `{{token}}` validator + retry wrapper.
+- `packages/astro/src/i18n/loader.ts`, `i18n/index.ts` — content-layer loader, dictionary fetcher.
+- `packages/astro/src/catalog/*` — catalog-only public exports, middleware, and Astro integration. Must stay free of content translation, R2, route shims, and localized collection imports.
+- `packages/astro/src/cli/check-ui.ts`, `sync-ui.ts`, `translate-ui.ts` — CLI handlers.
 
 **Key contracts:**
 
@@ -525,18 +515,18 @@ if (typeof data !== "object" || data === null) throw new Error(`unexpected: ${x}
 
 <a id="testing"></a>
 
-- Tests live under `tests/<src-dir>/<basename>.test.ts`. Top-level exceptions: `tests/cli.test.ts` (top-level dispatch + translate-subcommand parsing), `tests/cli/` (per-subcommand handlers), `tests/smoke.test.ts` (end-to-end integration smoke).
-- Vitest config in `vitest.config.ts`. `singleThread: true` — faster than multi-worker at this scale.
+- Astro tests live under `packages/astro/tests/<src-dir>/<basename>.test.ts`. Top-level exceptions: `packages/astro/tests/cli.test.ts` (top-level dispatch + translate-subcommand parsing), `packages/astro/tests/cli/` (per-subcommand handlers), `packages/astro/tests/smoke.test.ts` (end-to-end integration smoke).
+- Astro Vitest config is `packages/astro/vitest.config.ts`. `singleThread: true` — faster than multi-worker at this scale.
 - Fakeable boundaries: each subsystem accepts a `deps`-shaped object so tests can inject stubs. The CLI's `runCheckUi(args, deps)` shape is the canonical example.
 - For tests that need a clean adapter registry: call `resetRegistry()` before re-registering.
-- For tests that exercise R2: use the in-memory R2 client at `tests/helpers/in-memory-r2.ts` (or whatever the equivalent helper is).
+- For tests that exercise R2: follow the inline in-memory client in `packages/astro/tests/storage/cache.test.ts`.
 - For tests that exercise the translator: pass `translatorOverrides` to `runTranslationPass` with a fake `Translator`.
-- For smoke tests: drive `polystella(options)` with stubbed Astro context against a real temp project. `tests/smoke.test.ts` is the template.
-- For the doc-claims test (`tests/docs.test.ts`): pins file paths and command names referenced in `AGENTS.md` / `ARCHITECTURE.md`. If you move a file or rename a subcommand, update both the docs AND this test.
+- For smoke tests: drive `polystella(options)` with stubbed Astro context against a real temp project. `packages/astro/tests/smoke.test.ts` is the template.
+- For the doc-claims test (`packages/astro/tests/docs.test.ts`): pins file paths and command names referenced in `AGENTS.md` / `ARCHITECTURE.md`. If you move a file or rename a subcommand, update both the docs AND this test.
 
 Verify before pushing:
 
 ```sh
 pnpm test
-pnpm exec tsc --noEmit
+pnpm typecheck
 ```

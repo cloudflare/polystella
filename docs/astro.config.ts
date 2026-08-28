@@ -83,7 +83,7 @@ export default defineConfig({
     defaultStrategy: "hover",
   },
   integrations: [
-    icon(),
+    icon({ iconDir: "src/components" }),
     nimbus(nimbusConfig, {
       rules: {
         "nimbus/frontmatter-shape": "error",

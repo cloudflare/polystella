@@ -10,7 +10,7 @@
  * Run from the package root:
  *   pnpm build:llms
  *
- * The test in `tests/docs.test.ts` checks that the file's section
+ * The test in `packages/astro/tests/docs.test.ts` checks that the file's section
  * ordering matches expectations. It does NOT enforce byte-for-byte
  * equality with the regenerated content — re-run this script after
  * meaningful edits to the source docs.

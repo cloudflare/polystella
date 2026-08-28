@@ -34,14 +34,19 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "src",
+    "CHANGELOG.md",
+    "README.md",
+    "LICENSE"
   ],
   "scripts": {
     "test": "vitest run",
+    "typecheck": "tsc --noEmit",
     "build": "tsc -p tsconfig.build.json"
   },
   "dependencies": {
-    "@cloudflare/polystella-core": "workspace:0.4.0",
+    "@cloudflare/polystella-core": "workspace:*",
     "@types/mdast": "^4.0.4",
     "picomatch": "^4.0.4",
     "remark-frontmatter": "^5.0.0",

@@ -115,7 +115,8 @@ Stable report totals:
 
 For comparison, replace the complete `aiTranslatedAt:` line with
 `aiTranslatedAt: <timestamp>` and compute SHA-256 over the resulting UTF-8
-bytes.
+bytes. These are the `i18n-preview` inspection copies; MDX files under
+`.astro/i18n-staging` have intentionally different relative import paths.
 
 | Output                         | SHA-256                                                            |
 | ------------------------------ | ------------------------------------------------------------------ |
@@ -133,12 +134,14 @@ bytes.
 Normalized report digest:
 
 ```text
-7c5a3be43011144d9f173ccc118207e9a17222c75da1385eb40dbe129df05b26
+44d4a570c5d4ece964117508ef1b22ab5bfe5e3fc4ca80b0f0af0a6bb844ba50
 ```
 
 Report normalization removes `build.startedAt`, `build.durationMs`, and every
 entry `durationMs`; entries are sorted by `{locale}/{sourcePath}` before
-hashing.
+hashing the emitted two-space-indented JSON with its trailing newline. The
+original recorded checksum was corrected in Step 8 because it did not match
+this documented normalization; every normalized report field still matched.
 
 ## Manual Output Observations
 

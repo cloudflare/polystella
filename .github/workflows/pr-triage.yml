@@ -66,19 +66,32 @@ jobs:
             }
 
             const areaMap = {
-              "area/catalog": (file) => file.startsWith("src/catalog/") || file.includes("CATALOG_ONLY_PLAN"),
-              "area/cli": (file) => file === "src/cli.ts" || file.startsWith("src/cli/"),
-              "area/config": (file) => file.startsWith("src/config/"),
-              "area/content": (file) => file.startsWith("src/content/"),
-              "area/docs": (file) => file.startsWith("docs/") || file === "README.md" || file === "CHANGELOG.md",
+              "area/catalog": (file) => file.startsWith("packages/astro/src/catalog/") || file.includes("CATALOG_ONLY_PLAN"),
+              "area/cli": (file) => file === "packages/astro/src/cli.ts" || file.startsWith("packages/astro/src/cli/"),
+              "area/config": (file) => file.startsWith("packages/astro/src/config/"),
+              "area/content": (file) => file.startsWith("packages/astro/src/content/"),
+              "area/docs": (file) =>
+                file.startsWith("docs/") ||
+                file === "README.md" ||
+                /^packages\/(astro|core|adapters|providers)\/(README|CHANGELOG)\.md$/.test(file),
               "area/github": (file) => file.startsWith(".github/"),
-              "area/i18n": (file) => file.startsWith("src/i18n/"),
-              "area/parsing": (file) => file.startsWith("src/parsing/"),
-              "area/routing": (file) => file.startsWith("src/routing/"),
-              "area/runtime": (file) => file.startsWith("src/runtime/") || file.startsWith("src/react/"),
-              "area/storage": (file) => file.startsWith("src/storage/"),
-              "area/tests": (file) => file.startsWith("tests/"),
-              "area/translation": (file) => file.startsWith("src/translation/") || file.startsWith("src/glossary/"),
+              "area/i18n": (file) => file.startsWith("packages/astro/src/i18n/"),
+              "area/parsing": (file) =>
+                file.startsWith("packages/adapters/") || file.startsWith("packages/astro/src/parsing/"),
+              "area/routing": (file) => file.startsWith("packages/astro/src/routing/"),
+              "area/runtime": (file) =>
+                file.startsWith("packages/astro/src/runtime/") || file.startsWith("packages/astro/src/react/"),
+              "area/storage": (file) => file.startsWith("packages/astro/src/storage/"),
+              "area/tests": (file) =>
+                /^packages\/(astro|core|adapters|providers)\/tests\//.test(file) ||
+                file.startsWith("boundary-tests/") ||
+                file.startsWith("workerd-tests/") ||
+                file.startsWith("fixtures/workerd/"),
+              "area/translation": (file) =>
+                file.startsWith("packages/core/") ||
+                file.startsWith("packages/providers/") ||
+                file.startsWith("packages/astro/src/translation/") ||
+                file.startsWith("packages/astro/src/glossary/"),
             };
 
             for (const file of files) {

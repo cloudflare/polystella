@@ -4,6 +4,24 @@
 
 PolyStella is an [Astro](https://astro.build) integration that translates content into additional locales at build time using AI, caches translations in Cloudflare R2, and injects locale-prefixed routes for the translated pages.
 
+The repository publishes four lockstep packages:
+
+| Package                            | Owns                                                               |
+| ---------------------------------- | ------------------------------------------------------------------ |
+| `@cloudflare/polystella`           | Astro integration, CLI, R2, routing, runtime, and host policy.     |
+| `@cloudflare/polystella-core`      | Platform-neutral prompts, batching, retries, and shared contracts. |
+| `@cloudflare/polystella-adapters`  | Portable Markdown, MDX, JSON, YAML, and TOML adapters.             |
+| `@cloudflare/polystella-providers` | Workers AI HTTP/binding and Anthropic transports.                  |
+
+Direct low-level use stays in-process:
+
+```text
+source/record -> adapter -> core -> provider -> core -> adapter -> output
+```
+
+Core, adapters, and providers require standard Web APIs and work in
+Workers without `nodejs_compat`; consumers may still enable it.
+
 ## What it does
 
 - **Build-time translation.** Translates `.md`, `.mdx`, and `.toml` content into additional locales during `astro build`. Visitors get static bytes; no runtime AI calls.
@@ -21,7 +39,14 @@ Install from npm:
 pnpm add @cloudflare/polystella
 ```
 
-Peer dependencies: `astro ^7.0.0`, optionally `react ^17 || ^18 || ^19`.
+Peer dependencies: `astro ^7.0.10`, optionally `react ^17 || ^18 || ^19`.
+
+Install the owning package for low-level APIs. `Segment`, `Glossary`,
+`Translator`, `PermanentProviderError`, prompt helpers, and batching moved
+to `@cloudflare/polystella-core`; portable format helpers moved to
+`@cloudflare/polystella-adapters`; provider factories moved to
+`@cloudflare/polystella-providers`. The Astro package does not provide
+compatibility shims for those old low-level imports.
 
 ## Quick start
 

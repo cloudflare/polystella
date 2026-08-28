@@ -9,5 +9,12 @@ allowBuilds:
   sharp: true
   workerd: true
 
+overrides:
+  "esbuild@>=0.27.3 <0.28.1": 0.28.2
+  "js-yaml@>=4.0.0 <4.3.1": 4.3.1
+  "nanoid@<3.3.18": 3.3.18
+  "postcss@<=8.5.22": 8.5.26
+  "svgo@>=4.0.0 <4.0.2": 4.1.0
+
 minimumReleaseAgeExclude:
-  - nimbus-docs@0.1.22
+  - astro@7.2.9

@@ -1,6 +1,6 @@
 # PolyStella Monorepo Extraction Plan
 
-Status: In progress (Steps 1-3 complete)
+Status: Local Step 12 gate complete; release blocked by external prerequisites
 Last updated: 2026-08-28
 
 ## ELI5: What Will Happen
@@ -156,20 +156,20 @@ Owns:
 
 ## Progress
 
-| Step                           | Status      | Completion evidence                                                                                                   |
-| ------------------------------ | ----------- | --------------------------------------------------------------------------------------------------------------------- |
-| 1. Record the baseline         | Complete    | `agent-work/polystella-monorepo-baseline.md` records commands, keys, hashes, outputs, and known limitations           |
-| 2. Prepare the workspace       | Complete    | `packages/*` discovery and framework-neutral `tsconfig.base.json` added; existing package remains unchanged and green |
-| 3. Extract core                | Complete    | Core builds from one runtime dependency; 26 package tests and import-boundary inspection pass                         |
-| 4. Extract adapters            | Complete    | Shared adapters build with 40 portable format, parser, grouping, and reconstruction tests passing                     |
-| 5. Extract providers           | Complete    | Three portable factories build with 33 HTTP, binding, cancellation, and retry-integration tests passing               |
-| 6. Reconnect Astro             | Not started | Existing Astro suite and playground pass                                                                              |
-| 7. Prove portability           | Not started | Node, no-compat workerd, and boundary checks pass                                                                     |
-| 8. Check the extraction        | Not started | Before/after outputs and keys match                                                                                   |
-| 9. Move Astro                  | Not started | Private root and moved Astro package build cleanly                                                                    |
-| 10. Finish packaging           | Not started | Four tarballs install and import in a clean project                                                                   |
-| 11. Update automation and docs | Not started | CI/docs/pkg.pr.new configuration covers all packages                                                                  |
-| 12. Run the release gate       | Not started | Every automated and manual release check passes                                                                       |
+| Step                           | Status   | Completion evidence                                                                                                   |
+| ------------------------------ | -------- | --------------------------------------------------------------------------------------------------------------------- |
+| 1. Record the baseline         | Complete | `agent-work/polystella-monorepo-baseline.md` records commands, keys, hashes, outputs, and known limitations           |
+| 2. Prepare the workspace       | Complete | `packages/*` discovery and framework-neutral `tsconfig.base.json` added; existing package remains unchanged and green |
+| 3. Extract core                | Complete | Core builds from one runtime dependency; 26 package tests and import-boundary inspection pass                         |
+| 4. Extract adapters            | Complete | Shared adapters build with 40 portable format, parser, grouping, and reconstruction tests passing                     |
+| 5. Extract providers           | Complete | Three portable factories build with 33 HTTP, binding, cancellation, and retry-integration tests passing               |
+| 6. Reconnect Astro             | Complete | Root delegates to shared packages; 1,161 Astro tests and baseline playground outputs pass                             |
+| 7. Prove portability           | Complete | Node, no-compat workerd, and boundary checks pass                                                                     |
+| 8. Check the extraction        | Complete | Four-package tarball install and all deterministic Step 1 baseline comparisons pass                                   |
+| 9. Move Astro                  | Complete | Private root, moved Astro package, aggregate gates, package checks, baselines, playground, and docs pass              |
+| 10. Finish packaging           | Complete | Four release-ready tarballs install and expose every public entrypoint with exact internal versions                   |
+| 11. Update automation and docs | Complete | CI/docs/pkg.pr.new configuration covers all packages                                                                  |
+| 12. Run the release gate       | Blocked  | Local automation passes; npm bootstrap, publisher setup, and external manual checks remain                            |
 
 ## Step 1: Record The Baseline
 
@@ -662,6 +662,17 @@ Manual verification:
 Stop condition: Any cache-key, staged-byte, routing, marker, retry, or report
 drift blocks the move to `packages/astro`.
 
+Completion evidence (2026-08-28): The root Astro integration delegates core,
+adapter, and provider behavior to the three workspace packages while retaining
+Satteri parsing and host cache/URL/marker policy. Eleven duplicate source files
+were removed. All 1,161 root tests and 99 package tests pass, including direct
+Remark routing, Satteri-to-Remark MDX fallback, and marker-before-cache checks.
+Root/package typechecks and builds, CLI `0.4.0`, the six-page playground build,
+10-key dry-run, and local fake-provider translation pass. Dry-run keys and all
+10 normalized staged outputs match the Step 1 baseline. Review found no
+remaining Step 6 defects; the coordinated Changesets entry remains scheduled
+for Step 10.
+
 ## Step 7: Prove Node And Workerd Portability
 
 Purpose: Turn the Node/workerd support decision into executable checks.
@@ -673,7 +684,8 @@ Changes:
   separate workerd Vitest configuration.
 - Run representative core, adapters, and providers tests inside workerd.
 - Add a minimal Worker fixture importing all three reusable packages.
-- Configure that fixture without `nodejs_compat`.
+- Configure that fixture with explicit `no_nodejs_compat` and
+  `no_nodejs_compat_v2`.
 - Add a small source/package boundary test rejecting imports of `node:`, Astro,
   React, Satteri, filesystem, and environment modules from reusable packages.
 - Keep consumers free to enable `nodejs_compat`. Passing without it is a
@@ -690,16 +702,18 @@ Workerd coverage:
 Automated verification:
 
 ```sh
+pnpm test:packages
 pnpm test:node
 pnpm test:workerd
 pnpm test:boundaries
 pnpm build
+pnpm bundle:workerd:dry-run
 ```
 
 Manual verification:
 
-- Inspect the Worker fixture's Wrangler configuration and confirm there is no
-  `nodejs_compat` compatibility flag.
+- Inspect the Worker fixture's Wrangler configuration and confirm it explicitly
+  sets `no_nodejs_compat` and `no_nodejs_compat_v2`.
 - Inspect its generated bundle for Node built-in imports and Satteri/native
   binding references.
 - Optionally repeat the fixture with `nodejs_compat` enabled to confirm that a
@@ -707,6 +721,19 @@ Manual verification:
 
 Stop condition: A reusable package that only works when `nodejs_compat` is
 enabled is not platform-neutral and must be corrected before proceeding.
+
+Completion evidence (2026-08-28): The existing 1,161-test Node suite, eight
+detailed Vitest workerd tests, and 23 reusable-package boundary checks pass.
+The Vitest suite covers core prompt parsing, batching, retries, cancellation,
+JSON and Remark Markdown round trips, and Workers AI binding and HTTP
+transports; it is not the no-compat proof. A separate Node harness uses the docs
+workspace's Wrangler 4.127.0 to bundle, inspect, start, and fetch the Worker with
+explicit `no_nodejs_compat` and `no_nodejs_compat_v2`. The 1,248.57 KiB bundle
+(255.99 KiB gzip) contains no Node built-in imports, Astro, React, Satteri, or
+native binding references. The aggregate root test command includes the
+Wrangler runtime check and all 99 lower-package tests. Root/package typechecks,
+clean frozen install, root build, bounded subprocesses, cross-platform process-
+tree cleanup, unique OS-temp state, and generated-artifact checks pass.
 
 ## Step 8: Check The Extraction Before Moving Astro
 
@@ -758,6 +785,32 @@ Manual verification:
 Stop condition: Do not move Astro or make the root private until the
 intermediate packages work outside the repository.
 
+Completion evidence (2026-08-28): The local automated gate is complete.
+`check:packages` builds and packs the explicit root, core, adapters, and
+providers directories into OS-temporary storage; validates names, exports,
+allowlists, required files, forbidden files, common versions, exact internal
+dependency versions, and removal of `workspace:` ranges; then proves from the
+lockfile and installed manifests that a clean ESM consumer uses all four
+tarballs. That consumer imports every lower-package entry and all six Node-safe
+Astro entries, resolves `./client` types, builds and typechecks an installed
+Astro project exercising the integration-backed virtual-module entrypoints,
+and runs CLI `0.4.0`. `check:baseline` first deletes all ignored playground
+outputs, staging, and report data, then builds and runs the dry-run and local
+fake provider itself before checking the exact 10 R2 keys, preview and staged
+bytes including opposite MDX import paths, normalized report
+digest/totals/models/source hashes, source/prompt fixtures, and JSON, YAML, and
+TOML reconstruction bytes. Subprocesses are bounded with cross-platform process-
+tree cleanup, all temporary package data is removed, and `.gitattributes` pins
+text to LF. The original report checksum was corrected because it did not match
+its documented normalization; every report field matched. The full 1,291-test
+gate, root and lower-package typechecks, build, six-page playground build,
+dry-run, local fake-provider run, CLI, formatting, and diff checks pass. The
+preview workflow publishes all four explicit directories in one pkg.pr.new
+invocation. The pkg.pr.new PR comment and preview-URL install remain pending
+external checks because they require the enabled GitHub App/workflow. Real R2
+remains external/manual; R2 hit/write/prune, override, `noTranslate`, and local-
+skip paths remain covered by existing tests. No changeset was added.
+
 ## Step 9: Move Astro And Privatize The Root
 
 Purpose: Finish the desired monorepo layout after extraction is proven.
@@ -801,7 +854,7 @@ Automated verification:
 ```sh
 pnpm install
 pnpm test
-pnpm exec tsc --noEmit
+pnpm typecheck
 pnpm build
 node packages/astro/dist/cli.js --version
 ```
@@ -820,6 +873,21 @@ Manual verification:
 Stop condition: The move is incomplete while any source/test assumes the root
 is still `@cloudflare/polystella` or any package version reads the private root
 manifest.
+
+Completion evidence (2026-08-28): The Astro source, 1,162 tests, client types,
+internal types, changelog, and package-local TypeScript/Vitest configuration now
+live under `packages/astro`; the root is a private workspace orchestrator with
+no publish fields, runtime dependencies, or peers. All four public packages
+remain at `0.4.0`, retain the current internal ranges, expose package-local
+typechecks, and build source/declaration maps pointing to their own `src` trees;
+all four tarballs include those sources. The 1,292-test aggregate
+Node/workerd/boundary gate, no-compat Wrangler runtime, aggregate
+typecheck/build, four-tarball package check, deterministic baseline, CLI
+`0.4.0`, six-page playground build/dry-run/local translation, docs generator,
+export/example checks, full docs build, and formatting pass. Root typecheck and
+all five playground scripts also pass with every ignored package `dist` tree
+temporarily absent. `release.yml` is the sole publisher. No changeset or version
+change was added.
 
 ## Step 10: Finish Packaging And Lockstep Versions
 
@@ -872,6 +940,22 @@ Manual verification:
 Stop condition: Workspace tests are insufficient; packaging is blocked until a
 fresh project can install only the tarballs and use every public entrypoint.
 
+Completion evidence (2026-08-28): All four source manifests remain at `0.4.0`
+and use `workspace:*` for internal runtime dependencies; the private root's
+workspace-only references match. One fixed Changesets group and one minor
+changeset produce exactly four planned `0.5.0` releases, while private
+workspaces remain unchanged. Lower-package changelogs exist now because
+Changesets creates missing files only during versioning, after this step's
+tarball inspection. The strengthened `check:packages` gate validates source and
+packed versions, exact exports and internal versions, required `src`, `dist`,
+README, license, and changelog files, tarball allowlists, forbidden files,
+resolved workspace ranges, and the CLI mode and shebang. Its clean consumer
+installed all four `0.4.0` tarballs, exercised all public surfaces through
+direct imports, client types, and an Astro build/typecheck, and ran CLI `0.4.0`.
+Install, build, package check, Changesets status/release-state inspection,
+focused formatting, and `git diff --check` all pass. No publish, commit, or Step
+11 work was performed.
+
 ## Step 11: Update Preview, Release, CI, And Documentation
 
 Purpose: Make repository automation and guidance agree with the final layout.
@@ -911,8 +995,8 @@ Documentation changes:
 
 - Update root `README.md`, `ARCHITECTURE.md`, `AGENTS.md`, `llms.txt`, generated
   `llms-full.txt`, and contributor/consumer skills.
-- Update stable repository paths in `tests/docs.test.ts` and planning/reference
-  documents that describe current architecture.
+- Update stable repository paths in `packages/astro/tests/docs.test.ts` and
+  planning/reference documents that describe current architecture.
 - Update `docs/scripts/generate-config-ref.ts` to import the moved Astro schema.
 - Update `docs/scripts/check-exports.ts` to inspect all four public manifests.
 - Document direct in-process flow:
@@ -951,6 +1035,32 @@ Manual verification:
 Stop condition: Do not release while automation still assumes the root is a
 publishable package or docs show old source paths/imports.
 
+Completion evidence (2026-08-28): The opt-in preview workflow builds first,
+then publishes `./packages/*` in one exact quoted pkg.pr.new invocation.
+`release.yml` is the sole publisher and `publish.yml` is absent. CI explicitly
+runs reusable-package and Astro Node tests, workerd tests, boundary checks,
+typecheck, the topological build, four-tarball package checks, and the moved
+Astro CLI smoke. Docs filters name the moved schema and all four manifests;
+triage maps all package trees; Changesets guidance describes the fixed
+four-package release. Current docs and skills identify package ownership,
+migrated low-level imports with no compatibility shims, standard-Web-API
+portability without requiring `nodejs_compat`, the exact direct package flow,
+and a package-typed Workers AI binding example. `pnpm build`, the 1,292-test
+Node/workerd/boundary gate, aggregate typecheck, clean-consumer package check,
+43-page docs build, exact bidirectional checks for all 17 documented export
+paths and their import examples, and a TypeScript-compiled direct
+core/adapters/providers example with a structural Workers AI binding all pass.
+`llms-full.txt` generation is deterministic, formatting passes, the CLI reports
+`0.4.0`, all 10 workflow files parse as YAML, static assertions confirm package
+checks immediately precede Changesets and docs verify generated context, and
+`git diff --check` passes. Registry lookups for the core, adapters, and providers
+package names returned 404; creating those npm packages is an external
+prerequisite before the first release. The pkg.pr.new GitHub App comment, its
+four external preview links, and a preview-URL install could not be exercised
+locally; they remain external checks requiring the enabled GitHub App and
+workflow. No commit, publish, npm bootstrap, Changesets versioning, or Step 12
+work was performed.
+
 ## Step 12: Run The Final Release Gate
 
 Purpose: Verify the same code paths and package artifacts real consumers will
@@ -964,7 +1074,7 @@ pnpm test
 pnpm test:node
 pnpm test:workerd
 pnpm test:boundaries
-pnpm exec tsc --noEmit
+pnpm typecheck
 pnpm build
 pnpm check:packages
 pnpm format:check
@@ -996,6 +1106,57 @@ Manual verification:
 Release condition: Every automated gate passes, required manual checks are
 recorded, and no known behavior regression remains. Only then merge the
 Changesets release PR and publish all four packages together.
+
+Completion evidence (2026-08-28): The stale Step 12 root `tsc` command now
+uses the aggregate `pnpm typecheck`. Every listed command passes in order:
+frozen install, the 1,292-test aggregate gate, intentionally redundant 1,162-
+test Astro Node, eight-test workerd/no-compat, and 23-test boundary reruns,
+aggregate typecheck, build, four-tarball clean-consumer check, formatting,
+43-page docs build, 17-export documentation check, direct-package example
+compile, six-page playground build, 10-key dry-run, and CLI `0.4.0`. The final
+`check:baseline` guard matches all 10 dry-run keys, all 10 normalized preview
+and staged outputs, report totals/digest/models/source hashes, prompt/hash
+fixtures, links/import rewrites, markers, and three structured adapters. It now
+asserts the report version against the current Astro package manifest and
+normalizes only that version before the otherwise-exact report digest.
+Changesets status plans the fixed four-package group at minor (`0.5.0`). The
+production audit improved from 23 advisories (12 high, eight moderate, three
+low) to zero after compatible Astro, MDX, astro-icon, Nimbus, and narrow patched
+transitive updates; the audit and peer-dependency checks both pass.
+
+Manual artifact and release-state inspection also passes locally. Four public
+`0.4.0` tarballs contain only allowlisted package files and complete source
+maps: Astro has 132 emitted JS/declaration files and 132 maps, adapters 30/30,
+core 18/18, and providers 8/8. Packed internal dependencies resolve exactly to
+`0.4.0`; providers exposes both provider subpaths; Astro exposes all 12 export
+paths and its executable CLI retains the Node shebang. All 10 workflow files
+parse as YAML. The release runs only for main pushes, audits production
+dependencies, and runs baseline then package checks immediately before the sole
+Changesets action; CI also audits production dependencies, and no npm
+environment was added. The tarball consumer now typechecks representative core,
+adapter, aggregate-provider, both provider-subpath, and Astro APIs without path
+mappings. The docs example launcher invokes TypeScript's JavaScript CLI through
+Node on every platform and handles spawn errors. The upgraded docs render all
+43 pages with zero diagnostics and
+the same 41-page search index. `git diff --check` passes; changed and untracked
+files have no forbidden secret filenames or recognized secret content
+signatures, no files are staged, and final review found no unrelated change or
+local extraction defect.
+
+Release remains blocked. Registry reads return 404 for the three new package
+names, so npm package bootstrap and Trusted Publishing setup are still
+required. Workers AI credential variables are present only in the ignored
+playground env file, but no explicit safe endpoint/model target is configured;
+the real Astro HTTP call was therefore omitted. No real Worker binding target,
+Anthropic credential, or safe R2 bucket/configuration exists, so the binding,
+Anthropic, cold/warm R2, live cache metadata, and live output comparisons were
+not run. Existing provider/workerd/cache/run tests and the local fake-provider
+baseline cover those code paths without external calls, but do not complete
+the manual checks. pkg.pr.new comment/link and preview-consumer checks also
+remain omitted: local GitHub CLI authentication is absent and the public API
+request returned 403, so the app state and preview URLs could not be confirmed.
+No commit, publish, npm bootstrap, Changesets versioning, or paid external call
+was performed.
 
 ## Explicitly Deferred
 
