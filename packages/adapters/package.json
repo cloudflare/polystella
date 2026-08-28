@@ -1,0 +1,60 @@
+{
+  "name": "@cloudflare/polystella-adapters",
+  "version": "0.4.0",
+  "type": "module",
+  "description": "Portable content format adapters for PolyStella.",
+  "license": "MIT",
+  "homepage": "https://github.com/cloudflare/polystella",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cloudflare/polystella.git",
+    "directory": "packages/adapters"
+  },
+  "bugs": {
+    "url": "https://github.com/cloudflare/polystella/issues"
+  },
+  "keywords": [
+    "markdown",
+    "mdx",
+    "json",
+    "yaml",
+    "toml",
+    "translation"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "test": "vitest run",
+    "build": "tsc -p tsconfig.build.json"
+  },
+  "dependencies": {
+    "@cloudflare/polystella-core": "workspace:0.4.0",
+    "@types/mdast": "^4.0.4",
+    "picomatch": "^4.0.4",
+    "remark-frontmatter": "^5.0.0",
+    "remark-gfm": "^4.0.1",
+    "remark-mdx": "^3.1.1",
+    "remark-parse": "^11.0.0",
+    "smol-toml": "^1.6.1",
+    "unified": "^11.0.5",
+    "yaml": "^2.8.3"
+  },
+  "devDependencies": {
+    "@types/picomatch": "^4.0.0",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.9"
+  }
+}

@@ -1,0 +1,79 @@
+import type { Segment } from "@cloudflare/polystella-core";
+import type { Root } from "mdast";
+
+import type { FileAdapter } from "../adapter.js";
+import { applyTranslations } from "../apply.js";
+import { extractSegments } from "../extract.js";
+import type { MarkdownParser } from "../parser.js";
+import { remarkMarkdownParser } from "../parser.js";
+import { visitTranslatableBlocks } from "../traverse.js";
+
+export function createMarkdownAdapter(parser: MarkdownParser = remarkMarkdownParser): FileAdapter<Root> {
+  return {
+    extensions: [".md", ".mdx"],
+
+    parse(source, sourcePath) {
+      return sourcePath?.toLowerCase().endsWith(".mdx") === true ? parser.parseMdx(source) : parser.parseMarkdown(source);
+    },
+
+    extractSegments(parsed, source, options) {
+      return extractSegments(
+        parsed,
+        {
+          sourcePath: options.sourcePath,
+          frontmatter: options.translatableKeys,
+          ...(options.mdxRules !== undefined ? { mdxRules: options.mdxRules } : {}),
+        },
+        source,
+      );
+    },
+
+    applyTranslations(parsed, source, translations, options = {}) {
+      return applyTranslations(parsed, translations, source, {
+        ...(options.sourcePath !== undefined ? { sourcePath: options.sourcePath } : {}),
+        ...(options.mdxRules !== undefined ? { mdxRules: options.mdxRules } : {}),
+        ...(options.topLevelAdditions !== undefined ? { frontmatterAdditions: options.topLevelAdditions } : {}),
+      });
+    },
+
+    groupSegments(parsed, segments) {
+      if (segments.length === 0) return [];
+      const segmentById = new Map(segments.map((segment) => [segment.id, segment]));
+      const bodyGroups: Segment[][] = [];
+      let currentGroup: Segment[] = [];
+      visitTranslatableBlocks(parsed, ({ block, id }) => {
+        const segment = segmentById.get(id);
+        if (segment === undefined) return;
+        if (block.type === "heading" && currentGroup.length > 0) {
+          bodyGroups.push(currentGroup);
+          currentGroup = [];
+        }
+        currentGroup.push(segment);
+      });
+      if (currentGroup.length > 0) bodyGroups.push(currentGroup);
+
+      const mdxDataGroup = segments.filter((segment) => !segment.id.startsWith("body:") && !segment.id.startsWith("fm:"));
+      const frontmatterGroup = segments.filter((segment) => segment.id.startsWith("fm:"));
+      const groups = [...bodyGroups];
+      if (mdxDataGroup.length > 0) groups.push(mdxDataGroup);
+      if (frontmatterGroup.length > 0) groups.push(frontmatterGroup);
+
+      const flattened = groups.flat();
+      if (flattened.length !== segments.length) {
+        throw new Error(
+          `[polystella] markdownAdapter.groupSegments invariant violated: produced ${flattened.length} segments but received ${segments.length}`,
+        );
+      }
+      for (let index = 0; index < flattened.length; index++) {
+        if (flattened[index] !== segments[index]) {
+          throw new Error(
+            `[polystella] markdownAdapter.groupSegments invariant violated: segment at position ${index} differs (expected "${segments[index]?.id}", got "${flattened[index]?.id}")`,
+          );
+        }
+      }
+      return groups;
+    },
+  };
+}
+
+export const markdownAdapter = createMarkdownAdapter();

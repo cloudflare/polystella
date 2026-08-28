@@ -1,0 +1,49 @@
+{
+  "name": "@cloudflare/polystella-core",
+  "version": "0.4.0",
+  "type": "module",
+  "description": "Platform-neutral translation primitives for PolyStella.",
+  "license": "MIT",
+  "homepage": "https://github.com/cloudflare/polystella",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cloudflare/polystella.git",
+    "directory": "packages/core"
+  },
+  "bugs": {
+    "url": "https://github.com/cloudflare/polystella/issues"
+  },
+  "keywords": [
+    "i18n",
+    "localization",
+    "translation",
+    "ai",
+    "cloudflare"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "test": "vitest run",
+    "build": "tsc -p tsconfig.build.json"
+  },
+  "dependencies": {
+    "p-retry": "^8.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.9"
+  }
+}

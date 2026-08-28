@@ -1,6 +1,6 @@
 # PolyStella Monorepo Extraction Plan
 
-Status: In progress (Steps 1-2 complete)  
+Status: In progress (Steps 1-3 complete)
 Last updated: 2026-08-28
 
 ## ELI5: What Will Happen
@@ -160,9 +160,9 @@ Owns:
 | ------------------------------ | ----------- | --------------------------------------------------------------------------------------------------------------------- |
 | 1. Record the baseline         | Complete    | `agent-work/polystella-monorepo-baseline.md` records commands, keys, hashes, outputs, and known limitations           |
 | 2. Prepare the workspace       | Complete    | `packages/*` discovery and framework-neutral `tsconfig.base.json` added; existing package remains unchanged and green |
-| 3. Extract core                | Not started | Core tests pass in Node and has no forbidden imports                                                                  |
-| 4. Extract adapters            | Not started | All format tests pass through the shared package                                                                      |
-| 5. Extract providers           | Not started | HTTP and binding provider tests pass                                                                                  |
+| 3. Extract core                | Complete    | Core builds from one runtime dependency; 26 package tests and import-boundary inspection pass                         |
+| 4. Extract adapters            | Complete    | Shared adapters build with 40 portable format, parser, grouping, and reconstruction tests passing                     |
+| 5. Extract providers           | Complete    | Three portable factories build with 33 HTTP, binding, cancellation, and retry-integration tests passing               |
 | 6. Reconnect Astro             | Not started | Existing Astro suite and playground pass                                                                              |
 | 7. Prove portability           | Not started | Node, no-compat workerd, and boundary checks pass                                                                     |
 | 8. Check the extraction        | Not started | Before/after outputs and keys match                                                                                   |
@@ -379,6 +379,16 @@ Manual verification:
 Stop condition: Core is not complete while any host concern or provider
 transport is needed to run a translation with a fake `Translator`.
 
+Completion evidence (2026-08-28): `@cloudflare/polystella-core@0.4.0`
+builds declarations and source maps with only `p-retry` at runtime. Its 26
+tests pin the recorded prompt hashes, response parsing, batching and reference
+order, model resolution, retries, cross-install permanent errors, sequential
+multi-batch translation, and cancellation. Package typecheck, dist import,
+tarball dry-run, root tests/typecheck/build, and the six-page playground build
+pass. Source import inspection finds no Node, Astro, React, adapter, provider,
+filesystem, storage, R2, or environment dependency. Protected root package
+paths remain unchanged.
+
 ## Step 4: Extract Adapters
 
 Purpose: Copy current file-format translation into a reusable shadow package
@@ -435,6 +445,7 @@ Expected portable runtime dependencies:
 
 ```text
 @cloudflare/polystella-core
+@types/mdast
 picomatch
 remark-frontmatter
 remark-gfm
@@ -479,6 +490,16 @@ Manual verification:
 
 Stop condition: Do not proceed if Astro parity requires importing Satteri from
 the shared adapters entry or if a format emits different segment IDs.
+
+Completion evidence (2026-08-28): `@cloudflare/polystella-adapters@0.4.0`
+builds declarations and source maps with a narrow parser-injection contract and
+Remark as its default parser. Its 40 tests cover JSON, YAML, TOML, Markdown,
+MDX, parser injection, extraction/application, key paths, placeholders, static
+data, reconstruction, generic-addition idempotence, and group reference/order
+identity. Package and root typechecks/builds, 1,159 root tests, dist imports,
+tarball dry-run, formatting, and the six-page playground build pass. Runtime
+dependency and source inspection find no Satteri, Astro, Node built-in, or
+native binding dependency. Protected root package paths remain unchanged.
 
 ## Step 5: Extract Providers
 
@@ -562,6 +583,18 @@ Manual verification:
 
 Stop condition: Do not rewire Astro until model identity, permanent errors,
 and both existing HTTP transports match the baseline.
+
+Completion evidence (2026-08-28): `@cloudflare/polystella-providers@0.4.0`
+exports Workers AI HTTP/binding and Anthropic factories with concrete model
+IDs and the canonical core error type. Its 33 tests pin request bytes, response
+precedence and normalization, all five permanent statuses, representative
+retriable statuses, signal forwarding, binding cancellation boundaries, and
+core retry behavior. Package/root tests, typechecks, builds, dist/subpath
+imports, tarball dry-run, and the six-page playground build pass. Runtime
+dependency and source inspection find no provider SDK, Workers ambient type,
+Astro, Node built-in, locale-resolution, or provider-owned retry dependency.
+Protected root package paths remain unchanged, and final review found no
+remaining issues.
 
 ## Step 6: Reconnect Astro At The Root
 
