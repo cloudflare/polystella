@@ -1,0 +1,19 @@
+agent-work/polystella-monorepo-baseline.md
+  s_7fb1cb75a77e23::t_df5ea3026ae172 1-272
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "a1c56db04572463ff6e8d461c81bf64129a916c3",
+  "prompts": {},
+  "sessions": {
+    "s_7fb1cb75a77e23": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_fbd20ebcaffev025mmzs7vv6jc",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Diogo Carneiro <dcarneiro@cloudflare.com>"
+    }
+  }
+}
