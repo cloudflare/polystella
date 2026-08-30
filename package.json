@@ -124,7 +124,7 @@
     "remark-mdx": "^3.1.1",
     "remark-parse": "^11.0.0",
     "s3mini": "^0.9.4",
-    "satteri": "^0.9.4",
+    "satteri": "^0.10.5",
     "smol-toml": "^1.6.1",
     "unified": "^11.0.5",
     "yaml": "^2.8.3"
