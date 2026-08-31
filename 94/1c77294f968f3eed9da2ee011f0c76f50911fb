@@ -1,0 +1,23 @@
+llms-full.txt
+  s_7fb1cb75a77e23::t_5029a3e2b03bd8 333,974,979,1380,1787
+packages/astro/client.d.ts
+  s_7fb1cb75a77e23::t_20c48fbd88fac1 8,71
+pnpm-lock.yaml
+  s_7fb1cb75a77e23::t_7398f71cf0768f 29,214-227,229,264
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "941c77294f968f3eed9da2ee011f0c76f50911fb",
+  "prompts": {},
+  "sessions": {
+    "s_7fb1cb75a77e23": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_fbd20ebcaffev025mmzs7vv6jc",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Diogo Carneiro <dcarneiro@cloudflare.com>"
+    }
+  }
+}
