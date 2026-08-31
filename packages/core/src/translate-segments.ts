@@ -23,6 +23,12 @@ export async function translateSegments(options: TranslateSegmentsOptions): Prom
   const { segments, groups, documentContext, inputTokenBudget, logger, sourcePath, signal, ...rest } = options;
 
   signal?.throwIfAborted();
+  if (groups !== undefined) {
+    const groupedSegments = groups.flat();
+    if (groupedSegments.length !== segments.length || groupedSegments.some((segment, index) => segment !== segments[index])) {
+      throw new Error("[polystella] translateSegments grouping invariant violated: flat(groups) must equal segments");
+    }
+  }
   if (segments.length === 0) return { translations: new Map(), batchCount: 0 };
 
   const groupsToUse = groups ?? [segments];

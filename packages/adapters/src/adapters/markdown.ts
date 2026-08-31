@@ -61,20 +61,6 @@ export function createMarkdownAdapter(parser: MarkdownParser = remarkMarkdownPar
       const groups = [...bodyGroups];
       if (mdxDataGroup.length > 0) groups.push(mdxDataGroup);
       if (frontmatterGroup.length > 0) groups.push(frontmatterGroup);
-
-      const flattened = groups.flat();
-      if (flattened.length !== segments.length) {
-        throw new Error(
-          `[polystella] markdownAdapter.groupSegments invariant violated: produced ${flattened.length} segments but received ${segments.length}`,
-        );
-      }
-      for (let index = 0; index < flattened.length; index++) {
-        if (flattened[index] !== segments[index]) {
-          throw new Error(
-            `[polystella] markdownAdapter.groupSegments invariant violated: segment at position ${index} differs (expected "${segments[index]?.id}", got "${flattened[index]?.id}")`,
-          );
-        }
-      }
       return groups;
     },
   };

@@ -68,6 +68,16 @@ describe("translateSegments", () => {
     expect([...translated.translations.keys()]).toEqual(["a", "b", "c", "d"]);
   });
 
+  it("rejects groups that omit segments", async () => {
+    const translator = makeEchoTranslator();
+    const segments = [segment("a", "hello"), segment("b", "world")];
+
+    await expect(translateSegments({ ...commonOptions, translator, segments, groups: [[segments[0]!]] })).rejects.toThrow(
+      "flat(groups) must equal segments",
+    );
+    expect(translator.calls).toHaveLength(0);
+  });
+
   it("adds document context to every batch", async () => {
     const translator = makeEchoTranslator();
     const groups = [[segment("a", "hello")], [segment("b", "world")]];

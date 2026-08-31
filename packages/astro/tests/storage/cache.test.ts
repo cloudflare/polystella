@@ -854,7 +854,7 @@ describe("translateOrLoadFromCache — batching wire-through", () => {
   // stays undefined on hits.
 
   function makeBatchingOptions(opts: {
-    groups: Segment[][];
+    groupSegments: (segments: Segment[]) => Segment[][];
     inputTokenBudget?: number;
     documentContext?: string;
     translator?: Translator;
@@ -864,7 +864,7 @@ describe("translateOrLoadFromCache — batching wire-through", () => {
     const translator = opts.translator ?? makeStubTranslator();
     return {
       segments,
-      groups: opts.groups,
+      groups: opts.groupSegments(segments),
       ...(opts.inputTokenBudget !== undefined ? { inputTokenBudget: opts.inputTokenBudget } : {}),
       ...(opts.documentContext !== undefined ? { documentContext: opts.documentContext } : {}),
       apply: (translations) => applyTranslations(ast, translations, SAMPLE_SOURCE, {}),
@@ -888,9 +888,7 @@ describe("translateOrLoadFromCache — batching wire-through", () => {
 
   it("returns batchCount: 1 on a single-batch miss (small file, default budget)", async () => {
     const translator = makeStubTranslator();
-    const ast = parseMarkdown(SAMPLE_SOURCE);
-    const segments = extractSegments(ast, { sourcePath: "publications/sample.md", frontmatter: {} }, SAMPLE_SOURCE);
-    const result = await translateOrLoadFromCache(makeBatchingOptions({ groups: [segments], translator }));
+    const result = await translateOrLoadFromCache(makeBatchingOptions({ groupSegments: (segments) => [segments], translator }));
     expect(result.outcome).toBe("miss");
     expect(result.batchCount).toBe(1);
     expect(translator.calls).toBe(1);
@@ -898,24 +896,27 @@ describe("translateOrLoadFromCache — batching wire-through", () => {
 
   it("returns batchCount > 1 when groups exceed the budget (multi-batch miss)", async () => {
     const translator = makeStubTranslator();
-    const ast = parseMarkdown(SAMPLE_SOURCE);
-    const segments = extractSegments(ast, { sourcePath: "publications/sample.md", frontmatter: {} }, SAMPLE_SOURCE);
     // Force splitting: each segment in its own group + a tight budget.
-    const groups = segments.map((s) => [s]);
-    const result = await translateOrLoadFromCache(makeBatchingOptions({ groups, inputTokenBudget: 5, translator }));
+    const result = await translateOrLoadFromCache(
+      makeBatchingOptions({ groupSegments: (segments) => segments.map((segment) => [segment]), inputTokenBudget: 5, translator }),
+    );
     expect(result.outcome).toBe("miss");
     expect(result.batchCount).toBeGreaterThan(1);
     expect(translator.calls).toBe(result.batchCount);
   });
 
   it("produces byte-identical output regardless of batch count for the same translations", async () => {
-    const ast = parseMarkdown(SAMPLE_SOURCE);
-    const segments = extractSegments(ast, { sourcePath: "publications/sample.md", frontmatter: {} }, SAMPLE_SOURCE);
     // Single-batch run: one group with every segment, generous budget.
-    const single = await translateOrLoadFromCache(makeBatchingOptions({ groups: [segments], translator: makeStubTranslator() }));
+    const single = await translateOrLoadFromCache(
+      makeBatchingOptions({ groupSegments: (segments) => [segments], translator: makeStubTranslator() }),
+    );
     // Multi-batch run: each segment in its own group, tight budget.
     const multi = await translateOrLoadFromCache(
-      makeBatchingOptions({ groups: segments.map((s) => [s]), inputTokenBudget: 5, translator: makeStubTranslator() }),
+      makeBatchingOptions({
+        groupSegments: (segments) => segments.map((segment) => [segment]),
+        inputTokenBudget: 5,
+        translator: makeStubTranslator(),
+      }),
     );
     // The merged Map → applyTranslations path produces the same bytes:
     // batching reshuffles network calls, not output content.
@@ -940,12 +941,9 @@ describe("translateOrLoadFromCache — batching wire-through", () => {
         return blocks.join("\n\n");
       },
     };
-    const ast = parseMarkdown(SAMPLE_SOURCE);
-    const segments = extractSegments(ast, { sourcePath: "publications/sample.md", frontmatter: {} }, SAMPLE_SOURCE);
-    const groups = segments.map((s) => [s]);
     await translateOrLoadFromCache(
       makeBatchingOptions({
-        groups,
+        groupSegments: (segments) => segments.map((segment) => [segment]),
         inputTokenBudget: 5,
         documentContext: "Title: Hello\nExcerpt: A short doc.",
         translator,

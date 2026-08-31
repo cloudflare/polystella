@@ -14,21 +14,6 @@ This package owns:
 It does not parse file formats, call a specific AI provider, or depend on
 Astro, Node filesystem APIs, or R2.
 
-## How It Connects
-
-```text
-adapters  ──┐
-providers ──┼──> core
-astro     ──┘
-```
-
-[`@cloudflare/polystella-adapters`](https://www.npmjs.com/package/@cloudflare/polystella-adapters)
-uses the segment contracts.
-[`@cloudflare/polystella-providers`](https://www.npmjs.com/package/@cloudflare/polystella-providers)
-implements `Translator`. The canonical
-[`@cloudflare/polystella-astro`](https://www.npmjs.com/package/@cloudflare/polystella-astro)
-package composes both.
-
 ## Key Files
 
 - `src/index.ts` - public barrel.
