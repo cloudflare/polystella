@@ -1,0 +1,23 @@
+README.md
+  s_7fb1cb75a77e23::t_8b16992758bce8 9-34,42-43,150-152
+llms-full.txt
+  s_7fb1cb75a77e23::t_f794ea0f1a6ea3 8,24-27,208-463,475-476,532-551,626,652,706-709,717-720
+packages/astro/src/parsing/adapters/markdown.ts
+  s_7fb1cb75a77e23::t_587ef012fb06fc 18
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "946949252728c51a73ac1bbeb8944b50a371ee23",
+  "prompts": {},
+  "sessions": {
+    "s_7fb1cb75a77e23": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_fbd20ebcaffev025mmzs7vv6jc",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Diogo Carneiro <dcarneiro@cloudflare.com>"
+    }
+  }
+}
