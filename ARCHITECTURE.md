@@ -749,8 +749,10 @@ tsc preserves the `with { type: "json" }` import attribute, so
 the consumer's `node_modules/@cloudflare/polystella-astro/`. No version inlining; one
 source of truth.
 
-Changesets versions all five public packages as a fixed group. The Astro
-manifest remains this constant's source, so the canonical package and
-`@cloudflare/polystella` alias report the same generated version. The
-constant is baked into R2 metadata and the build report but is NOT in the
+Changesets versions the canonical Astro package and
+`@cloudflare/polystella` compatibility package as a fixed group. Core,
+adapters, and providers are versioned independently and consumed through
+compatible ranges. The Astro manifest remains this constant's source, so the
+canonical package and compatibility alias report the same generated version.
+The constant is baked into R2 metadata and the build report but is NOT in the
 cache key formula, so a version bump doesn't re-translate.

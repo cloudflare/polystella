@@ -101,9 +101,9 @@
     "build": "tsc -p tsconfig.build.json && node -e \"require('node:fs').chmodSync('dist/cli.js', 0o755)\""
   },
   "dependencies": {
-    "@cloudflare/polystella-adapters": "workspace:*",
-    "@cloudflare/polystella-core": "workspace:*",
-    "@cloudflare/polystella-providers": "workspace:*",
+    "@cloudflare/polystella-adapters": "workspace:^",
+    "@cloudflare/polystella-core": "workspace:^",
+    "@cloudflare/polystella-providers": "workspace:^",
     "acorn": "^8.17.0",
     "p-retry": "^8.0.0",
     "picomatch": "^4.0.4",

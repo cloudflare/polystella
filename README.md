@@ -4,7 +4,9 @@
 
 PolyStella is an [Astro](https://astro.build) integration that translates content into additional locales at build time using AI, caches translations in Cloudflare R2, and injects locale-prefixed routes for the translated pages.
 
-The repository publishes five lockstep packages:
+The repository publishes five packages. The canonical Astro package and its
+compatibility package share a version; core, adapters, and providers are
+versioned independently:
 
 | Package                            | Directory              | Role                                                               | Internal dependencies     |
 | ---------------------------------- | ---------------------- | ------------------------------------------------------------------ | ------------------------- |

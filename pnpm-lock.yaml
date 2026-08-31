@@ -116,7 +116,7 @@ importers:
   packages/adapters:
     dependencies:
       '@cloudflare/polystella-core':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../core
       '@types/mdast':
         specifier: ^4.0.4
@@ -159,13 +159,13 @@ importers:
   packages/astro:
     dependencies:
       '@cloudflare/polystella-adapters':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../adapters
       '@cloudflare/polystella-core':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../core
       '@cloudflare/polystella-providers':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../providers
       acorn:
         specifier: ^8.17.0
@@ -246,7 +246,7 @@ importers:
   packages/providers:
     dependencies:
       '@cloudflare/polystella-core':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../core
     devDependencies:
       typescript:

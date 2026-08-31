@@ -135,8 +135,8 @@ try {
     sourceLocale: "en-US",
     targetLocale: "pt-BR",
   });
-  assertEqual("system prompt length", prompt.systemPrompt.length, 734);
-  assertEqual("system prompt digest", sha256(prompt.systemPrompt), "32b336fbdce5ab269488f3f5d77840d1f1a9fa7c7e544d6f4c70bca570e4ef34");
+  assertEqual("system prompt length", prompt.systemPrompt.length, 562);
+  assertEqual("system prompt digest", sha256(prompt.systemPrompt), "85eb85ecc4365b214331beac11ddb345ccb939ec73ff3a8110707839e321d39f");
   assertEqual("user prompt length", prompt.userPrompt.length, 322);
   assertEqual("user prompt digest", sha256(prompt.userPrompt), "975ae31980e7f7a782ec257d7584e0ba689b01f006e86c34c82ba029a1363685");
 

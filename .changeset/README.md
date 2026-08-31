@@ -15,8 +15,9 @@ pnpm changeset
 - **Which packages are affected?** Select every package changed by the PR:
   `@cloudflare/polystella-core`, `@cloudflare/polystella-adapters`,
   `@cloudflare/polystella-providers`, `@cloudflare/polystella`, and/or
-  `@cloudflare/polystella-astro`. They form one fixed group, so releasing any one releases all five at
-  the same version. The private root and `polystella-docs` are not released.
+  `@cloudflare/polystella-astro`. Astro and the compatibility package form a
+  fixed group; core, adapters, and providers are versioned independently. The
+  private root and `polystella-docs` are not released.
 - **Is the change major / minor / patch?** Pre-1.0, "major" stays
   reserved for 1.0; bump minor for breaking changes within 0.x,
   patch otherwise.
@@ -30,7 +31,7 @@ with the PR.
 Pending changesets are consumed by the versioning step for a release.
 That step:
 
-- Bumps all five public package manifests to the same version.
+- Bumps affected independent packages and both packages in the Astro fixed group.
 - Updates the package-local `CHANGELOG.md` files.
 - Deletes the consumed changeset files.
 

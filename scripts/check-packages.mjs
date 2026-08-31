@@ -160,12 +160,10 @@ async function main() {
     await mkdir(consumerDirectory, { recursive: true });
 
     const packedPackages = new Map();
-    let sourceVersion;
     for (const packageInfo of packages) {
       const sourceManifest = JSON.parse(await readFile(path.join(packageInfo.directory, "package.json"), "utf8"));
       if (typeof sourceManifest.version !== "string") throw new Error(`${packageInfo.name}: source version is missing`);
-      if (sourceVersion === undefined) sourceVersion = sourceManifest.version;
-      assertSourceManifest(packageInfo, sourceManifest, sourceVersion);
+      assertSourceManifest(packageInfo, sourceManifest);
       await runCommand(pnpm, ["pack", "--pack-destination", packDirectory], { cwd: packageInfo.directory });
       const tarballPath = path.join(packDirectory, `${packageInfo.name.slice(1).replace("/", "-")}-${sourceManifest.version}.tgz`);
       if (!existsSync(tarballPath)) throw new Error(`pnpm did not create ${tarballPath}`);
@@ -179,10 +177,11 @@ async function main() {
       packedPackages.set(packageInfo.name, { manifest: packedManifest, tarballPath });
     }
 
-    const versions = new Set([...packedPackages.values()].map(({ manifest }) => manifest.version));
-    if (versions.size !== 1) throw new Error(`packed package versions differ: ${JSON.stringify([...versions])}`);
-    const [commonVersion] = versions;
-    if (typeof commonVersion !== "string") throw new Error("packed package version is missing");
+    const astroPackage = packedPackages.get("@cloudflare/polystella-astro");
+    const compatibilityPackage = packedPackages.get("@cloudflare/polystella");
+    if (astroPackage === undefined || compatibilityPackage === undefined) throw new Error("missing fixed-group package");
+    const astroVersion = astroPackage.manifest.version;
+    assertEqual("Astro and compatibility package versions", compatibilityPackage.manifest.version, astroVersion);
     for (const packageInfo of packages) {
       const packed = packedPackages.get(packageInfo.name);
       if (packed === undefined) throw new Error(`missing packed package ${packageInfo.name}`);
@@ -195,7 +194,14 @@ async function main() {
         [...packageInfo.internalDependencies].sort(),
       );
       for (const dependency of packageInfo.internalDependencies) {
-        assertEqual(`${packageInfo.name} dependency ${dependency}`, packed.manifest.dependencies?.[dependency], commonVersion);
+        const dependencyPackage = packedPackages.get(dependency);
+        if (dependencyPackage === undefined) throw new Error(`missing packed dependency ${dependency}`);
+        const prefix = packageInfo.name === "@cloudflare/polystella" ? "" : "^";
+        assertEqual(
+          `${packageInfo.name} dependency ${dependency}`,
+          packed.manifest.dependencies?.[dependency],
+          `${prefix}${dependencyPackage.manifest.version}`,
+        );
       }
     }
 
@@ -211,13 +217,13 @@ async function main() {
       [path.join("node_modules", "@cloudflare", "polystella-astro", "dist", "cli.js"), "--version"],
       { cwd: consumerDirectory },
     );
-    assertEqual("canonical CLI version", cli.stdout.trim(), commonVersion);
+    assertEqual("canonical CLI version", cli.stdout.trim(), astroVersion);
     const aliasCli = await runCommand(
       process.execPath,
       [path.join("node_modules", "@cloudflare", "polystella", "dist", "cli.js"), "--version"],
       { cwd: consumerDirectory },
     );
-    assertEqual("alias CLI version", aliasCli.stdout.trim(), commonVersion);
+    assertEqual("alias CLI version", aliasCli.stdout.trim(), astroVersion);
     await runCommand(pnpm, ["exec", "astro", "build"], {
       cwd: consumerDirectory,
       env: { ...process.env, CI: "true" },
@@ -232,7 +238,7 @@ async function main() {
       [path.join("node_modules", "@cloudflare", "polystella", "dist", "cli.js"), "--version"],
       { cwd: aliasConsumerDirectory },
     );
-    assertEqual("alias-only CLI version", aliasOnlyCli.stdout.trim(), commonVersion);
+    assertEqual("alias-only CLI version", aliasOnlyCli.stdout.trim(), astroVersion);
     await runCommand(pnpm, ["exec", "astro", "build"], {
       cwd: aliasConsumerDirectory,
       env: { ...process.env, CI: "true" },
@@ -241,7 +247,7 @@ async function main() {
     await runCommand(pnpm, ["exec", "tsc", "--noEmit"], { cwd: aliasConsumerDirectory, timeoutMs: 180_000 });
 
     console.log(
-      `check:packages passed: 5 tarballs at ${commonVersion}, 17 runtime imports, full and alias-only Astro builds/typechecks, and both CLIs`,
+      `check:packages passed: 5 tarballs, Astro ${astroVersion}, 17 runtime imports, full and alias-only Astro builds/typechecks, and both CLIs`,
     );
   } finally {
     await cleanup();
@@ -404,8 +410,7 @@ function assertManifest(packageInfo, manifest, files) {
   }
 }
 
-function assertSourceManifest(packageInfo, manifest, sourceVersion) {
-  assertEqual(`${packageInfo.name} source version`, manifest.version, sourceVersion);
+function assertSourceManifest(packageInfo, manifest) {
   const actualInternalDependencies = Object.keys(manifest.dependencies ?? {}).filter((name) => name.startsWith("@cloudflare/polystella"));
   assertEqual(
     `${packageInfo.name} source internal dependencies`,
@@ -413,7 +418,8 @@ function assertSourceManifest(packageInfo, manifest, sourceVersion) {
     [...packageInfo.internalDependencies].sort(),
   );
   for (const dependency of packageInfo.internalDependencies) {
-    assertEqual(`${packageInfo.name} source dependency ${dependency}`, manifest.dependencies?.[dependency], "workspace:*");
+    const workspaceRange = packageInfo.name === "@cloudflare/polystella" ? "workspace:*" : "workspace:^";
+    assertEqual(`${packageInfo.name} source dependency ${dependency}`, manifest.dependencies?.[dependency], workspaceRange);
   }
 }
 

@@ -7,8 +7,9 @@ pipeline behavior and hard correctness contracts, use
 
 ## Package Graph
 
-PolyStella publishes five packages in one lockstep version group. Arrows mean
-"depends on."
+PolyStella publishes five packages. The canonical Astro package and its
+compatibility package form one fixed version group. Core, adapters, and
+providers are versioned independently. Arrows mean "depends on."
 
 ```mermaid
 flowchart TD
@@ -24,6 +25,10 @@ Dependencies point toward reusable code. Core never imports adapters,
 providers, or Astro. Adapters and providers do not import each other. The
 compatibility package contains no implementation and points only to the
 canonical Astro package.
+
+Published dependencies on independently versioned packages use compatible
+caret ranges. The compatibility package pins the exact Astro version because
+it forwards that package's API and CLI unchanged.
 
 | Directory                                        | Published package                  | Responsibility                                                                     |
 | :----------------------------------------------- | :--------------------------------- | :--------------------------------------------------------------------------------- |

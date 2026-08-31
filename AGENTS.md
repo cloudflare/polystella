@@ -101,8 +101,9 @@ to the explanatory section when adding code that touches one.
   `pnpm changeset add --empty` only when the change deliberately does
   not require a package release (for example, docs-site-only or CI-only
   maintenance).
-- Let Changesets version the fixed five-package group; do not manually bump
-  individual manifests. `POLYSTELLA_VERSION` in
+- Let Changesets version core, adapters, and providers independently while
+  keeping Astro and its compatibility package in one fixed group; do not
+  manually bump individual manifests. `POLYSTELLA_VERSION` in
   `packages/astro/src/version.ts` reads the Astro manifest at module-load time
   and flows to `packages/astro/dist/version.js` after `pnpm build`.
   [→ #version-constant](./ARCHITECTURE.md#version-constant)

@@ -6,4 +6,4 @@
 "@cloudflare/polystella-astro": minor
 ---
 
-Extract PolyStella into five lockstep packages with portable core, adapters, providers, the canonical `@cloudflare/polystella-astro` integration, and the `@cloudflare/polystella` compatibility package.
+Extract PolyStella into independently versioned portable core, adapters, and providers packages, plus the canonical `@cloudflare/polystella-astro` integration and its fixed-version `@cloudflare/polystella` compatibility package.
