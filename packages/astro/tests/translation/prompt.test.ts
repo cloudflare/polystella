@@ -6,6 +6,8 @@ const sampleSegments: Segment[] = [
   { id: "body:0", text: "We **regret** any inconvenience caused." },
 ];
 
+const markdownPromptInstruction = "Preserve markdown formatting markers exactly.";
+
 const sampleGlossary: Glossary = {
   version: "2026-04",
   doNotTranslate: ["Cloudflare", "TLS"],
@@ -313,13 +315,14 @@ describe("buildPrompt", () => {
     expect(blank.systemPrompt).toBe(baseline.systemPrompt);
   });
 
-  it("emits the DOCUMENT CONTEXT block between the markdown-format clause and the do-not-translate list", () => {
+  it("emits the DOCUMENT CONTEXT block between the format instruction and the do-not-translate list", () => {
     const { systemPrompt } = buildPrompt({
       segments: sampleSegments,
       glossary: sampleGlossary,
       sourceLocale: "en-US",
       targetLocale: "pt-BR",
       documentContext: "Title: Echo State Networks\nExcerpt: A practical guide.",
+      promptInstruction: markdownPromptInstruction,
     });
     const idxFormat = systemPrompt.indexOf("Preserve markdown formatting markers");
     const idxDocCtx = systemPrompt.indexOf("DOCUMENT CONTEXT");
@@ -370,6 +373,7 @@ describe("buildPrompt", () => {
       targetLocale: "pt-BR",
       context: "Specialise in technical research content.",
       documentContext: "Title: Echo State Networks",
+      promptInstruction: markdownPromptInstruction,
     });
     // `context` sits right after the role declaration; documentContext
     // sits between the format clause and the (absent here) glossary.

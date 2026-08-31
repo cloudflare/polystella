@@ -84,6 +84,7 @@ describe("doc-claim invariants", () => {
     });
 
     it("companion docs exist", () => {
+      expect(fileExists("PACKAGE_ARCHITECTURE.md")).toBe(true);
       expect(fileExists("ARCHITECTURE.md")).toBe(true);
       expect(fileExists("README.md")).toBe(true);
       expect(fileExists("skills/polystella-contributor/SKILL.md")).toBe(true);
@@ -143,7 +144,14 @@ describe("doc-claim invariants", () => {
 
   describe("current repository paths", () => {
     it("all concrete paths documented for contributors exist", () => {
-      for (const doc of ["AGENTS.md", "ARCHITECTURE.md", "CONTRIBUTING.md", "llms.txt", "skills/polystella-contributor/SKILL.md"]) {
+      for (const doc of [
+        "AGENTS.md",
+        "PACKAGE_ARCHITECTURE.md",
+        "ARCHITECTURE.md",
+        "CONTRIBUTING.md",
+        "llms.txt",
+        "skills/polystella-contributor/SKILL.md",
+      ]) {
         const text = readDoc(doc);
         const paths = currentRepositoryPaths(text);
         expect(paths.length, `${doc} has no current package paths`).toBeGreaterThan(0);
@@ -274,6 +282,7 @@ describe("doc-claim invariants", () => {
       // point at the deeper docs.
       expect(text).toMatch(/polystella/i);
       expect(text.toLowerCase()).toContain("agents.md");
+      expect(text.toLowerCase()).toContain("package_architecture.md");
       expect(text.toLowerCase()).toContain("architecture.md");
     });
 
@@ -285,11 +294,13 @@ describe("doc-claim invariants", () => {
       // so the ordering check is robust to the header's file-listing
       // table mentioning the same names earlier in the file.
       const agentsIdx = text.indexOf("<!-- BEGIN AGENTS.md -->");
+      const packageArchIdx = text.indexOf("<!-- BEGIN PACKAGE_ARCHITECTURE.md -->");
       const archIdx = text.indexOf("<!-- BEGIN ARCHITECTURE.md -->");
       const consumerIdx = text.indexOf("<!-- BEGIN skills/polystella-consumer/SKILL.md -->");
       const contributorIdx = text.indexOf("<!-- BEGIN skills/polystella-contributor/SKILL.md -->");
       expect(agentsIdx).toBeGreaterThanOrEqual(0);
-      expect(archIdx).toBeGreaterThan(agentsIdx);
+      expect(packageArchIdx).toBeGreaterThan(agentsIdx);
+      expect(archIdx).toBeGreaterThan(packageArchIdx);
       expect(consumerIdx).toBeGreaterThan(archIdx);
       expect(contributorIdx).toBeGreaterThan(archIdx);
     });

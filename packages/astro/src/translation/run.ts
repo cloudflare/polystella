@@ -831,6 +831,7 @@ export async function runTranslationPass(opts: RunTranslationOptions): Promise<R
           segments,
           ...(groups !== undefined ? { groups } : {}),
           ...(documentContext !== undefined ? { documentContext } : {}),
+          ...(adapter.promptInstruction !== undefined ? { promptInstruction: adapter.promptInstruction } : {}),
           ...(resolved.provider?.batchInputTokenBudget !== undefined ? { inputTokenBudget: resolved.provider.batchInputTokenBudget } : {}),
           logger,
           sourcePath: source.relativePath,

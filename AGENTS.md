@@ -5,7 +5,10 @@ additional locales at build time using AI, caches translations in
 Cloudflare R2, and injects locale-prefixed routes.
 
 This file is the entry point for coding agents working **on the
-PolyStella package itself**. Three companion docs:
+PolyStella package itself**. Four companion docs:
+
+- [`PACKAGE_ARCHITECTURE.md`](./PACKAGE_ARCHITECTURE.md) — post-migration
+  package ownership, dependency direction, key files, and boundary checks.
 
 - [`ARCHITECTURE.md`](./ARCHITECTURE.md) — system design, invariants,
   glossary, per-subsystem reference. The "why" answers.

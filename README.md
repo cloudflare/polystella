@@ -6,13 +6,32 @@ PolyStella is an [Astro](https://astro.build) integration that translates conten
 
 The repository publishes five lockstep packages:
 
-| Package                            | Owns                                                               |
-| ---------------------------------- | ------------------------------------------------------------------ |
-| `@cloudflare/polystella-astro`     | Astro integration, CLI, R2, routing, runtime, and host policy.     |
-| `@cloudflare/polystella`           | Compatibility name forwarding to the Astro integration.            |
-| `@cloudflare/polystella-core`      | Platform-neutral prompts, batching, retries, and shared contracts. |
-| `@cloudflare/polystella-adapters`  | Portable Markdown, MDX, JSON, YAML, and TOML adapters.             |
-| `@cloudflare/polystella-providers` | Workers AI HTTP/binding and Anthropic transports.                  |
+| Package                            | Directory              | Role                                                               | Internal dependencies     |
+| ---------------------------------- | ---------------------- | ------------------------------------------------------------------ | ------------------------- |
+| `@cloudflare/polystella-core`      | `packages/core/`       | Platform-neutral prompts, batching, retries, and shared contracts. | None                      |
+| `@cloudflare/polystella-adapters`  | `packages/adapters/`   | Portable Markdown, MDX, JSON, YAML, and TOML adapters.             | Core                      |
+| `@cloudflare/polystella-providers` | `packages/providers/`  | Workers AI HTTP/binding and Anthropic transports.                  | Core                      |
+| `@cloudflare/polystella-astro`     | `packages/astro/`      | Canonical Astro integration, CLI, R2, routing, and host policy.    | Core, adapters, providers |
+| `@cloudflare/polystella`           | `packages/polystella/` | Temporary compatibility forwarding to the Astro package.           | Astro                     |
+
+Dependencies point toward reusable code:
+
+```text
+@cloudflare/polystella --> @cloudflare/polystella-astro
+                              ├──> @cloudflare/polystella-adapters --> core
+                              ├──> @cloudflare/polystella-providers --> core
+                              └──> @cloudflare/polystella-core
+```
+
+Core, adapters, and providers are portable and use standard Web APIs. The
+Astro package composes them and owns all host-specific behavior. The generic
+package contains forwarding files only; new projects should use
+`@cloudflare/polystella-astro`.
+
+Contributors should start with
+[`PACKAGE_ARCHITECTURE.md`](./PACKAGE_ARCHITECTURE.md) for package boundaries,
+key files, dependency rules, and enforcement checks. Detailed subsystem
+invariants remain in [`ARCHITECTURE.md`](./ARCHITECTURE.md).
 
 Direct low-level use stays in-process:
 
@@ -20,8 +39,8 @@ Direct low-level use stays in-process:
 source/record -> adapter -> core -> provider -> core -> adapter -> output
 ```
 
-Core, adapters, and providers require standard Web APIs and work in
-Workers without `nodejs_compat`; consumers may still enable it.
+The reusable packages work in Workers without `nodejs_compat`; consumers may
+still enable it.
 
 ## What it does
 
@@ -128,7 +147,9 @@ Full documentation lives at the Nimbus docs site (under `docs/` in this repo):
 Contributions are welcome, but PolyStella is maintained by a small
 team and review is not guaranteed. See
 [`CONTRIBUTING.md`](./CONTRIBUTING.md). The agent-facing context is in
-[`AGENTS.md`](./AGENTS.md) and [`ARCHITECTURE.md`](./ARCHITECTURE.md).
+[`AGENTS.md`](./AGENTS.md),
+[`PACKAGE_ARCHITECTURE.md`](./PACKAGE_ARCHITECTURE.md), and
+[`ARCHITECTURE.md`](./ARCHITECTURE.md).
 
 ## License
 

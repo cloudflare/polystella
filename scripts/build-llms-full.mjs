@@ -3,7 +3,7 @@
  * Regenerate `llms-full.txt` from the canonical agent docs.
  *
  * `llms-full.txt` is a single-file concatenation of AGENTS.md,
- * ARCHITECTURE.md, and the two SKILL.md files. External retrieval-
+ * PACKAGE_ARCHITECTURE.md, ARCHITECTURE.md, and the two SKILL.md files. External retrieval-
  * based agents (per https://llmstxt.org/) can fetch this one file
  * to load the full agent context without crawling the repo.
  *
@@ -23,7 +23,13 @@ import { fileURLToPath } from "node:url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PACKAGE_ROOT = path.resolve(__dirname, "..");
 
-const SOURCES = ["AGENTS.md", "ARCHITECTURE.md", "skills/polystella-consumer/SKILL.md", "skills/polystella-contributor/SKILL.md"];
+const SOURCES = [
+  "AGENTS.md",
+  "PACKAGE_ARCHITECTURE.md",
+  "ARCHITECTURE.md",
+  "skills/polystella-consumer/SKILL.md",
+  "skills/polystella-contributor/SKILL.md",
+];
 
 const HEADER = `# PolyStella — full agent context
 

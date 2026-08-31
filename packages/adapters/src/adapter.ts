@@ -16,6 +16,8 @@ export interface AdapterApplyOptions {
 
 export interface FileAdapter<TParsed = unknown> {
   readonly extensions: readonly string[];
+  /** Format-specific guidance included in model prompts. */
+  readonly promptInstruction?: string | undefined;
   parse(source: string, sourcePath?: string | undefined): TParsed;
   extractSegments(parsed: TParsed, source: string, options: AdapterExtractOptions): Segment[];
   applyTranslations(

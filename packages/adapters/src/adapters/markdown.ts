@@ -8,9 +8,13 @@ import type { MarkdownParser } from "../parser.js";
 import { remarkMarkdownParser } from "../parser.js";
 import { visitTranslatableBlocks } from "../traverse.js";
 
+const MARKDOWN_PROMPT_INSTRUCTION =
+  "Preserve markdown formatting markers exactly: **bold**, *italic*, _italic_, `code`, [link text](url). Translate the visible text but never the URL or any code identifier.";
+
 export function createMarkdownAdapter(parser: MarkdownParser = remarkMarkdownParser): FileAdapter<Root> {
   return {
     extensions: [".md", ".mdx"],
+    promptInstruction: MARKDOWN_PROMPT_INSTRUCTION,
 
     parse(source, sourcePath) {
       return sourcePath?.toLowerCase().endsWith(".mdx") === true ? parser.parseMdx(source) : parser.parseMarkdown(source);

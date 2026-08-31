@@ -38,6 +38,8 @@ export interface TranslateOrLoadOptions {
    * cache hash — see ARCHITECTURE.md §17.
    */
   documentContext?: string | undefined;
+  /** Format-specific guidance forwarded to each provider prompt. */
+  promptInstruction?: string | undefined;
   /** Soft cap on per-batch input tokens. Defaults applied in `batch.ts`. */
   inputTokenBudget?: number;
   /** Surfaces oversize-section warnings from the batcher. */
@@ -142,6 +144,7 @@ export async function translateOrLoadFromCache(opts: TranslateOrLoadOptions): Pr
     segments,
     groups,
     documentContext,
+    promptInstruction,
     inputTokenBudget,
     logger,
     sourcePath,
@@ -224,6 +227,7 @@ export async function translateOrLoadFromCache(opts: TranslateOrLoadOptions): Pr
         segments,
         ...(groups !== undefined ? { groups } : {}),
         ...(documentContext !== undefined ? { documentContext } : {}),
+        ...(promptInstruction !== undefined ? { promptInstruction } : {}),
         ...(inputTokenBudget !== undefined ? { inputTokenBudget } : {}),
         ...(logger !== undefined ? { logger } : {}),
         ...(sourcePath !== undefined ? { sourcePath } : {}),

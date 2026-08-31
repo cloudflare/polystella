@@ -1,3 +1,4 @@
+/** Minimal logging surface accepted by portable orchestration. */
 export interface Logger {
   info(message: string): void;
   warn(message: string): void;

@@ -34,7 +34,8 @@ describe("buildPrompt", () => {
 
     expect(prompt.systemPrompt).toContain("American English (en-US)");
     expect(prompt.systemPrompt).toContain("Brazilian Portuguese (pt-BR)");
-    expect(await sha256(prompt.systemPrompt)).toBe("32b336fbdce5ab269488f3f5d77840d1f1a9fa7c7e544d6f4c70bca570e4ef34");
+    expect(prompt.systemPrompt).not.toContain("markdown");
+    expect(await sha256(prompt.systemPrompt)).toBe("85eb85ecc4365b214331beac11ddb345ccb939ec73ff3a8110707839e321d39f");
     expect(await sha256(prompt.userPrompt)).toBe("975ae31980e7f7a782ec257d7584e0ba689b01f006e86c34c82ba029a1363685");
   });
 
@@ -78,6 +79,18 @@ describe("buildPrompt", () => {
     expect(framed.systemPrompt).toContain(
       "DOCUMENT CONTEXT (for terminology only; do not translate this block):\nTitle: Echo State Networks",
     );
+  });
+
+  it("includes a trimmed format instruction only when supplied", () => {
+    const { systemPrompt } = buildPrompt({
+      segments,
+      glossary: EMPTY_GLOSSARY,
+      sourceLocale: "en-US",
+      targetLocale: "pt-BR",
+      promptInstruction: "  Preserve markdown markers.  ",
+    });
+
+    expect(systemPrompt).toContain("\nPreserve markdown markers.\n");
   });
 });
 

@@ -5,6 +5,7 @@ docs for the PolyStella package. Regenerate with `pnpm build:llms`.
 
 Constituent files (in order):
   - AGENTS.md
+  - PACKAGE_ARCHITECTURE.md
   - ARCHITECTURE.md
   - skills/polystella-consumer/SKILL.md
   - skills/polystella-contributor/SKILL.md
@@ -20,7 +21,10 @@ additional locales at build time using AI, caches translations in
 Cloudflare R2, and injects locale-prefixed routes.
 
 This file is the entry point for coding agents working **on the
-PolyStella package itself**. Three companion docs:
+PolyStella package itself**. Four companion docs:
+
+- [`PACKAGE_ARCHITECTURE.md`](./PACKAGE_ARCHITECTURE.md) — post-migration
+  package ownership, dependency direction, key files, and boundary checks.
 
 - [`ARCHITECTURE.md`](./ARCHITECTURE.md) — system design, invariants,
   glossary, per-subsystem reference. The "why" answers.
@@ -201,6 +205,262 @@ Before pushing:
 
 ---
 
+<!-- BEGIN PACKAGE_ARCHITECTURE.md -->
+
+# PolyStella Package Architecture
+
+This guide explains the repository structure after the package migration. It
+is the starting point for deciding where a change belongs. For detailed
+pipeline behavior and hard correctness contracts, use
+[`ARCHITECTURE.md`](./ARCHITECTURE.md).
+
+## Package Graph
+
+PolyStella publishes five packages in one lockstep version group. Arrows mean
+"depends on."
+
+```mermaid
+flowchart TD
+  compat["@cloudflare/polystella<br/>compatibility only"] --> astro["@cloudflare/polystella-astro<br/>canonical Astro package"]
+  astro --> adapters["@cloudflare/polystella-adapters<br/>portable formats"]
+  astro --> providers["@cloudflare/polystella-providers<br/>portable transports"]
+  astro --> core["@cloudflare/polystella-core<br/>translation protocol"]
+  adapters --> core
+  providers --> core
+```
+
+Dependencies point toward reusable code. Core never imports adapters,
+providers, or Astro. Adapters and providers do not import each other. The
+compatibility package contains no implementation and points only to the
+canonical Astro package.
+
+| Directory                                        | Published package                  | Responsibility                                                                     |
+| :----------------------------------------------- | :--------------------------------- | :--------------------------------------------------------------------------------- |
+| [`packages/core/`](./packages/core/)             | `@cloudflare/polystella-core`      | Translation contracts, prompts, batching, retries, and response parsing.           |
+| [`packages/adapters/`](./packages/adapters/)     | `@cloudflare/polystella-adapters`  | Portable parsing, extraction, grouping, and translation application.               |
+| [`packages/providers/`](./packages/providers/)   | `@cloudflare/polystella-providers` | Workers AI and Anthropic implementations of the core translator contract.          |
+| [`packages/astro/`](./packages/astro/)           | `@cloudflare/polystella-astro`     | Canonical Astro integration, host policy, storage, routing, runtime APIs, and CLI. |
+| [`packages/polystella/`](./packages/polystella/) | `@cloudflare/polystella`           | Temporary compatibility forwarding to `@cloudflare/polystella-astro`.              |
+
+`packages/astro-alias/` is no longer a tracked package. If it exists locally,
+it contains ignored output from the pre-inversion layout and can be deleted.
+
+## Direct Translation Flow
+
+The three reusable packages form an in-process translation pipeline:
+
+```mermaid
+flowchart LR
+  source[Source bytes or record] --> parse[Adapter parses and extracts segments]
+  parse --> orchestrate[Core groups, batches, prompts, and validates]
+  orchestrate --> transport[Provider calls the selected model]
+  transport --> orchestrate
+  orchestrate --> apply[Adapter applies translations]
+  apply --> output[Translated output]
+```
+
+The adapter owns source syntax. Core owns the translation protocol. The
+provider owns transport-specific I/O. None of these layers needs Astro.
+
+## Package Responsibilities
+
+### Core
+
+[`@cloudflare/polystella-core`](./packages/core/) is the lowest internal layer.
+It owns:
+
+- `Segment`, `Glossary`, `Logger`, and `Translator` contracts.
+- Prompt construction and provider-response parsing.
+- Token estimation, grouping validation, and batch packing.
+- Translation execution, retries, cancellation, and permanent provider errors.
+
+Start at [`packages/core/src/index.ts`](./packages/core/src/index.ts). The main
+implementations are `translator.ts`, `prompt.ts`, `batch.ts`,
+`translate-batch.ts`, and `translate-segments.ts`.
+
+Core does not know about file formats, R2, the filesystem, Astro, or any
+specific AI transport.
+
+### Adapters
+
+[`@cloudflare/polystella-adapters`](./packages/adapters/) owns portable format
+handling:
+
+- The [`FileAdapter`](./packages/adapters/src/adapter.ts) contract.
+- Markdown, MDX, JSON, YAML, and TOML adapters.
+- Segment extraction, grouping, and translation application.
+- Structured key paths, MDX rules, and placeholder handling.
+
+Start at [`packages/adapters/src/index.ts`](./packages/adapters/src/index.ts)
+and [`packages/adapters/src/adapters/`](./packages/adapters/src/adapters/).
+Adapters depend on core for `Segment` and related contracts.
+
+Astro-specific defaults, configuration, staging, and URL policy do not belong
+here. Those wrappers live under
+[`packages/astro/src/parsing/`](./packages/astro/src/parsing/).
+
+### Providers
+
+[`@cloudflare/polystella-providers`](./packages/providers/) implements the
+core `Translator` contract for external model APIs:
+
+- Workers AI over HTTP.
+- Workers AI through a binding described with package-owned structural types.
+- Anthropic over HTTP.
+- Transport error normalization and permanent/retriable classification.
+
+Start at [`packages/providers/src/index.ts`](./packages/providers/src/index.ts),
+`workers-ai.ts`, `anthropic.ts`, and `http-error.ts`. Providers depend only on
+core internally.
+
+Provider configuration belongs to the Astro package. The mapping from Astro
+options to provider factories is
+[`packages/astro/src/translation/provider.ts`](./packages/astro/src/translation/provider.ts).
+
+### Astro
+
+[`@cloudflare/polystella-astro`](./packages/astro/) is the canonical product
+package. It composes the reusable packages and owns host-specific behavior:
+
+- Astro hooks, option validation, and virtual modules.
+- Source walking, translation-pass orchestration, and local staging.
+- R2 keys, reads, writes, metadata, local indexes, reports, and pruning.
+- Overrides, AI markers, and URL rewriting policy.
+- Content collections, custom-loader support, runtime lookup, and middleware.
+- Route shims, UI strings, catalog-only mode, React hooks, recipes, and CLI.
+
+The primary entry points are:
+
+| Area                | Start here                                                                         |
+| :------------------ | :--------------------------------------------------------------------------------- |
+| Integration hooks   | [`packages/astro/src/index.ts`](./packages/astro/src/index.ts)                     |
+| Configuration       | [`packages/astro/src/config/options.ts`](./packages/astro/src/config/options.ts)   |
+| Translation pass    | [`packages/astro/src/translation/run.ts`](./packages/astro/src/translation/run.ts) |
+| Storage and cache   | [`packages/astro/src/storage/`](./packages/astro/src/storage/)                     |
+| Format policy       | [`packages/astro/src/parsing/`](./packages/astro/src/parsing/)                     |
+| Content collections | [`packages/astro/src/content/`](./packages/astro/src/content/)                     |
+| Runtime APIs        | [`packages/astro/src/runtime/`](./packages/astro/src/runtime/)                     |
+| Routing             | [`packages/astro/src/routing/`](./packages/astro/src/routing/)                     |
+| UI strings          | [`packages/astro/src/i18n/`](./packages/astro/src/i18n/)                           |
+| Catalog-only mode   | [`packages/astro/src/catalog/`](./packages/astro/src/catalog/)                     |
+| CLI dispatch        | [`packages/astro/src/cli.ts`](./packages/astro/src/cli.ts)                         |
+
+Its public export map is declared in
+[`packages/astro/package.json`](./packages/astro/package.json). The standalone
+`polystella` executable is emitted from `src/cli.ts`. The `./client` export is
+types-only and comes from [`packages/astro/client.d.ts`](./packages/astro/client.d.ts).
+
+### Compatibility Package
+
+[`@cloudflare/polystella`](./packages/polystella/) is not an implementation
+layer. It exists so projects using the old package name can migrate without an
+immediate import rewrite.
+
+- Every source entry re-exports the matching `@cloudflare/polystella-astro`
+  entry.
+- `client.d.ts` references the canonical client declarations.
+- Its CLI launches the canonical package's CLI.
+- It must not gain independent behavior or restore low-level exports moved to
+  core, adapters, or providers.
+
+When adding an Astro public export, update the canonical manifest, add the
+matching forwarding file and export in `packages/polystella/`, update the
+public export reference, and run `pnpm check:packages`.
+
+## Astro Build Flow
+
+The integration and standalone CLI share
+[`runTranslationPass`](./packages/astro/src/translation/run.ts). Astro-specific
+setup remains in the integration entry.
+
+```mermaid
+sequenceDiagram
+  participant Astro
+  participant Integration as astro/src/index.ts
+  participant Run as translation/run.ts
+  participant Cache as local index and R2
+  participant Content as Astro content layer
+
+  Astro->>Integration: astro:config:setup
+  Integration->>Run: runTranslationPass()
+  Run->>Cache: override, local index, R2, or provider
+  Run-->>Integration: staged files and run metadata
+  Integration->>Integration: publish custom-loader bridge
+  Astro->>Content: content sync
+  Content->>Content: regular siblings read staged files
+  Content->>Integration: custom-loader siblings use bridge
+  Astro->>Integration: astro:build:done
+  Integration->>Integration: emit build report
+```
+
+Translation must run during `astro:config:setup` because Astro syncs content
+before `build:start`. See [`ARCHITECTURE.md#hook-timing`](./ARCHITECTURE.md#hook-timing).
+
+## Where Changes Belong
+
+| Change                                                                | Package               |
+| :-------------------------------------------------------------------- | :-------------------- |
+| Change prompts, batching, retry behavior, or translator contracts     | Core                  |
+| Parse or reconstruct a portable content format                        | Adapters              |
+| Add or change an external AI transport                                | Providers             |
+| Change Astro options, files, R2, routing, middleware, content, or CLI | Astro                 |
+| Mirror a canonical Astro export under the old package name            | Compatibility package |
+
+If a change requires Node, Astro, filesystem, or R2 APIs, it does not belong in
+core, adapters, or providers. If a provider implementation starts importing
+Astro config types, move that mapping back to the Astro package instead.
+
+## Boundary Enforcement
+
+The boundaries are executable, not only documented:
+
+| Contract                                                                            | Enforcement                                                                                                                 |
+| :---------------------------------------------------------------------------------- | :-------------------------------------------------------------------------------------------------------------------------- |
+| Package dependency graph, exports, tarball contents, CLIs, and compatibility parity | [`scripts/check-packages.mjs`](./scripts/check-packages.mjs)                                                                |
+| Reusable packages avoid Node and host imports                                       | [`tests/boundaries/reusable-packages.test.ts`](./tests/boundaries/reusable-packages.test.ts)                                |
+| Reusable packages execute under Workerd without `nodejs_compat`                     | [`tests/workerd/`](./tests/workerd/) and [`scripts/check-workerd-portability.mjs`](./scripts/check-workerd-portability.mjs) |
+| End-to-end extraction behavior remains stable                                       | [`scripts/check-monorepo-baseline.mjs`](./scripts/check-monorepo-baseline.mjs)                                              |
+| Public export documentation matches manifests                                       | [`docs/scripts/check-exports.ts`](./docs/scripts/check-exports.ts)                                                          |
+| All packages version together                                                       | [`.changeset/config.json`](./.changeset/config.json)                                                                        |
+
+The root [`package.json`](./package.json) builds in dependency order: core,
+adapters, providers, canonical Astro, then compatibility forwarding.
+
+## Contributor Checklist
+
+Before opening a package-affecting change:
+
+1. Put the change in the lowest package that can own it without importing a
+   higher layer.
+2. Export it only if downstream consumers need it; package manifests are the
+   public API source of truth.
+3. Mirror new Astro exports in the compatibility package while that package is
+   supported.
+4. Add or update the smallest boundary or behavior test that protects the
+   contract.
+5. Add a Changesets entry and run `pnpm test`, `pnpm typecheck`, and
+   `pnpm check:packages`.
+
+## Deeper Design References
+
+Use these stable sections for implementation details:
+
+- [Package boundaries](./ARCHITECTURE.md#package-boundaries)
+- [Pipeline](./ARCHITECTURE.md#pipeline)
+- [Invariants](./ARCHITECTURE.md#invariants)
+- [Adapter contract](./ARCHITECTURE.md#adapter-contract)
+- [Translator contract](./ARCHITECTURE.md#translator-contract)
+- [Translation batching](./ARCHITECTURE.md#translation-batching)
+- [Cache key](./ARCHITECTURE.md#cache-key)
+- [Cache write order](./ARCHITECTURE.md#cache-write-order)
+- [Runtime bridge](./ARCHITECTURE.md#runtime-bridge)
+- [Routing shims](./ARCHITECTURE.md#routing-shims)
+- [UI strings](./ARCHITECTURE.md#ui-strings)
+
+<!-- END PACKAGE_ARCHITECTURE.md -->
+
+---
+
 <!-- BEGIN ARCHITECTURE.md -->
 
 # PolyStella Architecture
@@ -212,6 +472,8 @@ canonical home for the longer-form context.
 For task recipes ("I want to add an adapter / a provider / a CLI
 subcommand"), see [`AGENTS.md`](./AGENTS.md). For consumer-side wiring,
 see [`skills/polystella-consumer/SKILL.md`](./skills/polystella-consumer/SKILL.md).
+For the post-migration package graph and file map, see
+[`PACKAGE_ARCHITECTURE.md`](./PACKAGE_ARCHITECTURE.md).
 
 All cross-references in this doc and in `AGENTS.md` use **stable slug
 anchors** (e.g. `#cache-key`), not section numbers. Inserting a new
@@ -267,47 +529,26 @@ source/record -> adapter -> core -> provider -> core -> adapter -> output
 There is no hosted core service or required network hop beyond the
 selected provider transport.
 
-```
-       ┌────────────────────────────────────────────────────────┐
-       │              astro:config:setup (or CLI)               │
-       └────────────────────────────────────────────────────────┘
-                                  │
-                                  ▼
-  walk sources ──► per (file × locale) worker pool ◄── R2 bulk pre-list
-                                  │
-                ┌─────────────────┴─────────────────┐
-                ▼                                   ▼
-        cache key matches?                   override file present?
-                │                                   │
-        no ┌────┴────┐ yes                          ▼
-           ▼         ▼                       read verbatim, rewrite URLs
-       parse +    return cached
-       extract    bytes, rewrite                    │
-           │     URLs, stage                        │
-           ▼                                        │
-       translate (token-aware batches,              │
-         heading-anchored grouping,                 │
-         document-context preamble)                 │
-           │                                        │
-           ▼                                        │
-        apply translations + AI marker              │
-           │                                        │
-           ▼                                        │
-        PUT to R2 (post-apply bytes)                │
-           │                                        │
-           ▼                                        ▼
-        rewrite URLs → stage under <root>/.astro/i18n-staging/<locale>/
-                                  │
-                                  ▼
-        polystellaCollections (in user's content.config.ts)
-        reads staged bytes via the runtime bridge → Astro content layer
-                                  │
-                                  ▼
-        routing shims under <cacheDir>/polystella-shims/
-        inject `/[lang]/...` routes pointing at staged content
-                                  │
-                                  ▼
-                            astro build → dist/
+```mermaid
+flowchart TD
+  setup["astro:config:setup or CLI"] --> workers["walk sources and process file-locale pairs"]
+  prelist["R2 bulk pre-list"] --> workers
+  workers --> override{"override present?"}
+  override -- yes --> overrideStage["read verbatim, rewrite URLs, stage"]
+  override -- no --> local{"local index and staged file match?"}
+  local -- yes --> ready["keep staged bytes"]
+  local -- no --> r2{"R2 cache hit?"}
+  r2 -- yes --> cached["return cached bytes, rewrite URLs, stage"]
+  r2 -- no --> translate["parse, extract, batch, and translate"]
+  translate --> apply["apply translations and AI marker"]
+  apply --> put["PUT post-apply bytes to R2"]
+  put --> stage["rewrite URLs and stage"]
+  overrideStage --> content["regular sibling collections read staged files"]
+  ready --> content
+  cached --> content
+  stage --> content
+  content --> routes["route shims inject /lang routes"]
+  routes --> dist["Astro build emits dist"]
 ```
 
 Two entry points share `runTranslationPass` in `packages/astro/src/translation/run.ts`:
@@ -382,7 +623,7 @@ adding new code that touches one.
 2. **Group flattening.** `flat(adapter.groupSegments(...)) === segments` (reference-equal, order-preserved). Asserted at runtime. See [#translation-batching](#translation-batching).
 3. **Apply before PUT.** `adapter.applyTranslations` must produce the exact bytes that get PUT to R2; any AI-translation marker is woven in inside `apply`, never after. Cache hits return the PUT bytes verbatim. See [#cache-write-order](#cache-write-order).
 4. **Local cache index write isolation.** Pool workers read from `localCacheIndex` (immutable for the run) and write to `nextLocalCacheIndex` (accumulated, persisted at end). A worker MUST NOT read from `nextLocalCacheIndex`. See [#local-staging-index](#local-staging-index).
-5. **Bridge timing.** `setRuntimeBridge` is called inside `astro:config:setup`; `polystellaCollections` reads it at content-sync time, which happens between `config:setup` and `build:start`. Translation MUST run in `config:setup` so staged files exist before sibling loaders execute. See [#hook-timing](#hook-timing).
+5. **Bridge timing.** `setRuntimeBridge` is called inside `astro:config:setup`; custom-loader siblings read it at content-sync time, which happens between `config:setup` and `build:start`. Translation MUST run in `config:setup` so staged files exist before regular sibling loaders execute. See [#hook-timing](#hook-timing).
 6. **URL-rewrite idempotence.** Both layers (`adapter.rewriteUrls` + `rewriteInternalLinks`) must be safe to apply twice. Overrides re-rewrite without doubling prefixes. See [#url-rewriting](#url-rewriting).
 7. **Path separator convention.** R2 keys use forward slashes (POSIX); local filesystem paths use `path.sep`. Sources are walked relative to project root, then joined per target.
 8. **Permanent vs retriable provider errors.** Only `PermanentProviderError` short-circuits `translateBatch`'s retry loop. Wrap 4xx (400/401/403/404/422); everything else retries with exponential backoff. See [#translator-contract](#translator-contract).
@@ -408,7 +649,7 @@ Sequenced steps:
 4. Read the local staging index (see [#local-staging-index](#local-staging-index)).
 5. Run a worker pool over (file, locale) pairs with
    `runWithConcurrency` (`packages/astro/src/source/pool.ts`).
-6. Per pair: short-circuit on local-skip → check override → check R2 →
+6. Per pair: check override → short-circuit on local-skip → check R2 →
    translate → apply → PUT → rewrite URLs → stage.
 7. Persist `nextLocalCacheIndex` to disk.
 8. Prune R2 keys not touched this run (within the configured prefix
@@ -462,10 +703,10 @@ location.
 
 <a id="runtime-bridge"></a>
 
-`polystellaCollections` runs **after** the integration's `config:setup`
-returns (it's called from the user's `content.config.ts`, at
-content-sync time). The two halves need to share live JS objects (R2
-client, translators, glossaries) that can't be serialised through the
+Custom-loader sibling collections run after the integration's `config:setup`
+returns, at content-sync time. Unlike regular file and glob siblings, which
+read staged files directly, custom-loader siblings need live JS objects (R2
+client, translators, glossaries) that cannot be serialised through the
 `polystella:runtime-config` virtual module.
 
 The bridge in `packages/astro/src/runtime/custom-loader-runtime.ts` is a
@@ -473,11 +714,10 @@ symbol-keyed `globalThis` value populated by `setRuntimeBridge` during
 `config:setup` and read by sibling loaders at sync time. The global survives
 Vite module-graph reloads while Astro runs both halves in one process.
 
-`publishRuntimeBridge` in `index.ts` re-loads glossaries and constructs
-translators that `runTranslationPass` already built internally. The
-duplication is deliberate (and cheap — one extra FS read per locale)
-to keep `runTranslationPass`'s signature focused on the file-based
-pipeline. A future consolidation can extract a shared dep builder.
+`publishRuntimeBridge` in `index.ts` reuses glossary maps returned by
+`runTranslationPass` when available and loads them from disk when the file
+pass did not run. It constructs the translators and R2 client needed by
+custom-loader siblings.
 
 ---
 

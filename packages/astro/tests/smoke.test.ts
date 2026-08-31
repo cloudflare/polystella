@@ -523,6 +523,7 @@ describe("smoke: batching + document context", () => {
     // Every batch's system prompt includes the document-context block
     // with the configured frontmatter values.
     for (const sp of systemPrompts) {
+      expect(sp).toContain("Preserve markdown formatting markers exactly");
       expect(sp).toContain("DOCUMENT CONTEXT");
       expect(sp).toContain("Title: Echo State Networks for Time Series Forecasting");
     }

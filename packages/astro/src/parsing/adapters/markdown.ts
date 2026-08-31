@@ -15,6 +15,7 @@ const portableMarkdownAdapter = createMarkdownAdapter();
 
 export const markdownAdapter: FileTypeAdapter<Root> = {
   extensions: portableMarkdownAdapter.extensions,
+  ...(portableMarkdownAdapter.promptInstruction !== undefined ? { promptInstruction: portableMarkdownAdapter.promptInstruction } : {}),
 
   parse(source: string, sourcePath?: string, options: AdapterParseOptions = {}): Root {
     return createMarkdownAdapter(resolveMarkdownParser(options.markdownParser)).parse(source, sourcePath);

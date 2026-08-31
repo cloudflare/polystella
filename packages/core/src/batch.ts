@@ -15,6 +15,7 @@ export function estimateInputTokens(segments: Segment[]): number {
   return Math.ceil(chars / TOKEN_CHAR_RATIO);
 }
 
+/** Token budget and diagnostics used when packing groups into batches. */
 export interface PackGroupsIntoBatchesOptions {
   inputTokenBudget?: number;
   logger?: Logger;

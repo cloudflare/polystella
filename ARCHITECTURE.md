@@ -7,6 +7,8 @@ canonical home for the longer-form context.
 For task recipes ("I want to add an adapter / a provider / a CLI
 subcommand"), see [`AGENTS.md`](./AGENTS.md). For consumer-side wiring,
 see [`skills/polystella-consumer/SKILL.md`](./skills/polystella-consumer/SKILL.md).
+For the post-migration package graph and file map, see
+[`PACKAGE_ARCHITECTURE.md`](./PACKAGE_ARCHITECTURE.md).
 
 All cross-references in this doc and in `AGENTS.md` use **stable slug
 anchors** (e.g. `#cache-key`), not section numbers. Inserting a new
@@ -62,47 +64,26 @@ source/record -> adapter -> core -> provider -> core -> adapter -> output
 There is no hosted core service or required network hop beyond the
 selected provider transport.
 
-```
-       ┌────────────────────────────────────────────────────────┐
-       │              astro:config:setup (or CLI)               │
-       └────────────────────────────────────────────────────────┘
-                                  │
-                                  ▼
-  walk sources ──► per (file × locale) worker pool ◄── R2 bulk pre-list
-                                  │
-                ┌─────────────────┴─────────────────┐
-                ▼                                   ▼
-        cache key matches?                   override file present?
-                │                                   │
-        no ┌────┴────┐ yes                          ▼
-           ▼         ▼                       read verbatim, rewrite URLs
-       parse +    return cached
-       extract    bytes, rewrite                    │
-           │     URLs, stage                        │
-           ▼                                        │
-       translate (token-aware batches,              │
-         heading-anchored grouping,                 │
-         document-context preamble)                 │
-           │                                        │
-           ▼                                        │
-        apply translations + AI marker              │
-           │                                        │
-           ▼                                        │
-        PUT to R2 (post-apply bytes)                │
-           │                                        │
-           ▼                                        ▼
-        rewrite URLs → stage under <root>/.astro/i18n-staging/<locale>/
-                                  │
-                                  ▼
-        polystellaCollections (in user's content.config.ts)
-        reads staged bytes via the runtime bridge → Astro content layer
-                                  │
-                                  ▼
-        routing shims under <cacheDir>/polystella-shims/
-        inject `/[lang]/...` routes pointing at staged content
-                                  │
-                                  ▼
-                            astro build → dist/
+```mermaid
+flowchart TD
+  setup["astro:config:setup or CLI"] --> workers["walk sources and process file-locale pairs"]
+  prelist["R2 bulk pre-list"] --> workers
+  workers --> override{"override present?"}
+  override -- yes --> overrideStage["read verbatim, rewrite URLs, stage"]
+  override -- no --> local{"local index and staged file match?"}
+  local -- yes --> ready["keep staged bytes"]
+  local -- no --> r2{"R2 cache hit?"}
+  r2 -- yes --> cached["return cached bytes, rewrite URLs, stage"]
+  r2 -- no --> translate["parse, extract, batch, and translate"]
+  translate --> apply["apply translations and AI marker"]
+  apply --> put["PUT post-apply bytes to R2"]
+  put --> stage["rewrite URLs and stage"]
+  overrideStage --> content["regular sibling collections read staged files"]
+  ready --> content
+  cached --> content
+  stage --> content
+  content --> routes["route shims inject /lang routes"]
+  routes --> dist["Astro build emits dist"]
 ```
 
 Two entry points share `runTranslationPass` in `packages/astro/src/translation/run.ts`:
@@ -177,7 +158,7 @@ adding new code that touches one.
 2. **Group flattening.** `flat(adapter.groupSegments(...)) === segments` (reference-equal, order-preserved). Asserted at runtime. See [#translation-batching](#translation-batching).
 3. **Apply before PUT.** `adapter.applyTranslations` must produce the exact bytes that get PUT to R2; any AI-translation marker is woven in inside `apply`, never after. Cache hits return the PUT bytes verbatim. See [#cache-write-order](#cache-write-order).
 4. **Local cache index write isolation.** Pool workers read from `localCacheIndex` (immutable for the run) and write to `nextLocalCacheIndex` (accumulated, persisted at end). A worker MUST NOT read from `nextLocalCacheIndex`. See [#local-staging-index](#local-staging-index).
-5. **Bridge timing.** `setRuntimeBridge` is called inside `astro:config:setup`; `polystellaCollections` reads it at content-sync time, which happens between `config:setup` and `build:start`. Translation MUST run in `config:setup` so staged files exist before sibling loaders execute. See [#hook-timing](#hook-timing).
+5. **Bridge timing.** `setRuntimeBridge` is called inside `astro:config:setup`; custom-loader siblings read it at content-sync time, which happens between `config:setup` and `build:start`. Translation MUST run in `config:setup` so staged files exist before regular sibling loaders execute. See [#hook-timing](#hook-timing).
 6. **URL-rewrite idempotence.** Both layers (`adapter.rewriteUrls` + `rewriteInternalLinks`) must be safe to apply twice. Overrides re-rewrite without doubling prefixes. See [#url-rewriting](#url-rewriting).
 7. **Path separator convention.** R2 keys use forward slashes (POSIX); local filesystem paths use `path.sep`. Sources are walked relative to project root, then joined per target.
 8. **Permanent vs retriable provider errors.** Only `PermanentProviderError` short-circuits `translateBatch`'s retry loop. Wrap 4xx (400/401/403/404/422); everything else retries with exponential backoff. See [#translator-contract](#translator-contract).
@@ -203,7 +184,7 @@ Sequenced steps:
 4. Read the local staging index (see [#local-staging-index](#local-staging-index)).
 5. Run a worker pool over (file, locale) pairs with
    `runWithConcurrency` (`packages/astro/src/source/pool.ts`).
-6. Per pair: short-circuit on local-skip → check override → check R2 →
+6. Per pair: check override → short-circuit on local-skip → check R2 →
    translate → apply → PUT → rewrite URLs → stage.
 7. Persist `nextLocalCacheIndex` to disk.
 8. Prune R2 keys not touched this run (within the configured prefix
@@ -257,10 +238,10 @@ location.
 
 <a id="runtime-bridge"></a>
 
-`polystellaCollections` runs **after** the integration's `config:setup`
-returns (it's called from the user's `content.config.ts`, at
-content-sync time). The two halves need to share live JS objects (R2
-client, translators, glossaries) that can't be serialised through the
+Custom-loader sibling collections run after the integration's `config:setup`
+returns, at content-sync time. Unlike regular file and glob siblings, which
+read staged files directly, custom-loader siblings need live JS objects (R2
+client, translators, glossaries) that cannot be serialised through the
 `polystella:runtime-config` virtual module.
 
 The bridge in `packages/astro/src/runtime/custom-loader-runtime.ts` is a
@@ -268,11 +249,10 @@ symbol-keyed `globalThis` value populated by `setRuntimeBridge` during
 `config:setup` and read by sibling loaders at sync time. The global survives
 Vite module-graph reloads while Astro runs both halves in one process.
 
-`publishRuntimeBridge` in `index.ts` re-loads glossaries and constructs
-translators that `runTranslationPass` already built internally. The
-duplication is deliberate (and cheap — one extra FS read per locale)
-to keep `runTranslationPass`'s signature focused on the file-based
-pipeline. A future consolidation can extract a shared dep builder.
+`publishRuntimeBridge` in `index.ts` reuses glossary maps returned by
+`runTranslationPass` when available and loads them from disk when the file
+pass did not run. It constructs the translators and R2 client needed by
+custom-loader siblings.
 
 ---
 

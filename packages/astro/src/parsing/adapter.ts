@@ -48,6 +48,9 @@ export interface FileTypeAdapter<TParsed = unknown> {
    */
   readonly extensions: readonly string[];
 
+  /** Format-specific guidance included in model prompts. */
+  readonly promptInstruction?: string | undefined;
+
   /**
    * Parse source bytes into the adapter's internal representation.
    * Pure: no I/O, no Astro coupling. Throws on syntactic errors so
@@ -214,6 +217,7 @@ export function createStructuredAstroAdapter<TParsed>(
 ): FileTypeAdapter<TParsed> {
   return {
     extensions: adapter.extensions,
+    ...(adapter.promptInstruction !== undefined ? { promptInstruction: adapter.promptInstruction } : {}),
     parse: (source, sourcePath) => adapter.parse(source, sourcePath),
     extractSegments: (parsed, source, options) => adapter.extractSegments(parsed, source, options),
     applyTranslations: (parsed, source, translations, options) => adapter.applyTranslations(parsed, source, translations, options),

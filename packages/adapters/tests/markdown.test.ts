@@ -34,6 +34,7 @@ describe("portable parser", () => {
 
   it("uses Remark by default", () => {
     expect(markdownAdapter.parse("# Heading", "file.md")).toEqual(remarkMarkdownParser.parseMarkdown("# Heading"));
+    expect(markdownAdapter.promptInstruction).toContain("Preserve markdown formatting markers exactly");
   });
 });
 

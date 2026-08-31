@@ -3,7 +3,9 @@ import type { Logger } from "./logger.js";
 import type { Segment } from "./segment.js";
 import { translateBatch, type TranslateBatchOptions } from "./translate-batch.js";
 
+/** Options for grouping a document's segments into provider requests. */
 export interface TranslateSegmentsOptions extends TranslateBatchOptions {
+  /** Ordered partition of `segments`; groups are batching hints, not new content. */
   groups?: Segment[][];
   documentContext?: string | undefined;
   inputTokenBudget?: number;
@@ -11,6 +13,7 @@ export interface TranslateSegmentsOptions extends TranslateBatchOptions {
   sourcePath?: string;
 }
 
+/** Translation map and number of provider batches used. */
 export interface TranslateSegmentsResult {
   translations: Map<string, string>;
   batchCount: number;

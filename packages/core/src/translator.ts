@@ -1,8 +1,10 @@
+/** Provider-independent model transport used by the translation pipeline. */
 export interface Translator {
   readonly modelId: string;
   translate(systemPrompt: string, userPrompt: string, signal?: AbortSignal | undefined): Promise<string>;
 }
 
+/** Provider failure that retries cannot resolve, such as invalid credentials. */
 export class PermanentProviderError extends Error {
   readonly _tag = "PermanentProviderError" as const;
 
@@ -16,6 +18,7 @@ export function isPermanentProviderError(error: unknown): error is PermanentProv
   return typeof error === "object" && error !== null && "_tag" in error && error._tag === "PermanentProviderError";
 }
 
+/** One model for all locales or a default model with locale overrides. */
 export type ModelSpec = string | ({ default: string } & Record<string, string>);
 
 export function resolveModelId(spec: ModelSpec, locale: string): string {

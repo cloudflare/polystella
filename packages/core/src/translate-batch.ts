@@ -5,6 +5,7 @@ import { buildPrompt, parseResponse } from "./prompt.js";
 import type { Segment } from "./segment.js";
 import { isPermanentProviderError, type Translator } from "./translator.js";
 
+/** Options for translating and validating one provider request. */
 export interface TranslateBatchOptions {
   translator: Translator;
   segments: Segment[];
@@ -13,6 +14,7 @@ export interface TranslateBatchOptions {
   targetLocale: string;
   context?: string | undefined;
   documentContext?: string | undefined;
+  promptInstruction?: string | undefined;
   maxRetries?: number;
   onRetry?: ((event: TranslateBatchRetryEvent) => void) | undefined;
   retryMinTimeoutMs?: number;
@@ -21,6 +23,7 @@ export interface TranslateBatchOptions {
   signal?: AbortSignal | undefined;
 }
 
+/** A failed provider attempt that will be retried. */
 export interface TranslateBatchRetryEvent {
   attempt: number;
   totalAttempts: number;
@@ -36,6 +39,7 @@ export async function translateBatch(options: TranslateBatchOptions): Promise<Ma
     targetLocale,
     context,
     documentContext,
+    promptInstruction,
     maxRetries = 0,
     onRetry,
     retryMinTimeoutMs = 0,
@@ -52,6 +56,7 @@ export async function translateBatch(options: TranslateBatchOptions): Promise<Ma
     targetLocale,
     context,
     documentContext,
+    promptInstruction,
   });
   const expectedIds = segments.map((segment) => segment.id);
   const totalAttempts = Math.max(1, maxRetries + 1);

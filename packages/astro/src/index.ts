@@ -349,8 +349,7 @@ export default function polystella(options: PolyStellaOptions): AstroIntegration
 /**
  * Build + publish the per-build runtime bridge. Read at content-sync
  * time by per-locale sibling loaders derived from `polystellaLoader`-
- * wrapped sources. Deps duplicate `runTranslationPass`'s setup; the
- * Reuses glossaries from a prior `runTranslationPass` when supplied
+ * wrapped sources. Reuses glossaries from a prior `runTranslationPass` when supplied
  * (saves one FS read per locale). Falls back to fresh loads when
  * the translation pass didn't run (e.g. `runOn: ["build"]` + dev
  * command). See ARCHITECTURE.md §4.

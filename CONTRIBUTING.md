@@ -22,9 +22,10 @@ The private root coordinates those packages, the `docs/` site, and the
 `playgrounds/` fixtures.
 
 The agent-facing context lives in [`AGENTS.md`](./AGENTS.md). The
-system-level design rationale lives in
-[`ARCHITECTURE.md`](./ARCHITECTURE.md). Read those before working
-on anything non-trivial; they save a lot of back-and-forth.
+post-migration package map lives in
+[`PACKAGE_ARCHITECTURE.md`](./PACKAGE_ARCHITECTURE.md), and the system-level
+design rationale lives in [`ARCHITECTURE.md`](./ARCHITECTURE.md). Read those
+before working on anything non-trivial; they save a lot of back-and-forth.
 
 ## Development setup
 

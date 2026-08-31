@@ -11,6 +11,7 @@ if (MARKER !== "@@") {
   );
 }
 
+/** Inputs needed to build one provider prompt for a segment batch. */
 export interface BuildPromptInput {
   segments: Segment[];
   glossary: Glossary;
@@ -18,15 +19,17 @@ export interface BuildPromptInput {
   targetLocale: string;
   context?: string | undefined;
   documentContext?: string | undefined;
+  promptInstruction?: string | undefined;
 }
 
+/** Provider-ready system and user prompt pair. */
 export interface BuiltPrompt {
   systemPrompt: string;
   userPrompt: string;
 }
 
 export function buildPrompt(input: BuildPromptInput): BuiltPrompt {
-  const { segments, glossary, sourceLocale, targetLocale, context, documentContext } = input;
+  const { segments, glossary, sourceLocale, targetLocale, context, documentContext, promptInstruction } = input;
   const sourceName = localeName(sourceLocale);
   const targetName = localeName(targetLocale);
 
@@ -35,11 +38,9 @@ export function buildPrompt(input: BuildPromptInput): BuiltPrompt {
   if (trimmedContext) {
     systemLines.push(trimmedContext);
   }
-  systemLines.push(
-    `Translate from ${sourceName} (${sourceLocale}) to ${targetName} (${targetLocale}).`,
-    ``,
-    `Preserve markdown formatting markers exactly: **bold**, *italic*, _italic_, \`code\`, [link text](url). Translate the visible text but never the URL or any code identifier.`,
-  );
+  systemLines.push(`Translate from ${sourceName} (${sourceLocale}) to ${targetName} (${targetLocale}).`);
+  const trimmedPromptInstruction = promptInstruction?.trim();
+  if (trimmedPromptInstruction) systemLines.push("", trimmedPromptInstruction);
 
   const trimmedDocContext = documentContext?.trim();
   if (trimmedDocContext) {
