@@ -78,6 +78,16 @@ describe("translateSegments", () => {
     expect(translator.calls).toHaveLength(0);
   });
 
+  it("rejects duplicate IDs across batches", async () => {
+    const translator = makeEchoTranslator();
+    const segments = [segment("same", "first"), segment("same", "second")];
+
+    await expect(translateSegments({ ...commonOptions, translator, segments, groups: [[segments[0]!], [segments[1]!]] })).rejects.toThrow(
+      'duplicate segment id "same"',
+    );
+    expect(translator.calls).toHaveLength(0);
+  });
+
   it("adds document context to every batch", async () => {
     const translator = makeEchoTranslator();
     const groups = [[segment("a", "hello")], [segment("b", "world")]];

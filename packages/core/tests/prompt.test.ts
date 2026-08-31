@@ -92,6 +92,20 @@ describe("buildPrompt", () => {
 
     expect(systemPrompt).toContain("\nPreserve markdown markers.\n");
   });
+
+  it("rejects duplicate segment IDs", () => {
+    expect(() =>
+      buildPrompt({
+        segments: [
+          { id: "same", text: "first" },
+          { id: "same", text: "second" },
+        ],
+        glossary: EMPTY_GLOSSARY,
+        sourceLocale: "en-US",
+        targetLocale: "pt-BR",
+      }),
+    ).toThrow('duplicate segment id "same"');
+  });
 });
 
 describe("parseResponse", () => {
@@ -102,6 +116,10 @@ describe("parseResponse", () => {
     const parsed = parseResponse(response, expectedIds);
     expect(parsed.get("fm:title")).toBe("Ola");
     expect(parsed.get("body:0")).toBe("First line\nSecond line\n\nThird line");
+  });
+
+  it("rejects duplicate expected IDs", () => {
+    expect(() => parseResponse("@@same@@\ntranslation", ["same", "same"])).toThrow('duplicate segment id "same"');
   });
 
   it("unwraps code fences and ignores preambles and unknown ids", () => {

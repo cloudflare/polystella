@@ -1,5 +1,5 @@
 import type { Glossary } from "./glossary.js";
-import type { Segment } from "./segment.js";
+import { assertUniqueSegmentIds, type Segment } from "./segment.js";
 
 const MARKER = "@@";
 const MARKER_LINE_RE = /^@@([^@\n]+?)@@\s*$/gm;
@@ -30,6 +30,7 @@ export interface BuiltPrompt {
 
 export function buildPrompt(input: BuildPromptInput): BuiltPrompt {
   const { segments, glossary, sourceLocale, targetLocale, context, documentContext, promptInstruction } = input;
+  assertUniqueSegmentIds(segments.map((segment) => segment.id));
   const sourceName = localeName(sourceLocale);
   const targetName = localeName(targetLocale);
 
@@ -107,6 +108,7 @@ export function buildPrompt(input: BuildPromptInput): BuiltPrompt {
 }
 
 export function parseResponse(rawText: string, expectedIds: string[]): Map<string, string> {
+  assertUniqueSegmentIds(expectedIds);
   const cleaned = stripCodeFences(rawText.trim());
   const parts = cleaned.split(MARKER_LINE_RE);
 

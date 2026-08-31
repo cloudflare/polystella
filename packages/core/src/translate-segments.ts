@@ -1,6 +1,6 @@
 import { packGroupsIntoBatches } from "./batch.js";
 import type { Logger } from "./logger.js";
-import type { Segment } from "./segment.js";
+import { assertUniqueSegmentIds, type Segment } from "./segment.js";
 import { translateBatch, type TranslateBatchOptions } from "./translate-batch.js";
 
 /** Options for grouping a document's segments into provider requests. */
@@ -23,6 +23,7 @@ export async function translateSegments(options: TranslateSegmentsOptions): Prom
   const { segments, groups, documentContext, inputTokenBudget, logger, sourcePath, signal, ...rest } = options;
 
   signal?.throwIfAborted();
+  assertUniqueSegmentIds(segments.map((segment) => segment.id));
   if (groups !== undefined) {
     const groupedSegments = groups.flat();
     if (groupedSegments.length !== segments.length || groupedSegments.some((segment, index) => segment !== segments[index])) {
