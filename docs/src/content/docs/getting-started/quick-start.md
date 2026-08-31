@@ -16,7 +16,7 @@ truth.
 
 ```js
 import { defineConfig } from "astro/config";
-import polystella from "@cloudflare/polystella";
+import polystella from "@cloudflare/polystella-astro";
 import polystellaConfig from "./polystella.config.mjs";
 
 export default defineConfig({
@@ -61,8 +61,8 @@ that PolyStella's helper builds the per-locale variants for you.
 
 ```ts
 import { defineCollection } from "astro:content";
-import { polystellaCollections } from "@cloudflare/polystella/content";
-import { i18nLoader, i18nSchema } from "@cloudflare/polystella/i18n";
+import { polystellaCollections } from "@cloudflare/polystella-astro/content";
+import { i18nLoader, i18nSchema } from "@cloudflare/polystella-astro/i18n";
 
 import { publications, people /* ... */ } from "./content-schemas";
 
@@ -81,7 +81,7 @@ PolyStella's virtual modules need a reference in your env types,
 mirroring Astro's own `astro/client` pattern:
 
 ```ts
-/// <reference types="@cloudflare/polystella/client" />
+/// <reference types="@cloudflare/polystella-astro/client" />
 ```
 
 ## Custom loaders
@@ -92,7 +92,7 @@ wrapping the raw loader with `polystellaLoader`:
 
 ```ts
 // src/loaders/blog.ts
-import { polystellaLoader } from "@cloudflare/polystella/content";
+import { polystellaLoader } from "@cloudflare/polystella-astro/content";
 
 export function blogLoader() {
   const raw = {
@@ -145,14 +145,14 @@ UI strings and locale-prefixed URLs sit alongside on `Astro.locals`:
 
 For non-template contexts (`getStaticPaths`, utility scripts, build
 helpers, React islands), import the explicit forms from
-`@cloudflare/polystella/runtime`:
+`@cloudflare/polystella-astro/runtime`:
 
 ```ts
 import {
   getLocalizedEntry, // (collection, id, locale?)
   getLocalizedCollection, // (collection, filter?, locale?)
   localizedHref, // (href, locale?)
-} from "@cloudflare/polystella/runtime";
+} from "@cloudflare/polystella-astro/runtime";
 ```
 
 ## What happens at build time

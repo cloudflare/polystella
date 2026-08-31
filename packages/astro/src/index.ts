@@ -152,11 +152,10 @@ export default function polystella(options: PolyStellaOptions): AstroIntegration
 
         // Auto-register per-request middleware exposing `Astro.locals.t`
         // and `lhref`. Order `pre` so user middleware reads these
-        // downstream. Entrypoint is a package specifier (not a file
-        // URL) so Vite resolves through the package's `exports` map.
+        // downstream. Resolve beside this module so package aliases work.
         // Opt out via `middleware: false` + manual `sequence(...)`.
         if (resolved.middleware) {
-          addMiddleware({ entrypoint: "@cloudflare/polystella/runtime/middleware", order: "pre" });
+          addMiddleware({ entrypoint: new URL("./runtime/middleware.js", import.meta.url), order: "pre" });
           logger.info("registered Astro.locals middleware (t + lhref)");
         }
 

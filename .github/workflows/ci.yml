@@ -114,9 +114,15 @@ jobs:
           test -f packages/astro/dist/content/index.js
           test -f packages/astro/dist/i18n/index.js
           test -f packages/astro/dist/react/index.js
+          test -f packages/astro-alias/dist/cli.js
+          test -x packages/astro-alias/dist/cli.js
+          test -f packages/astro-alias/dist/index.js
+          test -f packages/astro-alias/dist/index.d.ts
       - name: Smoke-test the CLI bundle under bare Node
         # No tsx, no Vite — exactly the environment a downstream
         # consumer's standalone `polystella <subcommand>` invocation
         # uses. Regression guard for the Node 24
         # `ERR_UNSUPPORTED_NODE_MODULES_TYPESCRIPT` class of bug.
-        run: node packages/astro/dist/cli.js --version
+        run: |
+          node packages/astro/dist/cli.js --version
+          node packages/astro-alias/dist/cli.js --version

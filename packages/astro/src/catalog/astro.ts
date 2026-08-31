@@ -70,7 +70,7 @@ export function catalogAstro(options: CatalogAstroOptions = {}): AstroIntegratio
           const middlewareDir = path.resolve(cacheDir, "polystella-catalog");
           await mkdir(middlewareDir, { recursive: true });
           const middlewarePath = path.join(middlewareDir, "middleware.js");
-          await writeFile(middlewarePath, generateCatalogMiddlewareSource(), "utf8");
+          await writeFile(middlewarePath, generateCatalogMiddlewareSource(new URL("./middleware.js", import.meta.url).href), "utf8");
           addMiddleware({ entrypoint: middlewarePath, order: "pre" });
           logger.info("registered catalog middleware (t + lhref)");
         }
@@ -184,9 +184,9 @@ function generateCatalogVirtualModuleSource(input: CatalogVirtualModuleInput): s
   ].join("\n");
 }
 
-function generateCatalogMiddlewareSource(): string {
+function generateCatalogMiddlewareSource(middlewareUrl: string): string {
   return [
-    `import { catalogMiddleware } from "@cloudflare/polystella/catalog/middleware";`,
+    `import { catalogMiddleware } from ${JSON.stringify(middlewareUrl)};`,
     `import { defaultLocale, fallbackToDefault, getDictionary, locales, noPrefixUrls } from "polystella:catalog";`,
     "",
     "export const onRequest = catalogMiddleware({",

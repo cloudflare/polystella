@@ -5,7 +5,7 @@ description: Add or maintain PolyStella in an existing Astro project. Use when i
 
 # polystella-consumer
 
-You are working in an Astro project that consumes the `@cloudflare/polystella`
+You are working in an Astro project that consumes the `@cloudflare/polystella-astro`
 package. This skill covers integration, configuration, common
 pitfalls, and the debug flow.
 
@@ -30,7 +30,7 @@ Visitors get static bytes — no runtime AI calls.
 Install from npm:
 
 ```bash
-pnpm add @cloudflare/polystella
+pnpm add @cloudflare/polystella-astro
 ```
 
 The standalone CLI binary is still named `polystella`.
@@ -47,7 +47,7 @@ ONLY — everything else derives from it.
 ```js
 import { defineConfig } from "astro/config";
 import sitemap from "@astrojs/sitemap";
-import polystella, { astroSitemapI18n } from "@cloudflare/polystella";
+import polystella, { astroSitemapI18n } from "@cloudflare/polystella-astro";
 import polystellaConfig from "./polystella.config.mjs";
 
 // Hoist `i18n` so the same object feeds Astro routing, PolyStella
@@ -127,8 +127,8 @@ export default {
 
 ```ts
 import { defineCollection } from "astro:content";
-import { polystellaCollections } from "@cloudflare/polystella/content";
-import { i18nLoader, i18nSchema } from "@cloudflare/polystella/i18n";
+import { polystellaCollections } from "@cloudflare/polystella-astro/content";
+import { i18nLoader, i18nSchema } from "@cloudflare/polystella-astro/i18n";
 
 import { publications, people } from "./content-schemas";
 
@@ -144,7 +144,7 @@ export const collections = {
 ### 4. `src/env.d.ts`
 
 ```ts
-/// <reference types="@cloudflare/polystella/client" />
+/// <reference types="@cloudflare/polystella-astro/client" />
 ```
 
 Picks up types for PolyStella's virtual modules (`polystella:runtime-config`).
@@ -204,7 +204,7 @@ Astro integration:
 
 ```ts
 import { defineConfig } from "astro/config";
-import catalogAstro from "@cloudflare/polystella/catalog/astro";
+import catalogAstro from "@cloudflare/polystella-astro/catalog/astro";
 
 export default defineConfig({
   i18n: {
@@ -224,7 +224,7 @@ export default defineConfig({
 Manual middleware with explicit dictionaries:
 
 ```ts
-import { catalogMiddleware } from "@cloudflare/polystella/catalog/middleware";
+import { catalogMiddleware } from "@cloudflare/polystella-astro/catalog/middleware";
 
 export const onRequest = catalogMiddleware({
   defaultLocale: "en-US",
@@ -270,10 +270,10 @@ const activePeople = await getLocalizedCollection(
 Outside `.astro` (utility scripts, getStaticPaths, React islands):
 
 ```ts
-import { getLocalizedEntry, getLocalizedCollection, localizedHref } from "@cloudflare/polystella/runtime";
+import { getLocalizedEntry, getLocalizedCollection, localizedHref } from "@cloudflare/polystella-astro/runtime";
 
-import { useTranslations, useLocalizedHref } from "@cloudflare/polystella/react";
-import { getDictionary } from "@cloudflare/polystella/i18n";
+import { useTranslations, useLocalizedHref } from "@cloudflare/polystella-astro/react";
+import { getDictionary } from "@cloudflare/polystella-astro/i18n";
 ```
 
 ## Branch-isolated R2 cache

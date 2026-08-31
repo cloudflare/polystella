@@ -1,0 +1,110 @@
+{
+  "name": "@cloudflare/polystella-astro",
+  "version": "0.4.0",
+  "type": "module",
+  "description": "Compatibility package for the PolyStella Astro integration.",
+  "license": "MIT",
+  "homepage": "https://github.com/cloudflare/polystella",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cloudflare/polystella.git",
+    "directory": "packages/astro-alias"
+  },
+  "bugs": {
+    "url": "https://github.com/cloudflare/polystella/issues"
+  },
+  "keywords": [
+    "astro",
+    "astro-integration",
+    "i18n",
+    "localization",
+    "translation",
+    "cloudflare"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "polystella": "dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./runtime": {
+      "types": "./dist/runtime/index.d.ts",
+      "default": "./dist/runtime/index.js"
+    },
+    "./runtime/middleware": {
+      "types": "./dist/runtime/middleware.d.ts",
+      "default": "./dist/runtime/middleware.js"
+    },
+    "./content": {
+      "types": "./dist/content/index.d.ts",
+      "default": "./dist/content/index.js"
+    },
+    "./i18n": {
+      "types": "./dist/i18n/index.d.ts",
+      "default": "./dist/i18n/index.js"
+    },
+    "./catalog": {
+      "types": "./dist/catalog/index.d.ts",
+      "default": "./dist/catalog/index.js"
+    },
+    "./catalog/middleware": {
+      "types": "./dist/catalog/middleware.d.ts",
+      "default": "./dist/catalog/middleware.js"
+    },
+    "./catalog/astro": {
+      "types": "./dist/catalog/astro.d.ts",
+      "default": "./dist/catalog/astro.js"
+    },
+    "./react": {
+      "types": "./dist/react/index.d.ts",
+      "default": "./dist/react/index.js"
+    },
+    "./recipes": {
+      "types": "./dist/recipes/index.d.ts",
+      "default": "./dist/recipes/index.js"
+    },
+    "./recipes/starlight": {
+      "types": "./dist/recipes/starlight.d.ts",
+      "default": "./dist/recipes/starlight.js"
+    },
+    "./client": {
+      "types": "./client.d.ts"
+    }
+  },
+  "files": [
+    "src",
+    "dist",
+    "client.d.ts",
+    "CHANGELOG.md",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "tsc -p tsconfig.build.json && node -e \"require('node:fs').chmodSync('dist/cli.js', 0o755)\""
+  },
+  "dependencies": {
+    "@cloudflare/polystella": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^26.0.0",
+    "typescript": "^6.0.3"
+  },
+  "peerDependencies": {
+    "astro": "^7.0.10",
+    "react": "^17.0.0 || ^18.0.0 || ^19.0.0"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
+  }
+}

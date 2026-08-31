@@ -4,11 +4,12 @@
 
 PolyStella is an [Astro](https://astro.build) integration that translates content into additional locales at build time using AI, caches translations in Cloudflare R2, and injects locale-prefixed routes for the translated pages.
 
-The repository publishes four lockstep packages:
+The repository publishes five lockstep packages:
 
 | Package                            | Owns                                                               |
 | ---------------------------------- | ------------------------------------------------------------------ |
 | `@cloudflare/polystella`           | Astro integration, CLI, R2, routing, runtime, and host policy.     |
+| `@cloudflare/polystella-astro`     | Preferred compatibility name for the Astro integration.            |
 | `@cloudflare/polystella-core`      | Platform-neutral prompts, batching, retries, and shared contracts. |
 | `@cloudflare/polystella-adapters`  | Portable Markdown, MDX, JSON, YAML, and TOML adapters.             |
 | `@cloudflare/polystella-providers` | Workers AI HTTP/binding and Anthropic transports.                  |
@@ -36,7 +37,7 @@ Workers without `nodejs_compat`; consumers may still enable it.
 Install from npm:
 
 ```bash
-pnpm add @cloudflare/polystella
+pnpm add @cloudflare/polystella-astro
 ```
 
 Peer dependencies: `astro ^7.0.10`, optionally `react ^17 || ^18 || ^19`.
@@ -56,7 +57,7 @@ Four files participate in a typical setup.
 
 ```js
 import { defineConfig } from "astro/config";
-import polystella from "@cloudflare/polystella";
+import polystella from "@cloudflare/polystella-astro";
 import polystellaConfig from "./polystella.config.mjs";
 
 export default defineConfig({
@@ -74,8 +75,8 @@ export default defineConfig({
 
 ```ts
 import { defineCollection } from "astro:content";
-import { polystellaCollections } from "@cloudflare/polystella/content";
-import { i18nLoader, i18nSchema } from "@cloudflare/polystella/i18n";
+import { polystellaCollections } from "@cloudflare/polystella-astro/content";
+import { i18nLoader, i18nSchema } from "@cloudflare/polystella-astro/i18n";
 
 import { blog, authors } from "./content-schemas";
 
@@ -90,7 +91,7 @@ export const collections = {
 **4. `src/env.d.ts`** — pick up types for PolyStella's virtual modules:
 
 ```ts
-/// <reference types="@cloudflare/polystella/client" />
+/// <reference types="@cloudflare/polystella-astro/client" />
 ```
 
 ## Catalog-Only Usage
@@ -99,7 +100,7 @@ Projects that already handle localized content and routing can adopt only
 PolyStella's JSON catalog flow:
 
 ```ts
-import catalogAstro from "@cloudflare/polystella/catalog/astro";
+import catalogAstro from "@cloudflare/polystella-astro/catalog/astro";
 
 export default defineConfig({
   i18n: { defaultLocale: "en-US", locales: ["en-US", "pt-BR"] },

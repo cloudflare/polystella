@@ -8,7 +8,13 @@
   ],
   "commit": false,
   "fixed": [
-    ["@cloudflare/polystella-core", "@cloudflare/polystella-adapters", "@cloudflare/polystella-providers", "@cloudflare/polystella"]
+    [
+      "@cloudflare/polystella-core",
+      "@cloudflare/polystella-adapters",
+      "@cloudflare/polystella-providers",
+      "@cloudflare/polystella",
+      "@cloudflare/polystella-astro"
+    ]
   ],
   "linked": [],
   "access": "public",

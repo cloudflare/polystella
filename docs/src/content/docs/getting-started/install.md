@@ -23,8 +23,11 @@ entirely — the output is regular static-Astro bytes.
 Install from npm:
 
 ```bash
-pnpm add @cloudflare/polystella
+pnpm add @cloudflare/polystella-astro
 ```
+
+`@cloudflare/polystella-astro` forwards to `@cloudflare/polystella`, so
+both names expose the same API while existing projects migrate.
 
 ## After install
 

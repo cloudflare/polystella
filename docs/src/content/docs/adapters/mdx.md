@@ -85,7 +85,7 @@ Recipes are reusable MDX rule fragments for frameworks or design
 systems:
 
 ```js
-import { starlightRecipe } from "@cloudflare/polystella/recipes/starlight";
+import { starlightRecipe } from "@cloudflare/polystella-astro/recipes/starlight";
 
 export default {
   markdown: {

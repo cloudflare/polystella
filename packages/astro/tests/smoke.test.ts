@@ -33,7 +33,7 @@ interface CapturedRoute {
 }
 
 interface CapturedMiddleware {
-  entrypoint: string;
+  entrypoint: string | URL;
   order: string;
 }
 
@@ -226,10 +226,10 @@ describe("smoke: polystella(options) integration end-to-end", () => {
     await harness.configSetup("build");
 
     expect(harness.capturedMiddleware).toHaveLength(1);
-    expect(harness.capturedMiddleware[0]).toEqual({
-      entrypoint: "@cloudflare/polystella/runtime/middleware",
-      order: "pre",
-    });
+    const middleware = harness.capturedMiddleware[0];
+    expect(middleware?.entrypoint).toBeInstanceOf(URL);
+    expect(String(middleware?.entrypoint)).toMatch(/\/runtime\/middleware\.js$/);
+    expect(middleware?.order).toBe("pre");
   });
 
   it("skips middleware auto-registration when middleware: false", async () => {

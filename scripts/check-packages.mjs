@@ -2,7 +2,7 @@
 // @ts-check
 
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -56,6 +56,37 @@ const packages = [
     executable: "dist/cli.js",
   },
   {
+    directory: path.join(repositoryRoot, "packages", "astro-alias"),
+    name: "@cloudflare/polystella-astro",
+    exports: [
+      ".",
+      "./runtime",
+      "./runtime/middleware",
+      "./content",
+      "./i18n",
+      "./catalog",
+      "./catalog/middleware",
+      "./catalog/astro",
+      "./react",
+      "./recipes",
+      "./recipes/starlight",
+      "./client",
+    ],
+    internalDependencies: ["@cloudflare/polystella"],
+    allowedTopLevel: ["CHANGELOG.md", "LICENSE", "README.md", "client.d.ts", "dist", "package.json", "src"],
+    requiredFiles: [
+      "CHANGELOG.md",
+      "LICENSE",
+      "README.md",
+      "client.d.ts",
+      "dist/cli.js",
+      "dist/index.d.ts",
+      "dist/index.js",
+      "src/index.ts",
+    ],
+    executable: "dist/cli.js",
+  },
+  {
     directory: path.join(repositoryRoot, "packages", "core"),
     name: "@cloudflare/polystella-core",
     exports: ["."],
@@ -94,6 +125,12 @@ const nodeSafeAstroEntries = [
   "@cloudflare/polystella/catalog/astro",
   "@cloudflare/polystella/recipes",
   "@cloudflare/polystella/recipes/starlight",
+  "@cloudflare/polystella-astro",
+  "@cloudflare/polystella-astro/catalog",
+  "@cloudflare/polystella-astro/catalog/middleware",
+  "@cloudflare/polystella-astro/catalog/astro",
+  "@cloudflare/polystella-astro/recipes",
+  "@cloudflare/polystella-astro/recipes/starlight",
 ];
 
 let temporaryRoot;
@@ -111,6 +148,7 @@ async function main() {
   temporaryRoot = await mkdtemp(path.join(tmpdir(), "polystella-packages-"));
   const packDirectory = path.join(temporaryRoot, "tarballs");
   const consumerDirectory = path.join(temporaryRoot, "consumer");
+  const aliasConsumerDirectory = path.join(temporaryRoot, "alias-consumer");
   try {
     const rootManifest = JSON.parse(await readFile(path.join(repositoryRoot, "package.json"), "utf8"));
     assertEqual("workspace root private", rootManifest.private, true);
@@ -162,12 +200,20 @@ async function main() {
     }
 
     await writeConsumer(consumerDirectory, packedPackages);
+    await cp(consumerDirectory, aliasConsumerDirectory, { recursive: true });
+    await writeAliasConsumer(aliasConsumerDirectory, packedPackages);
     await runCommand(pnpm, ["install", "--ignore-scripts"], { cwd: consumerDirectory, timeoutMs: 300_000 });
     await assertTarballInstall(consumerDirectory, packedPackages);
 
     await runCommand(process.execPath, ["check-imports.mjs"], { cwd: consumerDirectory });
     const cli = await runCommand(pnpm, ["exec", "polystella", "--version"], { cwd: consumerDirectory });
     assertEqual("installed CLI version", cli.stdout.trim(), commonVersion);
+    const aliasCli = await runCommand(
+      process.execPath,
+      [path.join("node_modules", "@cloudflare", "polystella-astro", "dist", "cli.js"), "--version"],
+      { cwd: consumerDirectory },
+    );
+    assertEqual("alias CLI version", aliasCli.stdout.trim(), commonVersion);
     await runCommand(pnpm, ["exec", "astro", "build"], {
       cwd: consumerDirectory,
       env: { ...process.env, CI: "true" },
@@ -175,12 +221,74 @@ async function main() {
     });
     await runCommand(pnpm, ["exec", "tsc", "--noEmit"], { cwd: consumerDirectory, timeoutMs: 180_000 });
 
+    await runCommand(pnpm, ["install", "--ignore-scripts"], { cwd: aliasConsumerDirectory, timeoutMs: 300_000 });
+    await runCommand(process.execPath, ["check-imports.mjs"], { cwd: aliasConsumerDirectory });
+    const aliasOnlyCli = await runCommand(
+      process.execPath,
+      [path.join("node_modules", "@cloudflare", "polystella-astro", "dist", "cli.js"), "--version"],
+      { cwd: aliasConsumerDirectory },
+    );
+    assertEqual("alias-only CLI version", aliasOnlyCli.stdout.trim(), commonVersion);
+    await runCommand(pnpm, ["exec", "astro", "build"], {
+      cwd: aliasConsumerDirectory,
+      env: { ...process.env, CI: "true" },
+      timeoutMs: 180_000,
+    });
+    await runCommand(pnpm, ["exec", "tsc", "--noEmit"], { cwd: aliasConsumerDirectory, timeoutMs: 180_000 });
+
     console.log(
-      `check:packages passed: 4 tarballs at ${commonVersion}, 11 runtime imports, lower-package and Astro types, installed Astro build/typecheck, and CLI`,
+      `check:packages passed: 5 tarballs at ${commonVersion}, 17 runtime imports, full and alias-only Astro builds/typechecks, and both CLIs`,
     );
   } finally {
     await cleanup();
   }
+}
+
+async function writeAliasConsumer(consumerDirectory, packedPackages) {
+  const aliasPackage = packedPackages.get("@cloudflare/polystella-astro");
+  if (aliasPackage === undefined) throw new Error("missing packed alias package");
+  await writeFile(
+    path.join(consumerDirectory, "package.json"),
+    `${JSON.stringify(
+      {
+        private: true,
+        type: "module",
+        dependencies: {
+          "@cloudflare/polystella-astro": `file:${aliasPackage.tarballPath}`,
+          astro: "^7.0.10",
+          react: "^19.0.0",
+        },
+        devDependencies: { "@types/react": "^19.0.0", typescript: "^6.0.3" },
+      },
+      null,
+      2,
+    )}\n`,
+  );
+  await writeFile(
+    path.join(consumerDirectory, "pnpm-workspace.yaml"),
+    `overrides:\n${packages
+      .filter(({ name }) => name !== "@cloudflare/polystella-astro")
+      .map(({ name }) => {
+        const packed = packedPackages.get(name);
+        if (packed === undefined) throw new Error(`missing packed package ${name}`);
+        return `  ${JSON.stringify(name)}: ${JSON.stringify(`file:${packed.tarballPath}`)}`;
+      })
+      .join("\n")}\n`,
+  );
+  await writeFile(
+    path.join(consumerDirectory, "check-imports.mjs"),
+    `${nodeSafeAstroEntries
+      .filter((specifier) => specifier.startsWith("@cloudflare/polystella-astro"))
+      .map(
+        (specifier) =>
+          `if (Object.keys(await import(${JSON.stringify(specifier)})).length === 0) throw new Error(${JSON.stringify(`${specifier} has no exports`)});`,
+      )
+      .join("\n")}\n`,
+  );
+  await writeFile(
+    path.join(consumerDirectory, "src", "entrypoints.ts"),
+    `import polystella from "@cloudflare/polystella-astro";\nimport catalogAstro from "@cloudflare/polystella-astro/catalog/astro";\nimport { polystellaCollections } from "@cloudflare/polystella-astro/content";\nimport { getTranslations } from "@cloudflare/polystella-astro/i18n";\nimport { useTranslations } from "@cloudflare/polystella-astro/react";\nimport { localizedHref } from "@cloudflare/polystella-astro/runtime";\nimport { polystellaMiddleware } from "@cloudflare/polystella-astro/runtime/middleware";\n\nexport const typedEntrypoints = [polystella, catalogAstro, polystellaCollections, getTranslations, useTranslations, localizedHref, polystellaMiddleware];\n`,
+  );
 }
 
 async function writeConsumer(consumerDirectory, packedPackages) {
@@ -222,7 +330,7 @@ async function writeConsumer(consumerDirectory, packedPackages) {
   );
   await writeFile(
     path.join(consumerDirectory, "astro.config.mjs"),
-    `import polystella from "@cloudflare/polystella";\nimport { defineConfig } from "astro/config";\n\nexport default defineConfig({\n  integrations: [polystella({ sourceDir: "./src/content", include: ["**/*.md"], dryRun: true })],\n  i18n: { defaultLocale: "en-US", locales: ["en-US", "pt-BR"] },\n});\n`,
+    `import polystella from "@cloudflare/polystella-astro";\nimport catalogAstro from "@cloudflare/polystella-astro/catalog/astro";\nimport { defineConfig } from "astro/config";\n\nexport default defineConfig({\n  integrations: [catalogAstro({ driftCheck: false }), polystella({ sourceDir: "./src/content", include: ["**/*.md"], dryRun: true })],\n  i18n: { defaultLocale: "en-US", locales: ["en-US", "pt-BR"] },\n});\n`,
   );
   await writeFile(
     path.join(consumerDirectory, "tsconfig.json"),
@@ -240,20 +348,20 @@ async function writeConsumer(consumerDirectory, packedPackages) {
   await mkdir(path.join(consumerDirectory, "src", "pages"), { recursive: true });
   await writeFile(
     path.join(consumerDirectory, "src", "env.d.ts"),
-    `/// <reference types="astro/client" />\n/// <reference types="@cloudflare/polystella/client" />\n`,
+    `/// <reference types="astro/client" />\n/// <reference types="@cloudflare/polystella-astro/client" />\n`,
   );
   await writeFile(
     path.join(consumerDirectory, "src", "content.config.ts"),
-    `import { polystellaCollections } from "@cloudflare/polystella/content";\nimport { defineCollection, z } from "astro:content";\nimport { glob } from "astro/loaders";\n\nconst docs = defineCollection({ loader: glob({ pattern: "**/*.md", base: "./src/content/docs" }), schema: z.object({ title: z.string() }) });\nexport const collections = polystellaCollections({ source: { docs } });\n`,
+    `import { polystellaCollections } from "@cloudflare/polystella-astro/content";\nimport { defineCollection, z } from "astro:content";\nimport { glob } from "astro/loaders";\n\nconst docs = defineCollection({ loader: glob({ pattern: "**/*.md", base: "./src/content/docs" }), schema: z.object({ title: z.string() }) });\nexport const collections = polystellaCollections({ source: { docs } });\n`,
   );
   await writeFile(path.join(consumerDirectory, "src", "content", "docs", "hello.md"), `---\ntitle: Hello\n---\n\n# Hello\n`);
   await writeFile(
     path.join(consumerDirectory, "src", "entrypoints.ts"),
-    `import { jsonAdapter } from "@cloudflare/polystella-adapters";\nimport { buildPrompt, EMPTY_GLOSSARY, type Segment, type Translator } from "@cloudflare/polystella-core";\nimport { createWorkersAIHttpTranslator } from "@cloudflare/polystella-providers";\nimport { createAnthropicTranslator, type AnthropicTranslatorOptions } from "@cloudflare/polystella-providers/anthropic";\nimport { createWorkersAIBindingTranslator, type WorkersAIInput } from "@cloudflare/polystella-providers/workers-ai";\nimport { polystellaCollections } from "@cloudflare/polystella/content";\nimport { getTranslations } from "@cloudflare/polystella/i18n";\nimport { useTranslations } from "@cloudflare/polystella/react";\nimport { localizedHref } from "@cloudflare/polystella/runtime";\nimport { polystellaMiddleware } from "@cloudflare/polystella/runtime/middleware";\nimport { defaultLocale } from "polystella:runtime-config";\n\nconst segment: Segment = { id: "body:0", text: "Hello" };\nconst prompt = buildPrompt({ segments: [segment], glossary: EMPTY_GLOSSARY, sourceLocale: "en-US", targetLocale: "pt-BR" });\nconst input: WorkersAIInput = { messages: [{ role: "user", content: prompt.userPrompt }], max_tokens: 64 };\nconst bindingTranslator: Translator = createWorkersAIBindingTranslator({ modelId: "test", maxTokens: 64, run: async () => ({ response: "Ola" }) });\nconst httpTranslator: Translator = createWorkersAIHttpTranslator({ accountId: "test", apiToken: "test", modelId: "test", maxTokens: 64 });\nconst anthropicOptions: AnthropicTranslatorOptions = { apiKey: "test", modelId: "test", maxTokens: 64 };\nconst anthropicTranslator: Translator = createAnthropicTranslator(anthropicOptions);\n\nexport const typedEntrypoints = [jsonAdapter, prompt, input, bindingTranslator, httpTranslator, anthropicTranslator, polystellaCollections, getTranslations, useTranslations, localizedHref, polystellaMiddleware, defaultLocale];\n`,
+    `import { jsonAdapter } from "@cloudflare/polystella-adapters";\nimport { buildPrompt, EMPTY_GLOSSARY, type Segment, type Translator } from "@cloudflare/polystella-core";\nimport { createWorkersAIHttpTranslator } from "@cloudflare/polystella-providers";\nimport { createAnthropicTranslator, type AnthropicTranslatorOptions } from "@cloudflare/polystella-providers/anthropic";\nimport { createWorkersAIBindingTranslator, type WorkersAIInput } from "@cloudflare/polystella-providers/workers-ai";\nimport { polystellaCollections } from "@cloudflare/polystella-astro/content";\nimport { getTranslations } from "@cloudflare/polystella-astro/i18n";\nimport { useTranslations } from "@cloudflare/polystella-astro/react";\nimport { localizedHref } from "@cloudflare/polystella-astro/runtime";\nimport { polystellaMiddleware } from "@cloudflare/polystella-astro/runtime/middleware";\nimport { defaultLocale } from "polystella:runtime-config";\n\nconst segment: Segment = { id: "body:0", text: "Hello" };\nconst prompt = buildPrompt({ segments: [segment], glossary: EMPTY_GLOSSARY, sourceLocale: "en-US", targetLocale: "pt-BR" });\nconst input: WorkersAIInput = { messages: [{ role: "user", content: prompt.userPrompt }], max_tokens: 64 };\nconst bindingTranslator: Translator = createWorkersAIBindingTranslator({ modelId: "test", maxTokens: 64, run: async () => ({ response: "Ola" }) });\nconst httpTranslator: Translator = createWorkersAIHttpTranslator({ accountId: "test", apiToken: "test", modelId: "test", maxTokens: 64 });\nconst anthropicOptions: AnthropicTranslatorOptions = { apiKey: "test", modelId: "test", maxTokens: 64 };\nconst anthropicTranslator: Translator = createAnthropicTranslator(anthropicOptions);\n\nexport const typedEntrypoints = [jsonAdapter, prompt, input, bindingTranslator, httpTranslator, anthropicTranslator, polystellaCollections, getTranslations, useTranslations, localizedHref, polystellaMiddleware, defaultLocale];\n`,
   );
   await writeFile(
     path.join(consumerDirectory, "src", "pages", "index.astro"),
-    `---\nimport { getTranslations } from "@cloudflare/polystella/i18n";\nimport { useTranslations } from "@cloudflare/polystella/react";\nimport { localizedHref } from "@cloudflare/polystella/runtime";\nimport { polystellaMiddleware } from "@cloudflare/polystella/runtime/middleware";\n\nconst surfaces = [getTranslations, useTranslations, localizedHref, polystellaMiddleware];\n---\n<html><body><a href={localizedHref("/", "pt-BR")} data-surfaces={surfaces.length}>Installed PolyStella</a></body></html>\n`,
+    `---\nimport { getTranslations } from "@cloudflare/polystella-astro/i18n";\nimport { useTranslations } from "@cloudflare/polystella-astro/react";\nimport { localizedHref } from "@cloudflare/polystella-astro/runtime";\nimport { polystellaMiddleware } from "@cloudflare/polystella-astro/runtime/middleware";\n\nconst surfaces = [getTranslations, useTranslations, localizedHref, polystellaMiddleware];\n---\n<html><body><a href={localizedHref("/", "pt-BR")} data-surfaces={surfaces.length}>Installed PolyStella</a></body></html>\n`,
   );
 }
 

@@ -11,6 +11,7 @@ const PACKAGE_MANIFESTS = [
   { owner: "Adapters", directory: "adapters" },
   { owner: "Providers", directory: "providers" },
   { owner: "Astro", directory: "astro" },
+  { owner: "Astro", directory: "astro-alias" },
 ] as const;
 const EXPORTS_PAGE = path.join(DOCS_ROOT, "src", "content", "docs", "reference", "exports.md");
 

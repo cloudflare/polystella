@@ -50,6 +50,7 @@ const showSections = sections.length >= 2;
       <a href="/" class="group text-foreground transition-colors hover:text-primary" aria-label={config.title}>
         <span class="wordmark" set:html={wordmark} />
       </a>
+      {config.versions && <span class="text-xs font-mono text-muted-foreground">v{config.versions.current}</span>}
 
       {showSections && (
         <nav aria-label="Sections" class="hidden md:flex items-center gap-1 ml-4 pl-4 border-l border-border h-6">

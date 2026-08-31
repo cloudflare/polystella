@@ -60,7 +60,7 @@ describe("catalogAstro", () => {
     expect(middleware.order).toBe("pre");
     expect(middleware.entrypoint).toContain("polystella-catalog");
     const middlewareSource = await readFile(middleware.entrypoint, "utf8");
-    expect(middlewareSource).toContain('from "@cloudflare/polystella/catalog/middleware"');
+    expect(middlewareSource).toMatch(/from "file:.*\/catalog\/middleware\.js"/);
     expect(middlewareSource).toContain('from "polystella:catalog"');
     expect(capturedRoutes).toEqual([]);
   });

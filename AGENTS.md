@@ -27,9 +27,9 @@ section numbers. Inserting new sections never breaks links.
 | :-------------------- | :----------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `pnpm test`           | Run all package, Astro, workerd, and boundary tests.                                                                                                   |
 | `pnpm test:watch`     | Run the Astro package tests in watch mode.                                                                                                             |
-| `pnpm build`          | Build all four public packages. Astro emits its standalone CLI and library entries under `packages/astro/dist/`.                                       |
-| `pnpm typecheck`      | Build all four packages, then typecheck every public package against its package-local `tsconfig.json`.                                                |
-| `pnpm check:packages` | Pack all four public packages and exercise every export from a clean temporary consumer.                                                               |
+| `pnpm build`          | Build all five public packages. Astro emits its standalone CLI and library entries under `packages/astro/dist/`.                                       |
+| `pnpm typecheck`      | Build all five packages, then typecheck every public package against its package-local `tsconfig.json`.                                                |
+| `pnpm check:packages` | Pack all five public packages and exercise every export from a clean temporary consumer.                                                               |
 | `pnpm changeset`      | Add a Changesets entry for package-affecting work. Use `pnpm changeset add --empty` only for changes that intentionally do not need a package release. |
 
 No lint step yet.
@@ -98,7 +98,7 @@ to the explanatory section when adding code that touches one.
   `pnpm changeset add --empty` only when the change deliberately does
   not require a package release (for example, docs-site-only or CI-only
   maintenance).
-- Let Changesets version the fixed four-package group; do not manually bump
+- Let Changesets version the fixed five-package group; do not manually bump
   individual manifests. `POLYSTELLA_VERSION` in
   `packages/astro/src/version.ts` reads the Astro manifest at module-load time
   and flows to `packages/astro/dist/version.js` after `pnpm build`.
