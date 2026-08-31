@@ -1,0 +1,27 @@
+README.md
+  s_7fb1cb75a77e23::t_81c7715b4c8589 7,12,40,60,78-79,94,103
+docs/src/content/docs/reference/exports.md
+  s_7fb1cb75a77e23::t_f481b38aed5abc 3,7-42,100,109,115-116,122,133,139
+llms-full.txt
+  s_7fb1cb75a77e23::t_006424373a067f 45-47,116,977-981,996,1021,1038,1118-1119,1135,1195,1215,1261,1263-1264
+packages/astro/src/catalog/astro.ts
+  s_7fb1cb75a77e23::t_4a3c4a9b1a0ee4 73,187,189
+pnpm-lock.yaml
+  s_7fb1cb75a77e23::t_6f80fdeca466e7 27-29,214-232
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "7778a565199f90f98a8a90257f535836e0961955",
+  "prompts": {},
+  "sessions": {
+    "s_7fb1cb75a77e23": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_fbd20ebcaffev025mmzs7vv6jc",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Diogo Carneiro <dcarneiro@cloudflare.com>"
+    }
+  }
+}
