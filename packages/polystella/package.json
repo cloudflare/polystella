@@ -1,14 +1,14 @@
 {
-  "name": "@cloudflare/polystella-astro",
+  "name": "@cloudflare/polystella",
   "version": "0.4.0",
   "type": "module",
-  "description": "Compatibility package for the PolyStella Astro integration.",
+  "description": "Compatibility package forwarding to the PolyStella Astro integration.",
   "license": "MIT",
   "homepage": "https://github.com/cloudflare/polystella",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/cloudflare/polystella.git",
-    "directory": "packages/astro-alias"
+    "directory": "packages/polystella"
   },
   "bugs": {
     "url": "https://github.com/cloudflare/polystella/issues"
@@ -92,7 +92,7 @@
     "build": "tsc -p tsconfig.build.json && node -e \"require('node:fs').chmodSync('dist/cli.js', 0o755)\""
   },
   "dependencies": {
-    "@cloudflare/polystella": "workspace:*"
+    "@cloudflare/polystella-astro": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^26.0.0",

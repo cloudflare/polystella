@@ -83,10 +83,7 @@ jobs:
                 file.startsWith("packages/astro/src/runtime/") || file.startsWith("packages/astro/src/react/"),
               "area/storage": (file) => file.startsWith("packages/astro/src/storage/"),
               "area/tests": (file) =>
-                /^packages\/(astro|core|adapters|providers)\/tests\//.test(file) ||
-                file.startsWith("boundary-tests/") ||
-                file.startsWith("workerd-tests/") ||
-                file.startsWith("fixtures/workerd/"),
+                /^packages\/(astro|core|adapters|providers)\/tests\//.test(file) || file.startsWith("tests/"),
               "area/translation": (file) =>
                 file.startsWith("packages/core/") ||
                 file.startsWith("packages/providers/") ||

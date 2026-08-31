@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const wrangler = join(root, "docs", "node_modules", "wrangler", "bin", "wrangler.js");
-const config = join(root, "fixtures", "workerd", "wrangler.jsonc");
+const config = join(root, "tests", "workerd", "fixture", "wrangler.jsonc");
 const nodeBuiltins = new Set(builtinModules.map((name) => name.replace(/^node:/, "")));
 const children = new Set();
 let temporaryDirectory;

@@ -5,8 +5,8 @@ aiGenerated: true
 ---
 
 PolyStella ships twenty-nine public import paths across five packages.
-The preferred Astro package, `@cloudflare/polystella-astro`, forwards
-all twelve Astro paths to `@cloudflare/polystella`; both names expose
+The canonical Astro package, `@cloudflare/polystella-astro`, is also
+available through the `@cloudflare/polystella` compatibility package; both expose
 the same API.
 
 | Owner     | Path                                              | Purpose                                                                                                   | Example                                                                                        |
@@ -28,18 +28,18 @@ the same API.
 | Astro     | `@cloudflare/polystella-astro/recipes`            | MDX recipe helpers and built-in recipes.                                                                  | `import { defineMdxRecipe } from "@cloudflare/polystella-astro/recipes";`                      |
 | Astro     | `@cloudflare/polystella-astro/recipes/starlight`  | Conservative Starlight MDX recipe.                                                                        | `import { starlightRecipe } from "@cloudflare/polystella-astro/recipes/starlight";`            |
 | Astro     | `@cloudflare/polystella-astro/client`             | Types only. Reference from `src/env.d.ts` for virtual-module types. No runtime import.                    | `/// <reference types="@cloudflare/polystella-astro/client" />`                                |
-| Astro     | `@cloudflare/polystella`                          | Canonical implementation package; equivalent to `@cloudflare/polystella-astro`.                           | `import polystella from "@cloudflare/polystella";`                                             |
-| Astro     | `@cloudflare/polystella/content`                  | Canonical content-config entrypoint.                                                                      | `import { polystellaCollections } from "@cloudflare/polystella/content";`                      |
-| Astro     | `@cloudflare/polystella/runtime`                  | Canonical runtime entrypoint.                                                                             | `import { localizedHref } from "@cloudflare/polystella/runtime";`                              |
-| Astro     | `@cloudflare/polystella/runtime/middleware`       | Canonical direct middleware entrypoint.                                                                   | `import { polystellaMiddleware } from "@cloudflare/polystella/runtime/middleware";`            |
-| Astro     | `@cloudflare/polystella/i18n`                     | Canonical UI-string entrypoint.                                                                           | `import { getDictionary } from "@cloudflare/polystella/i18n";`                                 |
-| Astro     | `@cloudflare/polystella/catalog`                  | Canonical pure catalog entrypoint.                                                                        | `import { buildTranslateFn } from "@cloudflare/polystella/catalog";`                           |
-| Astro     | `@cloudflare/polystella/catalog/middleware`       | Canonical catalog-only middleware entrypoint.                                                             | `import { catalogMiddleware } from "@cloudflare/polystella/catalog/middleware";`               |
-| Astro     | `@cloudflare/polystella/catalog/astro`            | Canonical catalog-only Astro integration entrypoint.                                                      | `import catalogAstro from "@cloudflare/polystella/catalog/astro";`                             |
-| Astro     | `@cloudflare/polystella/react`                    | Canonical React hooks entrypoint.                                                                         | `import { useTranslations } from "@cloudflare/polystella/react";`                              |
-| Astro     | `@cloudflare/polystella/recipes`                  | Canonical MDX recipe entrypoint.                                                                          | `import { defineMdxRecipe } from "@cloudflare/polystella/recipes";`                            |
-| Astro     | `@cloudflare/polystella/recipes/starlight`        | Canonical Starlight recipe entrypoint.                                                                    | `import { starlightRecipe } from "@cloudflare/polystella/recipes/starlight";`                  |
-| Astro     | `@cloudflare/polystella/client`                   | Canonical virtual-module types entrypoint.                                                                | `/// <reference types="@cloudflare/polystella/client" />`                                      |
+| Astro     | `@cloudflare/polystella`                          | Compatibility package; equivalent to `@cloudflare/polystella-astro`.                                      | `import polystella from "@cloudflare/polystella";`                                             |
+| Astro     | `@cloudflare/polystella/content`                  | Compatibility content-config entrypoint.                                                                  | `import { polystellaCollections } from "@cloudflare/polystella/content";`                      |
+| Astro     | `@cloudflare/polystella/runtime`                  | Compatibility runtime entrypoint.                                                                         | `import { localizedHref } from "@cloudflare/polystella/runtime";`                              |
+| Astro     | `@cloudflare/polystella/runtime/middleware`       | Compatibility direct middleware entrypoint.                                                               | `import { polystellaMiddleware } from "@cloudflare/polystella/runtime/middleware";`            |
+| Astro     | `@cloudflare/polystella/i18n`                     | Compatibility UI-string entrypoint.                                                                       | `import { getDictionary } from "@cloudflare/polystella/i18n";`                                 |
+| Astro     | `@cloudflare/polystella/catalog`                  | Compatibility pure catalog entrypoint.                                                                    | `import { buildTranslateFn } from "@cloudflare/polystella/catalog";`                           |
+| Astro     | `@cloudflare/polystella/catalog/middleware`       | Compatibility catalog-only middleware entrypoint.                                                         | `import { catalogMiddleware } from "@cloudflare/polystella/catalog/middleware";`               |
+| Astro     | `@cloudflare/polystella/catalog/astro`            | Compatibility catalog-only Astro integration entrypoint.                                                  | `import catalogAstro from "@cloudflare/polystella/catalog/astro";`                             |
+| Astro     | `@cloudflare/polystella/react`                    | Compatibility React hooks entrypoint.                                                                     | `import { useTranslations } from "@cloudflare/polystella/react";`                              |
+| Astro     | `@cloudflare/polystella/recipes`                  | Compatibility MDX recipe entrypoint.                                                                      | `import { defineMdxRecipe } from "@cloudflare/polystella/recipes";`                            |
+| Astro     | `@cloudflare/polystella/recipes/starlight`        | Compatibility Starlight recipe entrypoint.                                                                | `import { starlightRecipe } from "@cloudflare/polystella/recipes/starlight";`                  |
+| Astro     | `@cloudflare/polystella/client`                   | Compatibility virtual-module types entrypoint.                                                            | `/// <reference types="@cloudflare/polystella/client" />`                                      |
 
 ## Direct package flow
 

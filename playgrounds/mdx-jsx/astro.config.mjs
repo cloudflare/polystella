@@ -1,6 +1,6 @@
 // @ts-check
 import mdx from "@astrojs/mdx";
-import polystella from "@cloudflare/polystella";
+import polystella from "@cloudflare/polystella-astro";
 import { defineConfig } from "astro/config";
 
 export default defineConfig({

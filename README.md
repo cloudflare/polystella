@@ -8,8 +8,8 @@ The repository publishes five lockstep packages:
 
 | Package                            | Owns                                                               |
 | ---------------------------------- | ------------------------------------------------------------------ |
-| `@cloudflare/polystella`           | Astro integration, CLI, R2, routing, runtime, and host policy.     |
-| `@cloudflare/polystella-astro`     | Preferred compatibility name for the Astro integration.            |
+| `@cloudflare/polystella-astro`     | Astro integration, CLI, R2, routing, runtime, and host policy.     |
+| `@cloudflare/polystella`           | Compatibility name forwarding to the Astro integration.            |
 | `@cloudflare/polystella-core`      | Platform-neutral prompts, batching, retries, and shared contracts. |
 | `@cloudflare/polystella-adapters`  | Portable Markdown, MDX, JSON, YAML, and TOML adapters.             |
 | `@cloudflare/polystella-providers` | Workers AI HTTP/binding and Anthropic transports.                  |

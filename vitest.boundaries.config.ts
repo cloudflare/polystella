@@ -3,6 +3,6 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   test: {
     environment: "node",
-    include: ["boundary-tests/**/*.test.ts"],
+    include: ["tests/boundaries/**/*.test.ts"],
   },
 });

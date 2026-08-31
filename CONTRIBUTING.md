@@ -12,8 +12,8 @@ easier to evaluate when maintainer time is available.
 
 PolyStella is a pnpm workspace with five public packages under `packages/`:
 
-- `packages/astro/` — `@cloudflare/polystella`.
-- `packages/astro-alias/` — `@cloudflare/polystella-astro`, a forwarding compatibility package.
+- `packages/astro/` — `@cloudflare/polystella-astro`.
+- `packages/polystella/` — `@cloudflare/polystella`, a forwarding compatibility package.
 - `packages/core/` — platform-neutral translation orchestration.
 - `packages/adapters/` — Markdown, MDX, JSON, YAML, and TOML adapters.
 - `packages/providers/` — Workers AI and Anthropic transports.

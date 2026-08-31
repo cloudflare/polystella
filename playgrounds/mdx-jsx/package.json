@@ -15,7 +15,7 @@
   },
   "dependencies": {
     "@astrojs/mdx": "^7.0.8",
-    "@cloudflare/polystella": "workspace:*",
+    "@cloudflare/polystella-astro": "workspace:*",
     "astro": "^7.2.9"
   },
   "devDependencies": {

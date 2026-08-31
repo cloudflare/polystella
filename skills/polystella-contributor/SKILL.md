@@ -393,7 +393,7 @@ for low-level imports that moved out of the Astro package.
 **Key contracts:**
 
 - **Bridge timing (Invariant 5)** — the bridge must be set in `astro:config:setup` before sibling collections register. Edits that defer bridge setup will silently break sibling content loading.
-- **Per-locale closures** — `t`, `lhref`, `getLocalizedEntry`, `getLocalizedCollection` are pre-bound to the request's locale by the middleware. Don't expose unbound versions in `.astro` files — they're imported separately from `@cloudflare/polystella/runtime` for non-template contexts.
+- **Per-locale closures** — `t`, `lhref`, `getLocalizedEntry`, `getLocalizedCollection` are pre-bound to the request's locale by the middleware. Don't expose unbound versions in `.astro` files — they're imported separately from `@cloudflare/polystella-astro/runtime` for non-template contexts.
 
 **Steps:**
 

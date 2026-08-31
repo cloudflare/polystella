@@ -17,7 +17,7 @@ the breaking entries.
 Translation contracts and orchestration now come from
 `@cloudflare/polystella-core`, portable formats from
 `@cloudflare/polystella-adapters`, and provider transports from
-`@cloudflare/polystella-providers`. `@cloudflare/polystella` retains the
+`@cloudflare/polystella-providers`. `@cloudflare/polystella-astro` owns the
 Astro integration and host-owned APIs. No compatibility shims preserve the
 old low-level root imports.
 

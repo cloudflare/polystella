@@ -37,7 +37,7 @@ export {
  * compositions don't share state.
  *
  *   import { sequence } from "astro:middleware";
- *   import { polystellaMiddleware } from "@cloudflare/polystella/runtime";
+ *   import { polystellaMiddleware } from "@cloudflare/polystella-astro/runtime";
  *   export const onRequest = sequence(myOwn, polystellaMiddleware());
  */
 export function polystellaMiddleware(): PolystellaMiddleware {

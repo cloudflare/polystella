@@ -1,4 +1,4 @@
-import { defineMdxRecipe } from "@cloudflare/polystella/recipes";
+import { defineMdxRecipe } from "@cloudflare/polystella-astro/recipes";
 
 /**
  * Future recipe fixture for the MDX JSX playground.

@@ -125,7 +125,7 @@ Two entry points share `runTranslationPass` in `packages/astro/src/translation/r
   extraction, grouping, and translation application.
 - `@cloudflare/polystella-providers` owns Workers AI HTTP/binding and
   Anthropic transports.
-- `@cloudflare/polystella` owns Astro hooks, filesystem and R2 access,
+- `@cloudflare/polystella-astro` owns Astro hooks, filesystem and R2 access,
   cache/marker/URL policy, routing, runtime APIs, and the CLI.
 
 The three reusable packages depend only on standard Web APIs at runtime.
@@ -766,11 +766,11 @@ are produced by `tsc -p packages/astro/tsconfig.build.json` (`pnpm build`).
 tsc preserves the `with { type: "json" }` import attribute, so
 `packages/astro/dist/version.js` resolves
 `../package.json` (i.e. the package root) at module-load time inside
-the consumer's `node_modules/@cloudflare/polystella/`. No version inlining; one
+the consumer's `node_modules/@cloudflare/polystella-astro/`. No version inlining; one
 source of truth.
 
 Changesets versions all five public packages as a fixed group. The Astro
 manifest remains this constant's source, so the canonical package and
-`@cloudflare/polystella-astro` alias report the same generated version. The
+`@cloudflare/polystella` alias report the same generated version. The
 constant is baked into R2 metadata and the build report but is NOT in the
 cache key formula, so a version bump doesn't re-translate.

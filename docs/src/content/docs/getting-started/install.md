@@ -26,7 +26,7 @@ Install from npm:
 pnpm add @cloudflare/polystella-astro
 ```
 
-`@cloudflare/polystella-astro` forwards to `@cloudflare/polystella`, so
+`@cloudflare/polystella` forwards to `@cloudflare/polystella-astro`, so
 both names expose the same API while existing projects migrate.
 
 ## After install

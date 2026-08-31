@@ -1,6 +1,6 @@
 import { defineCollection, z } from "astro:content";
 import { glob } from "astro/loaders";
-import { polystellaCollections } from "@cloudflare/polystella/content";
+import { polystellaCollections } from "@cloudflare/polystella-astro/content";
 
 const docs = defineCollection({
   loader: glob({ pattern: "**/*.{md,mdx}", base: "./src/content/docs" }),

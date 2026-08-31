@@ -1,4 +1,4 @@
-# @cloudflare/polystella
+# @cloudflare/polystella-astro
 
 Astro integration for build-time AI translation, R2 caching, and localized routes.
 

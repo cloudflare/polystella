@@ -3,5 +3,5 @@
   "compilerOptions": {
     "types": ["@cloudflare/vitest-plugin/types"]
   },
-  "include": ["fixtures/workerd/**/*.ts", "workerd-tests/**/*.ts"]
+  "include": ["tests/workerd/**/*.ts"]
 }

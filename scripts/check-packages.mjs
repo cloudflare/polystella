@@ -15,7 +15,7 @@ const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 const packages = [
   {
     directory: path.join(repositoryRoot, "packages", "astro"),
-    name: "@cloudflare/polystella",
+    name: "@cloudflare/polystella-astro",
     exports: [
       ".",
       "./runtime",
@@ -56,8 +56,8 @@ const packages = [
     executable: "dist/cli.js",
   },
   {
-    directory: path.join(repositoryRoot, "packages", "astro-alias"),
-    name: "@cloudflare/polystella-astro",
+    directory: path.join(repositoryRoot, "packages", "polystella"),
+    name: "@cloudflare/polystella",
     exports: [
       ".",
       "./runtime",
@@ -72,7 +72,7 @@ const packages = [
       "./recipes/starlight",
       "./client",
     ],
-    internalDependencies: ["@cloudflare/polystella"],
+    internalDependencies: ["@cloudflare/polystella-astro"],
     allowedTopLevel: ["CHANGELOG.md", "LICENSE", "README.md", "client.d.ts", "dist", "package.json", "src"],
     requiredFiles: [
       "CHANGELOG.md",
@@ -206,11 +206,15 @@ async function main() {
     await assertTarballInstall(consumerDirectory, packedPackages);
 
     await runCommand(process.execPath, ["check-imports.mjs"], { cwd: consumerDirectory });
-    const cli = await runCommand(pnpm, ["exec", "polystella", "--version"], { cwd: consumerDirectory });
-    assertEqual("installed CLI version", cli.stdout.trim(), commonVersion);
-    const aliasCli = await runCommand(
+    const cli = await runCommand(
       process.execPath,
       [path.join("node_modules", "@cloudflare", "polystella-astro", "dist", "cli.js"), "--version"],
+      { cwd: consumerDirectory },
+    );
+    assertEqual("canonical CLI version", cli.stdout.trim(), commonVersion);
+    const aliasCli = await runCommand(
+      process.execPath,
+      [path.join("node_modules", "@cloudflare", "polystella", "dist", "cli.js"), "--version"],
       { cwd: consumerDirectory },
     );
     assertEqual("alias CLI version", aliasCli.stdout.trim(), commonVersion);
@@ -225,7 +229,7 @@ async function main() {
     await runCommand(process.execPath, ["check-imports.mjs"], { cwd: aliasConsumerDirectory });
     const aliasOnlyCli = await runCommand(
       process.execPath,
-      [path.join("node_modules", "@cloudflare", "polystella-astro", "dist", "cli.js"), "--version"],
+      [path.join("node_modules", "@cloudflare", "polystella", "dist", "cli.js"), "--version"],
       { cwd: aliasConsumerDirectory },
     );
     assertEqual("alias-only CLI version", aliasOnlyCli.stdout.trim(), commonVersion);
@@ -245,7 +249,7 @@ async function main() {
 }
 
 async function writeAliasConsumer(consumerDirectory, packedPackages) {
-  const aliasPackage = packedPackages.get("@cloudflare/polystella-astro");
+  const aliasPackage = packedPackages.get("@cloudflare/polystella");
   if (aliasPackage === undefined) throw new Error("missing packed alias package");
   await writeFile(
     path.join(consumerDirectory, "package.json"),
@@ -254,7 +258,7 @@ async function writeAliasConsumer(consumerDirectory, packedPackages) {
         private: true,
         type: "module",
         dependencies: {
-          "@cloudflare/polystella-astro": `file:${aliasPackage.tarballPath}`,
+          "@cloudflare/polystella": `file:${aliasPackage.tarballPath}`,
           astro: "^7.0.10",
           react: "^19.0.0",
         },
@@ -267,7 +271,7 @@ async function writeAliasConsumer(consumerDirectory, packedPackages) {
   await writeFile(
     path.join(consumerDirectory, "pnpm-workspace.yaml"),
     `overrides:\n${packages
-      .filter(({ name }) => name !== "@cloudflare/polystella-astro")
+      .filter(({ name }) => name !== "@cloudflare/polystella")
       .map(({ name }) => {
         const packed = packedPackages.get(name);
         if (packed === undefined) throw new Error(`missing packed package ${name}`);
@@ -278,16 +282,20 @@ async function writeAliasConsumer(consumerDirectory, packedPackages) {
   await writeFile(
     path.join(consumerDirectory, "check-imports.mjs"),
     `${nodeSafeAstroEntries
-      .filter((specifier) => specifier.startsWith("@cloudflare/polystella-astro"))
+      .filter((specifier) => specifier === "@cloudflare/polystella" || specifier.startsWith("@cloudflare/polystella/"))
       .map(
         (specifier) =>
           `if (Object.keys(await import(${JSON.stringify(specifier)})).length === 0) throw new Error(${JSON.stringify(`${specifier} has no exports`)});`,
       )
       .join("\n")}\n`,
   );
+  for (const relativePath of ["astro.config.mjs", "src/env.d.ts", "src/content.config.ts", "src/pages/index.astro"]) {
+    const file = path.join(consumerDirectory, relativePath);
+    await writeFile(file, (await readFile(file, "utf8")).replaceAll("@cloudflare/polystella-astro", "@cloudflare/polystella"));
+  }
   await writeFile(
     path.join(consumerDirectory, "src", "entrypoints.ts"),
-    `import polystella from "@cloudflare/polystella-astro";\nimport catalogAstro from "@cloudflare/polystella-astro/catalog/astro";\nimport { polystellaCollections } from "@cloudflare/polystella-astro/content";\nimport { getTranslations } from "@cloudflare/polystella-astro/i18n";\nimport { useTranslations } from "@cloudflare/polystella-astro/react";\nimport { localizedHref } from "@cloudflare/polystella-astro/runtime";\nimport { polystellaMiddleware } from "@cloudflare/polystella-astro/runtime/middleware";\n\nexport const typedEntrypoints = [polystella, catalogAstro, polystellaCollections, getTranslations, useTranslations, localizedHref, polystellaMiddleware];\n`,
+    `import polystella from "@cloudflare/polystella";\nimport catalogAstro from "@cloudflare/polystella/catalog/astro";\nimport { polystellaCollections } from "@cloudflare/polystella/content";\nimport { getTranslations } from "@cloudflare/polystella/i18n";\nimport { useTranslations } from "@cloudflare/polystella/react";\nimport { localizedHref } from "@cloudflare/polystella/runtime";\nimport { polystellaMiddleware } from "@cloudflare/polystella/runtime/middleware";\n\nexport const typedEntrypoints = [polystella, catalogAstro, polystellaCollections, getTranslations, useTranslations, localizedHref, polystellaMiddleware];\n`,
   );
 }
 

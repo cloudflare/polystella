@@ -389,7 +389,7 @@ When a translation is wrong:
 | You want to           | Look at                                                               |
 | :-------------------- | :-------------------------------------------------------------------- |
 | Understand the system | `https://github.com/cloudflare/polystella/blob/main/ARCHITECTURE.md`  |
-| See config schema     | `node_modules/@cloudflare/polystella/src/config/options.ts`           |
+| See config schema     | `node_modules/@cloudflare/polystella-astro/src/config/options.ts`     |
 | See available exports | Each installed `@cloudflare/polystella*` package manifest             |
 | See CLI flags         | `polystella --help`, `polystella <subcommand> --help`                 |
 | Debug a translation   | `dist/i18n-r2-report.json`, `<root>/.astro/i18n-staging/<locale>/...` |

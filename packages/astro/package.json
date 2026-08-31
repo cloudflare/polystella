@@ -1,5 +1,5 @@
 {
-  "name": "@cloudflare/polystella",
+  "name": "@cloudflare/polystella-astro",
   "version": "0.4.0",
   "type": "module",
   "description": "AI-driven content localization for Astro (build-time markdown translation, R2-cached).",

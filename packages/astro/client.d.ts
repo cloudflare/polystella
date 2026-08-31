@@ -5,7 +5,7 @@
  * `src/env.d.ts` (or any other ambient declaration file) so editors
  * and `tsc` can resolve `polystella:runtime-config` imports:
  *
- *     /// <reference types="@cloudflare/polystella/client" />
+ *     /// <reference types="@cloudflare/polystella-astro/client" />
  *
  * Mirrors Astro's own `astro/client` pattern.
  */
@@ -68,5 +68,5 @@ declare module "polystella:catalog" {
   export const fallbackToDefault: boolean;
 
   /** Load a flat string dictionary for a locale from the catalog integration. */
-  export function getDictionary(locale: string): Promise<import("@cloudflare/polystella/catalog").CatalogDictionary | undefined>;
+  export function getDictionary(locale: string): Promise<import("@cloudflare/polystella-astro/catalog").CatalogDictionary | undefined>;
 }
