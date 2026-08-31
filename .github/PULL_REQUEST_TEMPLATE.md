@@ -37,7 +37,7 @@ Closes #
 - [ ] I have added a changeset, or this change does not affect the published package
 - [ ] I have updated docs, or this change does not affect public behavior
 - [ ] `pnpm test` passes, or I have explained why it was not run
-- [ ] `pnpm exec tsc --noEmit` passes, or I have explained why it was not run
+- [ ] `pnpm typecheck` passes, or I have explained why it was not run
 - [ ] Docs checks/builds pass if docs or public APIs changed
 
 ## AI-generated code disclosure
