@@ -132,8 +132,8 @@ function close(serverToClose) {
 /** @param {string} endpoint */
 function runPolystellaTranslate(endpoint) {
   return new Promise((resolve, reject) => {
-    const bin = process.platform === "win32" ? "polystella.cmd" : "polystella";
-    const child = spawn(bin, ["translate", "--branch", "local-mdx-jsx", "--report", "./i18n-r2-report.json"], {
+    const cli = path.join(playgroundRoot, "node_modules", "@cloudflare", "polystella-astro", "dist", "cli.js");
+    const child = spawn(process.execPath, [cli, "translate", "--branch", "local-mdx-jsx", "--report", "./i18n-r2-report.json"], {
       cwd: playgroundRoot,
       stdio: "inherit",
       env: {

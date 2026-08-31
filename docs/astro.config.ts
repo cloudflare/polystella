@@ -1,6 +1,7 @@
 import { defineConfig } from "astro/config";
 import icon from "astro-icon";
 import nimbus, { defineConfig as defineNimbusConfig } from "nimbus-docs";
+import polystellaPackage from "../packages/astro/package.json";
 
 const nimbusConfig = defineNimbusConfig({
   site: "https://polystella-docs.pcx-team.workers.dev",
@@ -10,6 +11,7 @@ const nimbusConfig = defineNimbusConfig({
   github: "https://github.com/cloudflare/polystella",
   editPattern: "https://github.com/cloudflare/polystella/edit/main/docs/{path}",
   socialImageAlt: "PolyStella documentation preview",
+  versions: { current: polystellaPackage.version, others: [] },
   sidebar: {
     items: [
       {
@@ -83,7 +85,7 @@ export default defineConfig({
     defaultStrategy: "hover",
   },
   integrations: [
-    icon(),
+    icon({ iconDir: "src/components" }),
     nimbus(nimbusConfig, {
       rules: {
         "nimbus/frontmatter-shape": "error",

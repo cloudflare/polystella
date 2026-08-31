@@ -1,0 +1,12 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "paths": {
+      "@cloudflare/polystella-core": ["../../../packages/core/src/index.ts"],
+      "@cloudflare/polystella-adapters": ["../../../packages/adapters/src/index.ts"],
+      "@cloudflare/polystella-providers": ["../../../packages/providers/src/index.ts"],
+      "@cloudflare/polystella-providers/*": ["../../../packages/providers/src/*.ts"]
+    }
+  },
+  "include": ["index.ts"]
+}

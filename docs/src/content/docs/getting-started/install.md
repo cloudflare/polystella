@@ -10,8 +10,8 @@ entirely — the output is regular static-Astro bytes.
 
 ## Compatibility
 
-- **Astro 6.0+** as a peer dependency.
-- **Node 20+** for the standalone `polystella` CLI.
+- **Astro 7.0+** as a peer dependency.
+- **Node 22.12+** for the standalone `polystella` CLI.
 - **Cloudflare R2** for build cache. No other storage backend is
   supported today.
 - **Workers AI** or **Anthropic** as the translation provider.
@@ -23,8 +23,11 @@ entirely — the output is regular static-Astro bytes.
 Install from npm:
 
 ```bash
-pnpm add @cloudflare/polystella
+pnpm add @cloudflare/polystella-astro
 ```
+
+`@cloudflare/polystella` forwards to `@cloudflare/polystella-astro`, so
+both names expose the same API while existing projects migrate.
 
 ## After install
 

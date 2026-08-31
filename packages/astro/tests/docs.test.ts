@@ -1,0 +1,308 @@
+/**
+ * Doc-claim invariants.
+ *
+ * Pins file paths, command names, exported subpaths, and slug
+ * anchors referenced in `AGENTS.md`, `ARCHITECTURE.md`, and the
+ * skill files. Catches refactors that move files or rename
+ * subcommands without updating docs.
+ *
+ * The test is intentionally narrow: it asserts the FACTS that docs
+ * lean on, not their PROSE. Editing prose is free; restructuring
+ * the code is what should ping this test.
+ *
+ * If you fail this test:
+ *   - Update the docs to reference the new path/name, OR
+ *   - Update this test's pinned list to reflect the new fact.
+ *
+ * Don't add assertions for prose claims here. That belongs in code
+ * review, not CI.
+ */
+
+import { existsSync, readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { describe, expect, it } from "vitest";
+
+import { parseSubcommand } from "../src/cli.js";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const PACKAGE_ROOT = path.resolve(__dirname, "..");
+const REPOSITORY_ROOT = path.resolve(PACKAGE_ROOT, "..", "..");
+
+function readDoc(relPath: string): string {
+  return readFileSync(path.join(REPOSITORY_ROOT, relPath), "utf8");
+}
+
+function fileExists(relPath: string): boolean {
+  return existsSync(path.join(REPOSITORY_ROOT, relPath));
+}
+
+function readPackageFile(relPath: string): string {
+  return readFileSync(path.join(PACKAGE_ROOT, relPath), "utf8");
+}
+
+function packageFileExists(relPath: string): boolean {
+  return existsSync(path.join(PACKAGE_ROOT, relPath));
+}
+
+function currentRepositoryPaths(text: string): string[] {
+  return [...text.matchAll(/`(packages\/(?:astro|core|adapters|providers)\/(?:src|tests)\/[^`]+)`/g)]
+    .map((match) => match[1])
+    .filter((candidate): candidate is string => candidate !== undefined && !/[<>{}*]/.test(candidate));
+}
+
+describe("doc-claim invariants", () => {
+  describe("AGENTS.md", () => {
+    it("exists", () => {
+      expect(fileExists("AGENTS.md")).toBe(true);
+    });
+
+    it("references files that actually exist", () => {
+      // Pinned list of source paths the doc names. If you remove
+      // one from the doc, remove it here. If you rename one, rename
+      // both. New refs from the doc don't need a pin here unless they
+      // matter for navigation.
+      const referenced = [
+        "packages/astro/src/parsing/adapter.ts",
+        "packages/astro/src/parsing/registry.ts",
+        "packages/astro/src/cli.ts",
+        "packages/astro/src/storage/hash.ts",
+        "packages/astro/src/storage/cache.ts",
+        "packages/astro/src/translation/provider.ts",
+        "packages/core/src/batch.ts",
+        "packages/core/src/translate-segments.ts",
+        "packages/astro/src/translation/run.ts",
+        "packages/astro/src/runtime/custom-loader-runtime.ts",
+        "packages/astro/src/version.ts",
+        "packages/astro/src/cli/check-ui.ts",
+        "packages/astro/src/cli/sync-ui.ts",
+        "packages/astro/src/cli/translate-ui.ts",
+      ];
+      for (const p of referenced) {
+        expect(fileExists(p), `AGENTS.md references ${p} which does not exist`).toBe(true);
+      }
+    });
+
+    it("companion docs exist", () => {
+      expect(fileExists("PACKAGE_ARCHITECTURE.md")).toBe(true);
+      expect(fileExists("ARCHITECTURE.md")).toBe(true);
+      expect(fileExists("README.md")).toBe(true);
+      expect(fileExists("skills/polystella-contributor/SKILL.md")).toBe(true);
+      expect(fileExists("skills/polystella-consumer/SKILL.md")).toBe(true);
+    });
+  });
+
+  describe("ARCHITECTURE.md", () => {
+    it("exists", () => {
+      expect(fileExists("ARCHITECTURE.md")).toBe(true);
+    });
+
+    it("uses slug anchors (not section numbers) for internal links", () => {
+      const text = readDoc("ARCHITECTURE.md");
+      // No "§N" or "§N.M" style references anywhere in the body.
+      // The previous doc used these and they rotted on insertion.
+      expect(text).not.toMatch(/§\d+/);
+    });
+
+    it("declares all anchors that AGENTS.md links to", () => {
+      const agents = readDoc("AGENTS.md");
+      const architecture = readDoc("ARCHITECTURE.md");
+
+      const anchorRefs: string[] = [];
+      for (const match of agents.matchAll(/ARCHITECTURE\.md#([\w-]+)/g)) {
+        const slug = match[1];
+        if (slug !== undefined) anchorRefs.push(slug);
+      }
+
+      const uniqueRefs = [...new Set(anchorRefs)];
+      expect(uniqueRefs.length).toBeGreaterThan(0);
+
+      for (const slug of uniqueRefs) {
+        // Slug anchors are written as `<a id="slug"></a>` immediately
+        // after the section heading. Accept either form (matches
+        // GitHub's auto-generated heading anchors too).
+        const hasExplicit = architecture.includes(`<a id="${slug}"></a>`);
+        const hasHeading = new RegExp(`^#+ .*\\b${slug.replace(/-/g, "[\\s-]")}\\b`, "im").test(architecture);
+        expect(hasExplicit || hasHeading, `AGENTS.md links to ARCHITECTURE.md#${slug} but no anchor or matching heading exists`).toBe(true);
+      }
+    });
+
+    it("declares the same invariant count as AGENTS.md", () => {
+      const agentsInvariants = (readDoc("AGENTS.md").match(/^\d+\. \*\*/gm) ?? []).length;
+      const archInvariants = (
+        readDoc("ARCHITECTURE.md")
+          .split(/## Invariants/)[1]
+          ?.split(/\n## /)[0]
+          ?.match(/^\d+\. \*\*/gm) ?? []
+      ).length;
+      // Both docs enumerate invariants. They should agree.
+      expect(agentsInvariants).toBeGreaterThan(0);
+      expect(archInvariants).toBeGreaterThan(0);
+      expect(archInvariants).toBe(agentsInvariants);
+    });
+  });
+
+  describe("current repository paths", () => {
+    it("all concrete paths documented for contributors exist", () => {
+      for (const doc of [
+        "AGENTS.md",
+        "PACKAGE_ARCHITECTURE.md",
+        "ARCHITECTURE.md",
+        "CONTRIBUTING.md",
+        "llms.txt",
+        "skills/polystella-contributor/SKILL.md",
+      ]) {
+        const text = readDoc(doc);
+        const paths = currentRepositoryPaths(text);
+        expect(paths.length, `${doc} has no current package paths`).toBeGreaterThan(0);
+        for (const documentedPath of paths) {
+          expect(fileExists(documentedPath), `${doc} references ${documentedPath} which does not exist`).toBe(true);
+        }
+        if (doc === "CONTRIBUTING.md" || doc === "llms.txt") {
+          expect(text, `${doc} references the removed root source tree`).not.toMatch(
+            /`src\/(?:index\.ts|cli(?:\.ts|\/)|config\/options\.ts|parsing\/|translation\/|storage\/|runtime\/|react\/)/,
+          );
+        }
+      }
+    });
+  });
+
+  describe("CLI / package.json alignment", () => {
+    it("package.json `bin` points to a built path", () => {
+      const pkg = JSON.parse(readPackageFile("package.json")) as { bin?: Record<string, string> };
+      expect(pkg.bin).toBeDefined();
+      expect(pkg.bin?.["polystella"]).toBe("dist/cli.js");
+    });
+
+    it("`parseSubcommand` accepts every documented subcommand", () => {
+      // The doc claims these four subcommands exist. The CLI's
+      // dispatcher must recognise each one as a known subcommand
+      // (not "unknown"). This catches rename-doc-without-rename-code
+      // and vice versa.
+      const documented = ["translate", "check-ui", "sync-ui", "translate-ui", "audit-mdx"];
+      for (const verb of documented) {
+        const result = parseSubcommand([verb]);
+        expect(result.name, `subcommand "${verb}" not recognised by parseSubcommand`).toBe(verb);
+      }
+    });
+
+    it("every CLI subcommand has a handler file", () => {
+      // translate is handled inline in src/cli.ts; the rest have
+      // dedicated files under src/cli/.
+      expect(packageFileExists("src/cli/check-ui.ts")).toBe(true);
+      expect(packageFileExists("src/cli/sync-ui.ts")).toBe(true);
+      expect(packageFileExists("src/cli/translate-ui.ts")).toBe(true);
+      expect(packageFileExists("src/cli/audit-mdx.ts")).toBe(true);
+    });
+  });
+
+  describe("package.json `exports`", () => {
+    it("every documented subpath is declared in `exports`", () => {
+      const pkg = JSON.parse(readPackageFile("package.json")) as {
+        exports?: Record<string, unknown>;
+      };
+      const documented = [
+        ".",
+        "./runtime",
+        "./content",
+        "./i18n",
+        "./catalog",
+        "./catalog/middleware",
+        "./catalog/astro",
+        "./react",
+        "./client",
+      ];
+      for (const subpath of documented) {
+        expect(pkg.exports?.[subpath], `package.json exports does not declare ${subpath}`).toBeDefined();
+      }
+    });
+
+    it("every entry-point file in `exports` exists (or maps to a `src/` source)", () => {
+      const pkg = JSON.parse(readPackageFile("package.json")) as {
+        exports?: Record<string, unknown>;
+      };
+      const exports = pkg.exports ?? {};
+
+      // Paths under `./dist/` are produced by `pnpm build`. The
+      // source tree they're emitted from is `src/`. In CI and a
+      // fresh checkout, `dist/` may not exist yet — accept either
+      // (a) the literal dist path exists, OR (b) the corresponding
+      // source-tree `.ts` file exists.
+      function distMapsToSource(distPath: string): boolean {
+        if (!distPath.startsWith("./dist/")) return false;
+        const inner = distPath.slice("./dist/".length);
+        // Strip the emitted extension; check every plausible source.
+        const stem = inner.replace(/\.(js|d\.ts)$/, "");
+        return packageFileExists(`src/${stem}.ts`) || packageFileExists(`src/${stem}.d.ts`);
+      }
+
+      function checkPath(subpath: string, target: string): void {
+        if (packageFileExists(target)) return;
+        if (distMapsToSource(target)) return;
+        expect.fail(
+          `exports["${subpath}"] = ${target}, but no matching file exists ` +
+            `(neither the literal path nor the corresponding src/ source).`,
+        );
+      }
+
+      for (const [subpath, value] of Object.entries(exports)) {
+        if (typeof value === "string") {
+          checkPath(subpath, value);
+        } else if (value && typeof value === "object") {
+          const cond = value as { default?: unknown; types?: unknown };
+          if (typeof cond.default === "string") {
+            checkPath(`${subpath} (default)`, cond.default);
+          }
+          if (typeof cond.types === "string") {
+            checkPath(`${subpath} (types)`, cond.types);
+          }
+        }
+      }
+    });
+  });
+
+  describe("skills", () => {
+    it("each skill has a SKILL.md with frontmatter `name` matching its directory", () => {
+      for (const slug of ["polystella-contributor", "polystella-consumer"]) {
+        const text = readDoc(`skills/${slug}/SKILL.md`);
+        const fmMatch = text.match(/^---\n([\s\S]+?)\n---/);
+        expect(fmMatch, `skills/${slug}/SKILL.md is missing frontmatter`).not.toBeNull();
+        const fm = fmMatch![1];
+        expect(fm).toMatch(new RegExp(`^name:\\s*${slug}\\s*$`, "m"));
+        expect(fm).toMatch(/^description:\s*\S/m);
+      }
+    });
+  });
+
+  describe("llms.txt", () => {
+    it("exists and references the canonical agent docs", () => {
+      expect(fileExists("llms.txt")).toBe(true);
+      const text = readDoc("llms.txt");
+      // The slim index should at least mention the package name and
+      // point at the deeper docs.
+      expect(text).toMatch(/polystella/i);
+      expect(text.toLowerCase()).toContain("agents.md");
+      expect(text.toLowerCase()).toContain("package_architecture.md");
+      expect(text.toLowerCase()).toContain("architecture.md");
+    });
+
+    it("llms-full.txt bundles the canonical agent docs in order", () => {
+      expect(fileExists("llms-full.txt")).toBe(true);
+      const text = readDoc("llms-full.txt");
+      // The build script emits `<!-- BEGIN <path> -->` markers around
+      // each source doc. Use those (rather than freeform body text)
+      // so the ordering check is robust to the header's file-listing
+      // table mentioning the same names earlier in the file.
+      const agentsIdx = text.indexOf("<!-- BEGIN AGENTS.md -->");
+      const packageArchIdx = text.indexOf("<!-- BEGIN PACKAGE_ARCHITECTURE.md -->");
+      const archIdx = text.indexOf("<!-- BEGIN ARCHITECTURE.md -->");
+      const consumerIdx = text.indexOf("<!-- BEGIN skills/polystella-consumer/SKILL.md -->");
+      const contributorIdx = text.indexOf("<!-- BEGIN skills/polystella-contributor/SKILL.md -->");
+      expect(agentsIdx).toBeGreaterThanOrEqual(0);
+      expect(packageArchIdx).toBeGreaterThan(agentsIdx);
+      expect(archIdx).toBeGreaterThan(packageArchIdx);
+      expect(consumerIdx).toBeGreaterThan(archIdx);
+      expect(contributorIdx).toBeGreaterThan(archIdx);
+    });
+  });
+});

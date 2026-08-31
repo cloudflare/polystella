@@ -19,7 +19,7 @@ jobs:
   test:
     name: Test
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -30,8 +30,18 @@ jobs:
           node-version: 24.x
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm test
-      - run: pnpm exec tsc --noEmit
+      - name: Audit production dependencies
+        run: pnpm audit:prod
+      - name: Test reusable packages under Node
+        run: pnpm test:packages
+      - name: Test Astro package under Node
+        run: pnpm test:node
+      - name: Test reusable packages under workerd
+        run: pnpm test:workerd
+      - name: Check package boundaries
+        run: pnpm test:boundaries
+      - name: Typecheck all public packages
+        run: pnpm typecheck
 
   format:
     name: Prettier check
@@ -74,9 +84,9 @@ jobs:
           fi
 
   build:
-    name: Library + CLI build
+    name: Topological package build
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -87,23 +97,32 @@ jobs:
           node-version: 24.x
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm build
+      - name: Build all public packages in dependency order
+        run: pnpm build
+      - name: Check packed packages in a clean consumer
+        run: pnpm check:packages
       - name: Verify dist tree
         # Smoke-check every exports entry resolves to an emitted file.
         run: |
-          test -f dist/cli.js
-          test -x dist/cli.js
-          test -f dist/index.js
-          test -f dist/index.d.ts
-          test -f dist/runtime/index.js
-          test -f dist/runtime/middleware.js
-          test -f dist/runtime/locals.d.ts
-          test -f dist/content/index.js
-          test -f dist/i18n/index.js
-          test -f dist/react/index.js
+          test -f packages/astro/dist/cli.js
+          test -x packages/astro/dist/cli.js
+          test -f packages/astro/dist/index.js
+          test -f packages/astro/dist/index.d.ts
+          test -f packages/astro/dist/runtime/index.js
+          test -f packages/astro/dist/runtime/middleware.js
+          test -f packages/astro/dist/runtime/locals.d.ts
+          test -f packages/astro/dist/content/index.js
+          test -f packages/astro/dist/i18n/index.js
+          test -f packages/astro/dist/react/index.js
+          test -f packages/polystella/dist/cli.js
+          test -x packages/polystella/dist/cli.js
+          test -f packages/polystella/dist/index.js
+          test -f packages/polystella/dist/index.d.ts
       - name: Smoke-test the CLI bundle under bare Node
         # No tsx, no Vite — exactly the environment a downstream
         # consumer's standalone `polystella <subcommand>` invocation
         # uses. Regression guard for the Node 24
         # `ERR_UNSUPPORTED_NODE_MODULES_TYPESCRIPT` class of bug.
-        run: node dist/cli.js --version
+        run: |
+          node packages/astro/dist/cli.js --version
+          node packages/polystella/dist/cli.js --version

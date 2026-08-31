@@ -10,17 +10,22 @@ easier to evaluate when maintainer time is available.
 
 ## Repository overview
 
-PolyStella is a pnpm workspace with two members:
+PolyStella is a pnpm workspace with five public packages under `packages/`:
 
-- **The package itself** at the repo root (`package.json` →
-  `@cloudflare/polystella`).
-- **The docs site** under `docs/` (`docs/package.json` →
-  `polystella-docs`).
+- `packages/astro/` — `@cloudflare/polystella-astro`.
+- `packages/polystella/` — `@cloudflare/polystella`, a forwarding compatibility package.
+- `packages/core/` — platform-neutral translation orchestration.
+- `packages/adapters/` — Markdown, MDX, JSON, YAML, and TOML adapters.
+- `packages/providers/` — Workers AI and Anthropic transports.
+
+The private root coordinates those packages, the `docs/` site, and the
+`playgrounds/` fixtures.
 
 The agent-facing context lives in [`AGENTS.md`](./AGENTS.md). The
-system-level design rationale lives in
-[`ARCHITECTURE.md`](./ARCHITECTURE.md). Read those before working
-on anything non-trivial; they save a lot of back-and-forth.
+post-migration package map lives in
+[`PACKAGE_ARCHITECTURE.md`](./PACKAGE_ARCHITECTURE.md), and the system-level
+design rationale lives in [`ARCHITECTURE.md`](./ARCHITECTURE.md). Read those
+before working on anything non-trivial; they save a lot of back-and-forth.
 
 ## Development setup
 
@@ -32,16 +37,16 @@ pnpm install
 
 Required:
 
-- Node 20+ (24 LTS recommended).
+- Node 22.12+ (24 recommended).
 - pnpm 9+ (the lockfile is `pnpm-lock.yaml`).
 
 ## Commands
 
 | Command                               | Purpose                                                         |
 | ------------------------------------- | --------------------------------------------------------------- |
-| `pnpm test`                           | Run the package's unit + smoke tests (vitest).                  |
-| `pnpm exec tsc --noEmit`              | Typecheck the package.                                          |
-| `pnpm build`                          | Compile `src/` → `dist/` (library + CLI, JS + `.d.ts`).         |
+| `pnpm test`                           | Run package, Astro, workerd, and boundary tests.                |
+| `pnpm typecheck`                      | Build and typecheck all five public packages.                   |
+| `pnpm build`                          | Build all five public packages.                                 |
 | `pnpm build:llms`                     | Regenerate `llms-full.txt` from canonical agent docs.           |
 | `pnpm --filter polystella-docs dev`   | Run the Nimbus docs site locally.                               |
 | `pnpm --filter polystella-docs build` | Build the docs site (includes auto-generated config reference). |
@@ -69,7 +74,7 @@ Required:
 - **TypeScript strict mode**, including `noUncheckedIndexedAccess`,
   `exactOptionalPropertyTypes`, `noImplicitReturns`,
   `noFallthroughCasesInSwitch`. Tooling configured in
-  `tsconfig.json`.
+  `tsconfig.base.json` and each package's local config.
 - **No `any`, no `!`.** Use `unknown` + type guards; use
   destructure-and-check instead of non-null assertions. See
   [`AGENTS.md`](./AGENTS.md) for the rationale.
@@ -79,35 +84,34 @@ Required:
 - **Comments document the "why", not the "what".** Long-form
   rationale belongs in `ARCHITECTURE.md`. Inline comments are for
   non-obvious decisions and known footguns.
-- **Tests are integration-heavy.** We use vitest with
-  `singleThread: true` (faster than multi-worker at our scale).
-  Tests live under `tests/<src-dir>/<basename>.test.ts` mirroring
-  the source structure. A 9-test smoke suite under `tests/smoke.test.ts`
-  exercises the integration end-to-end against a temp project.
+- **Tests are integration-heavy.** Package tests live under each
+  `packages/*/tests/` directory. Astro tests under `packages/astro/tests/`
+  mirror `packages/astro/src/` and include an end-to-end smoke suite.
 
 ## Adding new APIs
 
 Before adding to the public surface:
 
-- **Is it covered by an existing export path?** Check the
-  `exports` field in `package.json`. Eight subpaths are exposed;
-  unless your addition needs its own namespace, it should fit in
-  one of them.
+- **Is it covered by an existing export path?** Check the `exports` field in
+  the owning `packages/*/package.json`; avoid adding a namespace when an
+  existing entry already fits.
 - **Does it have a documentation page?** `pnpm
 --filter polystella-docs check-exports` asserts every
   `exports` path is mentioned on `docs/src/content/docs/reference/exports.md`.
   CI fails if not.
 - **Does the schema reference need updating?** The
   `docs/scripts/generate-config-ref.ts` script auto-walks
-  `src/config/options.ts`'s zod schema. If your change adds a new
+  `packages/astro/src/config/options.ts` zod schema. If your change adds a new
   config field, regenerate the page locally with
   `pnpm --filter polystella-docs prebuild` and verify the
   output reads cleanly.
 
 ## Adding a new adapter
 
-Adapters implement the `FileTypeAdapter` interface in
-`src/parsing/adapter.ts` and register via `parsing/registry.ts`.
+Portable adapters implement `FileAdapter` in
+`packages/adapters/src/adapter.ts`; Astro policy wrappers implement
+`FileTypeAdapter` in `packages/astro/src/parsing/adapter.ts` and register via
+`packages/astro/src/parsing/registry.ts`.
 See [`ARCHITECTURE.md`](./ARCHITECTURE.md) `#adapter-contract` for
 the full contract. The Markdown adapter is the reference
 implementation.
@@ -115,8 +119,9 @@ implementation.
 ## Adding a new provider
 
 Providers implement the `Translator` interface in
-`src/translation/provider.ts`. Throw `PermanentProviderError` on
-4xx HTTP responses that retries can't fix (401/403/404/422); throw
+`packages/core/src/translator.ts` and expose transports from
+`packages/providers/src/`. Throw `PermanentProviderError` on
+4xx HTTP responses that retries can't fix (400/401/403/404/422); throw
 plain `Error` on anything retriable. See [`ARCHITECTURE.md`](./ARCHITECTURE.md)
 `#translator-contract` for the detail.
 
@@ -128,7 +133,7 @@ Bug reports against PolyStella are most useful when they include:
   that exhibits the issue).
 - Source file(s) that trigger the issue (or a synthetic example
   with the same shape).
-- The build report from `dist/i18n-r2-report.json`, if relevant.
+- The `i18n-r2-report.json` build report, if relevant.
 - The PolyStella version (visible in the report; or `polystella --version`).
 
 ## License

@@ -7,9 +7,10 @@
     }
   ],
   "commit": false,
-  "fixed": [],
+  "fixed": [["@cloudflare/polystella", "@cloudflare/polystella-astro"]],
   "linked": [],
   "access": "public",
+  "privatePackages": false,
   "baseBranch": "main",
   "updateInternalDependencies": "patch",
   "ignore": ["polystella-docs"]

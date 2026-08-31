@@ -1,153 +1,46 @@
 {
-  "name": "@cloudflare/polystella",
-  "version": "0.4.0",
+  "name": "polystella-workspace",
+  "private": true,
   "type": "module",
-  "description": "AI-driven content localization for Astro (build-time markdown translation, R2-cached).",
-  "license": "MIT",
   "packageManager": "pnpm@11.5.2",
-  "homepage": "https://github.com/cloudflare/polystella",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/cloudflare/polystella.git"
-  },
-  "bugs": {
-    "url": "https://github.com/cloudflare/polystella/issues"
-  },
-  "keywords": [
-    "astro",
-    "astro-integration",
-    "astro-component",
-    "i18n",
-    "localization",
-    "translation",
-    "ai",
-    "cloudflare",
-    "workers-ai",
-    "r2"
-  ],
-  "publishConfig": {
-    "access": "public",
-    "registry": "https://registry.npmjs.org/"
-  },
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
-  "bin": {
-    "polystella": "dist/cli.js"
-  },
-  "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "default": "./dist/index.js"
-    },
-    "./runtime": {
-      "types": "./dist/runtime/index.d.ts",
-      "default": "./dist/runtime/index.js"
-    },
-    "./runtime/middleware": {
-      "types": "./dist/runtime/middleware.d.ts",
-      "default": "./dist/runtime/middleware.js"
-    },
-    "./content": {
-      "types": "./dist/content/index.d.ts",
-      "default": "./dist/content/index.js"
-    },
-    "./i18n": {
-      "types": "./dist/i18n/index.d.ts",
-      "default": "./dist/i18n/index.js"
-    },
-    "./catalog": {
-      "types": "./dist/catalog/index.d.ts",
-      "default": "./dist/catalog/index.js"
-    },
-    "./catalog/middleware": {
-      "types": "./dist/catalog/middleware.d.ts",
-      "default": "./dist/catalog/middleware.js"
-    },
-    "./catalog/astro": {
-      "types": "./dist/catalog/astro.d.ts",
-      "default": "./dist/catalog/astro.js"
-    },
-    "./react": {
-      "types": "./dist/react/index.d.ts",
-      "default": "./dist/react/index.js"
-    },
-    "./recipes": {
-      "types": "./dist/recipes/index.d.ts",
-      "default": "./dist/recipes/index.js"
-    },
-    "./recipes/starlight": {
-      "types": "./dist/recipes/starlight.d.ts",
-      "default": "./dist/recipes/starlight.js"
-    },
-    "./client": {
-      "types": "./client.d.ts"
-    }
-  },
-  "files": [
-    "src",
-    "dist",
-    "client.d.ts",
-    "AGENTS.md",
-    "ARCHITECTURE.md",
-    "CHANGELOG.md",
-    "README.md",
-    "llms.txt",
-    "llms-full.txt",
-    "skills",
-    "tsconfig.json",
-    "tsconfig.build.json",
-    "types-internal"
-  ],
   "scripts": {
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "build": "tsc -p tsconfig.build.json && chmod +x dist/cli.js",
+    "build:internal": "pnpm --filter @cloudflare/polystella-core build && pnpm --filter @cloudflare/polystella-adapters build && pnpm --filter @cloudflare/polystella-providers build",
+    "test": "pnpm test:packages && pnpm test:node && pnpm test:workerd && pnpm test:boundaries",
+    "test:packages": "pnpm build:internal && pnpm --filter @cloudflare/polystella-core test && pnpm --filter @cloudflare/polystella-adapters test && pnpm --filter @cloudflare/polystella-providers test",
+    "test:node": "pnpm build:internal && pnpm --filter @cloudflare/polystella-astro test",
+    "test:workerd": "pnpm build:internal && tsc -p tsconfig.workerd.json && vitest run --config vitest.workerd.config.ts && node scripts/check-workerd-portability.mjs",
+    "test:boundaries": "vitest run --config vitest.boundaries.config.ts",
+    "bundle:workerd:dry-run": "pnpm build:internal && node scripts/check-workerd-portability.mjs",
+    "typecheck": "pnpm build && pnpm typecheck:packages",
+    "typecheck:packages": "pnpm --filter @cloudflare/polystella-core typecheck && pnpm --filter @cloudflare/polystella-adapters typecheck && pnpm --filter @cloudflare/polystella-providers typecheck && pnpm --filter @cloudflare/polystella-astro typecheck && pnpm --filter @cloudflare/polystella typecheck",
+    "audit:prod": "pnpm audit --prod",
+    "check:packages": "node scripts/check-packages.mjs",
+    "check:baseline": "node scripts/check-monorepo-baseline.mjs",
+    "test:watch": "pnpm build:internal && pnpm --filter @cloudflare/polystella-astro test:watch",
+    "build": "pnpm build:internal && pnpm --filter @cloudflare/polystella-astro build && pnpm --filter @cloudflare/polystella build",
     "build:llms": "node scripts/build-llms-full.mjs",
-    "playground:mdx-jsx:build": "pnpm --filter polystella-playground-mdx-jsx build",
-    "playground:mdx-jsx:audit": "pnpm --filter polystella-playground-mdx-jsx audit-mdx",
-    "playground:mdx-jsx:translate:dry-run": "pnpm --filter polystella-playground-mdx-jsx translate:dry-run",
-    "playground:mdx-jsx:translate:local": "pnpm --filter polystella-playground-mdx-jsx translate:local",
-    "playground:mdx-jsx:translate:workers-ai": "pnpm --filter polystella-playground-mdx-jsx translate:workers-ai",
+    "playground:mdx-jsx:build": "pnpm build && pnpm --filter polystella-playground-mdx-jsx build",
+    "playground:mdx-jsx:audit": "pnpm build && pnpm --filter polystella-playground-mdx-jsx audit-mdx",
+    "playground:mdx-jsx:translate:dry-run": "pnpm build && pnpm --filter polystella-playground-mdx-jsx translate:dry-run",
+    "playground:mdx-jsx:translate:local": "pnpm build && pnpm --filter polystella-playground-mdx-jsx translate:local",
+    "playground:mdx-jsx:translate:workers-ai": "pnpm build && pnpm --filter polystella-playground-mdx-jsx translate:workers-ai",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "prepare": "pnpm build && (git config core.hooksPath .githooks 2>/dev/null || true)",
-    "prepublishOnly": "pnpm build && pnpm build:llms",
+    "prepare": "node scripts/configure-git-hooks.mjs",
     "release:version": "changeset version && pnpm install --no-frozen-lockfile",
     "release:publish": "changeset publish"
   },
-  "dependencies": {
-    "acorn": "^8.17.0",
-    "p-retry": "^8.0.0",
-    "picomatch": "^4.0.4",
-    "remark-frontmatter": "^5.0.0",
-    "remark-gfm": "^4.0.1",
-    "remark-mdx": "^3.1.1",
-    "remark-parse": "^11.0.0",
-    "s3mini": "^0.9.4",
-    "satteri": "^0.9.4",
-    "smol-toml": "^1.6.1",
-    "unified": "^11.0.5",
-    "yaml": "^2.8.3"
-  },
   "devDependencies": {
-    "@astrojs/sitemap": "^3.7.3",
     "@changesets/changelog-github": "^0.7.0",
     "@changesets/cli": "^2.27.0",
-    "@types/mdast": "^4.0.4",
-    "@types/picomatch": "^4.0.0",
-    "@types/react": "^19.2.14",
+    "@cloudflare/vitest-plugin": "^1.1.1",
+    "@cloudflare/polystella-adapters": "workspace:*",
+    "@cloudflare/polystella-core": "workspace:*",
+    "@cloudflare/polystella-providers": "workspace:*",
+    "@cloudflare/polystella-astro": "workspace:*",
     "pkg-pr-new": "^0.0.75",
     "prettier": "3.9.4",
     "typescript": "^6.0.3",
     "vitest": "^4.1.9"
-  },
-  "peerDependencies": {
-    "astro": "^7.0.0",
-    "react": "^17.0.0 || ^18.0.0 || ^19.0.0"
-  },
-  "peerDependenciesMeta": {
-    "react": {
-      "optional": true
-    }
   }
 }

@@ -5,7 +5,7 @@ aiGenerated: true
 ---
 
 :::note[Auto-generated]
-This page is regenerated from `src/config/options.ts` on every
+This page is regenerated from `packages/astro/src/config/options.ts` on every
 `pnpm --filter polystella-docs build`. Don't hand-edit; the
 generator overwrites it.
 :::

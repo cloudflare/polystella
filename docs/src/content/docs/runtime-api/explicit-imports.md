@@ -1,6 +1,6 @@
 ---
 title: Explicit imports
-description: Calling @cloudflare/polystella/runtime functions directly outside .astro templates.
+description: Calling @cloudflare/polystella-astro/runtime functions directly outside .astro templates.
 aiGenerated: true
 ---
 
@@ -16,7 +16,7 @@ import {
   getLocalizedEntry, // (collection, id, locale?)
   getLocalizedCollection, // (collection, filter?, locale?)
   localizedHref, // (href, locale?)
-} from "@cloudflare/polystella/runtime";
+} from "@cloudflare/polystella-astro/runtime";
 ```
 
 Each takes the locale as a (typically last) optional parameter
@@ -25,7 +25,7 @@ instead of closing over it the way the `Astro.locals` variants do.
 ## `getLocalizedEntry(collection, slug, locale?)`
 
 ```ts
-import { getLocalizedEntry } from "@cloudflare/polystella/runtime";
+import { getLocalizedEntry } from "@cloudflare/polystella-astro/runtime";
 
 const entry = await getLocalizedEntry("publications", "Davidson2018", "pt-BR");
 ```
@@ -38,7 +38,7 @@ Returns `LocalizedEntry<...> | undefined` — same shape as the
 ## `getLocalizedCollection(collection, filter?, locale?)`
 
 ```ts
-import { getLocalizedCollection } from "@cloudflare/polystella/runtime";
+import { getLocalizedCollection } from "@cloudflare/polystella-astro/runtime";
 
 const ptBR = await getLocalizedCollection("people", undefined, "pt-BR");
 const active = await getLocalizedCollection("people", ({ data }) => data.active, "ja-JP");
@@ -47,7 +47,7 @@ const active = await getLocalizedCollection("people", ({ data }) => data.active,
 ## `localizedHref(href, locale?)`
 
 ```ts
-import { localizedHref } from "@cloudflare/polystella/runtime";
+import { localizedHref } from "@cloudflare/polystella-astro/runtime";
 
 localizedHref("/about", "pt-BR"); // "/pt-BR/about"
 localizedHref("/about"); // "/about" (default locale)
@@ -75,7 +75,7 @@ everywhere, which is noisy.
 
 ```ts
 // src/scripts/build-sitemap.ts
-import { getLocalizedCollection } from "@cloudflare/polystella/runtime";
+import { getLocalizedCollection } from "@cloudflare/polystella-astro/runtime";
 
 for (const locale of ["en-US", "pt-BR", "ja-JP"]) {
   const pubs = await getLocalizedCollection("publications", undefined, locale);

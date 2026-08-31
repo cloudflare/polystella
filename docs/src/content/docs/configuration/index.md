@@ -57,7 +57,7 @@ export default {
 ## Validation and errors
 
 The config is parsed through zod at integration startup
-(`resolveOptions` in `src/config/options.ts`). Bad input fails the
+(`resolveOptions` in `packages/astro/src/config/options.ts`). Bad input fails the
 build with a concrete error pointing at the offending field — no
 silent fallbacks. A few specific cross-checks:
 
@@ -96,6 +96,6 @@ without polluting it.
 ## Schema source of truth
 
 The [reference page](/configuration/reference/) is **auto-generated**
-from `src/config/options.ts` on every docs build. If you spot a
+from `packages/astro/src/config/options.ts` on every docs build. If you spot a
 field there that isn't documented, it's a generator gap, not a
 hidden feature — file an issue.

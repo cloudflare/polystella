@@ -1,0 +1,62 @@
+{
+  "name": "@cloudflare/polystella-providers",
+  "version": "0.4.0",
+  "type": "module",
+  "description": "Portable AI provider transports for PolyStella.",
+  "license": "MIT",
+  "homepage": "https://github.com/cloudflare/polystella",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cloudflare/polystella.git",
+    "directory": "packages/providers"
+  },
+  "bugs": {
+    "url": "https://github.com/cloudflare/polystella/issues"
+  },
+  "keywords": [
+    "translation",
+    "ai",
+    "cloudflare",
+    "workers-ai",
+    "anthropic"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./workers-ai": {
+      "types": "./dist/workers-ai.d.ts",
+      "default": "./dist/workers-ai.js"
+    },
+    "./anthropic": {
+      "types": "./dist/anthropic.d.ts",
+      "default": "./dist/anthropic.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "CHANGELOG.md",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc -p tsconfig.build.json"
+  },
+  "dependencies": {
+    "@cloudflare/polystella-core": "workspace:^"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.9"
+  }
+}

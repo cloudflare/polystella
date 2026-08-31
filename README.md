@@ -4,6 +4,46 @@
 
 PolyStella is an [Astro](https://astro.build) integration that translates content into additional locales at build time using AI, caches translations in Cloudflare R2, and injects locale-prefixed routes for the translated pages.
 
+The repository publishes five packages. The canonical Astro package and its
+compatibility package share a version; core, adapters, and providers are
+versioned independently:
+
+| Package                            | Directory              | Role                                                               | Internal dependencies     |
+| ---------------------------------- | ---------------------- | ------------------------------------------------------------------ | ------------------------- |
+| `@cloudflare/polystella-core`      | `packages/core/`       | Platform-neutral prompts, batching, retries, and shared contracts. | None                      |
+| `@cloudflare/polystella-adapters`  | `packages/adapters/`   | Portable Markdown, MDX, JSON, YAML, and TOML adapters.             | Core                      |
+| `@cloudflare/polystella-providers` | `packages/providers/`  | Workers AI HTTP/binding and Anthropic transports.                  | Core                      |
+| `@cloudflare/polystella-astro`     | `packages/astro/`      | Canonical Astro integration, CLI, R2, routing, and host policy.    | Core, adapters, providers |
+| `@cloudflare/polystella`           | `packages/polystella/` | Temporary compatibility forwarding to the Astro package.           | Astro                     |
+
+Dependencies point toward reusable code:
+
+```text
+@cloudflare/polystella --> @cloudflare/polystella-astro
+                              ├──> @cloudflare/polystella-adapters --> core
+                              ├──> @cloudflare/polystella-providers --> core
+                              └──> @cloudflare/polystella-core
+```
+
+Core, adapters, and providers are portable and use standard Web APIs. The
+Astro package composes them and owns all host-specific behavior. The generic
+package contains forwarding files only; new projects should use
+`@cloudflare/polystella-astro`.
+
+Contributors should start with
+[`PACKAGE_ARCHITECTURE.md`](./PACKAGE_ARCHITECTURE.md) for package boundaries,
+key files, dependency rules, and enforcement checks. Detailed subsystem
+invariants remain in [`ARCHITECTURE.md`](./ARCHITECTURE.md).
+
+Direct low-level use stays in-process:
+
+```text
+source/record -> adapter -> core -> provider -> core -> adapter -> output
+```
+
+The reusable packages work in Workers without `nodejs_compat`; consumers may
+still enable it.
+
 ## What it does
 
 - **Build-time translation.** Translates `.md`, `.mdx`, and `.toml` content into additional locales during `astro build`. Visitors get static bytes; no runtime AI calls.
@@ -18,10 +58,17 @@ PolyStella is an [Astro](https://astro.build) integration that translates conten
 Install from npm:
 
 ```bash
-pnpm add @cloudflare/polystella
+pnpm add @cloudflare/polystella-astro
 ```
 
-Peer dependencies: `astro ^7.0.0`, optionally `react ^17 || ^18 || ^19`.
+Peer dependencies: `astro ^7.0.10`, optionally `react ^17 || ^18 || ^19`.
+
+Install the owning package for low-level APIs. `Segment`, `Glossary`,
+`Translator`, `PermanentProviderError`, prompt helpers, and batching moved
+to `@cloudflare/polystella-core`; portable format helpers moved to
+`@cloudflare/polystella-adapters`; provider factories moved to
+`@cloudflare/polystella-providers`. The Astro package does not provide
+compatibility shims for those old low-level imports.
 
 ## Quick start
 
@@ -31,7 +78,7 @@ Four files participate in a typical setup.
 
 ```js
 import { defineConfig } from "astro/config";
-import polystella from "@cloudflare/polystella";
+import polystella from "@cloudflare/polystella-astro";
 import polystellaConfig from "./polystella.config.mjs";
 
 export default defineConfig({
@@ -49,8 +96,8 @@ export default defineConfig({
 
 ```ts
 import { defineCollection } from "astro:content";
-import { polystellaCollections } from "@cloudflare/polystella/content";
-import { i18nLoader, i18nSchema } from "@cloudflare/polystella/i18n";
+import { polystellaCollections } from "@cloudflare/polystella-astro/content";
+import { i18nLoader, i18nSchema } from "@cloudflare/polystella-astro/i18n";
 
 import { blog, authors } from "./content-schemas";
 
@@ -65,7 +112,7 @@ export const collections = {
 **4. `src/env.d.ts`** — pick up types for PolyStella's virtual modules:
 
 ```ts
-/// <reference types="@cloudflare/polystella/client" />
+/// <reference types="@cloudflare/polystella-astro/client" />
 ```
 
 ## Catalog-Only Usage
@@ -74,7 +121,7 @@ Projects that already handle localized content and routing can adopt only
 PolyStella's JSON catalog flow:
 
 ```ts
-import catalogAstro from "@cloudflare/polystella/catalog/astro";
+import catalogAstro from "@cloudflare/polystella-astro/catalog/astro";
 
 export default defineConfig({
   i18n: { defaultLocale: "en-US", locales: ["en-US", "pt-BR"] },
@@ -102,7 +149,9 @@ Full documentation lives at the Nimbus docs site (under `docs/` in this repo):
 Contributions are welcome, but PolyStella is maintained by a small
 team and review is not guaranteed. See
 [`CONTRIBUTING.md`](./CONTRIBUTING.md). The agent-facing context is in
-[`AGENTS.md`](./AGENTS.md) and [`ARCHITECTURE.md`](./ARCHITECTURE.md).
+[`AGENTS.md`](./AGENTS.md),
+[`PACKAGE_ARCHITECTURE.md`](./PACKAGE_ARCHITECTURE.md), and
+[`ARCHITECTURE.md`](./ARCHITECTURE.md).
 
 ## License
 
