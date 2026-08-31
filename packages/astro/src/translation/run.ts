@@ -4,7 +4,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 
 import picomatch from "picomatch";
-import type { AdapterExtractOptions } from "@cloudflare/polystella-adapters";
+import type { MarkdownAdapterExtractOptions as AdapterExtractOptions } from "@cloudflare/polystella-adapters";
 import { EMPTY_GLOSSARY, type Glossary, type Logger, type Translator } from "@cloudflare/polystella-core";
 
 import type { PolyStellaResolvedOptions } from "../config/options.js";

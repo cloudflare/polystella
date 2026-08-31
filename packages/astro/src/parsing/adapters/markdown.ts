@@ -1,8 +1,8 @@
 import {
   createMarkdownAdapter,
   resolveFrontmatterKeys,
-  type AdapterApplyOptions,
-  type AdapterExtractOptions,
+  type MarkdownAdapterApplyOptions as AdapterApplyOptions,
+  type MarkdownAdapterExtractOptions as AdapterExtractOptions,
 } from "@cloudflare/polystella-adapters";
 import type { Segment } from "@cloudflare/polystella-core";
 import type { Root, Yaml } from "mdast";

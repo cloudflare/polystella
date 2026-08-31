@@ -34,9 +34,9 @@ policy.
 - `src/index.ts` - public barrel.
 - `src/adapter.ts` - `FileAdapter` contract.
 - `src/adapters/` - built-in format adapters.
-- `src/extract.ts` and `src/apply.ts` - shared Markdown operations.
+- `src/adapters/markdown/extract.ts` and `src/adapters/markdown/apply.ts` - shared Markdown operations.
 - `src/key-paths.ts` - structured-data traversal.
-- `src/mdx-rules.ts` and `src/mdx-placeholders.ts` - MDX safety rules.
+- `src/adapters/markdown/mdx-rules.ts` and `src/adapters/markdown/mdx-placeholders.ts` - MDX safety rules.
 
 The only public import path is `@cloudflare/polystella-adapters`.
 

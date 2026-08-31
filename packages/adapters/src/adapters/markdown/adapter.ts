@@ -1,17 +1,30 @@
 import type { Segment } from "@cloudflare/polystella-core";
 import type { Root } from "mdast";
 
-import type { FileAdapter } from "../adapter.js";
-import { applyTranslations } from "../apply.js";
-import { extractSegments } from "../extract.js";
-import type { MarkdownParser } from "../parser.js";
-import { remarkMarkdownParser } from "../parser.js";
-import { visitTranslatableBlocks } from "../traverse.js";
+import type { AdapterApplyOptions, AdapterExtractOptions, FileAdapter } from "../../adapter.js";
+import { applyTranslations } from "./apply.js";
+import { extractSegments } from "./extract.js";
+import type { NormalizedMdxRules } from "./mdx-rules.js";
+import type { MarkdownParser } from "./parser.js";
+import { remarkMarkdownParser } from "./parser.js";
+import { visitTranslatableBlocks } from "./traverse.js";
 
 const MARKDOWN_PROMPT_INSTRUCTION =
   "Preserve markdown formatting markers exactly: **bold**, *italic*, _italic_, `code`, [link text](url). Translate the visible text but never the URL or any code identifier.";
 
-export function createMarkdownAdapter(parser: MarkdownParser = remarkMarkdownParser): FileAdapter<Root> {
+/** Extraction options understood only by the Markdown/MDX adapter. */
+export interface MarkdownAdapterExtractOptions extends AdapterExtractOptions {
+  mdxRules?: NormalizedMdxRules | undefined;
+}
+
+/** Apply options understood only by the Markdown/MDX adapter. */
+export interface MarkdownAdapterApplyOptions extends AdapterApplyOptions {
+  mdxRules?: NormalizedMdxRules | undefined;
+}
+
+export function createMarkdownAdapter(
+  parser: MarkdownParser = remarkMarkdownParser,
+): FileAdapter<Root, MarkdownAdapterExtractOptions, MarkdownAdapterApplyOptions> {
   return {
     extensions: [".md", ".mdx"],
     promptInstruction: MARKDOWN_PROMPT_INSTRUCTION,

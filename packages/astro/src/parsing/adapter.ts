@@ -3,9 +3,9 @@ import {
   parsePath,
   readAtPath,
   resolveConcretePaths,
-  type AdapterApplyOptions,
-  type AdapterExtractOptions,
   type FileAdapter,
+  type MarkdownAdapterApplyOptions as AdapterApplyOptions,
+  type MarkdownAdapterExtractOptions as AdapterExtractOptions,
   type PathSegment,
 } from "@cloudflare/polystella-adapters";
 import type { Segment } from "@cloudflare/polystella-core";
