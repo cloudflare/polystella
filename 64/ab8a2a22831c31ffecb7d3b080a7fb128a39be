@@ -1,0 +1,19 @@
+packages/core/tests/translate-segments.test.ts
+  s_7fb1cb75a77e23::t_c1a2959d3deeb4 71-80
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "64ab8a2a22831c31ffecb7d3b080a7fb128a39be",
+  "prompts": {},
+  "sessions": {
+    "s_7fb1cb75a77e23": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_fbd20ebcaffev025mmzs7vv6jc",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Diogo Carneiro <dcarneiro@cloudflare.com>"
+    }
+  }
+}
