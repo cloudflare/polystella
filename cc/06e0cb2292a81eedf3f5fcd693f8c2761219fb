@@ -1,0 +1,21 @@
+.changeset/config.json
+  s_7fb1cb75a77e23::t_90693aea79ba57 10
+pnpm-lock.yaml
+  s_7fb1cb75a77e23::t_385c4ddfbce664 119,162,165,168,249
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "cc06e0cb2292a81eedf3f5fcd693f8c2761219fb",
+  "prompts": {},
+  "sessions": {
+    "s_7fb1cb75a77e23": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_fbd20ebcaffev025mmzs7vv6jc",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Diogo Carneiro <dcarneiro@cloudflare.com>"
+    }
+  }
+}
