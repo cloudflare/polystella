@@ -48,12 +48,12 @@
   "dependencies": {
     "@cloudflare/polystella-core": "workspace:^",
     "@types/mdast": "^4.0.4",
-    "picomatch": "^4.0.4",
+    "picomatch": "^4.0.7",
     "remark-frontmatter": "^5.0.0",
     "remark-gfm": "^4.0.1",
     "remark-mdx": "^3.1.1",
     "remark-parse": "^11.0.0",
-    "smol-toml": "^1.6.1",
+    "smol-toml": "^1.8.0",
     "unified": "^11.0.5",
     "yaml": "^2.8.3"
   },
