@@ -10,7 +10,7 @@ describe("key paths", () => {
   });
 
   it("rejects malformed paths", () => {
-    for (const path of ["", ".title", "a..b", "a.", "a[nope]", "a[0"]) {
+    for (const path of ["", ".title", "a..b", "a.", "a[nope]", "a[0", "items[0]title"]) {
       expect(() => parsePath(path)).toThrow();
     }
   });

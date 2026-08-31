@@ -1,4 +1,11 @@
 import type { NormalizedMdxRules } from "./mdx-rules.js";
+import {
+  allowedAttributesForElement,
+  findQuotedAttributeValueSpan,
+  isMdxJsxAttribute,
+  readArrayProperty,
+  readPositionSpan,
+} from "./mdx-utils.js";
 import type { TranslatableBlock } from "./traverse.js";
 
 export class MdxPlaceholderError extends Error {
@@ -44,24 +51,34 @@ export function protectInlineMdxJsx(
   span: { start: number; end: number },
   rules: NormalizedMdxRules | undefined,
 ): ProtectedInlineMdxText | undefined {
-  const inlineNodes = readInlineMdxJsxNodes(block)
-    .map((node) => ({ node, span: readPositionSpan(node) }))
-    .filter((entry): entry is { node: MdxJsxTextNode; span: { start: number; end: number } } => entry.span !== undefined)
-    .filter((entry) => entry.span.start >= span.start && entry.span.end <= span.end)
-    .sort((a, b) => a.span.start - b.span.start);
-  if (inlineNodes.length === 0) return undefined;
-
   const placeholders: InlineMdxPlaceholder[] = [];
-  let cursor = span.start;
-  let text = "";
-  inlineNodes.forEach((entry, index) => {
-    text += source.slice(cursor, entry.span.start);
-    const placeholder = buildPlaceholder(String(index), entry.node, entry.span, source, rules);
-    placeholders.push(placeholder.placeholder);
-    text += placeholder.text;
-    cursor = entry.span.end;
-  });
-  return { text: text + source.slice(cursor, span.end), placeholders };
+  let nextId = 0;
+
+  const protectRange = (nodes: readonly unknown[], range: { start: number; end: number }): string => {
+    const inlineNodes = readInlineMdxJsxNodes(nodes)
+      .map((node) => ({ node, span: readPositionSpan(node) }))
+      .filter((entry): entry is { node: MdxJsxTextNode; span: { start: number; end: number } } => entry.span !== undefined)
+      .filter((entry) => entry.span.start >= range.start && entry.span.end <= range.end)
+      .sort((a, b) => a.span.start - b.span.start);
+
+    let cursor = range.start;
+    let text = "";
+    for (const entry of inlineNodes) {
+      text += source.slice(cursor, entry.span.start);
+      const id = String(nextId++);
+      const built = buildPlaceholder(id, entry.node, entry.span, source, rules);
+      placeholders.push(built.placeholder);
+      text +=
+        built.childSpan === undefined
+          ? `<ph id="${id}"/>`
+          : `<ph id="${id}">${protectRange(entry.node.children ?? [], built.childSpan)}</ph>`;
+      cursor = entry.span.end;
+    }
+    return text + source.slice(cursor, range.end);
+  };
+
+  const text = protectRange(block.children, span);
+  return placeholders.length > 0 ? { text, placeholders } : undefined;
 }
 
 export function restoreInlineMdxPlaceholders(
@@ -70,7 +87,7 @@ export function restoreInlineMdxPlaceholders(
   translations?: ReadonlyMap<string, string> | undefined,
 ): string {
   let output = value;
-  for (const placeholder of placeholders) {
+  for (const placeholder of [...placeholders].reverse()) {
     if (placeholder.kind === "wrapper") {
       const pattern = new RegExp(`<ph\\s+id=["']${escapeRegExp(placeholder.id)}["']>([\\s\\S]*?)<\\/ph>`, "g");
       let count = 0;
@@ -113,18 +130,17 @@ function buildPlaceholder(
   nodeSpan: { start: number; end: number },
   source: string,
   rules: NormalizedMdxRules | undefined,
-): { text: string; placeholder: InlineMdxPlaceholder } {
+): { placeholder: InlineMdxPlaceholder; childSpan?: { start: number; end: number } | undefined } {
   const nodeSource = source.slice(nodeSpan.start, nodeSpan.end);
   const attributes = collectPlaceholderAttributes(node, source, nodeSpan, rules);
   if (shouldTreatAsOpaque(node, rules)) {
-    return { text: `<ph id="${id}"/>`, placeholder: { id, kind: "opaque", source: nodeSource, attributes } };
+    return { placeholder: { id, kind: "opaque", source: nodeSource, attributes } };
   }
   const childSpan = readChildrenSpan(node.children);
   if (childSpan === undefined || childSpan.start < nodeSpan.start || childSpan.end > nodeSpan.end) {
-    return { text: `<ph id="${id}"/>`, placeholder: { id, kind: "opaque", source: nodeSource, attributes } };
+    return { placeholder: { id, kind: "opaque", source: nodeSource, attributes } };
   }
   return {
-    text: `<ph id="${id}">${source.slice(childSpan.start, childSpan.end)}</ph>`,
     placeholder: {
       id,
       kind: "wrapper",
@@ -132,6 +148,7 @@ function buildPlaceholder(
       closing: source.slice(childSpan.end, nodeSpan.end),
       attributes,
     },
+    childSpan,
   };
 }
 
@@ -186,48 +203,6 @@ function applyInlinePlaceholderAttributeTranslations(
   return output;
 }
 
-function allowedAttributesForElement(elementName: string, rules: NormalizedMdxRules | undefined): Set<string> {
-  if (rules === undefined) return new Set();
-  if (isLowercaseElementName(elementName)) {
-    return new Set([...(rules.htmlAttributes["*"] ?? []), ...(rules.htmlAttributes[elementName] ?? [])]);
-  }
-  return new Set(rules.components[elementName]?.props ?? []);
-}
-
-function isLowercaseElementName(name: string): boolean {
-  const first = name[0];
-  return first !== undefined && first.toLowerCase() === first;
-}
-
-function findQuotedAttributeValueSpan(
-  source: string,
-  attributeSpan: { start: number; end: number },
-): { start: number; end: number; quote: "'" | '"' } | undefined {
-  const slice = source.slice(attributeSpan.start, attributeSpan.end);
-  const equalsIndex = slice.indexOf("=");
-  if (equalsIndex < 0) return undefined;
-  let quoteIndex = equalsIndex + 1;
-  while (quoteIndex < slice.length && /\s/.test(slice[quoteIndex] ?? "")) quoteIndex++;
-  const quote = slice[quoteIndex];
-  if (quote !== "'" && quote !== '"') return undefined;
-  const valueStart = quoteIndex + 1;
-  const valueEnd = slice.indexOf(quote, valueStart);
-  if (valueEnd < 0) return undefined;
-  return { start: attributeSpan.start + valueStart, end: attributeSpan.start + valueEnd, quote };
-}
-
-function isMdxJsxAttribute(node: unknown): node is { type: string; name: string; value: unknown } {
-  if (typeof node !== "object" || node === null) return false;
-  const candidate = node as { type?: unknown; name?: unknown };
-  return candidate.type === "mdxJsxAttribute" && typeof candidate.name === "string";
-}
-
-function readArrayProperty(node: unknown, property: string): unknown[] | undefined {
-  if (typeof node !== "object" || node === null) return undefined;
-  const value = (node as Record<string, unknown>)[property];
-  return Array.isArray(value) ? value : undefined;
-}
-
 function escapeQuotedAttributeContent(value: string, quote: "'" | '"'): string {
   let output = "";
   for (const char of value) {
@@ -257,10 +232,17 @@ function shouldTreatAsOpaque(node: MdxJsxTextNode, rules: NormalizedMdxRules | u
   return rules?.components[node.name]?.children === false;
 }
 
-function readInlineMdxJsxNodes(block: TranslatableBlock): MdxJsxTextNode[] {
+function readInlineMdxJsxNodes(nodes: readonly unknown[]): MdxJsxTextNode[] {
   const output: MdxJsxTextNode[] = [];
-  for (const child of block.children) {
-    if (isMdxJsxTextNode(child)) output.push(child);
+  const visit = (node: unknown): void => {
+    if (isMdxJsxTextNode(node)) {
+      output.push(node);
+      return;
+    }
+    for (const child of readArrayProperty(node, "children") ?? []) visit(child);
+  };
+  for (const node of nodes) {
+    visit(node);
   }
   return output;
 }
@@ -276,14 +258,6 @@ function readChildrenSpan(children: unknown[] | undefined): { start: number; end
   const firstSpan = readPositionSpan(children[0]);
   const lastSpan = readPositionSpan(children[children.length - 1]);
   return firstSpan !== undefined && lastSpan !== undefined ? { start: firstSpan.start, end: lastSpan.end } : undefined;
-}
-
-function readPositionSpan(node: unknown): { start: number; end: number } | undefined {
-  if (typeof node !== "object" || node === null) return undefined;
-  const position = (node as { position?: { start?: { offset?: unknown }; end?: { offset?: unknown } } }).position;
-  const start = position?.start?.offset;
-  const end = position?.end?.offset;
-  return typeof start === "number" && typeof end === "number" ? { start, end } : undefined;
 }
 
 function escapeRegExp(value: string): string {

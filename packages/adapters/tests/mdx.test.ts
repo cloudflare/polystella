@@ -91,6 +91,40 @@ describe("MDX reconstruction", () => {
     expect(output).toBe('Clique <Icon name="download" label="Baixar" />; isto e <Badge>novo</Badge>.\n');
   });
 
+  it("protects inline JSX nested in Markdown formatting", () => {
+    for (const source of [
+      "This is **<Badge>new</Badge>**.\n",
+      "This is *<Badge>new</Badge>*.\n",
+      "Read [<Badge>new</Badge>](/docs).\n",
+      "This is ~~<Badge>new</Badge>~~.\n",
+    ]) {
+      const parsed = markdownAdapter.parse(source, sourcePath);
+      const segments = markdownAdapter.extractSegments(parsed, source, options);
+      const body = segments[0]!;
+      expect(body.text).not.toContain("<Badge>");
+      expect(body.text).toContain('<ph id="0">new</ph>');
+
+      const output = markdownAdapter.applyTranslations(parsed, source, new Map([[body.id, body.text.replace("new", "novo")]]), {
+        sourcePath,
+        mdxRules: rules,
+      });
+      expect(output).toBe(source.replace("new", "novo"));
+    }
+  });
+
+  it("restores nested JSX placeholders from the inside out", () => {
+    const source = "Use <Badge><Mark>new</Mark></Badge>.\n";
+    const parsed = markdownAdapter.parse(source, sourcePath);
+    const segments = markdownAdapter.extractSegments(parsed, source, options);
+    expect(segments[0]?.text).toBe('Use <ph id="0"><ph id="1">new</ph></ph>.');
+
+    const output = markdownAdapter.applyTranslations(parsed, source, new Map([["body:0", 'Use <ph id="0"><ph id="1">novo</ph></ph>.']]), {
+      sourcePath,
+      mdxRules: rules,
+    });
+    expect(output).toBe("Use <Badge><Mark>novo</Mark></Badge>.\n");
+  });
+
   it("rejects lost or duplicated inline placeholders", () => {
     const source = "This is <Badge>new</Badge>.\n";
     const parsed = markdownAdapter.parse(source, sourcePath);

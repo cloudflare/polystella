@@ -1,8 +1,8 @@
 import type { Root } from "mdast";
-import picomatch from "picomatch";
 
 import type { MarkdownCollectedSegment } from "./extract.js";
 import type { NormalizedMdxRules } from "./mdx-rules.js";
+import { getPatternMatcher, readArrayProperty, walkUnknown } from "./mdx-utils.js";
 
 export interface CollectMdxStaticDataOptions {
   sourcePath: string;
@@ -23,8 +23,6 @@ interface LiteralRoot {
   node: unknown;
   range: { start: number; end: number };
 }
-
-const matcherCache = new Map<string, (path: string) => boolean>();
 
 export function collectMdxStaticDataSegments(ast: Root, source: string, options: CollectMdxStaticDataOptions): MarkdownCollectedSegment[] {
   const rulesByBinding = new Map(
@@ -56,7 +54,7 @@ export function collectMdxStaticDataSegments(ast: Root, source: string, options:
 function resolveBindingRules(dataRules: NormalizedMdxRules["data"], sourcePath: string): BindingRule[] {
   const merged = new Map<string, string[]>();
   for (const [pattern, bindings] of Object.entries(dataRules)) {
-    if (!getMatcher(pattern)(sourcePath)) continue;
+    if (!getPatternMatcher(pattern)(sourcePath)) continue;
     for (const [bindingName, paths] of Object.entries(bindings)) {
       const existing = merged.get(bindingName) ?? [];
       for (const path of paths) {
@@ -184,16 +182,6 @@ function readLiteralRoots(program: unknown): LiteralRoot[] {
   return roots;
 }
 
-function walkUnknown(value: unknown, visitor: (node: unknown) => void): void {
-  if (typeof value !== "object" || value === null) return;
-  visitor(value);
-  if (Array.isArray(value)) {
-    for (const item of value) walkUnknown(item, visitor);
-    return;
-  }
-  for (const child of Object.values(value as Record<string, unknown>)) walkUnknown(child, visitor);
-}
-
 function pathMatches(actualPath: string, specs: readonly string[]): boolean {
   return specs.some((spec) => pathSpecToRegExp(spec).test(actualPath));
 }
@@ -273,11 +261,6 @@ function readProperty(node: unknown, property: string): unknown {
   return typeof node === "object" && node !== null ? (node as Record<string, unknown>)[property] : undefined;
 }
 
-function readArrayProperty(node: unknown, property: string): unknown[] | undefined {
-  const value = readProperty(node, property);
-  return Array.isArray(value) ? value : undefined;
-}
-
 function readStringProperty(node: unknown, property: string): string | undefined {
   const value = readProperty(node, property);
   return typeof value === "string" ? value : undefined;
@@ -286,12 +269,4 @@ function readStringProperty(node: unknown, property: string): string | undefined
 function readBooleanProperty(node: unknown, property: string): boolean | undefined {
   const value = readProperty(node, property);
   return typeof value === "boolean" ? value : undefined;
-}
-
-function getMatcher(pattern: string): (path: string) => boolean {
-  const cached = matcherCache.get(pattern);
-  if (cached !== undefined) return cached;
-  const matcher = picomatch(pattern);
-  matcherCache.set(pattern, matcher);
-  return matcher;
 }

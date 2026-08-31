@@ -30,9 +30,11 @@ export function parsePath(path: string): { segments: (PathSegment | "*")[]; hasW
         throw new Error(`[polystella] malformed key path "${path}": "[${inner}]" must be a non-negative integer or "*"`);
       }
       index = closeIndex + 1;
-      if (index < path.length && path[index] === ".") {
-        index++;
-        if (index === path.length) throw new Error(`[polystella] malformed key path "${path}": trailing "."`);
+      if (index < path.length && path[index] !== "[") {
+        if (path[index] !== ".") {
+          throw new Error(`[polystella] malformed key path "${path}": expected "." or "[" after "]" at index ${index}`);
+        }
+        if (++index === path.length) throw new Error(`[polystella] malformed key path "${path}": trailing "."`);
       }
       continue;
     }

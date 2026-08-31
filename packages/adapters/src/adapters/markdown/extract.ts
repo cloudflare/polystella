@@ -1,6 +1,5 @@
 import type { Segment } from "@cloudflare/polystella-core";
 import type { Root, Yaml } from "mdast";
-import picomatch from "picomatch";
 import { parse as parseYaml } from "yaml";
 
 import { collectMdxJsxAttributeSegments } from "./mdx-jsx-attributes.js";
@@ -8,9 +7,8 @@ import type { InlineMdxPlaceholder } from "./mdx-placeholders.js";
 import { protectInlineMdxJsx } from "./mdx-placeholders.js";
 import { collectMdxStaticDataSegments } from "./mdx-static-data.js";
 import type { NormalizedMdxRules } from "./mdx-rules.js";
+import { getPatternMatcher } from "./mdx-utils.js";
 import { inlineSpan, visitTranslatableBlocks } from "./traverse.js";
-
-const matcherCache = new Map<string, (path: string) => boolean>();
 
 export interface ExtractOptions {
   sourcePath: string;
@@ -90,16 +88,8 @@ export function collectMarkdownSegments(ast: Root, options: ExtractOptions, sour
 export function resolveFrontmatterKeys(sourcePath: string, rules: Record<string, string[]>): string[] {
   const matched = new Set<string>();
   for (const [pattern, keys] of Object.entries(rules)) {
-    if (!getMatcher(pattern)(sourcePath)) continue;
+    if (!getPatternMatcher(pattern)(sourcePath)) continue;
     for (const key of keys) matched.add(key);
   }
   return [...matched];
-}
-
-function getMatcher(pattern: string): (path: string) => boolean {
-  const cached = matcherCache.get(pattern);
-  if (cached !== undefined) return cached;
-  const matcher = picomatch(pattern);
-  matcherCache.set(pattern, matcher);
-  return matcher;
 }
