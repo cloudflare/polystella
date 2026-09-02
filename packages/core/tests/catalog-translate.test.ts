@@ -1,13 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { EMPTY_GLOSSARY, type Translator } from "@cloudflare/polystella-core";
+import { EMPTY_GLOSSARY, PermanentProviderError, type Translator } from "../src/index.js";
 import {
   extractTokens,
   selectEmptyKeys,
+  translateCatalogEntries,
   translateUiStringsForLocale,
   validateTokenPreservation,
   withTokenPreservationRule,
-} from "../../src/i18n/ui-translate.js";
+} from "../src/catalog/translate.js";
 
 /**
  * Tests for the UI-string AI translation orchestrator.
@@ -45,9 +46,9 @@ function makeStubTranslator(responses: Array<string | Error>): Translator & { ca
 }
 
 /** Build a valid marker-format response for a set of (id, text) pairs. */
-function markerResponse(pairs: Array<[string, string]>): string {
+function markerResponse(pairs: Array<[number, string]>): string {
   return pairs
-    .flatMap(([id, text]) => [`@@${id}@@`, text, ""])
+    .flatMap(([id, text]) => [`@@catalog:${id}@@`, text, ""])
     .join("\n")
     .trim();
 }
@@ -123,6 +124,11 @@ describe("selectEmptyKeys", () => {
     const pairs = selectEmptyKeys({ a: "A" }, { a: "ALocale" });
     expect(pairs).toEqual([]);
   });
+
+  it("ignores inherited locale values", () => {
+    const localeDict = Object.create({ title: "Inherited" }) as Record<string, string>;
+    expect(selectEmptyKeys({ title: "Title" }, localeDict)).toEqual([{ key: "title", source: "Title" }]);
+  });
 });
 
 describe("withTokenPreservationRule", () => {
@@ -171,9 +177,9 @@ describe("translateUiStringsForLocale", () => {
   it("batches every empty key into one LLM call", async () => {
     const translator = makeStubTranslator([
       markerResponse([
-        ["a", "Atrad"],
-        ["b", "Btrad"],
-        ["c", "Ctrad"],
+        [0, "Atrad"],
+        [1, "Btrad"],
+        [2, "Ctrad"],
       ]),
     ]);
     const result = await translateUiStringsForLocale({
@@ -194,10 +200,10 @@ describe("translateUiStringsForLocale", () => {
   it("splits UI strings into multiple provider requests", async () => {
     const translator = makeStubTranslator([
       markerResponse([
-        ["a", "Atrad"],
-        ["b", "Btrad"],
+        [0, "Atrad"],
+        [1, "Btrad"],
       ]),
-      markerResponse([["c", "Ctrad"]]),
+      markerResponse([[2, "Ctrad"]]),
     ]);
     const result = await translateUiStringsForLocale({
       translator,
@@ -215,11 +221,7 @@ describe("translateUiStringsForLocale", () => {
   });
 
   it("retries only the failed UI-string request batch", async () => {
-    const translator = makeStubTranslator([
-      markerResponse([["a", "Atrad"]]),
-      new Error("provider timeout"),
-      markerResponse([["b", "Btrad"]]),
-    ]);
+    const translator = makeStubTranslator([markerResponse([[0, "Atrad"]]), new Error("provider timeout"), markerResponse([[1, "Btrad"]])]);
     const result = await translateUiStringsForLocale({
       translator,
       glossary: EMPTY_GLOSSARY,
@@ -236,7 +238,7 @@ describe("translateUiStringsForLocale", () => {
   });
 
   it("preserves existing non-empty locale values", async () => {
-    const translator = makeStubTranslator([markerResponse([["b", "Btrad"]])]);
+    const translator = makeStubTranslator([markerResponse([[0, "Btrad"]])]);
     const result = await translateUiStringsForLocale({
       translator,
       glossary: EMPTY_GLOSSARY,
@@ -252,8 +254,8 @@ describe("translateUiStringsForLocale", () => {
   it("retries the whole batch on token-validation failure (with sampling variance)", async () => {
     // First attempt drops the {{year}} token; second preserves it.
     const translator = makeStubTranslator([
-      markerResponse([["copyright", "Direitos reservados."]]),
-      markerResponse([["copyright", "Direitos reservados {{year}}."]]),
+      markerResponse([[0, "Direitos reservados."]]),
+      markerResponse([[0, "Direitos reservados {{year}}."]]),
     ]);
     const result = await translateUiStringsForLocale({
       translator,
@@ -271,10 +273,7 @@ describe("translateUiStringsForLocale", () => {
 
   it("reports token failures and leaves the key empty when retries exhaust", async () => {
     // Both attempts drop the token.
-    const translator = makeStubTranslator([
-      markerResponse([["copyright", "Direitos reservados."]]),
-      markerResponse([["copyright", "Direitos reservados."]]),
-    ]);
+    const translator = makeStubTranslator([markerResponse([[0, "Direitos reservados."]]), markerResponse([[0, "Direitos reservados."]])]);
     const result = await translateUiStringsForLocale({
       translator,
       glossary: EMPTY_GLOSSARY,
@@ -301,12 +300,12 @@ describe("translateUiStringsForLocale", () => {
     // One bad translation in a batch shouldn't kill the others.
     const translator = makeStubTranslator([
       markerResponse([
-        ["good", "Bom"],
-        ["bad", "Sem placeholder"], // drops {{token}}
+        [0, "Bom"],
+        [1, "Sem placeholder"], // drops {{token}}
       ]),
       markerResponse([
-        ["good", "Bom"],
-        ["bad", "Sem placeholder ainda"], // still no token
+        [0, "Bom"],
+        [1, "Sem placeholder ainda"], // still no token
       ]),
     ]);
     const result = await translateUiStringsForLocale({
@@ -325,7 +324,7 @@ describe("translateUiStringsForLocale", () => {
   });
 
   it("fires onRetry between failing attempts", async () => {
-    const translator = makeStubTranslator([markerResponse([["k", "no token"]]), markerResponse([["k", "with {{token}}"]])]);
+    const translator = makeStubTranslator([markerResponse([[0, "no token"]]), markerResponse([[0, "with {{token}}"]])]);
     const onRetry = vi.fn();
     await translateUiStringsForLocale({
       translator,
@@ -366,7 +365,7 @@ describe("translateUiStringsForLocale", () => {
     const translate = vi
       .fn()
       .mockRejectedValueOnce(new Error("transient 5xx"))
-      .mockResolvedValueOnce(markerResponse([["a", "Atrad"]]));
+      .mockResolvedValueOnce(markerResponse([[0, "Atrad"]]));
     const translator: Translator = { modelId: "stub", translate };
     const result = await translateUiStringsForLocale({
       translator,
@@ -381,10 +380,63 @@ describe("translateUiStringsForLocale", () => {
     expect(result.dict.a).toBe("Atrad");
   });
 
+  it("retries non-network TypeErrors", async () => {
+    const translator = makeStubTranslator([new TypeError("temporary provider failure"), markerResponse([[0, "Atrad"]])]);
+    const result = await translateUiStringsForLocale({
+      translator,
+      glossary: EMPTY_GLOSSARY,
+      sourceDict: { a: "A" },
+      localeDict: { a: "" },
+      sourceLocale: "en-US",
+      targetLocale: "pt-BR",
+      maxRetries: 1,
+    });
+
+    expect(translator.calls).toBe(2);
+    expect(result.dict.a).toBe("Atrad");
+  });
+
+  it("does not retry permanent provider errors", async () => {
+    const translate = vi.fn(async () => {
+      throw new PermanentProviderError("invalid credentials");
+    });
+
+    await expect(
+      translateUiStringsForLocale({
+        translator: { modelId: "stub", translate },
+        glossary: EMPTY_GLOSSARY,
+        sourceDict: { a: "A" },
+        localeDict: { a: "" },
+        sourceLocale: "en-US",
+        targetLocale: "pt-BR",
+        maxRetries: 2,
+      }),
+    ).rejects.toThrow("invalid credentials");
+    expect(translate).toHaveBeenCalledOnce();
+  });
+
+  it("does not retry structurally tagged permanent TypeErrors", async () => {
+    const error = Object.assign(new TypeError("invalid provider request"), { _tag: "PermanentProviderError" as const });
+    const translator = makeStubTranslator([error]);
+
+    await expect(
+      translateUiStringsForLocale({
+        translator,
+        glossary: EMPTY_GLOSSARY,
+        sourceDict: { a: "A" },
+        localeDict: { a: "" },
+        sourceLocale: "en-US",
+        targetLocale: "pt-BR",
+        maxRetries: 2,
+      }),
+    ).rejects.toThrow("invalid provider request");
+    expect(translator.calls).toBe(1);
+  });
+
   it("does not mutate the input localeDict", async () => {
     const localeDict = { a: "", b: "BLocale" };
     const before = JSON.stringify(localeDict);
-    const translator = makeStubTranslator([markerResponse([["a", "Atrad"]])]);
+    const translator = makeStubTranslator([markerResponse([[0, "Atrad"]])]);
     await translateUiStringsForLocale({
       translator,
       glossary: EMPTY_GLOSSARY,
@@ -394,5 +446,69 @@ describe("translateUiStringsForLocale", () => {
       targetLocale: "pt-BR",
     });
     expect(JSON.stringify(localeDict)).toBe(before);
+  });
+});
+
+describe("translateCatalogEntries", () => {
+  it("translates explicitly selected entries without a locale dictionary", async () => {
+    const translator = makeStubTranslator([markerResponse([[0, "Nova tradução"]])]);
+
+    const result = await translateCatalogEntries({
+      translator,
+      glossary: EMPTY_GLOSSARY,
+      entries: [{ key: "existing", source: "Existing translation" }],
+      sourceLocale: "en-US",
+      targetLocale: "pt-BR",
+    });
+
+    expect(result.translations.get("existing")).toBe("Nova tradução");
+    expect(result.tokenFailures).toEqual([]);
+    expect(result.batchCount).toBe(1);
+  });
+
+  it("does not return translations that fail token validation", async () => {
+    const translator = makeStubTranslator([markerResponse([[0, "Direitos reservados."]])]);
+    const result = await translateCatalogEntries({
+      translator,
+      glossary: EMPTY_GLOSSARY,
+      entries: [{ key: "copyright", source: "Copyright {{year}}." }],
+      sourceLocale: "en-US",
+      targetLocale: "pt-BR",
+    });
+
+    expect(result.translations.has("copyright")).toBe(false);
+    expect(result.tokenFailures).toEqual([{ key: "copyright", missing: ["year"], spurious: [] }]);
+  });
+
+  it("rejects duplicate keys before batching", async () => {
+    const translator = makeStubTranslator([]);
+    await expect(
+      translateCatalogEntries({
+        translator,
+        glossary: EMPTY_GLOSSARY,
+        entries: [
+          { key: "duplicate", source: "First" },
+          { key: "duplicate", source: "Second" },
+        ],
+        sourceLocale: "en-US",
+        targetLocale: "pt-BR",
+        maxSegmentsPerBatch: 1,
+      }),
+    ).rejects.toThrow('duplicate segment id "duplicate"');
+    expect(translator.calls).toBe(0);
+  });
+
+  it("round-trips keys that are unsafe as prompt marker IDs", async () => {
+    const key = "email@cta\nlabel\ud800";
+    const translator = makeStubTranslator([markerResponse([[0, "Enviar e-mail"]])]);
+    const result = await translateCatalogEntries({
+      translator,
+      glossary: EMPTY_GLOSSARY,
+      entries: [{ key, source: "Send email" }],
+      sourceLocale: "en-US",
+      targetLocale: "pt-BR",
+    });
+
+    expect(result.translations.get(key)).toBe("Enviar e-mail");
   });
 });

@@ -20,40 +20,9 @@
  * going through Astro's content layer.
  */
 
-/** Interpolation params: key → scalar coerced to string. */
-export type InterpolateParams = Record<string, string | number | boolean>;
+import { buildTranslateFn, type TranslateFn } from "@cloudflare/polystella-core/catalog";
 
-/**
- * Interpolate `{{name}}` placeholders. Word characters only —
- * `{{user_name}}` works, `{{user.name}}` doesn't. Matches i18next.
- */
-export function interpolate(template: string, params: InterpolateParams): string {
-  return template.replace(/\{\{(\w+)\}\}/g, (match, key: string) => {
-    if (key in params) {
-      return String(params[key]);
-    }
-    return match;
-  });
-}
-
-export type TranslateFn = (key: string, params?: InterpolateParams) => string;
-
-/**
- * `t()` bound to a primary + optional fallback dictionary. Pure;
- * tests exercise this without standing up `getEntry`.
- */
-export function buildTranslateFn(primary: Record<string, string>, fallback?: Record<string, string>): TranslateFn {
-  return function t(key, params) {
-    let raw = primary[key];
-    if (raw === undefined && fallback) {
-      raw = fallback[key];
-    }
-    if (raw === undefined) {
-      return key;
-    }
-    return params ? interpolate(raw, params) : raw;
-  };
-}
+export { buildTranslateFn, interpolate, type InterpolateParams, type TranslateFn } from "@cloudflare/polystella-core/catalog";
 
 /**
  * Astro-content shape we need at page-render time. Structural so
