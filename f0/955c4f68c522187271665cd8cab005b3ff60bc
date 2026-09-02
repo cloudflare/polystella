@@ -1,0 +1,25 @@
+AGENTS.md
+  s_15d9087d67c021::t_d22ec540410125 49-63
+README.md
+  s_15d9087d67c021::t_756e9bb1ec7479 11-17
+llms-full.txt
+  s_15d9087d67c021::t_031543a4d6ff09 65-79,120-122,220-222,229,239-242,245,279-280,284-285,336-337,576,582-583,1103,1120,1225-1230,2061-2062
+packages/core/tests/catalog-translate.test.ts
+  s_15d9087d67c021::t_5f66e96634440c 3,7,11,49,51,127-131,180-182,203-204,206,224,241,257-258,276,303-304,307-308,327,368,383-435,439,451-514
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "f0955c4f68c522187271665cd8cab005b3ff60bc",
+  "prompts": {},
+  "sessions": {
+    "s_15d9087d67c021": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_fa39a3a22ffeMAKJ4kOL1d63yD",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Diogo Carneiro <dcarneiro@cloudflare.com>"
+    }
+  }
+}
