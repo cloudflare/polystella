@@ -33,14 +33,14 @@
   "devDependencies": {
     "@changesets/changelog-github": "^0.7.0",
     "@changesets/cli": "^2.27.0",
-    "@cloudflare/vitest-plugin": "^1.1.1",
+    "@cloudflare/vitest-plugin": "^1.1.2",
     "@cloudflare/polystella-adapters": "workspace:*",
     "@cloudflare/polystella-core": "workspace:*",
     "@cloudflare/polystella-providers": "workspace:*",
     "@cloudflare/polystella-astro": "workspace:*",
-    "pkg-pr-new": "^0.0.75",
-    "prettier": "3.9.4",
+    "pkg-pr-new": "^0.0.88",
+    "prettier": "3.9.6",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.9"
+    "vitest": "^4.1.11"
   }
 }
