@@ -7,9 +7,9 @@ pipeline behavior and hard correctness contracts, use
 
 ## Package Graph
 
-PolyStella publishes five packages. The canonical Astro package and its
-compatibility package form one fixed version group. Core, adapters, and
-providers are versioned independently. Arrows mean "depends on."
+PolyStella publishes six packages. The canonical Astro package and its
+compatibility package form one fixed version group. Core, adapters, providers,
+and EmDash are versioned independently. Arrows mean "depends on."
 
 ```mermaid
 flowchart TD
@@ -19,10 +19,11 @@ flowchart TD
   astro --> core["@cloudflare/polystella-core<br/>translation and catalogs"]
   adapters --> core
   providers --> core
+  emdash["@cloudflare/polystella-emdash<br/>native EmDash plugin"] --> core
 ```
 
 Dependencies point toward reusable code. Core never imports adapters,
-providers, or Astro. Adapters and providers do not import each other. The
+providers, Astro, or EmDash. Adapters and providers do not import each other. The
 compatibility package contains no implementation and points only to the
 canonical Astro package.
 
@@ -35,6 +36,7 @@ it forwards that package's API and CLI unchanged.
 | [`packages/core/`](./packages/core/)             | `@cloudflare/polystella-core`      | Translation contracts, catalogs, prompts, batching, retries, and response parsing. |
 | [`packages/adapters/`](./packages/adapters/)     | `@cloudflare/polystella-adapters`  | Portable parsing, extraction, grouping, and translation application.               |
 | [`packages/providers/`](./packages/providers/)   | `@cloudflare/polystella-providers` | Workers AI and Anthropic implementations of the core translator contract.          |
+| [`packages/emdash/`](./packages/emdash/)         | `@cloudflare/polystella-emdash`    | Native EmDash integration, deployment policy, and catalog overrides.               |
 | [`packages/astro/`](./packages/astro/)           | `@cloudflare/polystella-astro`     | Canonical Astro integration, host policy, storage, routing, runtime APIs, and CLI. |
 | [`packages/polystella/`](./packages/polystella/) | `@cloudflare/polystella`           | Temporary compatibility forwarding to `@cloudflare/polystella-astro`.              |
 
@@ -112,6 +114,16 @@ core internally.
 Provider configuration belongs to the Astro package. The mapping from Astro
 options to provider factories is
 [`packages/astro/src/translation/provider.ts`](./packages/astro/src/translation/provider.ts).
+
+### EmDash
+
+[`@cloudflare/polystella-emdash`](./packages/emdash/) owns EmDash-specific
+deployment validation, plugin declarations, storage policy, routes, and native
+admin UI. Git-owned catalog lookup and translation remain in core.
+
+Start at [`packages/emdash/src/index.ts`](./packages/emdash/src/index.ts). The
+catalog override model lives in
+[`packages/emdash/src/catalog.ts`](./packages/emdash/src/catalog.ts).
 
 ### Astro
 
@@ -201,6 +213,7 @@ before `build:start`. See [`ARCHITECTURE.md#hook-timing`](./ARCHITECTURE.md#hook
 | Parse or reconstruct a portable content format                        | Adapters              |
 | Add or change an external AI transport                                | Providers             |
 | Change Astro options, files, R2, routing, middleware, content, or CLI | Astro                 |
+| Change EmDash options, storage, routes, or native admin UI            | EmDash                |
 | Mirror a canonical Astro export under the old package name            | Compatibility package |
 
 If a change requires Node, Astro, filesystem, or R2 APIs, it does not belong in

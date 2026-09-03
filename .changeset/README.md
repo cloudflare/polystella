@@ -14,10 +14,11 @@ pnpm changeset
 
 - **Which packages are affected?** Select every package changed by the PR:
   `@cloudflare/polystella-core`, `@cloudflare/polystella-adapters`,
-  `@cloudflare/polystella-providers`, `@cloudflare/polystella`, and/or
-  `@cloudflare/polystella-astro`. Astro and the compatibility package form a
-  fixed group; core, adapters, and providers are versioned independently. The
-  private root and `polystella-docs` are not released.
+  `@cloudflare/polystella-providers`, `@cloudflare/polystella-emdash`,
+  `@cloudflare/polystella`, and/or `@cloudflare/polystella-astro`. Astro and the
+  compatibility package form a fixed group; core, adapters, providers, and
+  EmDash are versioned independently. The private root and `polystella-docs`
+  are not released.
 - **Is the change major / minor / patch?** Pre-1.0, "major" stays
   reserved for 1.0; bump minor for breaking changes within 0.x,
   patch otherwise.

@@ -73,7 +73,7 @@ jobs:
               "area/docs": (file) =>
                 file.startsWith("docs/") ||
                 file === "README.md" ||
-                /^packages\/(astro|core|adapters|providers)\/(README|CHANGELOG)\.md$/.test(file),
+                /^packages\/(astro|core|adapters|providers|emdash)\/(README|CHANGELOG)\.md$/.test(file),
               "area/github": (file) => file.startsWith(".github/"),
               "area/i18n": (file) => file.startsWith("packages/astro/src/i18n/"),
               "area/parsing": (file) =>
@@ -83,10 +83,11 @@ jobs:
                 file.startsWith("packages/astro/src/runtime/") || file.startsWith("packages/astro/src/react/"),
               "area/storage": (file) => file.startsWith("packages/astro/src/storage/"),
               "area/tests": (file) =>
-                /^packages\/(astro|core|adapters|providers)\/tests\//.test(file) || file.startsWith("tests/"),
+                /^packages\/(astro|core|adapters|providers|emdash)\/tests\//.test(file) || file.startsWith("tests/"),
               "area/translation": (file) =>
                 file.startsWith("packages/core/") ||
                 file.startsWith("packages/providers/") ||
+                file.startsWith("packages/emdash/") ||
                 file.startsWith("packages/astro/src/translation/") ||
                 file.startsWith("packages/astro/src/glossary/"),
             };

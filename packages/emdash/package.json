@@ -1,0 +1,58 @@
+{
+  "name": "@cloudflare/polystella-emdash",
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Native EmDash integration for PolyStella.",
+  "license": "MIT",
+  "homepage": "https://github.com/cloudflare/polystella",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cloudflare/polystella.git",
+    "directory": "packages/emdash"
+  },
+  "bugs": {
+    "url": "https://github.com/cloudflare/polystella/issues"
+  },
+  "keywords": [
+    "emdash",
+    "i18n",
+    "localization",
+    "translation",
+    "cloudflare"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "CHANGELOG.md",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc -p tsconfig.build.json"
+  },
+  "dependencies": {
+    "@cloudflare/polystella-core": "workspace:^"
+  },
+  "peerDependencies": {
+    "emdash": "^0.36.0"
+  },
+  "devDependencies": {
+    "emdash": "0.36.0",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.9"
+  }
+}

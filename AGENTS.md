@@ -30,9 +30,9 @@ section numbers. Inserting new sections never breaks links.
 | :-------------------- | :----------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `pnpm test`           | Run all package, Astro, workerd, and boundary tests.                                                                                                   |
 | `pnpm test:watch`     | Run the Astro package tests in watch mode.                                                                                                             |
-| `pnpm build`          | Build all five public packages. Astro emits its standalone CLI and library entries under `packages/astro/dist/`.                                       |
-| `pnpm typecheck`      | Build all five packages, then typecheck every public package against its package-local `tsconfig.json`.                                                |
-| `pnpm check:packages` | Pack all five public packages and exercise every export from a clean temporary consumer.                                                               |
+| `pnpm build`          | Build all six public packages. Astro emits its standalone CLI and library entries under `packages/astro/dist/`.                                        |
+| `pnpm typecheck`      | Build all six packages, then typecheck every public package against its package-local `tsconfig.json`.                                                 |
+| `pnpm check:packages` | Pack all six public packages and exercise every export from a clean temporary consumer.                                                                |
 | `pnpm changeset`      | Add a Changesets entry for package-affecting work. Use `pnpm changeset add --empty` only for changes that intentionally do not need a package release. |
 
 No lint step yet.
@@ -58,6 +58,7 @@ Task → entry-point file(s) → key contract → deep-dive link.
 | Modify routing shims                                   | `packages/astro/src/routing/{shim,expand-routes,walk-pages}.ts`                                   | Stale shims nuked per build; CSS via `routesImports`                  | [#routing-shims](./ARCHITECTURE.md#routing-shims)                                                                                                   |
 | Edit UI-string handling                                | `packages/core/src/catalog/translate.ts`, `packages/astro/src/i18n/{drift,sync}.ts`, CLI handlers | Three drift modes; layout-aware writer; `{{token}}` preservation      | [#ui-strings](./ARCHITECTURE.md#ui-strings)                                                                                                         |
 | Edit catalog-only adoption                             | `packages/core/src/catalog/index.ts`, `packages/astro/src/catalog/*`                              | Pure imports; middleware binds only `t` + `lhref`                     | [`CATALOG_ONLY_PLAN.md`](./CATALOG_ONLY_PLAN.md); [consumer SKILL](./skills/polystella-consumer/SKILL.md#catalog-only-adoption)                     |
+| Modify the EmDash plugin                               | `packages/emdash/src/*`                                                                           | Deployment policy stays server-owned; Git catalogs stay canonical     | [`EMDASH_PLUGIN_IMPLEMENTATION_PLAN.md`](./EMDASH_PLUGIN_IMPLEMENTATION_PLAN.md)                                                                    |
 | Edit content-collection wiring                         | `packages/astro/src/content/*`                                                                    | Sibling collections; custom-loader wrapper; bridge timing             | [#runtime-bridge](./ARCHITECTURE.md#runtime-bridge)                                                                                                 |
 | Debug a translation that's wrong                       | Start: `pnpm translate --dry-run` to inspect planned R2 keys; `LOG_LEVEL=debug` for batch detail  | —                                                                     | Recipe in [contributor SKILL](./skills/polystella-contributor/SKILL.md#debug-translation)                                                           |
 | Tune cold-cache build performance                      | `r2.bulkListOnStart`, `concurrency`, `batchInputTokenBudget` knobs                                | —                                                                     | [#bulk-prelist](./ARCHITECTURE.md#bulk-prelist), [#translation-batching](./ARCHITECTURE.md#translation-batching)                                    |
@@ -101,7 +102,7 @@ to the explanatory section when adding code that touches one.
   `pnpm changeset add --empty` only when the change deliberately does
   not require a package release (for example, docs-site-only or CI-only
   maintenance).
-- Let Changesets version core, adapters, and providers independently while
+- Let Changesets version core, adapters, providers, and EmDash independently while
   keeping Astro and its compatibility package in one fixed group; do not
   manually bump individual manifests. `POLYSTELLA_VERSION` in
   `packages/astro/src/version.ts` reads the Astro manifest at module-load time

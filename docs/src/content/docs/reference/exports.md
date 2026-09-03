@@ -1,10 +1,10 @@
 ---
 title: Public exports
-description: "Every export path across the five public packages, with ownership and import examples."
+description: "Every export path across the six public packages, with ownership and import examples."
 aiGenerated: true
 ---
 
-PolyStella ships thirty-one public import paths across five packages.
+PolyStella ships thirty-two public import paths across six packages.
 The canonical Astro package, `@cloudflare/polystella-astro`, is also
 available through the `@cloudflare/polystella` compatibility package; both expose
 the same API.
@@ -18,6 +18,7 @@ the same API.
 | Providers | `@cloudflare/polystella-providers`                | All provider factories from one entrypoint.                                                               | `import { createWorkersAIBindingTranslator } from "@cloudflare/polystella-providers";`         |
 | Providers | `@cloudflare/polystella-providers/workers-ai`     | Workers AI HTTP and binding factories plus their structural input types.                                  | `import { createWorkersAIHttpTranslator } from "@cloudflare/polystella-providers/workers-ai";` |
 | Providers | `@cloudflare/polystella-providers/anthropic`      | Anthropic HTTP factory.                                                                                   | `import { createAnthropicTranslator } from "@cloudflare/polystella-providers/anthropic";`      |
+| EmDash    | `@cloudflare/polystella-emdash`                   | Native EmDash descriptor, deployment policy validation, and catalog override helpers.                     | `import { polystellaEmdash } from "@cloudflare/polystella-emdash";`                            |
 | Astro     | `@cloudflare/polystella-astro`                    | Default export: the Astro integration factory and Astro-owned host utilities.                             | `import polystella from "@cloudflare/polystella-astro";`                                       |
 | Astro     | `@cloudflare/polystella-astro/content`            | Content-config helpers: `polystellaCollections`, `file`, `polystellaLoader`.                              | `import { polystellaCollections } from "@cloudflare/polystella-astro/content";`                |
 | Astro     | `@cloudflare/polystella-astro/runtime`            | Runtime API: `getLocalizedEntry`, `getLocalizedCollection`, `localizedHref`, `polystellaMiddleware`.      | `import { localizedHref } from "@cloudflare/polystella-astro/runtime";`                        |

@@ -110,6 +110,14 @@ const packages = [
     allowedTopLevel: ["CHANGELOG.md", "LICENSE", "README.md", "dist", "package.json", "src"],
     requiredFiles: ["CHANGELOG.md", "LICENSE", "README.md", "dist/index.d.ts", "dist/index.js", "src/index.ts"],
   },
+  {
+    directory: path.join(repositoryRoot, "packages", "emdash"),
+    name: "@cloudflare/polystella-emdash",
+    exports: ["."],
+    internalDependencies: ["@cloudflare/polystella-core"],
+    allowedTopLevel: ["CHANGELOG.md", "LICENSE", "README.md", "dist", "package.json", "src"],
+    requiredFiles: ["CHANGELOG.md", "LICENSE", "README.md", "dist/index.d.ts", "dist/index.js", "src/index.ts"],
+  },
 ];
 const lowerPackageEntries = [
   "@cloudflare/polystella-core",
@@ -119,6 +127,7 @@ const lowerPackageEntries = [
   "@cloudflare/polystella-providers",
   "@cloudflare/polystella-providers/workers-ai",
   "@cloudflare/polystella-providers/anthropic",
+  "@cloudflare/polystella-emdash",
 ];
 const nodeSafeAstroEntries = [
   "@cloudflare/polystella",
@@ -249,7 +258,7 @@ async function main() {
     await runCommand(pnpm, ["exec", "tsc", "--noEmit"], { cwd: aliasConsumerDirectory, timeoutMs: 180_000 });
 
     console.log(
-      `check:packages passed: 5 tarballs, Astro ${astroVersion}, 19 runtime imports, full and alias-only Astro builds/typechecks, and both CLIs`,
+      `check:packages passed: 6 tarballs, Astro ${astroVersion}, 20 runtime imports, full and alias-only Astro builds/typechecks, and both CLIs`,
     );
   } finally {
     await cleanup();
@@ -322,7 +331,7 @@ async function writeConsumer(consumerDirectory, packedPackages) {
       {
         private: true,
         type: "module",
-        dependencies: { ...tarballDependencies, astro: "^7.0.10", react: "^19.0.0" },
+        dependencies: { ...tarballDependencies, astro: "^7.0.10", emdash: "0.36.0", react: "^19.0.0" },
         devDependencies: { "@types/react": "^19.0.0", typescript: "^6.0.3" },
       },
       null,
@@ -374,7 +383,7 @@ async function writeConsumer(consumerDirectory, packedPackages) {
   await writeFile(path.join(consumerDirectory, "src", "content", "docs", "hello.md"), `---\ntitle: Hello\n---\n\n# Hello\n`);
   await writeFile(
     path.join(consumerDirectory, "src", "entrypoints.ts"),
-    `import { jsonAdapter } from "@cloudflare/polystella-adapters";\nimport { buildPrompt, EMPTY_GLOSSARY, type Segment, type Translator } from "@cloudflare/polystella-core";\nimport { createWorkersAIHttpTranslator } from "@cloudflare/polystella-providers";\nimport { createAnthropicTranslator, type AnthropicTranslatorOptions } from "@cloudflare/polystella-providers/anthropic";\nimport { createWorkersAIBindingTranslator, type WorkersAIInput } from "@cloudflare/polystella-providers/workers-ai";\nimport { polystellaCollections } from "@cloudflare/polystella-astro/content";\nimport { getTranslations } from "@cloudflare/polystella-astro/i18n";\nimport { useTranslations } from "@cloudflare/polystella-astro/react";\nimport { localizedHref } from "@cloudflare/polystella-astro/runtime";\nimport { polystellaMiddleware } from "@cloudflare/polystella-astro/runtime/middleware";\nimport { defaultLocale } from "polystella:runtime-config";\n\nconst segment: Segment = { id: "body:0", text: "Hello" };\nconst prompt = buildPrompt({ segments: [segment], glossary: EMPTY_GLOSSARY, sourceLocale: "en-US", targetLocale: "pt-BR" });\nconst input: WorkersAIInput = { messages: [{ role: "user", content: prompt.userPrompt }], max_tokens: 64 };\nconst bindingTranslator: Translator = createWorkersAIBindingTranslator({ modelId: "test", maxTokens: 64, run: async () => ({ response: "Ola" }) });\nconst httpTranslator: Translator = createWorkersAIHttpTranslator({ accountId: "test", apiToken: "test", modelId: "test", maxTokens: 64 });\nconst anthropicOptions: AnthropicTranslatorOptions = { apiKey: "test", modelId: "test", maxTokens: 64 };\nconst anthropicTranslator: Translator = createAnthropicTranslator(anthropicOptions);\n\nexport const typedEntrypoints = [jsonAdapter, prompt, input, bindingTranslator, httpTranslator, anthropicTranslator, polystellaCollections, getTranslations, useTranslations, localizedHref, polystellaMiddleware, defaultLocale];\n`,
+    `import { jsonAdapter } from "@cloudflare/polystella-adapters";\nimport { buildPrompt, EMPTY_GLOSSARY, type Segment, type Translator } from "@cloudflare/polystella-core";\nimport { polystellaEmdash } from "@cloudflare/polystella-emdash";\nimport { createWorkersAIHttpTranslator } from "@cloudflare/polystella-providers";\nimport { createAnthropicTranslator, type AnthropicTranslatorOptions } from "@cloudflare/polystella-providers/anthropic";\nimport { createWorkersAIBindingTranslator, type WorkersAIInput } from "@cloudflare/polystella-providers/workers-ai";\nimport { polystellaCollections } from "@cloudflare/polystella-astro/content";\nimport { getTranslations } from "@cloudflare/polystella-astro/i18n";\nimport { useTranslations } from "@cloudflare/polystella-astro/react";\nimport { localizedHref } from "@cloudflare/polystella-astro/runtime";\nimport { polystellaMiddleware } from "@cloudflare/polystella-astro/runtime/middleware";\nimport { defaultLocale } from "polystella:runtime-config";\n\nconst segment: Segment = { id: "body:0", text: "Hello" };\nconst prompt = buildPrompt({ segments: [segment], glossary: EMPTY_GLOSSARY, sourceLocale: "en-US", targetLocale: "pt-BR" });\nconst input: WorkersAIInput = { messages: [{ role: "user", content: prompt.userPrompt }], max_tokens: 64 };\nconst bindingTranslator: Translator = createWorkersAIBindingTranslator({ modelId: "test", maxTokens: 64, run: async () => ({ response: "Ola" }) });\nconst httpTranslator: Translator = createWorkersAIHttpTranslator({ accountId: "test", apiToken: "test", modelId: "test", maxTokens: 64 });\nconst anthropicOptions: AnthropicTranslatorOptions = { apiKey: "test", modelId: "test", maxTokens: 64 };\nconst anthropicTranslator: Translator = createAnthropicTranslator(anthropicOptions);\nconst emdashPlugin = polystellaEmdash({ aiBinding: "AI", collections: {}, catalogs: { defaultLocale: "en-US", locales: { "en-US": { dictionary: { greeting: "Hello" }, filePath: "src/i18n/en-US.json" } } }, models: { allowed: ["test"], default: "test" } });\n\nexport const typedEntrypoints = [jsonAdapter, prompt, input, bindingTranslator, httpTranslator, anthropicTranslator, emdashPlugin, polystellaCollections, getTranslations, useTranslations, localizedHref, polystellaMiddleware, defaultLocale];\n`,
   );
   await writeFile(
     path.join(consumerDirectory, "src", "catalog-entrypoints.ts"),

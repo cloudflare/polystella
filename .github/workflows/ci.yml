@@ -114,6 +114,8 @@ jobs:
           test -f packages/astro/dist/content/index.js
           test -f packages/astro/dist/i18n/index.js
           test -f packages/astro/dist/react/index.js
+          test -f packages/emdash/dist/index.js
+          test -f packages/emdash/dist/index.d.ts
           test -f packages/polystella/dist/cli.js
           test -x packages/polystella/dist/cli.js
           test -f packages/polystella/dist/index.js

@@ -106,6 +106,8 @@ Two entry points share `runTranslationPass` in `packages/astro/src/translation/r
   extraction, grouping, and translation application.
 - `@cloudflare/polystella-providers` owns Workers AI HTTP/binding and
   Anthropic transports.
+- `@cloudflare/polystella-emdash` owns EmDash deployment policy, plugin
+  declarations, storage, routes, and native admin UI.
 - `@cloudflare/polystella-astro` owns Astro hooks, filesystem and R2 access,
   cache/marker/URL policy, routing, runtime APIs, catalog loading, filesystem
   drift/sync, and the CLI.
