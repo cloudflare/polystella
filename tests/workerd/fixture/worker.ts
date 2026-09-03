@@ -1,5 +1,7 @@
 import { jsonAdapter } from "@cloudflare/polystella-adapters";
 import { buildPrompt, EMPTY_GLOSSARY } from "@cloudflare/polystella-core";
+import { buildTranslateFn } from "@cloudflare/polystella-core/catalog";
+import { extractTokens } from "@cloudflare/polystella-core/catalog/translate";
 import { createWorkersAIBindingTranslator } from "@cloudflare/polystella-providers";
 
 export default {
@@ -21,6 +23,8 @@ export default {
 
     return Response.json({
       prompt: prompt.userPrompt.includes("@@title@@"),
+      catalog: buildTranslateFn({ greeting: "Ola, {{name}}" })("greeting", { name: "Diogo" }),
+      tokens: [...extractTokens("Ola, {{name}}")],
       title: (JSON.parse(output) as { entry: { title: string } }).entry.title,
       translation: await translator.translate("system", "user"),
     });

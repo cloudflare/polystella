@@ -16,7 +16,7 @@ flowchart TD
   compat["@cloudflare/polystella<br/>compatibility only"] --> astro["@cloudflare/polystella-astro<br/>canonical Astro package"]
   astro --> adapters["@cloudflare/polystella-adapters<br/>portable formats"]
   astro --> providers["@cloudflare/polystella-providers<br/>portable transports"]
-  astro --> core["@cloudflare/polystella-core<br/>translation protocol"]
+  astro --> core["@cloudflare/polystella-core<br/>translation and catalogs"]
   adapters --> core
   providers --> core
 ```
@@ -32,7 +32,7 @@ it forwards that package's API and CLI unchanged.
 
 | Directory                                        | Published package                  | Responsibility                                                                     |
 | :----------------------------------------------- | :--------------------------------- | :--------------------------------------------------------------------------------- |
-| [`packages/core/`](./packages/core/)             | `@cloudflare/polystella-core`      | Translation contracts, prompts, batching, retries, and response parsing.           |
+| [`packages/core/`](./packages/core/)             | `@cloudflare/polystella-core`      | Translation contracts, catalogs, prompts, batching, retries, and response parsing. |
 | [`packages/adapters/`](./packages/adapters/)     | `@cloudflare/polystella-adapters`  | Portable parsing, extraction, grouping, and translation application.               |
 | [`packages/providers/`](./packages/providers/)   | `@cloudflare/polystella-providers` | Workers AI and Anthropic implementations of the core translator contract.          |
 | [`packages/astro/`](./packages/astro/)           | `@cloudflare/polystella-astro`     | Canonical Astro integration, host policy, storage, routing, runtime APIs, and CLI. |
@@ -66,10 +66,13 @@ It owns:
 - Prompt construction and provider-response parsing.
 - Token estimation, grouping validation, and batch packing.
 - Translation execution, retries, cancellation, and permanent provider errors.
+- Dependency-free catalog lookup, fallback, and interpolation.
+- Catalog AI translation and `{{token}}` validation.
 
 Start at [`packages/core/src/index.ts`](./packages/core/src/index.ts). The main
 implementations are `translator.ts`, `prompt.ts`, `batch.ts`,
-`translate-batch.ts`, and `translate-segments.ts`.
+`translate-batch.ts`, `translate-segments.ts`, and
+[`catalog/`](./packages/core/src/catalog/).
 
 Core does not know about file formats, R2, the filesystem, Astro, or any
 specific AI transport.
@@ -120,7 +123,8 @@ package. It composes the reusable packages and owns host-specific behavior:
 - R2 keys, reads, writes, metadata, local indexes, reports, and pruning.
 - Overrides, AI markers, and URL rewriting policy.
 - Content collections, custom-loader support, runtime lookup, and middleware.
-- Route shims, UI strings, catalog-only mode, React hooks, recipes, and CLI.
+- Route shims, UI-string filesystem policy, catalog-only Astro mode, React
+  hooks, recipes, and CLI.
 
 The primary entry points are:
 

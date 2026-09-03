@@ -10,6 +10,7 @@ This package owns:
 - Prompt construction and provider-response parsing.
 - Token estimation, grouping validation, and batch packing.
 - Translation execution, retries, cancellation, and `PermanentProviderError`.
+- Catalog lookup, fallback, interpolation, and UI-string translation.
 
 It does not parse file formats, call a specific AI provider, or depend on
 Astro, Node filesystem APIs, or R2.
@@ -22,8 +23,14 @@ Astro, Node filesystem APIs, or R2.
 - `src/batch.ts` - token estimation and batch packing.
 - `src/translate-batch.ts` - retries and one provider request.
 - `src/translate-segments.ts` - end-to-end segment orchestration.
+- `src/catalog/index.ts` - dependency-free catalog runtime.
+- `src/catalog/translate.ts` - catalog AI translation and token validation.
 
-The only public import path is `@cloudflare/polystella-core`.
+Public import paths:
+
+- `@cloudflare/polystella-core` - translation protocol and orchestration.
+- `@cloudflare/polystella-core/catalog` - catalog runtime without the retry path.
+- `@cloudflare/polystella-core/catalog/translate` - selected-entry and empty-placeholder catalog AI translation.
 
 See the
 [package architecture](https://github.com/cloudflare/polystella/blob/main/PACKAGE_ARCHITECTURE.md)

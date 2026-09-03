@@ -7,6 +7,8 @@ import {
   translateBatch,
   type Segment,
 } from "@cloudflare/polystella-core";
+import { buildTranslateFn } from "@cloudflare/polystella-core/catalog";
+import { extractTokens, translateCatalogEntries } from "@cloudflare/polystella-core/catalog/translate";
 import { createWorkersAIBindingTranslator, createWorkersAIHttpTranslator } from "@cloudflare/polystella-providers/workers-ai";
 import { SELF } from "cloudflare:test";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -14,6 +16,25 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 const segment: Segment = { id: "body:0", text: "Hello" };
 
 describe("core in workerd", () => {
+  it("resolves catalogs and extracts interpolation tokens", () => {
+    const translate = buildTranslateFn({ greeting: "Ola, {{name}}" });
+
+    expect(translate("greeting", { name: "Diogo" })).toBe("Ola, Diogo");
+    expect(extractTokens("Ola, {{name}}")).toEqual(new Set(["name"]));
+  });
+
+  it("translates selected catalog entries", async () => {
+    const result = await translateCatalogEntries({
+      translator: { modelId: "test", translate: async () => "@@catalog:0@@\nOla" },
+      glossary: EMPTY_GLOSSARY,
+      entries: [{ key: "greeting", source: "Hello" }],
+      sourceLocale: "en-US",
+      targetLocale: "pt-BR",
+    });
+
+    expect(result.translations.get("greeting")).toBe("Ola");
+  });
+
   it("builds prompts and parses marker responses", () => {
     const prompt = buildPrompt({
       segments: [segment],
@@ -136,5 +157,11 @@ describe("Workers AI providers in workerd", () => {
 
 it("executes the no-compat Worker fixture", async () => {
   const response = await SELF.fetch("https://example.test/");
-  expect(await response.json()).toEqual({ prompt: true, title: "Ola", translation: "Ola" });
+  expect(await response.json()).toEqual({
+    prompt: true,
+    catalog: "Ola, Diogo",
+    tokens: ["name"],
+    title: "Ola",
+    translation: "Ola",
+  });
 });

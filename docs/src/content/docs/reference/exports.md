@@ -4,7 +4,7 @@ description: "Every export path across the five public packages, with ownership 
 aiGenerated: true
 ---
 
-PolyStella ships twenty-nine public import paths across five packages.
+PolyStella ships thirty-one public import paths across five packages.
 The canonical Astro package, `@cloudflare/polystella-astro`, is also
 available through the `@cloudflare/polystella` compatibility package; both expose
 the same API.
@@ -12,6 +12,8 @@ the same API.
 | Owner     | Path                                              | Purpose                                                                                                   | Example                                                                                        |
 | --------- | ------------------------------------------------- | --------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
 | Core      | `@cloudflare/polystella-core`                     | `Segment`, glossary and translator contracts, prompts, batching, parsing provider responses, and retries. | `import { translateSegments } from "@cloudflare/polystella-core";`                             |
+| Core      | `@cloudflare/polystella-core/catalog`             | Dependency-free catalog lookup, fallback, and interpolation.                                              | `import { buildTranslateFn } from "@cloudflare/polystella-core/catalog";`                      |
+| Core      | `@cloudflare/polystella-core/catalog/translate`   | Selected-entry catalog AI translation and `{{token}}` validation.                                         | `import { translateCatalogEntries } from "@cloudflare/polystella-core/catalog/translate";`     |
 | Adapters  | `@cloudflare/polystella-adapters`                 | Portable Markdown, MDX, JSON, YAML, and TOML adapters plus parser and key-path helpers.                   | `import { jsonAdapter } from "@cloudflare/polystella-adapters";`                               |
 | Providers | `@cloudflare/polystella-providers`                | All provider factories from one entrypoint.                                                               | `import { createWorkersAIBindingTranslator } from "@cloudflare/polystella-providers";`         |
 | Providers | `@cloudflare/polystella-providers/workers-ai`     | Workers AI HTTP and binding factories plus their structural input types.                                  | `import { createWorkersAIHttpTranslator } from "@cloudflare/polystella-providers/workers-ai";` |

@@ -9,7 +9,7 @@ import { parseTranslateUiArgs, runTranslateUi } from "../../src/cli/translate-ui
  * Tests for the `polystella translate-ui` subcommand argv parser
  * + light wiring tests for the `--sync-only` mode (the only mode
  * that doesn't require a real or mocked provider). The AI pipeline
- * itself is covered by `tests/i18n/ui-translate-pipeline.test.ts`.
+ * itself is covered by core's `tests/catalog-translate.test.ts`.
  *
  * Mocking the provider end-to-end through the CLI requires a real
  * `polystella.config.mjs` plus dynamic import of the configured

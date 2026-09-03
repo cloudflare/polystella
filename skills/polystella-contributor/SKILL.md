@@ -417,7 +417,8 @@ for low-level imports that moved out of the Astro package.
 
 - `packages/astro/src/i18n/drift.ts` — `checkI18nDrift`, `loadAndCheckDrift`.
 - `packages/astro/src/i18n/sync.ts` — key reconciliation; **layout-aware** JSON writer (`formatLocaleFile`).
-- `packages/astro/src/i18n/ui-translate.ts` — AI-fill orchestrator; `{{token}}` validator + retry wrapper.
+- `packages/core/src/catalog/translate.ts` — AI-fill orchestrator; `{{token}}` validator + retry wrapper.
+- `packages/astro/src/i18n/ui-translate.ts` — compatibility re-export for Astro's CLI.
 - `packages/astro/src/i18n/loader.ts`, `i18n/index.ts` — content-layer loader, dictionary fetcher.
 - `packages/astro/src/catalog/*` — catalog-only public exports, middleware, and Astro integration. Must stay free of content translation, R2, route shims, and localized collection imports.
 - `packages/astro/src/cli/check-ui.ts`, `sync-ui.ts`, `translate-ui.ts` — CLI handlers.

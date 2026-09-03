@@ -101,13 +101,14 @@ Two entry points share `runTranslationPass` in `packages/astro/src/translation/r
 
 - `@cloudflare/polystella-core` owns `Segment`, glossaries, the
   `Translator` contract, prompt construction/response parsing, batching,
-  and retries.
+  retries, portable catalog lookup, and catalog AI translation.
 - `@cloudflare/polystella-adapters` owns portable format parsing,
   extraction, grouping, and translation application.
 - `@cloudflare/polystella-providers` owns Workers AI HTTP/binding and
   Anthropic transports.
 - `@cloudflare/polystella-astro` owns Astro hooks, filesystem and R2 access,
-  cache/marker/URL policy, routing, runtime APIs, and the CLI.
+  cache/marker/URL policy, routing, runtime APIs, catalog loading, filesystem
+  drift/sync, and the CLI.
 
 The three reusable packages depend only on standard Web APIs at runtime.
 They execute in Workers without `nodejs_compat`; enabling the flag in a
@@ -627,7 +628,7 @@ Three CLI subcommands maintain the invariant:
   files in source-file key order with blank-line section breaks
   preserved.
 - **`translate-ui`** (`packages/astro/src/cli/translate-ui.ts` +
-  `packages/astro/src/i18n/ui-translate.ts`) — runs sync, skips fully translated
+  `packages/core/src/catalog/translate.ts`) — runs sync, skips fully translated
   locale JSONs before provider setup, then translates each queued
   locale in small sequential request batches capped by
   `provider.batchInputTokenBudget` and 25 UI strings per request.
@@ -644,7 +645,7 @@ keys alphabetically.
 **`{{token}}` preservation.** Validated post-translation by
 extracting `{{\w+}}` tokens from both source and translation and
 comparing the sets. Validator lives _outside_ `translateBatch` (in
-`packages/astro/src/i18n/ui-translate.ts`) because `translateBatch` doesn't expose
+`packages/core/src/catalog/translate.ts`) because `translateBatch` doesn't expose
 a post-parse hook. The orchestrator runs its own per-request-batch
 retry wrapper with `maxRetries: 0` passed to `translateBatch` so the
 retry loop is single-layer. A token-invalid translation after all

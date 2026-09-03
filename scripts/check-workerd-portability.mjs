@@ -50,7 +50,13 @@ async function main() {
     ]);
     try {
       const response = await waitForWorker(server, `http://127.0.0.1:${port}/`);
-      assert.deepEqual(await response.json(), { prompt: true, title: "Ola", translation: "Ola" });
+      assert.deepEqual(await response.json(), {
+        prompt: true,
+        catalog: "Ola, Diogo",
+        tokens: ["name"],
+        title: "Ola",
+        translation: "Ola",
+      });
       console.log("Wrangler no-compat runtime passed.");
     } finally {
       await terminate(server);
