@@ -1,0 +1,47 @@
+.changeset/README.md
+  s_02dd1e6927b400::t_be480c4bacdcd2 17-21
+.github/workflows/docs.yml
+  s_02dd1e6927b400::t_9c6e51dfc75a27 13,35
+PACKAGE_ARCHITECTURE.md
+  s_15d9087d67c021::t_09ae3532bee286 31-33,39-47,142-146
+docs/scripts/check-exports.ts
+  s_02dd1e6927b400::t_5a6761078d8c59 13
+docs/src/content/docs/reference/exports.md
+  s_15d9087d67c021::t_d68d6ac3d4fba8 23,27,32-33
+llms-full.txt
+  s_15d9087d67c021::t_b0a780b98a2d67 242-244,250-258,353-357,617-618
+packages/emdash/README.md
+  s_15d9087d67c021::t_92e99cc2e0a2b5 11-12,14-15,17,37-45,49-52,92-95,104-114
+packages/emdash/src/astro.ts
+  s_15d9087d67c021::t_3d7580e57d12be 1-94
+packages/emdash/src/runtime.ts
+  s_15d9087d67c021::t_ac4ecb861944a3 1-128
+packages/emdash/tests/index.test.ts
+  s_02dd1e6927b400::t_8e353ed91cea33 148-161
+pnpm-lock.yaml
+  s_15d9087d67c021::t_f51398fa18938b 282-284,9324-9325
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "371215fda91826b6e0dbc8689a2e58a2defd5658",
+  "prompts": {},
+  "sessions": {
+    "s_02dd1e6927b400": {
+      "agent_id": {
+        "tool": "windsurf",
+        "id": "aquamarine-crow",
+        "model": "unknown"
+      },
+      "human_author": "Diogo Carneiro <dcarneiro@cloudflare.com>"
+    },
+    "s_15d9087d67c021": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_fa39a3a22ffeMAKJ4kOL1d63yD",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Diogo Carneiro <dcarneiro@cloudflare.com>"
+    }
+  }
+}
