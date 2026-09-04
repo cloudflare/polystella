@@ -7,36 +7,44 @@ pipeline behavior and hard correctness contracts, use
 
 ## Package Graph
 
-PolyStella publishes five packages. The canonical Astro package and its
-compatibility package form one fixed version group. Core, adapters, and
-providers are versioned independently. Arrows mean "depends on."
+PolyStella publishes seven packages. The canonical Astro package and its
+compatibility package form one fixed version group. The other packages are
+versioned independently. Arrows mean "depends on."
 
 ```mermaid
 flowchart TD
   compat["@cloudflare/polystella<br/>compatibility only"] --> astro["@cloudflare/polystella-astro<br/>canonical Astro package"]
   astro --> adapters["@cloudflare/polystella-adapters<br/>portable formats"]
+  astro --> cli["@cloudflare/polystella-cli<br/>catalog CLI"]
   astro --> providers["@cloudflare/polystella-providers<br/>portable transports"]
   astro --> core["@cloudflare/polystella-core<br/>translation and catalogs"]
   adapters --> core
   providers --> core
+  cli --> core
+  cli --> providers
+  emdash["@cloudflare/polystella-emdash<br/>native EmDash plugin"] --> core
+  emdash --> cli
+  emdash --> providers
 ```
 
 Dependencies point toward reusable code. Core never imports adapters,
-providers, or Astro. Adapters and providers do not import each other. The
-compatibility package contains no implementation and points only to the
-canonical Astro package.
+providers, CLI, Astro, or EmDash. Adapters and providers do not import each
+other. The compatibility package contains no implementation and points only to
+the canonical Astro package.
 
 Published dependencies on independently versioned packages use compatible
 caret ranges. The compatibility package pins the exact Astro version because
 it forwards that package's API and CLI unchanged.
 
-| Directory                                        | Published package                  | Responsibility                                                                     |
-| :----------------------------------------------- | :--------------------------------- | :--------------------------------------------------------------------------------- |
-| [`packages/core/`](./packages/core/)             | `@cloudflare/polystella-core`      | Translation contracts, catalogs, prompts, batching, retries, and response parsing. |
-| [`packages/adapters/`](./packages/adapters/)     | `@cloudflare/polystella-adapters`  | Portable parsing, extraction, grouping, and translation application.               |
-| [`packages/providers/`](./packages/providers/)   | `@cloudflare/polystella-providers` | Workers AI and Anthropic implementations of the core translator contract.          |
-| [`packages/astro/`](./packages/astro/)           | `@cloudflare/polystella-astro`     | Canonical Astro integration, host policy, storage, routing, runtime APIs, and CLI. |
-| [`packages/polystella/`](./packages/polystella/) | `@cloudflare/polystella`           | Temporary compatibility forwarding to `@cloudflare/polystella-astro`.              |
+| Directory                                        | Published package                  | Responsibility                                                                        |
+| :----------------------------------------------- | :--------------------------------- | :------------------------------------------------------------------------------------ |
+| [`packages/core/`](./packages/core/)             | `@cloudflare/polystella-core`      | Translation contracts, catalogs, prompts, batching, retries, and response parsing.    |
+| [`packages/adapters/`](./packages/adapters/)     | `@cloudflare/polystella-adapters`  | Portable parsing, extraction, grouping, and translation application.                  |
+| [`packages/providers/`](./packages/providers/)   | `@cloudflare/polystella-providers` | Workers AI and Anthropic implementations of the core translator contract.             |
+| [`packages/cli/`](./packages/cli/)               | `@cloudflare/polystella-cli`       | Shared Node.js catalog commands, filesystem policy, config loading, and glossary I/O. |
+| [`packages/emdash/`](./packages/emdash/)         | `@cloudflare/polystella-emdash`    | Native EmDash translation, deployment policy, admin UI, overrides, and Astro runtime. |
+| [`packages/astro/`](./packages/astro/)           | `@cloudflare/polystella-astro`     | Canonical Astro integration, host policy, storage, routing, runtime APIs, and CLI.    |
+| [`packages/polystella/`](./packages/polystella/) | `@cloudflare/polystella`           | Temporary compatibility forwarding to `@cloudflare/polystella-astro`.                 |
 
 ## Direct Translation Flow
 
@@ -113,6 +121,30 @@ Provider configuration belongs to the Astro package. The mapping from Astro
 options to provider factories is
 [`packages/astro/src/translation/provider.ts`](./packages/astro/src/translation/provider.ts).
 
+### CLI
+
+[`@cloudflare/polystella-cli`](./packages/cli/) owns the Node.js implementation
+of `check-ui`, `sync-ui`, and `translate-ui`, including filesystem config and
+glossary loading. Astro and EmDash expose those handlers through their own
+`polystella` executables instead of duplicating them. Start at
+[`packages/cli/src/run-command.ts`](./packages/cli/src/run-command.ts).
+
+### EmDash
+
+[`@cloudflare/polystella-emdash`](./packages/emdash/) owns EmDash-specific
+deployment validation, plugin declarations, storage policy, routes, and native
+admin UI. Git-owned catalog lookup and translation remain in core.
+
+Start at [`packages/emdash/src/index.ts`](./packages/emdash/src/index.ts). The
+route boundary lives in [`packages/emdash/src/routes.ts`](./packages/emdash/src/routes.ts),
+the native UI in [`packages/emdash/src/admin.tsx`](./packages/emdash/src/admin.tsx),
+the catalog override model in
+[`packages/emdash/src/catalog.ts`](./packages/emdash/src/catalog.ts), and the
+companion Astro integration in
+[`packages/emdash/src/astro.ts`](./packages/emdash/src/astro.ts). EmDash depends
+on providers for Workers AI and CLI for the catalog commands exposed by its
+binary.
+
 ### Astro
 
 [`@cloudflare/polystella-astro`](./packages/astro/) is the canonical product
@@ -123,8 +155,7 @@ package. It composes the reusable packages and owns host-specific behavior:
 - R2 keys, reads, writes, metadata, local indexes, reports, and pruning.
 - Overrides, AI markers, and URL rewriting policy.
 - Content collections, custom-loader support, runtime lookup, and middleware.
-- Route shims, UI-string filesystem policy, catalog-only Astro mode, React
-  hooks, recipes, and CLI.
+- Route shims, catalog-only Astro mode, React hooks, recipes, and CLI dispatch.
 
 The primary entry points are:
 
@@ -138,7 +169,7 @@ The primary entry points are:
 | Content collections | [`packages/astro/src/content/`](./packages/astro/src/content/)                     |
 | Runtime APIs        | [`packages/astro/src/runtime/`](./packages/astro/src/runtime/)                     |
 | Routing             | [`packages/astro/src/routing/`](./packages/astro/src/routing/)                     |
-| UI strings          | [`packages/astro/src/i18n/`](./packages/astro/src/i18n/)                           |
+| UI string runtime   | [`packages/astro/src/i18n/`](./packages/astro/src/i18n/)                           |
 | Catalog-only mode   | [`packages/astro/src/catalog/`](./packages/astro/src/catalog/)                     |
 | CLI dispatch        | [`packages/astro/src/cli.ts`](./packages/astro/src/cli.ts)                         |
 
@@ -201,6 +232,7 @@ before `build:start`. See [`ARCHITECTURE.md#hook-timing`](./ARCHITECTURE.md#hook
 | Parse or reconstruct a portable content format                        | Adapters              |
 | Add or change an external AI transport                                | Providers             |
 | Change Astro options, files, R2, routing, middleware, content, or CLI | Astro                 |
+| Change EmDash options, storage, routes, or native admin UI            | EmDash                |
 | Mirror a canonical Astro export under the old package name            | Compatibility package |
 
 If a change requires Node, Astro, filesystem, or R2 APIs, it does not belong in

@@ -1,0 +1,89 @@
+{
+  "name": "@cloudflare/polystella-cli",
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Shared catalog CLI commands and Node.js tooling for PolyStella.",
+  "license": "MIT",
+  "homepage": "https://github.com/cloudflare/polystella",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cloudflare/polystella.git",
+    "directory": "packages/cli"
+  },
+  "bugs": {
+    "url": "https://github.com/cloudflare/polystella/issues"
+  },
+  "keywords": [
+    "i18n",
+    "localization",
+    "translation",
+    "cli",
+    "cloudflare"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./check-ui": {
+      "types": "./dist/check-ui.d.ts",
+      "default": "./dist/check-ui.js"
+    },
+    "./sync-ui": {
+      "types": "./dist/sync-ui.d.ts",
+      "default": "./dist/sync-ui.js"
+    },
+    "./translate-ui": {
+      "types": "./dist/translate-ui.d.ts",
+      "default": "./dist/translate-ui.js"
+    },
+    "./config": {
+      "types": "./dist/config.d.ts",
+      "default": "./dist/config.js"
+    },
+    "./drift": {
+      "types": "./dist/drift.d.ts",
+      "default": "./dist/drift.js"
+    },
+    "./glossary": {
+      "types": "./dist/glossary.d.ts",
+      "default": "./dist/glossary.js"
+    },
+    "./run-command": {
+      "types": "./dist/run-command.d.ts",
+      "default": "./dist/run-command.js"
+    },
+    "./sync": {
+      "types": "./dist/sync.d.ts",
+      "default": "./dist/sync.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "CHANGELOG.md",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc -p tsconfig.build.json"
+  },
+  "dependencies": {
+    "@cloudflare/polystella-core": "workspace:^",
+    "@cloudflare/polystella-providers": "workspace:^",
+    "yaml": "^2.8.3"
+  },
+  "devDependencies": {
+    "@types/node": "^26.0.0",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.9"
+  }
+}

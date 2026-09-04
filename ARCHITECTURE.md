@@ -90,10 +90,10 @@ Two entry points share `runTranslationPass` in `packages/astro/src/translation/r
 
 - **Astro integration** (`packages/astro/src/index.ts`) — registers hooks, runs the
   pass, publishes the runtime bridge.
-- **CLI** (`packages/astro/src/cli.ts`) — verb-style dispatcher routing to
-  `packages/astro/src/cli/<subcommand>.ts`. `translate` reuses `runTranslationPass`;
-  `check-ui`, `sync-ui`, `translate-ui` operate on UI-string JSONs and
-  don't touch the markdown pipeline or R2.
+- **CLI** (`packages/astro/src/cli.ts`) — verb-style dispatcher. `translate`
+  reuses `runTranslationPass`; `check-ui`, `sync-ui`, and `translate-ui`
+  dispatch to the shared Node.js package and don't touch the markdown pipeline
+  or R2.
 
 ## Package boundaries
 
@@ -106,14 +106,18 @@ Two entry points share `runTranslationPass` in `packages/astro/src/translation/r
   extraction, grouping, and translation application.
 - `@cloudflare/polystella-providers` owns Workers AI HTTP/binding and
   Anthropic transports.
+- `@cloudflare/polystella-cli` owns the Node.js catalog command handlers,
+  filesystem drift/sync, config loading, and glossary loading.
+- `@cloudflare/polystella-emdash` owns EmDash deployment policy, plugin
+  declarations, storage, routes, native admin UI, catalog-only CLI host, and
+  companion Astro runtime for catalog overrides.
 - `@cloudflare/polystella-astro` owns Astro hooks, filesystem and R2 access,
-  cache/marker/URL policy, routing, runtime APIs, catalog loading, filesystem
-  drift/sync, and the CLI.
+  cache/marker/URL policy, routing, runtime APIs, catalog loading, and its CLI.
 
-The three reusable packages depend only on standard Web APIs at runtime.
-They execute in Workers without `nodejs_compat`; enabling the flag in a
-consumer remains supported. Providers use package-owned structural types
-for bindings and do not import generated Cloudflare types.
+Core, adapters, and providers depend only on standard Web APIs at runtime. They
+execute in Workers without `nodejs_compat`; enabling the flag in a consumer
+remains supported. CLI is Node.js-only. Providers use package-owned structural
+types for bindings and do not import generated Cloudflare types.
 
 Low-level exports moved to their owning packages during extraction. In
 particular, `Segment`, `Glossary`, `Translator`,
@@ -615,19 +619,19 @@ source of truth; non-default locales must match its key set.
 
 Three CLI subcommands maintain the invariant:
 
-- **`check-ui`** (`packages/astro/src/cli/check-ui.ts`) — pure drift detection. Zero
+- **`check-ui`** (`packages/cli/src/check-ui.ts`) — pure drift detection. Zero
   writes, zero network. Pre-commit hook target. Catches three failure
   modes: missing keys, extra keys, and **empty-placeholder values**
   (a key shared with the source dict but with `""` in the locale
   where the source value is non-empty). The build's own drift check
   at `astro:config:setup` uses the same predicate.
-- **`sync-ui`** (`packages/astro/src/cli/sync-ui.ts` +
-  `packages/astro/src/i18n/sync.ts`) —
+- **`sync-ui`** (`packages/cli/src/sync-ui.ts` +
+  `packages/cli/src/sync.ts`) —
   mechanical key reconciliation. Adds missing keys as empty strings,
   drops extras, preserves existing values (empty or not), re-emits
   files in source-file key order with blank-line section breaks
   preserved.
-- **`translate-ui`** (`packages/astro/src/cli/translate-ui.ts` +
+- **`translate-ui`** (`packages/cli/src/translate-ui.ts` +
   `packages/core/src/catalog/translate.ts`) — runs sync, skips fully translated
   locale JSONs before provider setup, then translates each queued
   locale in small sequential request batches capped by
@@ -635,7 +639,7 @@ Three CLI subcommands maintain the invariant:
   Queued locales run in parallel via `runWithConcurrency` with a hard
   max locale concurrency of 3.
 
-**Layout-aware writer.** `formatLocaleFile` in `packages/astro/src/i18n/sync.ts`
+**Layout-aware writer.** `formatLocaleFile` in `packages/cli/src/sync.ts`
 parses the source file's text (not just its JSON) to recover top-level
 key order AND which keys start a new "section" (blank line
 immediately before). The output then mirrors that layout for every
