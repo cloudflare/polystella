@@ -13,7 +13,7 @@ are versioned independently:
 | `@cloudflare/polystella-core`      | `packages/core/`       | Platform-neutral catalogs, prompts, batching, retries, and contracts. | None                      |
 | `@cloudflare/polystella-adapters`  | `packages/adapters/`   | Portable Markdown, MDX, JSON, YAML, and TOML adapters.                | Core                      |
 | `@cloudflare/polystella-providers` | `packages/providers/`  | Workers AI HTTP/binding and Anthropic transports.                     | Core                      |
-| `@cloudflare/polystella-emdash`    | `packages/emdash/`     | Native EmDash integration and catalog override policy.                | Core                      |
+| `@cloudflare/polystella-emdash`    | `packages/emdash/`     | Native EmDash content translation, admin UI, and catalog overrides.   | Core, providers           |
 | `@cloudflare/polystella-astro`     | `packages/astro/`      | Canonical Astro integration, CLI, R2, routing, and host policy.       | Core, adapters, providers |
 | `@cloudflare/polystella`           | `packages/polystella/` | Temporary compatibility forwarding to the Astro package.              | Astro                     |
 
@@ -25,7 +25,8 @@ Dependencies point toward reusable code:
                               ├──> @cloudflare/polystella-providers --> core
                                └──> @cloudflare/polystella-core
 
-@cloudflare/polystella-emdash --> @cloudflare/polystella-core
+@cloudflare/polystella-emdash --> @cloudflare/polystella-providers --> core
+                              └──> @cloudflare/polystella-core
 ```
 
 Core, adapters, and providers are portable and use standard Web APIs. The

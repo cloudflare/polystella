@@ -113,10 +113,20 @@ const packages = [
   {
     directory: path.join(repositoryRoot, "packages", "emdash"),
     name: "@cloudflare/polystella-emdash",
-    exports: ["."],
-    internalDependencies: ["@cloudflare/polystella-core"],
+    exports: [".", "./admin"],
+    internalDependencies: ["@cloudflare/polystella-core", "@cloudflare/polystella-providers"],
     allowedTopLevel: ["CHANGELOG.md", "LICENSE", "README.md", "dist", "package.json", "src"],
-    requiredFiles: ["CHANGELOG.md", "LICENSE", "README.md", "dist/index.d.ts", "dist/index.js", "src/index.ts"],
+    requiredFiles: [
+      "CHANGELOG.md",
+      "LICENSE",
+      "README.md",
+      "dist/admin.d.ts",
+      "dist/admin.js",
+      "dist/index.d.ts",
+      "dist/index.js",
+      "src/admin.tsx",
+      "src/index.ts",
+    ],
   },
 ];
 const lowerPackageEntries = [
@@ -128,6 +138,7 @@ const lowerPackageEntries = [
   "@cloudflare/polystella-providers/workers-ai",
   "@cloudflare/polystella-providers/anthropic",
   "@cloudflare/polystella-emdash",
+  "@cloudflare/polystella-emdash/admin",
 ];
 const nodeSafeAstroEntries = [
   "@cloudflare/polystella",

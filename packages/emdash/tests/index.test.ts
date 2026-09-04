@@ -32,12 +32,30 @@ describe("polystellaEmdash", () => {
       id: "polystella",
       format: "native",
       entrypoint: "@cloudflare/polystella-emdash",
-      capabilities: [],
+      adminEntry: "@cloudflare/polystella-emdash/admin",
+      adminPages: [
+        { path: "/catalog", label: "Catalog" },
+        { path: "/settings", label: "Settings" },
+      ],
+      capabilities: ["content:read"],
       storage: { catalog_overrides: { indexes: ["locale"] } },
     });
     expect(plugin.id).toBe(descriptor.id);
     expect(plugin.version).toBe(descriptor.version);
     expect(plugin.storage).toEqual(descriptor.storage);
+    expect(Object.keys(plugin.routes)).toEqual([
+      "settings/collections",
+      "policy",
+      "translate-content",
+      "catalog",
+      "catalog/generate",
+      "catalog/overrides",
+      "catalog/runtime",
+      "catalog/export",
+      "overrides",
+    ]);
+    expect(plugin.admin.entry).toBe(descriptor.adminEntry);
+    expect(plugin.admin.pages).toEqual(descriptor.adminPages);
     expect(plugin.admin.settingsSchema).toEqual(descriptor.settingsSchema);
     expect(plugin.admin.settingsSchema?.model).toMatchObject({ type: "select", default: "model-a" });
   });

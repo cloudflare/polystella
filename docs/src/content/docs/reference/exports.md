@@ -4,7 +4,7 @@ description: "Every export path across the six public packages, with ownership a
 aiGenerated: true
 ---
 
-PolyStella ships thirty-two public import paths across six packages.
+PolyStella ships thirty-three public import paths across six packages.
 The canonical Astro package, `@cloudflare/polystella-astro`, is also
 available through the `@cloudflare/polystella` compatibility package; both expose
 the same API.
@@ -18,7 +18,8 @@ the same API.
 | Providers | `@cloudflare/polystella-providers`                | All provider factories from one entrypoint.                                                               | `import { createWorkersAIBindingTranslator } from "@cloudflare/polystella-providers";`         |
 | Providers | `@cloudflare/polystella-providers/workers-ai`     | Workers AI HTTP and binding factories plus their structural input types.                                  | `import { createWorkersAIHttpTranslator } from "@cloudflare/polystella-providers/workers-ai";` |
 | Providers | `@cloudflare/polystella-providers/anthropic`      | Anthropic HTTP factory.                                                                                   | `import { createAnthropicTranslator } from "@cloudflare/polystella-providers/anthropic";`      |
-| EmDash    | `@cloudflare/polystella-emdash`                   | Native EmDash descriptor, deployment policy validation, and catalog override helpers.                     | `import { polystellaEmdash } from "@cloudflare/polystella-emdash";`                            |
+| EmDash    | `@cloudflare/polystella-emdash`                   | Native EmDash descriptor, routes, deployment policy validation, and catalog override helpers.             | `import { polystellaEmdash } from "@cloudflare/polystella-emdash";`                            |
+| EmDash    | `@cloudflare/polystella-emdash/admin`             | Native React catalog, settings, and content-editor panel entry consumed by EmDash.                        | `import { contentEditorPanels } from "@cloudflare/polystella-emdash/admin";`                   |
 | Astro     | `@cloudflare/polystella-astro`                    | Default export: the Astro integration factory and Astro-owned host utilities.                             | `import polystella from "@cloudflare/polystella-astro";`                                       |
 | Astro     | `@cloudflare/polystella-astro/content`            | Content-config helpers: `polystellaCollections`, `file`, `polystellaLoader`.                              | `import { polystellaCollections } from "@cloudflare/polystella-astro/content";`                |
 | Astro     | `@cloudflare/polystella-astro/runtime`            | Runtime API: `getLocalizedEntry`, `getLocalizedCollection`, `localizedHref`, `polystellaMiddleware`.      | `import { localizedHref } from "@cloudflare/polystella-astro/runtime";`                        |

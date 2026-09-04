@@ -2,11 +2,13 @@ import type { PluginAdminConfig, PluginDescriptor, PluginStorageConfig, Resolved
 import { definePlugin, RESERVED_COLLECTION_SLUGS, RESERVED_FIELD_SLUGS } from "emdash";
 
 import packageManifest from "../package.json" with { type: "json" };
+import { createPluginRoutes } from "./routes.js";
 
 export * from "./catalog.js";
 
 const PLUGIN_ID = "polystella";
 const ENTRYPOINT = "@cloudflare/polystella-emdash";
+const ADMIN_ENTRY = "@cloudflare/polystella-emdash/admin";
 const version = packageManifest.version;
 const EMDASH_SLUG_PATTERN = /^[a-z][a-z0-9_]*$/;
 const EMDASH_LOCALE_PATTERN = /^[a-z]{2,3}(-[a-z0-9]{2,8})*$/i;
@@ -14,6 +16,11 @@ const EMDASH_LOCALE_PATTERN = /^[a-z]{2,3}(-[a-z0-9]{2,8})*$/i;
 const STORAGE = {
   catalog_overrides: { indexes: ["locale"] },
 } satisfies PluginStorageConfig;
+
+const ADMIN_PAGES = [
+  { path: "/catalog", label: "Catalog" },
+  { path: "/settings", label: "Settings" },
+];
 
 export interface EmDashCollectionPolicy {
   sourceLocale: string;
@@ -105,8 +112,10 @@ export function polystellaEmdash(options: PolystellaEmdashOptions): PluginDescri
     version,
     format: "native",
     entrypoint: ENTRYPOINT,
+    adminEntry: ADMIN_ENTRY,
+    adminPages: ADMIN_PAGES,
     options: serializeOptions(options),
-    capabilities: [],
+    capabilities: ["content:read"],
     storage: STORAGE,
     settingsSchema: createSettingsSchema(options),
   };
@@ -117,9 +126,10 @@ export function createPlugin(runtimeOptions: SerializedPolystellaEmdashOptions):
   return definePlugin({
     id: PLUGIN_ID,
     version,
-    capabilities: [],
+    capabilities: ["content:read"],
     storage: STORAGE,
-    admin: { settingsSchema: createSettingsSchema(options) },
+    routes: createPluginRoutes(options),
+    admin: { entry: ADMIN_ENTRY, pages: ADMIN_PAGES, settingsSchema: createSettingsSchema(options) },
   });
 }
 
@@ -162,7 +172,7 @@ function readString(value: unknown, label: string): string {
 
 function readLocale(value: unknown, label: string): string {
   const locale = readString(value, label);
-  if (!EMDASH_LOCALE_PATTERN.test(locale)) fail(`${label} must be a valid EmDash locale`);
+  if (locale.length > 64 || !EMDASH_LOCALE_PATTERN.test(locale)) fail(`${label} must be a valid EmDash locale`);
   return locale;
 }
 
