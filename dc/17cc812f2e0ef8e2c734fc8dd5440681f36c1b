@@ -1,0 +1,45 @@
+AGENTS.md
+  s_15d9087d67c021::t_dde798c63fa87b 33-35,49-64
+PACKAGE_ARCHITECTURE.md
+  s_15d9087d67c021::t_6f0ebb40b3c72d 10-12,18,23-24,26,44,124-131,141,143-144,156,170
+README.md
+  s_15d9087d67c021::t_4319d5a037fd79 7-18,24-26,29-30,34-35
+docs/src/content/docs/reference/exports.md
+  s_15d9087d67c021::t_da0097921f5db5 3,7,21-29,32,97-98
+llms-full.txt
+  s_15d9087d67c021::t_218f7fd8a405b6 49-51,65-80,221-223,229,234-235,237,255,335-342,352,354-355,367,381,596-599,612-613,615,617,619-622,1124,1130-1131,1136,1144,1805,1809,1852,1859,1870-1871,2094-2095,2100
+packages/cli/src/config.ts
+  s_0fc2624d889221::t_52cfdf15b30d3d 1-223
+packages/emdash/src/index.ts
+  s_15d9087d67c021::t_d21ed9c2bc7fa7 1,7,37-50,52,60,62,72,118-136,172-175,177-194,196-197,200-207,209,243-311,314,333-352
+packages/emdash/tests/index.test.ts
+  s_15d9087d67c021::t_65de24ad75604c 7,18-27,69-75,97,103-105,131-147
+packages/emdash/tests/routes.test.ts
+  s_15d9087d67c021::t_8a69215a5211cf 2,11,20-29,173-247,319-320
+pnpm-lock.yaml
+  s_15d9087d67c021::t_4a4b5de9cb291b 30-32,170-172,223-244,260-262,273-275
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "dc17cc812f2e0ef8e2c734fc8dd5440681f36c1b",
+  "prompts": {},
+  "sessions": {
+    "s_0fc2624d889221": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f93ae3731ffe5VlJLxUdelg3c4",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Diogo Carneiro <dcarneiro@cloudflare.com>"
+    },
+    "s_15d9087d67c021": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_fa39a3a22ffeMAKJ4kOL1d63yD",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Diogo Carneiro <dcarneiro@cloudflare.com>"
+    }
+  }
+}
