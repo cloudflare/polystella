@@ -118,6 +118,10 @@ jobs:
           test -f packages/emdash/dist/index.d.ts
           test -f packages/emdash/dist/admin.js
           test -f packages/emdash/dist/admin.d.ts
+          test -f packages/emdash/dist/cli.js
+          test -x packages/emdash/dist/cli.js
+          test -f packages/emdash/dist/config.js
+          test -f packages/emdash/dist/config.d.ts
           test -f packages/polystella/dist/cli.js
           test -x packages/polystella/dist/cli.js
           test -f packages/polystella/dist/index.js
@@ -129,4 +133,5 @@ jobs:
         # `ERR_UNSUPPORTED_NODE_MODULES_TYPESCRIPT` class of bug.
         run: |
           node packages/astro/dist/cli.js --version
+          node packages/emdash/dist/cli.js --help
           node packages/polystella/dist/cli.js --version

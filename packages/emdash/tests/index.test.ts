@@ -4,7 +4,7 @@ import { createPlugin, polystellaEmdash, validatePolystellaEmdashOptions, type P
 
 function validOptions(): PolystellaEmdashOptions {
   return {
-    aiBinding: "AI",
+    provider: { kind: "workers-ai-binding", binding: "AI" },
     collections: {
       posts: { sourceLocale: "en-US", fields: ["title", "body"] },
     },
@@ -15,7 +15,16 @@ function validOptions(): PolystellaEmdashOptions {
         "ja-JP": { dictionary: { greeting: "Hello" }, filePath: "src/i18n/ja-JP.json" },
       },
     },
-    models: { allowed: ["model-a", "model-b"], default: "model-a" },
+    models: { allowed: ["model-a", "model-b"], defaults: { default: "model-a", "ja-JP": "model-b" } },
+    glossaryDefaults: {
+      "ja-JP": {
+        version: "1",
+        doNotTranslate: ["Cloudflare"],
+        preferredTranslations: {},
+        styleRules: [],
+        notes: "Use concise Japanese.",
+      },
+    },
     rules: ["Keep product names unchanged."],
   };
 }
@@ -57,7 +66,13 @@ describe("polystellaEmdash", () => {
     expect(plugin.admin.entry).toBe(descriptor.adminEntry);
     expect(plugin.admin.pages).toEqual(descriptor.adminPages);
     expect(plugin.admin.settingsSchema).toEqual(descriptor.settingsSchema);
-    expect(plugin.admin.settingsSchema?.model).toMatchObject({ type: "select", default: "model-a" });
+    expect(plugin.admin.settingsSchema?.["model:ja-JP"]).toMatchObject({
+      type: "select",
+      default: "__polystella_deployment_default__",
+      label: "Translation model (ja-JP)",
+    });
+    expect(plugin.admin.settingsSchema?.["glossaryMode:ja-JP"]).toMatchObject({ type: "select", default: "default" });
+    expect(plugin.admin.settingsSchema?.["glossary:ja-JP"]).toMatchObject({ type: "string", default: "" });
   });
 
   it("preserves arbitrary dictionary keys through EmDash's generated module", () => {
@@ -79,13 +94,15 @@ describe("polystellaEmdash", () => {
   });
 
   it.each([
-    ["binding", { ...validOptions(), aiBinding: "not-valid!" }],
+    ["binding", { ...validOptions(), provider: { kind: "workers-ai-binding", binding: "not-valid!" } }],
     ["collection slug", { ...validOptions(), collections: { Posts: validOptions().collections.posts } }],
     ["reserved collection slug", { ...validOptions(), collections: { media: validOptions().collections.posts } }],
     ["field slug", { ...validOptions(), collections: { posts: { sourceLocale: "en-US", fields: ["Title-Field"] } } }],
     ["reserved field slug", { ...validOptions(), collections: { posts: { sourceLocale: "en-US", fields: ["slug"] } } }],
     ["EmDash locale", { ...validOptions(), collections: { posts: { sourceLocale: "en-US-u-ca-gregory", fields: ["title"] } } }],
-    ["default model", { ...validOptions(), models: { allowed: ["model-a"], default: "model-b" } }],
+    ["default model", { ...validOptions(), models: { allowed: ["model-a"], defaults: "model-b" } }],
+    ["model locale", { ...validOptions(), models: { allowed: ["model-a"], defaults: { default: "model-a", "fr-FR": "model-a" } } }],
+    ["glossary locale", { ...validOptions(), glossaryDefaults: { "fr-FR": validOptions().glossaryDefaults?.["ja-JP"] } }],
     ["default locale", { ...validOptions(), catalogs: { defaultLocale: "fr-FR", locales: validOptions().catalogs.locales } }],
     [
       "repository path",
@@ -110,5 +127,22 @@ describe("polystellaEmdash", () => {
     ["duplicate fields", { ...validOptions(), collections: { posts: { sourceLocale: "en-US", fields: ["title", "title"] } } }],
   ])("rejects invalid %s configuration", (_name, options) => {
     expect(() => validatePolystellaEmdashOptions(options)).toThrow("[polystella-emdash]");
+  });
+
+  it("supports runtime HTTP credential names without serializing credential values", () => {
+    const configured: PolystellaEmdashOptions = {
+      ...validOptions(),
+      provider: {
+        kind: "workers-ai-http",
+        accountIdEnv: "CLOUDFLARE_ACCOUNT_ID",
+        apiTokenEnv: "CLOUDFLARE_WORKERS_AI_TOKEN",
+      },
+    };
+    const descriptor = polystellaEmdash(configured);
+    const serialized = descriptor.options?.serialized ?? "";
+
+    expect(serialized).toContain("CLOUDFLARE_WORKERS_AI_TOKEN");
+    expect(serialized).not.toContain("fake-token");
+    expect(JSON.stringify(descriptor.settingsSchema)).not.toContain("apiToken");
   });
 });

@@ -46,9 +46,9 @@ section numbers. Inserting new sections never breaks links.
 | :-------------------- | :----------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `pnpm test`           | Run all package, Astro, workerd, and boundary tests.                                                                                                   |
 | `pnpm test:watch`     | Run the Astro package tests in watch mode.                                                                                                             |
-| `pnpm build`          | Build all six public packages. Astro emits its standalone CLI and library entries under `packages/astro/dist/`.                                        |
-| `pnpm typecheck`      | Build all six packages, then typecheck every public package against its package-local `tsconfig.json`.                                                 |
-| `pnpm check:packages` | Pack all six public packages and exercise every export from a clean temporary consumer.                                                                |
+| `pnpm build`          | Build all seven public packages. Astro and EmDash emit standalone CLI entries.                                                                         |
+| `pnpm typecheck`      | Build all seven packages, then typecheck every public package against its package-local `tsconfig.json`.                                               |
+| `pnpm check:packages` | Pack all seven public packages and exercise every export from a clean temporary consumer.                                                              |
 | `pnpm changeset`      | Add a Changesets entry for package-affecting work. Use `pnpm changeset add --empty` only for changes that intentionally do not need a package release. |
 
 No lint step yet.
@@ -62,22 +62,22 @@ No lint step yet.
 
 Task → entry-point file(s) → key contract → deep-dive link.
 
-| Task                                                   | Entry point                                                                                       | Contract                                                              | See                                                                                                                                                 |
-| :----------------------------------------------------- | :------------------------------------------------------------------------------------------------ | :-------------------------------------------------------------------- | :-------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Add a file-format adapter                              | `packages/adapters/src/adapters/<name>.ts`; wrap/register in `packages/astro/src/parsing/`        | `FileAdapter` in `packages/adapters/src/adapter.ts`                   | [#adapter-contract](./ARCHITECTURE.md#adapter-contract); recipe in [contributor SKILL](./skills/polystella-contributor/SKILL.md#add-adapter)        |
-| Add a CLI subcommand                                   | Handler in `packages/astro/src/cli/<name>.ts`; register in `packages/astro/src/cli.ts`            | Argv parser + `run<Name>(args, deps)`                                 | Recipe in [contributor SKILL](./skills/polystella-contributor/SKILL.md#add-cli-subcommand)                                                          |
-| Add a translation provider                             | Factory in `packages/providers/src/`; map config in `packages/astro/src/translation/provider.ts`  | `Translator` in `packages/core/src/translator.ts`                     | [#translator-contract](./ARCHITECTURE.md#translator-contract); recipe in [contributor SKILL](./skills/polystella-contributor/SKILL.md#add-provider) |
-| Change cache key formula                               | `packages/astro/src/storage/hash.ts`                                                              | **Invariant 1** — cache-wide invalidation                             | [#cache-key](./ARCHITECTURE.md#cache-key)                                                                                                           |
-| Edit translation batching                              | `packages/core/src/{batch,translate-segments}.ts`                                                 | **Invariant 2** — `flat(groups) === segments`                         | [#translation-batching](./ARCHITECTURE.md#translation-batching)                                                                                     |
-| Modify cache/storage behaviour                         | `packages/astro/src/storage/{cache,r2,prune,local-cache,report}.ts`                               | Apply-before-PUT (**Invariant 3**); index isolation (**Invariant 4**) | [#cache-write-order](./ARCHITECTURE.md#cache-write-order), [#local-staging-index](./ARCHITECTURE.md#local-staging-index)                            |
-| Modify runtime APIs (entry/collection/href/middleware) | `packages/astro/src/runtime/*`                                                                    | Bridge timing (**Invariant 5**); per-locale closures                  | [#runtime-bridge](./ARCHITECTURE.md#runtime-bridge)                                                                                                 |
-| Modify routing shims                                   | `packages/astro/src/routing/{shim,expand-routes,walk-pages}.ts`                                   | Stale shims nuked per build; CSS via `routesImports`                  | [#routing-shims](./ARCHITECTURE.md#routing-shims)                                                                                                   |
-| Edit UI-string handling                                | `packages/core/src/catalog/translate.ts`, `packages/astro/src/i18n/{drift,sync}.ts`, CLI handlers | Three drift modes; layout-aware writer; `{{token}}` preservation      | [#ui-strings](./ARCHITECTURE.md#ui-strings)                                                                                                         |
-| Edit catalog-only adoption                             | `packages/core/src/catalog/index.ts`, `packages/astro/src/catalog/*`                              | Pure imports; middleware binds only `t` + `lhref`                     | [`CATALOG_ONLY_PLAN.md`](./CATALOG_ONLY_PLAN.md); [consumer SKILL](./skills/polystella-consumer/SKILL.md#catalog-only-adoption)                     |
-| Modify the EmDash plugin                               | `packages/emdash/src/*`                                                                           | Deployment policy stays server-owned; Git catalogs stay canonical     | [`EMDASH_PLUGIN_IMPLEMENTATION_PLAN.md`](./EMDASH_PLUGIN_IMPLEMENTATION_PLAN.md)                                                                    |
-| Edit content-collection wiring                         | `packages/astro/src/content/*`                                                                    | Sibling collections; custom-loader wrapper; bridge timing             | [#runtime-bridge](./ARCHITECTURE.md#runtime-bridge)                                                                                                 |
-| Debug a translation that's wrong                       | Start: `pnpm translate --dry-run` to inspect planned R2 keys; `LOG_LEVEL=debug` for batch detail  | —                                                                     | Recipe in [contributor SKILL](./skills/polystella-contributor/SKILL.md#debug-translation)                                                           |
-| Tune cold-cache build performance                      | `r2.bulkListOnStart`, `concurrency`, `batchInputTokenBudget` knobs                                | —                                                                     | [#bulk-prelist](./ARCHITECTURE.md#bulk-prelist), [#translation-batching](./ARCHITECTURE.md#translation-batching)                                    |
+| Task                                                   | Entry point                                                                                      | Contract                                                              | See                                                                                                                                                 |
+| :----------------------------------------------------- | :----------------------------------------------------------------------------------------------- | :-------------------------------------------------------------------- | :-------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Add a file-format adapter                              | `packages/adapters/src/adapters/<name>.ts`; wrap/register in `packages/astro/src/parsing/`       | `FileAdapter` in `packages/adapters/src/adapter.ts`                   | [#adapter-contract](./ARCHITECTURE.md#adapter-contract); recipe in [contributor SKILL](./skills/polystella-contributor/SKILL.md#add-adapter)        |
+| Add a shared catalog CLI subcommand                    | Handler in `packages/cli/src/<name>.ts`; register in `packages/cli/src/run-command.ts`           | Argv parser + `run<Name>(args, deps)`                                 | Recipe in [contributor SKILL](./skills/polystella-contributor/SKILL.md#add-cli-subcommand)                                                          |
+| Add a translation provider                             | Factory in `packages/providers/src/`; map config in `packages/astro/src/translation/provider.ts` | `Translator` in `packages/core/src/translator.ts`                     | [#translator-contract](./ARCHITECTURE.md#translator-contract); recipe in [contributor SKILL](./skills/polystella-contributor/SKILL.md#add-provider) |
+| Change cache key formula                               | `packages/astro/src/storage/hash.ts`                                                             | **Invariant 1** — cache-wide invalidation                             | [#cache-key](./ARCHITECTURE.md#cache-key)                                                                                                           |
+| Edit translation batching                              | `packages/core/src/{batch,translate-segments}.ts`                                                | **Invariant 2** — `flat(groups) === segments`                         | [#translation-batching](./ARCHITECTURE.md#translation-batching)                                                                                     |
+| Modify cache/storage behaviour                         | `packages/astro/src/storage/{cache,r2,prune,local-cache,report}.ts`                              | Apply-before-PUT (**Invariant 3**); index isolation (**Invariant 4**) | [#cache-write-order](./ARCHITECTURE.md#cache-write-order), [#local-staging-index](./ARCHITECTURE.md#local-staging-index)                            |
+| Modify runtime APIs (entry/collection/href/middleware) | `packages/astro/src/runtime/*`                                                                   | Bridge timing (**Invariant 5**); per-locale closures                  | [#runtime-bridge](./ARCHITECTURE.md#runtime-bridge)                                                                                                 |
+| Modify routing shims                                   | `packages/astro/src/routing/{shim,expand-routes,walk-pages}.ts`                                  | Stale shims nuked per build; CSS via `routesImports`                  | [#routing-shims](./ARCHITECTURE.md#routing-shims)                                                                                                   |
+| Edit UI-string handling                                | `packages/core/src/catalog/translate.ts`, `packages/cli/src/{drift,sync,translate-ui}.ts`        | Three drift modes; layout-aware writer; `{{token}}` preservation      | [#ui-strings](./ARCHITECTURE.md#ui-strings)                                                                                                         |
+| Edit catalog-only adoption                             | `packages/core/src/catalog/index.ts`, `packages/astro/src/catalog/*`                             | Pure imports; middleware binds only `t` + `lhref`                     | [`CATALOG_ONLY_PLAN.md`](./CATALOG_ONLY_PLAN.md); [consumer SKILL](./skills/polystella-consumer/SKILL.md#catalog-only-adoption)                     |
+| Modify the EmDash plugin                               | `packages/emdash/src/*`                                                                          | Deployment policy stays server-owned; Git catalogs stay canonical     | [`EMDASH_PLUGIN_IMPLEMENTATION_PLAN.md`](./EMDASH_PLUGIN_IMPLEMENTATION_PLAN.md)                                                                    |
+| Edit content-collection wiring                         | `packages/astro/src/content/*`                                                                   | Sibling collections; custom-loader wrapper; bridge timing             | [#runtime-bridge](./ARCHITECTURE.md#runtime-bridge)                                                                                                 |
+| Debug a translation that's wrong                       | Start: `pnpm translate --dry-run` to inspect planned R2 keys; `LOG_LEVEL=debug` for batch detail | —                                                                     | Recipe in [contributor SKILL](./skills/polystella-contributor/SKILL.md#debug-translation)                                                           |
+| Tune cold-cache build performance                      | `r2.bulkListOnStart`, `concurrency`, `batchInputTokenBudget` knobs                               | —                                                                     | [#bulk-prelist](./ARCHITECTURE.md#bulk-prelist), [#translation-batching](./ARCHITECTURE.md#translation-batching)                                    |
 
 If your task isn't on this list, the answer is in `packages/astro/src/<area>/`
 matching one of the subsystem sections in
@@ -218,19 +218,23 @@ pipeline behavior and hard correctness contracts, use
 
 ## Package Graph
 
-PolyStella publishes six packages. The canonical Astro package and its
-compatibility package form one fixed version group. Core, adapters, providers,
-and EmDash are versioned independently. Arrows mean "depends on."
+PolyStella publishes seven packages. The canonical Astro package and its
+compatibility package form one fixed version group. The other packages are
+versioned independently. Arrows mean "depends on."
 
 ```mermaid
 flowchart TD
   compat["@cloudflare/polystella<br/>compatibility only"] --> astro["@cloudflare/polystella-astro<br/>canonical Astro package"]
   astro --> adapters["@cloudflare/polystella-adapters<br/>portable formats"]
+  astro --> cli["@cloudflare/polystella-cli<br/>catalog CLI"]
   astro --> providers["@cloudflare/polystella-providers<br/>portable transports"]
   astro --> core["@cloudflare/polystella-core<br/>translation and catalogs"]
   adapters --> core
   providers --> core
+  cli --> core
+  cli --> providers
   emdash["@cloudflare/polystella-emdash<br/>native EmDash plugin"] --> core
+  emdash --> cli
   emdash --> providers
 ```
 
@@ -248,6 +252,7 @@ it forwards that package's API and CLI unchanged.
 | [`packages/core/`](./packages/core/)             | `@cloudflare/polystella-core`      | Translation contracts, catalogs, prompts, batching, retries, and response parsing.     |
 | [`packages/adapters/`](./packages/adapters/)     | `@cloudflare/polystella-adapters`  | Portable parsing, extraction, grouping, and translation application.                   |
 | [`packages/providers/`](./packages/providers/)   | `@cloudflare/polystella-providers` | Workers AI and Anthropic implementations of the core translator contract.              |
+| [`packages/cli/`](./packages/cli/)               | `@cloudflare/polystella-cli`       | Shared Node.js catalog commands, filesystem policy, config loading, and glossary I/O.  |
 | [`packages/emdash/`](./packages/emdash/)         | `@cloudflare/polystella-emdash`    | Native EmDash content translation, deployment policy, admin UI, and catalog overrides. |
 | [`packages/astro/`](./packages/astro/)           | `@cloudflare/polystella-astro`     | Canonical Astro integration, host policy, storage, routing, runtime APIs, and CLI.     |
 | [`packages/polystella/`](./packages/polystella/) | `@cloudflare/polystella`           | Temporary compatibility forwarding to `@cloudflare/polystella-astro`.                  |
@@ -327,6 +332,14 @@ Provider configuration belongs to the Astro package. The mapping from Astro
 options to provider factories is
 [`packages/astro/src/translation/provider.ts`](./packages/astro/src/translation/provider.ts).
 
+### CLI
+
+[`@cloudflare/polystella-cli`](./packages/cli/) owns the Node.js implementation
+of `check-ui`, `sync-ui`, and `translate-ui`, including filesystem config and
+glossary loading. Astro and EmDash expose those handlers through their own
+`polystella` executables instead of duplicating them. Start at
+[`packages/cli/src/run-command.ts`](./packages/cli/src/run-command.ts).
+
 ### EmDash
 
 [`@cloudflare/polystella-emdash`](./packages/emdash/) owns EmDash-specific
@@ -336,9 +349,10 @@ admin UI. Git-owned catalog lookup and translation remain in core.
 Start at [`packages/emdash/src/index.ts`](./packages/emdash/src/index.ts). The
 route boundary lives in [`packages/emdash/src/routes.ts`](./packages/emdash/src/routes.ts),
 the native UI in [`packages/emdash/src/admin.tsx`](./packages/emdash/src/admin.tsx),
-and the catalog override model in
+the catalog override model in
 [`packages/emdash/src/catalog.ts`](./packages/emdash/src/catalog.ts). EmDash
-depends on providers for the Workers AI binding translator.
+depends on providers for Workers AI and CLI for the catalog commands exposed by
+its binary.
 
 ### Astro
 
@@ -350,8 +364,7 @@ package. It composes the reusable packages and owns host-specific behavior:
 - R2 keys, reads, writes, metadata, local indexes, reports, and pruning.
 - Overrides, AI markers, and URL rewriting policy.
 - Content collections, custom-loader support, runtime lookup, and middleware.
-- Route shims, UI-string filesystem policy, catalog-only Astro mode, React
-  hooks, recipes, and CLI.
+- Route shims, catalog-only Astro mode, React hooks, recipes, and CLI dispatch.
 
 The primary entry points are:
 
@@ -365,7 +378,7 @@ The primary entry points are:
 | Content collections | [`packages/astro/src/content/`](./packages/astro/src/content/)                     |
 | Runtime APIs        | [`packages/astro/src/runtime/`](./packages/astro/src/runtime/)                     |
 | Routing             | [`packages/astro/src/routing/`](./packages/astro/src/routing/)                     |
-| UI strings          | [`packages/astro/src/i18n/`](./packages/astro/src/i18n/)                           |
+| UI string runtime   | [`packages/astro/src/i18n/`](./packages/astro/src/i18n/)                           |
 | Catalog-only mode   | [`packages/astro/src/catalog/`](./packages/astro/src/catalog/)                     |
 | CLI dispatch        | [`packages/astro/src/cli.ts`](./packages/astro/src/cli.ts)                         |
 
@@ -580,10 +593,10 @@ Two entry points share `runTranslationPass` in `packages/astro/src/translation/r
 
 - **Astro integration** (`packages/astro/src/index.ts`) — registers hooks, runs the
   pass, publishes the runtime bridge.
-- **CLI** (`packages/astro/src/cli.ts`) — verb-style dispatcher routing to
-  `packages/astro/src/cli/<subcommand>.ts`. `translate` reuses `runTranslationPass`;
-  `check-ui`, `sync-ui`, `translate-ui` operate on UI-string JSONs and
-  don't touch the markdown pipeline or R2.
+- **CLI** (`packages/astro/src/cli.ts`) — verb-style dispatcher. `translate`
+  reuses `runTranslationPass`; `check-ui`, `sync-ui`, and `translate-ui`
+  dispatch to the shared Node.js package and don't touch the markdown pipeline
+  or R2.
 
 ## Package boundaries
 
@@ -596,16 +609,17 @@ Two entry points share `runTranslationPass` in `packages/astro/src/translation/r
   extraction, grouping, and translation application.
 - `@cloudflare/polystella-providers` owns Workers AI HTTP/binding and
   Anthropic transports.
+- `@cloudflare/polystella-cli` owns the Node.js catalog command handlers,
+  filesystem drift/sync, config loading, and glossary loading.
 - `@cloudflare/polystella-emdash` owns EmDash deployment policy, plugin
-  declarations, storage, routes, and native admin UI.
+  declarations, storage, routes, native admin UI, and a catalog-only CLI host.
 - `@cloudflare/polystella-astro` owns Astro hooks, filesystem and R2 access,
-  cache/marker/URL policy, routing, runtime APIs, catalog loading, filesystem
-  drift/sync, and the CLI.
+  cache/marker/URL policy, routing, runtime APIs, catalog loading, and its CLI.
 
-The three reusable packages depend only on standard Web APIs at runtime.
-They execute in Workers without `nodejs_compat`; enabling the flag in a
-consumer remains supported. Providers use package-owned structural types
-for bindings and do not import generated Cloudflare types.
+Core, adapters, and providers depend only on standard Web APIs at runtime. They
+execute in Workers without `nodejs_compat`; enabling the flag in a consumer
+remains supported. CLI is Node.js-only. Providers use package-owned structural
+types for bindings and do not import generated Cloudflare types.
 
 Low-level exports moved to their owning packages during extraction. In
 particular, `Segment`, `Glossary`, `Translator`,
@@ -1107,19 +1121,19 @@ source of truth; non-default locales must match its key set.
 
 Three CLI subcommands maintain the invariant:
 
-- **`check-ui`** (`packages/astro/src/cli/check-ui.ts`) — pure drift detection. Zero
+- **`check-ui`** (`packages/cli/src/check-ui.ts`) — pure drift detection. Zero
   writes, zero network. Pre-commit hook target. Catches three failure
   modes: missing keys, extra keys, and **empty-placeholder values**
   (a key shared with the source dict but with `""` in the locale
   where the source value is non-empty). The build's own drift check
   at `astro:config:setup` uses the same predicate.
-- **`sync-ui`** (`packages/astro/src/cli/sync-ui.ts` +
-  `packages/astro/src/i18n/sync.ts`) —
+- **`sync-ui`** (`packages/cli/src/sync-ui.ts` +
+  `packages/cli/src/sync.ts`) —
   mechanical key reconciliation. Adds missing keys as empty strings,
   drops extras, preserves existing values (empty or not), re-emits
   files in source-file key order with blank-line section breaks
   preserved.
-- **`translate-ui`** (`packages/astro/src/cli/translate-ui.ts` +
+- **`translate-ui`** (`packages/cli/src/translate-ui.ts` +
   `packages/core/src/catalog/translate.ts`) — runs sync, skips fully translated
   locale JSONs before provider setup, then translates each queued
   locale in small sequential request batches capped by
@@ -1127,7 +1141,7 @@ Three CLI subcommands maintain the invariant:
   Queued locales run in parallel via `runWithConcurrency` with a hard
   max locale concurrency of 3.
 
-**Layout-aware writer.** `formatLocaleFile` in `packages/astro/src/i18n/sync.ts`
+**Layout-aware writer.** `formatLocaleFile` in `packages/cli/src/sync.ts`
 parses the source file's text (not just its JSON) to recover top-level
 key order AND which keys start a new "section" (blank line
 immediately before). The output then mirrors that layout for every
@@ -1788,11 +1802,11 @@ for low-level imports that moved out of the Astro package.
 
 **When to use:** Adding a new top-level verb (`polystella <verb>`).
 
-**Pattern:** Each subcommand owns its argv parsing and a `run<Name>(args, deps)` handler. The dispatcher in `packages/astro/src/cli.ts` is a thin router.
+**Pattern:** Each subcommand owns its argv parsing and a `run<Name>(args, deps)` handler. Shared catalog commands live in `packages/cli`; host dispatchers stay thin.
 
 **Steps:**
 
-1. Create `packages/astro/src/cli/<name>.ts`:
+1. Create `packages/cli/src/<name>.ts` for a shared catalog command. Keep an Astro-only command under `packages/astro/src/cli/`:
 
    ```ts
    export interface MySubcommandArgs {
@@ -1835,14 +1849,14 @@ for low-level imports that moved out of the Astro package.
    }
    ```
 
-2. Wire dispatch in `packages/astro/src/cli.ts`:
+2. Register a shared catalog command in `packages/cli/src/run-command.ts` and both host CLIs. For an Astro-only command, wire `packages/astro/src/cli.ts`:
    - Add to the `Subcommand` union type.
    - Add the literal to `parseSubcommand`'s `if (first === "translate" || ...)` check.
    - Add a case to `main()`'s switch statement.
    - Update `TOP_LEVEL_USAGE` to mention the new verb.
 
 3. Add tests:
-   - `packages/astro/tests/cli/<name>.test.ts` for the argv parser + handler (with stubbed deps).
+   - `packages/cli/tests/<name>.test.ts` for a shared parser + handler, or `packages/astro/tests/cli/<name>.test.ts` for an Astro-only command.
    - Extend `packages/astro/tests/cli.test.ts` if the top-level dispatch needs new coverage (it usually does — add at least one "dispatches `my-subcommand` to the right handler" case).
 
 4. If consumers typically wrap the subcommand in a `pnpm` script (e.g. `pnpm i18n:sync`), document the pattern in the docs site's CLI section. Don't add the wrapper to this package — consumer projects own their own scripts.
@@ -1853,7 +1867,8 @@ for low-level imports that moved out of the Astro package.
    pnpm test
    pnpm typecheck
    pnpm build
-   node packages/astro/dist/cli.js my-subcommand --help    # sanity-check the emitted CLI
+   node packages/astro/dist/cli.js my-subcommand --help    # Astro host
+   node packages/emdash/dist/cli.js my-subcommand --help   # shared catalog command
    ```
 
 ---
@@ -2076,13 +2091,13 @@ for low-level imports that moved out of the Astro package.
 
 **Files:**
 
-- `packages/astro/src/i18n/drift.ts` — `checkI18nDrift`, `loadAndCheckDrift`.
-- `packages/astro/src/i18n/sync.ts` — key reconciliation; **layout-aware** JSON writer (`formatLocaleFile`).
+- `packages/cli/src/drift.ts` — `checkI18nDrift`, `loadAndCheckDrift`.
+- `packages/cli/src/sync.ts` — key reconciliation; **layout-aware** JSON writer (`formatLocaleFile`).
 - `packages/core/src/catalog/translate.ts` — AI-fill orchestrator; `{{token}}` validator + retry wrapper.
 - `packages/astro/src/i18n/ui-translate.ts` — compatibility re-export for Astro's CLI.
 - `packages/astro/src/i18n/loader.ts`, `i18n/index.ts` — content-layer loader, dictionary fetcher.
 - `packages/astro/src/catalog/*` — catalog-only public exports, middleware, and Astro integration. Must stay free of content translation, R2, route shims, and localized collection imports.
-- `packages/astro/src/cli/check-ui.ts`, `sync-ui.ts`, `translate-ui.ts` — CLI handlers.
+- `packages/cli/src/check-ui.ts`, `sync-ui.ts`, `translate-ui.ts` — shared CLI handlers.
 
 **Key contracts:**
 

@@ -27,6 +27,9 @@ importers:
       '@cloudflare/polystella-astro':
         specifier: workspace:*
         version: link:packages/astro
+      '@cloudflare/polystella-cli':
+        specifier: workspace:*
+        version: link:packages/cli
       '@cloudflare/polystella-core':
         specifier: workspace:*
         version: link:packages/core
@@ -164,6 +167,9 @@ importers:
       '@cloudflare/polystella-adapters':
         specifier: workspace:^
         version: link:../adapters
+      '@cloudflare/polystella-cli':
+        specifier: workspace:^
+        version: link:../cli
       '@cloudflare/polystella-core':
         specifier: workspace:^
         version: link:../core
@@ -214,6 +220,28 @@ importers:
         specifier: ^4.1.9
         version: 4.1.9(@types/node@26.1.0)(vite@8.1.3(@types/node@26.1.0)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.22.2)(yaml@2.9.0))
 
+  packages/cli:
+    dependencies:
+      '@cloudflare/polystella-core':
+        specifier: workspace:^
+        version: link:../core
+      '@cloudflare/polystella-providers':
+        specifier: workspace:^
+        version: link:../providers
+      yaml:
+        specifier: ^2.8.3
+        version: 2.9.0
+    devDependencies:
+      '@types/node':
+        specifier: ^26.0.0
+        version: 26.1.0
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+      vitest:
+        specifier: ^4.1.9
+        version: 4.1.9(@types/node@26.1.0)(vite@8.1.3(@types/node@26.1.0)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.22.2)(yaml@2.9.0))
+
   packages/core:
     dependencies:
       p-retry:
@@ -229,6 +257,9 @@ importers:
 
   packages/emdash:
     dependencies:
+      '@cloudflare/polystella-cli':
+        specifier: workspace:^
+        version: link:../cli
       '@cloudflare/polystella-core':
         specifier: workspace:^
         version: link:../core
@@ -239,6 +270,9 @@ importers:
       '@emdash-cms/admin':
         specifier: 0.36.0
         version: 0.36.0(@atcute/identity@2.0.2(@atcute/lexicons@2.1.0)(typescript@6.0.3))(@date-fns/tz@1.5.0)(@floating-ui/dom@1.8.0)(@tiptap/extensions@3.31.0(@tiptap/core@3.31.0(@tiptap/pm@3.31.0))(@tiptap/pm@3.31.0))(@types/react-dom@19.2.5(@types/react@19.2.14))(@types/react@19.2.14)(date-fns@4.4.0)(echarts@6.1.0)(prosemirror-model@1.25.11)(prosemirror-state@1.4.4)(prosemirror-view@1.42.3)(react-dom@19.2.8(react@19.2.6))(react@19.2.6)(typescript@6.0.3)(zod@4.4.3)
+      '@types/node':
+        specifier: ^26.0.0
+        version: 26.1.0
       '@types/react':
         specifier: ^19.2.14
         version: 19.2.14

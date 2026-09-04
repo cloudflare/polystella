@@ -1,8 +1,10 @@
+import { resolveModelId, type Glossary, type ModelSpec } from "@cloudflare/polystella-core";
 import type { PluginAdminConfig, PluginDescriptor, PluginStorageConfig, ResolvedPlugin } from "emdash";
 import { definePlugin, RESERVED_COLLECTION_SLUGS, RESERVED_FIELD_SLUGS } from "emdash";
 
 import packageManifest from "../package.json" with { type: "json" };
 import { createPluginRoutes } from "./routes.js";
+import { DEPLOYMENT_DEFAULT_MODEL, glossaryModeSettingKey, glossarySettingKey, modelSettingKey } from "./settings.js";
 
 export * from "./catalog.js";
 
@@ -32,8 +34,22 @@ export interface EmDashCatalogLocale {
   filePath: string;
 }
 
+export type EmDashWorkersAIProvider =
+  | {
+      kind: "workers-ai-binding";
+      binding: string;
+      maxTokens?: number | undefined;
+    }
+  | {
+      kind: "workers-ai-http";
+      accountIdEnv: string;
+      apiTokenEnv: string;
+      endpoint?: string | undefined;
+      maxTokens?: number | undefined;
+    };
+
 export interface PolystellaEmdashOptions {
-  aiBinding: string;
+  provider: EmDashWorkersAIProvider;
   collections: Record<string, EmDashCollectionPolicy>;
   catalogs: {
     defaultLocale: string;
@@ -41,8 +57,9 @@ export interface PolystellaEmdashOptions {
   };
   models: {
     allowed: readonly string[];
-    default: string;
+    defaults: ModelSpec;
   };
+  glossaryDefaults?: Readonly<Record<string, Glossary>> | undefined;
   rules?: readonly string[] | undefined;
 }
 
@@ -52,8 +69,7 @@ interface SerializedPolystellaEmdashOptions {
 
 export function validatePolystellaEmdashOptions(value: unknown): asserts value is PolystellaEmdashOptions {
   const options = readRecord(value, "options");
-  const binding = readString(options.aiBinding, "options.aiBinding");
-  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(binding)) fail("options.aiBinding must be a valid Workers binding name");
+  validateProvider(options.provider);
 
   const collections = readRecord(options.collections, "options.collections");
   for (const [collection, rawPolicy] of Object.entries(collections)) {
@@ -99,8 +115,25 @@ export function validatePolystellaEmdashOptions(value: unknown): asserts value i
   const models = readRecord(options.models, "options.models");
   const allowedModels = readStringArray(models.allowed, "options.models.allowed", false);
   assertUnique(allowedModels, "options.models.allowed");
-  const defaultModel = readString(models.default, "options.models.default");
-  if (!allowedModels.includes(defaultModel)) fail("options.models.default must exist in options.models.allowed");
+  if (allowedModels.includes(DEPLOYMENT_DEFAULT_MODEL)) {
+    fail(`options.models.allowed cannot contain reserved value ${JSON.stringify(DEPLOYMENT_DEFAULT_MODEL)}`);
+  }
+  const defaultModels = readModelSpec(models.defaults, "options.models.defaults");
+  const configuredLocales = new Set(Object.keys(locales));
+  for (const [locale, model] of modelSpecEntries(defaultModels)) {
+    if (locale !== "default" && !configuredLocales.has(locale)) {
+      fail(`options.models.defaults.${locale} must match a configured catalog locale`);
+    }
+    if (!allowedModels.includes(model)) fail(`options.models.defaults.${locale} must exist in options.models.allowed`);
+  }
+
+  if (options.glossaryDefaults !== undefined) {
+    const defaults = readRecord(options.glossaryDefaults, "options.glossaryDefaults");
+    for (const [locale, glossary] of Object.entries(defaults)) {
+      if (!configuredLocales.has(locale)) fail(`options.glossaryDefaults.${locale} must match a configured catalog locale`);
+      validateGlossary(glossary, `options.glossaryDefaults.${locale}`);
+    }
+  }
 
   if (options.rules !== undefined) readStringArray(options.rules, "options.rules", true);
 }
@@ -136,28 +169,44 @@ export function createPlugin(runtimeOptions: SerializedPolystellaEmdashOptions):
 export default createPlugin;
 
 function createSettingsSchema(options: PolystellaEmdashOptions): NonNullable<PluginAdminConfig["settingsSchema"]> {
-  return {
-    model: {
+  const schema: NonNullable<PluginAdminConfig["settingsSchema"]> = {};
+  for (const locale of Object.keys(options.catalogs.locales).sort()) {
+    const deploymentDefault = resolveModelId(options.models.defaults, locale);
+    schema[modelSettingKey(locale)] = {
       type: "select",
-      label: "Translation model",
-      options: options.models.allowed.map((model) => ({ value: model, label: model })),
-      default: options.models.default,
-    },
-    glossary: {
+      label: `Translation model (${locale})`,
+      options: [
+        { value: DEPLOYMENT_DEFAULT_MODEL, label: `Deployment default (${deploymentDefault})` },
+        ...options.models.allowed.map((model) => ({ value: model, label: model })),
+      ],
+      default: DEPLOYMENT_DEFAULT_MODEL,
+    };
+    schema[glossaryModeSettingKey(locale)] = {
+      type: "select",
+      label: `Glossary mode (${locale})`,
+      options: [
+        { value: "default", label: "Use deployment default" },
+        { value: "append", label: "Append admin text to deployment default" },
+        { value: "replace", label: "Replace deployment default with admin text" },
+      ],
+      default: "default",
+    };
+    schema[glossarySettingKey(locale)] = {
       type: "string",
-      label: "Glossary",
-      description: "Terms and preferred translations supplied to the model.",
+      label: `Glossary additions or replacement (${locale})`,
+      description: "Plain-text glossary used according to this locale's glossary mode.",
       multiline: true,
       default: "",
-    },
-    instructions: {
-      type: "string",
-      label: "Additional instructions",
-      description: "Translation guidance applied after deployment-locked rules.",
-      multiline: true,
-      default: "",
-    },
+    };
+  }
+  schema.instructions = {
+    type: "string",
+    label: "Additional instructions",
+    description: "Translation guidance applied after deployment-locked rules.",
+    multiline: true,
+    default: "",
   };
+  return schema;
 }
 
 function readRecord(value: unknown, label: string): Record<string, unknown> {
@@ -191,9 +240,78 @@ function assertEmdashSlug(value: string, label: string): void {
   }
 }
 
+function validateProvider(value: unknown): void {
+  const provider = readRecord(value, "options.provider");
+  const maxTokens = provider.maxTokens;
+  if (maxTokens !== undefined && (typeof maxTokens !== "number" || !Number.isInteger(maxTokens) || maxTokens <= 0)) {
+    fail("options.provider.maxTokens must be a positive integer");
+  }
+  if (provider.kind === "workers-ai-binding") {
+    readEnvironmentName(provider.binding, "options.provider.binding");
+    return;
+  }
+  if (provider.kind === "workers-ai-http") {
+    readEnvironmentName(provider.accountIdEnv, "options.provider.accountIdEnv");
+    readEnvironmentName(provider.apiTokenEnv, "options.provider.apiTokenEnv");
+    if (provider.endpoint !== undefined) {
+      const endpoint = readString(provider.endpoint, "options.provider.endpoint");
+      try {
+        new URL(endpoint);
+      } catch {
+        fail("options.provider.endpoint must be a valid URL");
+      }
+    }
+    return;
+  }
+  fail('options.provider.kind must be "workers-ai-binding" or "workers-ai-http"');
+}
+
+function readEnvironmentName(value: unknown, label: string): string {
+  const name = readString(value, label);
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) fail(`${label} must be a valid environment binding name`);
+  return name;
+}
+
+function readModelSpec(value: unknown, label: string): ModelSpec {
+  if (typeof value === "string") return readString(value, label);
+  const models = readRecord(value, label);
+  readString(models.default, `${label}.default`);
+  for (const [locale, model] of Object.entries(models)) {
+    if (locale !== "default") readLocale(locale, `${label} key`);
+    readString(model, `${label}.${locale}`);
+  }
+  return models as { default: string } & Record<string, string>;
+}
+
+function modelSpecEntries(models: ModelSpec): Array<[string, string]> {
+  return typeof models === "string" ? [["default", models]] : Object.entries(models);
+}
+
+function validateGlossary(value: unknown, label: string): void {
+  const glossary = readRecord(value, label);
+  readStringValue(glossary.version, `${label}.version`);
+  readStringArray(glossary.doNotTranslate, `${label}.doNotTranslate`, true);
+  const preferred = readRecord(glossary.preferredTranslations, `${label}.preferredTranslations`);
+  for (const [term, translation] of Object.entries(preferred)) readString(translation, `${label}.preferredTranslations.${term}`);
+  const rules = glossary.styleRules;
+  if (!Array.isArray(rules)) fail(`${label}.styleRules must be an array`);
+  for (const [index, rawRule] of rules.entries()) {
+    const rule = readRecord(rawRule, `${label}.styleRules[${index}]`);
+    readString(rule.category, `${label}.styleRules[${index}].category`);
+    readString(rule.instruction, `${label}.styleRules[${index}].instruction`);
+    if (rule.example !== undefined) readString(rule.example, `${label}.styleRules[${index}].example`);
+  }
+  readStringValue(glossary.notes, `${label}.notes`);
+}
+
+function readStringValue(value: unknown, label: string): string {
+  if (typeof value !== "string") fail(`${label} must be a string`);
+  return value;
+}
+
 function serializeOptions(options: PolystellaEmdashOptions): SerializedPolystellaEmdashOptions {
   const normalized: PolystellaEmdashOptions = {
-    aiBinding: options.aiBinding,
+    provider: { ...options.provider },
     collections: Object.fromEntries(
       Object.entries(options.collections).map(([collection, policy]) => [
         collection,
@@ -212,7 +330,26 @@ function serializeOptions(options: PolystellaEmdashOptions): SerializedPolystell
         ]),
       ),
     },
-    models: { allowed: [...options.models.allowed], default: options.models.default },
+    models: {
+      allowed: [...options.models.allowed],
+      defaults: typeof options.models.defaults === "string" ? options.models.defaults : { ...options.models.defaults },
+    },
+    ...(options.glossaryDefaults === undefined
+      ? {}
+      : {
+          glossaryDefaults: Object.fromEntries(
+            Object.entries(options.glossaryDefaults).map(([locale, glossary]) => [
+              locale,
+              {
+                version: glossary.version,
+                doNotTranslate: [...glossary.doNotTranslate],
+                preferredTranslations: { ...glossary.preferredTranslations },
+                styleRules: glossary.styleRules.map((rule) => ({ ...rule })),
+                notes: glossary.notes,
+              },
+            ]),
+          ),
+        }),
     ...(options.rules === undefined ? {} : { rules: [...options.rules] }),
   };
   return { serialized: JSON.stringify(normalized) };

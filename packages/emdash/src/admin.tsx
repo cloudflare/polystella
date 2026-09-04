@@ -123,7 +123,9 @@ export function PolystellaSettingsPage(): ReactNode {
       <button type="button" style={buttonStyle} disabled={saving || settings === null} onClick={() => void save()}>
         {saving ? "Saving..." : "Save collections"}
       </button>
-      <p style={mutedStyle}>Model, glossary, and translation instructions remain in EmDash's generated plugin settings.</p>
+      <p style={mutedStyle}>
+        Per-locale model and glossary controls, plus shared translation instructions, remain in EmDash's generated plugin settings.
+      </p>
     </Page>
   );
 }

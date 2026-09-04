@@ -10,13 +10,14 @@ easier to evaluate when maintainer time is available.
 
 ## Repository overview
 
-PolyStella is a pnpm workspace with six public packages under `packages/`:
+PolyStella is a pnpm workspace with seven public packages under `packages/`:
 
 - `packages/astro/` — `@cloudflare/polystella-astro`.
 - `packages/polystella/` — `@cloudflare/polystella`, a forwarding compatibility package.
 - `packages/core/` — platform-neutral translation orchestration.
 - `packages/adapters/` — Markdown, MDX, JSON, YAML, and TOML adapters.
 - `packages/providers/` — Workers AI and Anthropic transports.
+- `packages/cli/` — shared catalog CLI commands and filesystem policy.
 - `packages/emdash/` — native EmDash integration and catalog override policy.
 
 The private root coordinates those packages, the `docs/` site, and the
@@ -46,8 +47,8 @@ Required:
 | Command                               | Purpose                                                         |
 | ------------------------------------- | --------------------------------------------------------------- |
 | `pnpm test`                           | Run package, Astro, workerd, and boundary tests.                |
-| `pnpm typecheck`                      | Build and typecheck all six public packages.                    |
-| `pnpm build`                          | Build all six public packages.                                  |
+| `pnpm typecheck`                      | Build and typecheck all seven public packages.                  |
+| `pnpm build`                          | Build all seven public packages.                                |
 | `pnpm build:llms`                     | Regenerate `llms-full.txt` from canonical agent docs.           |
 | `pnpm --filter polystella-docs dev`   | Run the Nimbus docs site locally.                               |
 | `pnpm --filter polystella-docs build` | Build the docs site (includes auto-generated config reference). |

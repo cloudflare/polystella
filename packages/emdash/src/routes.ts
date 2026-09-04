@@ -1,7 +1,8 @@
-import { EMPTY_GLOSSARY, type Glossary, type Translator } from "@cloudflare/polystella-core";
+import { resolveModelId, type Glossary, type Translator } from "@cloudflare/polystella-core";
 import { translateCatalogEntries } from "@cloudflare/polystella-core/catalog/translate";
 import {
   createWorkersAIBindingTranslator,
+  createWorkersAIHttpTranslator,
   type WorkersAIBindingRun,
   type WorkersAIInput,
 } from "@cloudflare/polystella-providers/workers-ai";
@@ -24,6 +25,7 @@ import {
 } from "./contracts.js";
 import { ContentTranslationInputError, translateContentFields } from "./translate-content.js";
 import type { PolystellaEmdashOptions } from "./index.js";
+import { glossaryModeSettingKey, glossarySettingKey, isGlossaryMode, modelSettingKey, resolveGlossary } from "./settings.js";
 
 const ENABLED_COLLECTIONS_KEY = "settings:enabledCollections";
 const MAX_TOKENS = 8192;
@@ -38,11 +40,12 @@ const EMDASH_LOCALE_PATTERN = /^[a-z]{2,3}(-[a-z0-9]{2,8})*$/i;
 export interface PluginRouteDependencies {
   getEnv(): Promise<Record<string, unknown> | undefined>;
   now(): Date;
+  fetchImpl?: typeof fetch | undefined;
 }
 
 const defaultDependencies: PluginRouteDependencies = {
   async getEnv() {
-    return (await import("virtual:emdash/env")).env;
+    return (await import("virtual:emdash/env")).env ?? process.env;
   },
   now: () => new Date(),
 };
@@ -111,7 +114,7 @@ export function createPluginRoutes(
         if (Object.keys(values).length === 0) throw PluginRouteError.badRequest("selected fields have no saved values");
 
         try {
-          const settings = await translationSettings(options, ctx.kv, ctx.log, dependencies);
+          const settings = await translationSettings(options, targetLocale, ctx.kv, ctx.log, dependencies);
           const result = await translateContentFields({
             values,
             translator: settings.translator,
@@ -156,7 +159,7 @@ export function createPluginRoutes(
           throw PluginRouteError.badRequest(`source values cannot exceed ${MAX_CATALOG_SOURCE_CHARACTERS} characters in total`);
         }
         try {
-          const settings = await translationSettings(options, ctx.kv, ctx.log, dependencies);
+          const settings = await translationSettings(options, locale, ctx.kv, ctx.log, dependencies);
           const result = await translateCatalogEntries({
             entries,
             translator: settings.translator,
@@ -363,40 +366,81 @@ function parseOverride(value: unknown): CatalogOverride {
 
 async function translationSettings(
   options: PolystellaEmdashOptions,
+  locale: string,
   kv: KVAccess,
   log: LogAccess,
   dependencies: PluginRouteDependencies,
 ): Promise<{ translator: Translator; glossary: Glossary; promptInstruction?: string | undefined }> {
-  const [storedModel, storedGlossary, storedInstructions, env] = await Promise.all([
-    kv.get<unknown>("settings:model"),
-    kv.get<unknown>("settings:glossary"),
+  const [storedModel, storedGlossaryMode, storedGlossary, storedInstructions, env] = await Promise.all([
+    kv.get<unknown>(`settings:${modelSettingKey(locale)}`),
+    kv.get<unknown>(`settings:${glossaryModeSettingKey(locale)}`),
+    kv.get<unknown>(`settings:${glossarySettingKey(locale)}`),
     kv.get<unknown>("settings:instructions"),
     dependencies.getEnv(),
   ]);
-  const model = typeof storedModel === "string" && options.models.allowed.includes(storedModel) ? storedModel : options.models.default;
-  const binding = env?.[options.aiBinding];
-  if (!isWorkersAIBinding(binding)) {
-    log.error("PolyStella Workers AI binding is unavailable", { binding: options.aiBinding });
-    throw new PluginRouteError("AI_BINDING_UNAVAILABLE", "PolyStella's Workers AI binding is unavailable", 503);
-  }
+  const deploymentModel = resolveModelId(options.models.defaults, locale);
+  const model = typeof storedModel === "string" && options.models.allowed.includes(storedModel) ? storedModel : deploymentModel;
+  const glossaryMode = isGlossaryMode(storedGlossaryMode) ? storedGlossaryMode : "default";
   const glossaryText = typeof storedGlossary === "string" ? storedGlossary.trim() : "";
+  const glossary = resolveGlossary(options.glossaryDefaults?.[locale], glossaryMode, glossaryText);
   const instructions = typeof storedInstructions === "string" ? storedInstructions.trim() : "";
   const promptInstruction = [...(options.rules ?? []), instructions].filter((value) => value.length > 0).join("\n");
-  if (glossaryText.length > MAX_GLOSSARY_CHARACTERS) {
-    throw PluginRouteError.badRequest(`glossary cannot exceed ${MAX_GLOSSARY_CHARACTERS} characters`);
+  if (JSON.stringify(glossary).length > MAX_GLOSSARY_CHARACTERS) {
+    throw PluginRouteError.badRequest(`effective glossary cannot exceed ${MAX_GLOSSARY_CHARACTERS} characters`);
   }
   if (promptInstruction.length > MAX_INSTRUCTION_CHARACTERS) {
     throw PluginRouteError.badRequest(`translation instructions cannot exceed ${MAX_INSTRUCTION_CHARACTERS} characters`);
   }
   return {
-    translator: createWorkersAIBindingTranslator({
-      modelId: model,
-      maxTokens: MAX_TOKENS,
-      run: workersRun(binding),
-    }),
-    glossary: { ...EMPTY_GLOSSARY, notes: glossaryText },
+    translator: createTranslator(options, env, model, log, dependencies),
+    glossary,
     ...(promptInstruction.length === 0 ? {} : { promptInstruction }),
   };
+}
+
+function createTranslator(
+  options: PolystellaEmdashOptions,
+  env: Record<string, unknown> | undefined,
+  modelId: string,
+  log: LogAccess,
+  dependencies: PluginRouteDependencies,
+): Translator {
+  const provider = options.provider;
+  if (provider.kind === "workers-ai-binding") {
+    const binding = env?.[provider.binding];
+    if (!isWorkersAIBinding(binding)) {
+      log.error("PolyStella Workers AI binding is unavailable", { binding: provider.binding });
+      throw new PluginRouteError("AI_BINDING_UNAVAILABLE", "PolyStella's Workers AI binding is unavailable", 503);
+    }
+    return createWorkersAIBindingTranslator({
+      modelId,
+      maxTokens: provider.maxTokens ?? MAX_TOKENS,
+      run: workersRun(binding),
+    });
+  }
+
+  const accountId = environmentCredential(env, provider.accountIdEnv);
+  const apiToken = environmentCredential(env, provider.apiTokenEnv);
+  if (accountId === undefined || apiToken === undefined) {
+    log.error("PolyStella Workers AI HTTP credentials are unavailable", {
+      accountIdEnv: provider.accountIdEnv,
+      apiTokenEnv: provider.apiTokenEnv,
+    });
+    throw new PluginRouteError("AI_CREDENTIALS_UNAVAILABLE", "PolyStella's Workers AI credentials are unavailable", 503);
+  }
+  return createWorkersAIHttpTranslator({
+    accountId,
+    apiToken,
+    modelId,
+    maxTokens: provider.maxTokens ?? MAX_TOKENS,
+    ...(provider.endpoint === undefined ? {} : { endpoint: provider.endpoint }),
+    ...(dependencies.fetchImpl === undefined ? {} : { fetchImpl: dependencies.fetchImpl }),
+  });
+}
+
+function environmentCredential(env: Record<string, unknown> | undefined, name: string): string | undefined {
+  const value = env?.[name];
+  return typeof value === "string" && value.length > 0 && value.trim() === value ? value : undefined;
 }
 
 function workersRun(binding: WorkersAIBinding): WorkersAIBindingRun {

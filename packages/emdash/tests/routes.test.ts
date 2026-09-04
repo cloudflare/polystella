@@ -1,4 +1,5 @@
 import type { KVAccess, PluginRoute, RouteContext, StorageCollection } from "emdash";
+import type { WorkersAIInput } from "@cloudflare/polystella-providers/workers-ai";
 import { describe, expect, it } from "vitest";
 
 import type { RuntimeOverridesResponse, TranslateContentResponse } from "../src/contracts.js";
@@ -7,7 +8,7 @@ import type { CatalogOverride, PolystellaEmdashOptions } from "../src/index.js";
 
 function options(): PolystellaEmdashOptions {
   return {
-    aiBinding: "AI",
+    provider: { kind: "workers-ai-binding", binding: "AI" },
     collections: { posts: { sourceLocale: "en-US", fields: ["title", "body"] } },
     catalogs: {
       defaultLocale: "en-US",
@@ -16,7 +17,16 @@ function options(): PolystellaEmdashOptions {
         "fr-FR": { dictionary: { greeting: "Bonjour" }, filePath: "src/i18n/fr-FR.json" },
       },
     },
-    models: { allowed: ["model-a"], default: "model-a" },
+    models: { allowed: ["model-a", "model-b"], defaults: { default: "model-a", "fr-FR": "model-b" } },
+    glossaryDefaults: {
+      "fr-FR": {
+        version: "1",
+        doNotTranslate: ["Cloudflare"],
+        preferredTranslations: {},
+        styleRules: [],
+        notes: "Deployment glossary",
+      },
+    },
   };
 }
 
@@ -160,6 +170,81 @@ describe("EmDash plugin routes", () => {
     ).rejects.toThrow("deployment-allowlisted");
   });
 
+  it("uses per-locale model and glossary settings", async () => {
+    const calls: Array<{ model: string; system: string }> = [];
+    const routes = createPluginRoutes(options(), {
+      ...dependencies(),
+      getEnv: async () => ({
+        AI: {
+          run: async (model: string, input: WorkersAIInput) => {
+            calls.push({ model, system: input.messages[0]?.content ?? "" });
+            return { response: "@@catalog:0@@\nBonjour" };
+          },
+        },
+      }),
+    });
+    const kv = createKv();
+    const storage = createStorage();
+    await kv.set("settings:model:fr-FR", "model-a");
+    await kv.set("settings:glossaryMode:fr-FR", "append");
+    await kv.set("settings:glossary:fr-FR", "Admin glossary");
+
+    await route(routes, "catalog/generate").handler(context({ locale: "fr-FR", keys: ["greeting"] }, "POST", kv, storage));
+
+    expect(calls[0]?.model).toBe("model-a");
+    expect(calls[0]?.system).toContain("Cloudflare");
+    expect(calls[0]?.system).toContain("Deployment glossary");
+    expect(calls[0]?.system).toContain("Admin glossary");
+
+    await kv.set("settings:glossaryMode:fr-FR", "replace");
+    await kv.set("settings:glossary:fr-FR", "Replacement glossary");
+    await route(routes, "catalog/generate").handler(context({ locale: "fr-FR", keys: ["greeting"] }, "POST", kv, storage));
+
+    expect(calls[1]?.system).not.toContain("Deployment glossary");
+    expect(calls[1]?.system).not.toContain("Cloudflare");
+    expect(calls[1]?.system).toContain("Replacement glossary");
+  });
+
+  it("supports Workers AI HTTP credentials from runtime environment values", async () => {
+    const configured = options();
+    configured.provider = {
+      kind: "workers-ai-http",
+      accountIdEnv: "CLOUDFLARE_ACCOUNT_ID",
+      apiTokenEnv: "CLOUDFLARE_WORKERS_AI_TOKEN",
+      endpoint: "https://example.test/workers-ai",
+    };
+    let authorization: string | null = null;
+    const routes = createPluginRoutes(configured, {
+      ...dependencies(),
+      getEnv: async () => ({ CLOUDFLARE_ACCOUNT_ID: "account-1", CLOUDFLARE_WORKERS_AI_TOKEN: "secret-token" }),
+      fetchImpl: async (_input, init) => {
+        authorization = new Headers(init?.headers).get("Authorization");
+        return new Response(JSON.stringify({ success: true, result: { response: "@@catalog:0@@\nBonjour" } }), {
+          headers: { "Content-Type": "application/json" },
+        });
+      },
+    });
+
+    await expect(
+      route(routes, "catalog/generate").handler(context({ locale: "fr-FR", keys: ["greeting"] }, "POST", createKv(), createStorage())),
+    ).resolves.toMatchObject({ translations: { greeting: "Bonjour" } });
+    expect(authorization).toBe("Bearer secret-token");
+  });
+
+  it("rejects unavailable Workers AI HTTP credentials without exposing names", async () => {
+    const configured = options();
+    configured.provider = {
+      kind: "workers-ai-http",
+      accountIdEnv: "CLOUDFLARE_ACCOUNT_ID",
+      apiTokenEnv: "CLOUDFLARE_WORKERS_AI_TOKEN",
+    };
+    await expect(
+      route(createPluginRoutes(configured, { ...dependencies(), getEnv: async () => ({}) }), "catalog/generate").handler(
+        context({ locale: "fr-FR", keys: ["greeting"] }, "POST", createKv(), createStorage()),
+      ),
+    ).rejects.toMatchObject({ status: 503, message: "PolyStella's Workers AI credentials are unavailable" });
+  });
+
   it("rejects unsafe locales and malformed Portable Text as bad requests", async () => {
     const routes = createPluginRoutes(options(), dependencies());
     const kv = createKv();
@@ -231,7 +316,8 @@ describe("EmDash plugin routes", () => {
     ).rejects.toMatchObject({ status: 500, message: "PolyStella translation failed" });
 
     const kv = createKv();
-    await kv.set("settings:glossary", "x".repeat(10_001));
+    await kv.set("settings:glossary:fr-FR", "x".repeat(10_001));
+    await kv.set("settings:glossaryMode:fr-FR", "append");
     await expect(
       route(createPluginRoutes(options(), dependencies()), "translate-content").handler(
         context({ collection: "posts", entryId: "entry-1", targetLocale: "fr-FR", fields: ["title"] }, "POST", kv, createStorage()),

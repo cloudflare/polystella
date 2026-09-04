@@ -9,9 +9,10 @@ fields, locales, or models.
 
 ```ts
 import { polystellaEmdash } from "@cloudflare/polystella-emdash";
+import { loadGlossaryDefaults } from "@cloudflare/polystella-emdash/config";
 
 polystellaEmdash({
-  aiBinding: "AI",
+  provider: { kind: "workers-ai-binding", binding: "AI" },
   collections: {
     posts: { sourceLocale: "en-US", fields: ["title", "body"] },
   },
@@ -26,13 +27,35 @@ polystellaEmdash({
   },
   models: {
     allowed: ["@cf/zai-org/glm-4.7-flash"],
-    default: "@cf/zai-org/glm-4.7-flash",
+    defaults: {
+      default: "@cf/zai-org/glm-4.7-flash",
+    },
   },
+  glossaryDefaults: await loadGlossaryDefaults({ locales: ["en-US"] }),
 });
 ```
 
 Use the returned descriptor in EmDash's `plugins` array and configure the named
 Workers AI binding on the EmDash deployment.
+
+For Workers AI over HTTP, use runtime environment variable names instead of
+literal credentials:
+
+```ts
+provider: {
+  kind: "workers-ai-http",
+  accountIdEnv: "CLOUDFLARE_ACCOUNT_ID",
+  apiTokenEnv: "CLOUDFLARE_WORKERS_AI_TOKEN",
+}
+```
+
+`models.defaults` may set a `default` fallback and locale-specific models. Each
+target locale receives its own model and glossary settings. Administrators can
+use the deployment glossary unchanged or append/replace it with plain text;
+they cannot select a model outside `models.allowed`.
+
+This package also installs `polystella check-ui`, `polystella sync-ui`, and
+`polystella translate-ui`. They retain the Astro CLI's config and flags.
 
 ## Content Translation
 
