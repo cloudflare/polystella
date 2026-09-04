@@ -109,7 +109,8 @@ Two entry points share `runTranslationPass` in `packages/astro/src/translation/r
 - `@cloudflare/polystella-cli` owns the Node.js catalog command handlers,
   filesystem drift/sync, config loading, and glossary loading.
 - `@cloudflare/polystella-emdash` owns EmDash deployment policy, plugin
-  declarations, storage, routes, native admin UI, and a catalog-only CLI host.
+  declarations, storage, routes, native admin UI, catalog-only CLI host, and
+  companion Astro runtime for catalog overrides.
 - `@cloudflare/polystella-astro` owns Astro hooks, filesystem and R2 access,
   cache/marker/URL policy, routing, runtime APIs, catalog loading, and its CLI.
 

@@ -3,12 +3,12 @@ import type { PluginAdminConfig, PluginDescriptor, PluginStorageConfig, Resolved
 import { definePlugin, RESERVED_COLLECTION_SLUGS, RESERVED_FIELD_SLUGS } from "emdash";
 
 import packageManifest from "../package.json" with { type: "json" };
+import { POLYSTELLA_PLUGIN_ID } from "./contracts.js";
 import { createPluginRoutes } from "./routes.js";
 import { DEPLOYMENT_DEFAULT_MODEL, glossaryModeSettingKey, glossarySettingKey, modelSettingKey } from "./settings.js";
 
 export * from "./catalog.js";
 
-const PLUGIN_ID = "polystella";
 const ENTRYPOINT = "@cloudflare/polystella-emdash";
 const ADMIN_ENTRY = "@cloudflare/polystella-emdash/admin";
 const version = packageManifest.version;
@@ -141,7 +141,7 @@ export function validatePolystellaEmdashOptions(value: unknown): asserts value i
 export function polystellaEmdash(options: PolystellaEmdashOptions): PluginDescriptor<SerializedPolystellaEmdashOptions> {
   validatePolystellaEmdashOptions(options);
   return {
-    id: PLUGIN_ID,
+    id: POLYSTELLA_PLUGIN_ID,
     version,
     format: "native",
     entrypoint: ENTRYPOINT,
@@ -157,7 +157,7 @@ export function polystellaEmdash(options: PolystellaEmdashOptions): PluginDescri
 export function createPlugin(runtimeOptions: SerializedPolystellaEmdashOptions): ResolvedPlugin<typeof STORAGE> {
   const options = deserializeOptions(runtimeOptions);
   return definePlugin({
-    id: PLUGIN_ID,
+    id: POLYSTELLA_PLUGIN_ID,
     version,
     capabilities: ["content:read"],
     storage: STORAGE,
@@ -247,10 +247,12 @@ function validateProvider(value: unknown): void {
     fail("options.provider.maxTokens must be a positive integer");
   }
   if (provider.kind === "workers-ai-binding") {
+    rejectUnknownKeys(provider, ["kind", "binding", "maxTokens"], "options.provider");
     readEnvironmentName(provider.binding, "options.provider.binding");
     return;
   }
   if (provider.kind === "workers-ai-http") {
+    rejectUnknownKeys(provider, ["kind", "accountIdEnv", "apiTokenEnv", "maxTokens", "endpoint"], "options.provider");
     readEnvironmentName(provider.accountIdEnv, "options.provider.accountIdEnv");
     readEnvironmentName(provider.apiTokenEnv, "options.provider.apiTokenEnv");
     if (provider.endpoint !== undefined) {
@@ -264,6 +266,11 @@ function validateProvider(value: unknown): void {
     return;
   }
   fail('options.provider.kind must be "workers-ai-binding" or "workers-ai-http"');
+}
+
+function rejectUnknownKeys(value: Record<string, unknown>, allowed: readonly string[], label: string): void {
+  const unknown = Object.keys(value).find((key) => !allowed.includes(key));
+  if (unknown !== undefined) fail(`${label}.${unknown} is not supported`);
 }
 
 function readEnvironmentName(value: unknown, label: string): string {
@@ -311,7 +318,20 @@ function readStringValue(value: unknown, label: string): string {
 
 function serializeOptions(options: PolystellaEmdashOptions): SerializedPolystellaEmdashOptions {
   const normalized: PolystellaEmdashOptions = {
-    provider: { ...options.provider },
+    provider:
+      options.provider.kind === "workers-ai-binding"
+        ? {
+            kind: "workers-ai-binding",
+            binding: options.provider.binding,
+            ...(options.provider.maxTokens === undefined ? {} : { maxTokens: options.provider.maxTokens }),
+          }
+        : {
+            kind: "workers-ai-http",
+            accountIdEnv: options.provider.accountIdEnv,
+            apiTokenEnv: options.provider.apiTokenEnv,
+            ...(options.provider.maxTokens === undefined ? {} : { maxTokens: options.provider.maxTokens }),
+            ...(options.provider.endpoint === undefined ? {} : { endpoint: options.provider.endpoint }),
+          },
     collections: Object.fromEntries(
       Object.entries(options.collections).map(([collection, policy]) => [
         collection,

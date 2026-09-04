@@ -28,23 +28,23 @@ flowchart TD
 ```
 
 Dependencies point toward reusable code. Core never imports adapters,
-providers, Astro, or EmDash. Adapters and providers do not import each other. The
-compatibility package contains no implementation and points only to the
-canonical Astro package.
+providers, CLI, Astro, or EmDash. Adapters and providers do not import each
+other. The compatibility package contains no implementation and points only to
+the canonical Astro package.
 
 Published dependencies on independently versioned packages use compatible
 caret ranges. The compatibility package pins the exact Astro version because
 it forwards that package's API and CLI unchanged.
 
-| Directory                                        | Published package                  | Responsibility                                                                         |
-| :----------------------------------------------- | :--------------------------------- | :------------------------------------------------------------------------------------- |
-| [`packages/core/`](./packages/core/)             | `@cloudflare/polystella-core`      | Translation contracts, catalogs, prompts, batching, retries, and response parsing.     |
-| [`packages/adapters/`](./packages/adapters/)     | `@cloudflare/polystella-adapters`  | Portable parsing, extraction, grouping, and translation application.                   |
-| [`packages/providers/`](./packages/providers/)   | `@cloudflare/polystella-providers` | Workers AI and Anthropic implementations of the core translator contract.              |
-| [`packages/cli/`](./packages/cli/)               | `@cloudflare/polystella-cli`       | Shared Node.js catalog commands, filesystem policy, config loading, and glossary I/O.  |
-| [`packages/emdash/`](./packages/emdash/)         | `@cloudflare/polystella-emdash`    | Native EmDash content translation, deployment policy, admin UI, and catalog overrides. |
-| [`packages/astro/`](./packages/astro/)           | `@cloudflare/polystella-astro`     | Canonical Astro integration, host policy, storage, routing, runtime APIs, and CLI.     |
-| [`packages/polystella/`](./packages/polystella/) | `@cloudflare/polystella`           | Temporary compatibility forwarding to `@cloudflare/polystella-astro`.                  |
+| Directory                                        | Published package                  | Responsibility                                                                        |
+| :----------------------------------------------- | :--------------------------------- | :------------------------------------------------------------------------------------ |
+| [`packages/core/`](./packages/core/)             | `@cloudflare/polystella-core`      | Translation contracts, catalogs, prompts, batching, retries, and response parsing.    |
+| [`packages/adapters/`](./packages/adapters/)     | `@cloudflare/polystella-adapters`  | Portable parsing, extraction, grouping, and translation application.                  |
+| [`packages/providers/`](./packages/providers/)   | `@cloudflare/polystella-providers` | Workers AI and Anthropic implementations of the core translator contract.             |
+| [`packages/cli/`](./packages/cli/)               | `@cloudflare/polystella-cli`       | Shared Node.js catalog commands, filesystem policy, config loading, and glossary I/O. |
+| [`packages/emdash/`](./packages/emdash/)         | `@cloudflare/polystella-emdash`    | Native EmDash translation, deployment policy, admin UI, overrides, and Astro runtime. |
+| [`packages/astro/`](./packages/astro/)           | `@cloudflare/polystella-astro`     | Canonical Astro integration, host policy, storage, routing, runtime APIs, and CLI.    |
+| [`packages/polystella/`](./packages/polystella/) | `@cloudflare/polystella`           | Temporary compatibility forwarding to `@cloudflare/polystella-astro`.                 |
 
 ## Direct Translation Flow
 
@@ -139,9 +139,11 @@ Start at [`packages/emdash/src/index.ts`](./packages/emdash/src/index.ts). The
 route boundary lives in [`packages/emdash/src/routes.ts`](./packages/emdash/src/routes.ts),
 the native UI in [`packages/emdash/src/admin.tsx`](./packages/emdash/src/admin.tsx),
 the catalog override model in
-[`packages/emdash/src/catalog.ts`](./packages/emdash/src/catalog.ts). EmDash
-depends on providers for Workers AI and CLI for the catalog commands exposed by
-its binary.
+[`packages/emdash/src/catalog.ts`](./packages/emdash/src/catalog.ts), and the
+companion Astro integration in
+[`packages/emdash/src/astro.ts`](./packages/emdash/src/astro.ts). EmDash depends
+on providers for Workers AI and CLI for the catalog commands exposed by its
+binary.
 
 ### Astro
 

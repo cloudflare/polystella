@@ -16,6 +16,10 @@ export function glossarySettingKey(locale: string): string {
   return `glossary:${locale}`;
 }
 
+export function runtimeOverrideSettingKey(locale: string): string {
+  return `runtimeOverride:${locale}`;
+}
+
 export function resolveGlossary(defaultGlossary: Glossary | undefined, mode: GlossaryMode, adminText: string): Glossary {
   if (mode === "replace") return { ...EMPTY_GLOSSARY, notes: adminText };
   const glossary = defaultGlossary ?? EMPTY_GLOSSARY;

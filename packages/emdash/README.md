@@ -8,10 +8,13 @@ the security boundary; EmDash settings may narrow it but cannot add collections,
 fields, locales, or models.
 
 ```ts
-import { polystellaEmdash } from "@cloudflare/polystella-emdash";
+import { polystellaEmdash, type PolystellaEmdashOptions } from "@cloudflare/polystella-emdash";
+import { polystellaEmdashAstro } from "@cloudflare/polystella-emdash/astro";
 import { loadGlossaryDefaults } from "@cloudflare/polystella-emdash/config";
+import { defineConfig } from "astro/config";
+import emdash from "emdash/astro";
 
-polystellaEmdash({
+const polystellaOptions = {
   provider: { kind: "workers-ai-binding", binding: "AI" },
   collections: {
     posts: { sourceLocale: "en-US", fields: ["title", "body"] },
@@ -31,12 +34,22 @@ polystellaEmdash({
       default: "@cf/zai-org/glm-4.7-flash",
     },
   },
-  glossaryDefaults: await loadGlossaryDefaults({ locales: ["en-US"] }),
+  glossaryDefaults: await loadGlossaryDefaults({
+    locales: ["en-US"],
+    file: "./src/i18n/glossary/{locale}.yaml",
+    projectRoot: new URL(".", import.meta.url),
+  }),
+} satisfies PolystellaEmdashOptions;
+
+export default defineConfig({
+  integrations: [emdash({ plugins: [polystellaEmdash(polystellaOptions)] }), polystellaEmdashAstro(polystellaOptions)],
 });
 ```
 
-Use the returned descriptor in EmDash's `plugins` array and configure the named
-Workers AI binding on the EmDash deployment.
+Keep `polystellaEmdashAstro()` after `emdash()`. It binds `Astro.locals.t` and
+`Astro.locals.lhref`, overlays enabled EmDash overrides, and falls back to the
+deployed dictionaries when storage is unavailable. Configure the named Workers
+AI binding on the EmDash deployment.
 
 For Workers AI over HTTP, use runtime environment variable names instead of
 literal credentials:
@@ -76,9 +89,10 @@ Repository JSON remains canonical. The catalog page can generate, edit, clear,
 inspect deployment state, and export temporary per-key overrides. Runtime
 overrides are disabled per locale until an Administrator explicitly enables them.
 
-Applications may cache `GET
-/_emdash/api/plugins/polystella/overrides?locale=<locale>`. The EmDash success
-envelope's `data` is either:
+The Astro integration reads enabled overrides directly from EmDash storage and
+caches them for 60 seconds. The public `GET
+/_emdash/api/plugins/polystella/overrides?locale=<locale>` remains available for
+other runtimes. Its success envelope's `data` is either:
 
 ```json
 { "enabled": false, "overrides": {} }
@@ -86,6 +100,17 @@ envelope's `data` is either:
 
 or an enabled envelope containing only stored overrides. Overlay enabled values
 on the bundled locale dictionary; keep bundled JSON as the fallback.
+
+For server routes that need a locale other than `Astro.currentLocale`, reference
+the virtual module types and build the translator explicitly:
+
+```ts
+/// <reference types="@cloudflare/polystella-emdash/client" />
+
+import { buildCatalogTranslator } from "polystella:catalog";
+
+const t = await buildCatalogTranslator(locale);
+```
 
 ## EmDash 0.36 Limitations
 

@@ -1,3 +1,4 @@
+export const POLYSTELLA_PLUGIN_ID = "polystella";
 export const POLYSTELLA_API_BASE = "/_emdash/api/plugins/polystella";
 export const MAX_CONTENT_FIELDS = 25;
 export const MAX_CATALOG_KEYS = 100;

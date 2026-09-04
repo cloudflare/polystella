@@ -13,7 +13,7 @@ compatibility package share a version; the others are versioned independently:
 | `@cloudflare/polystella-adapters`  | `packages/adapters/`   | Portable Markdown, MDX, JSON, YAML, and TOML adapters.                | Core                           |
 | `@cloudflare/polystella-providers` | `packages/providers/`  | Workers AI HTTP/binding and Anthropic transports.                     | Core                           |
 | `@cloudflare/polystella-cli`       | `packages/cli/`        | Shared Node.js catalog CLI commands and filesystem policy.            | Core, providers                |
-| `@cloudflare/polystella-emdash`    | `packages/emdash/`     | Native EmDash content translation, admin UI, and catalog overrides.   | CLI, core, providers           |
+| `@cloudflare/polystella-emdash`    | `packages/emdash/`     | Native EmDash translation, admin UI, overrides, and Astro runtime.    | CLI, core, providers           |
 | `@cloudflare/polystella-astro`     | `packages/astro/`      | Canonical Astro integration, CLI, R2, routing, and host policy.       | CLI, core, adapters, providers |
 | `@cloudflare/polystella`           | `packages/polystella/` | Temporary compatibility forwarding to the Astro package.              | Astro                          |
 

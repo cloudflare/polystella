@@ -25,7 +25,15 @@ import {
 } from "./contracts.js";
 import { ContentTranslationInputError, translateContentFields } from "./translate-content.js";
 import type { PolystellaEmdashOptions } from "./index.js";
-import { glossaryModeSettingKey, glossarySettingKey, isGlossaryMode, modelSettingKey, resolveGlossary } from "./settings.js";
+import { invalidateRuntimeOverrides } from "./runtime-cache.js";
+import {
+  glossaryModeSettingKey,
+  glossarySettingKey,
+  isGlossaryMode,
+  modelSettingKey,
+  resolveGlossary,
+  runtimeOverrideSettingKey,
+} from "./settings.js";
 
 const ENABLED_COLLECTIONS_KEY = "settings:enabledCollections";
 const MAX_TOKENS = 8192;
@@ -207,6 +215,7 @@ export function createPluginRoutes(
         }
         if (value === null) await storage.delete(id);
         else await storage.put(id, { locale, key, value, updatedAt: now, updatedBy } satisfies CatalogOverride);
+        invalidateRuntimeOverrides(locale);
         return { key } satisfies CatalogOverrideMutationResponse;
       },
     },
@@ -219,6 +228,7 @@ export function createPluginRoutes(
         const enabled = readBoolean(input.enabled, "enabled");
         if (enabled) await ctx.kv.set(runtimeLocaleKey(locale), true);
         else await ctx.kv.delete(runtimeLocaleKey(locale));
+        invalidateRuntimeOverrides(locale);
         return { locale, enabled } satisfies CatalogRuntimeMutationResponse;
       },
     },
@@ -286,7 +296,7 @@ async function runtimeLocaleEnabled(kv: KVAccess, locale: string): Promise<boole
 }
 
 function runtimeLocaleKey(locale: string): string {
-  return `settings:runtimeOverride:${locale}`;
+  return `settings:${runtimeOverrideSettingKey(locale)}`;
 }
 
 async function catalogView(
@@ -322,7 +332,7 @@ async function catalogView(
   };
 }
 
-async function listOverrides(storage: StorageCollection, locale: string): Promise<CatalogOverride[]> {
+export async function listOverrides(storage: StorageCollection, locale: string): Promise<CatalogOverride[]> {
   const overrides: CatalogOverride[] = [];
   let cursor: string | undefined;
   do {
@@ -339,7 +349,11 @@ async function listOverrides(storage: StorageCollection, locale: string): Promis
   return overrides.sort((left, right) => left.key.localeCompare(right.key));
 }
 
-function usableOverrides(options: PolystellaEmdashOptions, locale: string, overrides: readonly CatalogOverride[]): CatalogOverride[] {
+export function usableOverrides(
+  options: { catalogs: { defaultLocale: string; locales: Record<string, { dictionary: Record<string, string> }> } },
+  locale: string,
+  overrides: readonly CatalogOverride[],
+): CatalogOverride[] {
   const source = options.catalogs.locales[options.catalogs.defaultLocale]?.dictionary;
   const catalog = options.catalogs.locales[locale]?.dictionary;
   if (source === undefined || catalog === undefined) throw PluginRouteError.internal("catalog configuration is unavailable");

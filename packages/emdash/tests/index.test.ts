@@ -145,4 +145,18 @@ describe("polystellaEmdash", () => {
     expect(serialized).not.toContain("fake-token");
     expect(JSON.stringify(descriptor.settingsSchema)).not.toContain("apiToken");
   });
+
+  it("rejects unknown provider properties instead of serializing them", () => {
+    const configured = {
+      ...validOptions(),
+      provider: {
+        kind: "workers-ai-http",
+        accountIdEnv: "CLOUDFLARE_ACCOUNT_ID",
+        apiTokenEnv: "CLOUDFLARE_WORKERS_AI_TOKEN",
+        apiToken: "secret-token",
+      },
+    } as unknown as PolystellaEmdashOptions;
+
+    expect(() => polystellaEmdash(configured)).toThrow("options.provider.apiToken is not supported");
+  });
 });
