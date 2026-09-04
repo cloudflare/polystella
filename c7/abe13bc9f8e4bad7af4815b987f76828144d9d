@@ -1,0 +1,29 @@
+PACKAGE_ARCHITECTURE.md
+  s_15d9087d67c021::t_b1fc5e3a98d947 23,35-42,126-130
+docs/src/content/docs/reference/exports.md
+  s_15d9087d67c021::t_839cec749613a8 7,21-22
+llms-full.txt
+  s_15d9087d67c021::t_1eb9e43b3051b0 234,246-253,337-341
+packages/emdash/src/routes.ts
+  s_15d9087d67c021::t_144ab9a0663d0e 1-491
+packages/emdash/tests/translate-content.test.ts
+  s_15d9087d67c021::t_f54fd813e699bf 1-126
+pnpm-lock.yaml
+  s_15d9087d67c021::t_c82c11e69978d1 235-237,239-247,251-256
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "c7abe13bc9f8e4bad7af4815b987f76828144d9d",
+  "prompts": {},
+  "sessions": {
+    "s_15d9087d67c021": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_fa39a3a22ffeMAKJ4kOL1d63yD",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Diogo Carneiro <dcarneiro@cloudflare.com>"
+    }
+  }
+}
