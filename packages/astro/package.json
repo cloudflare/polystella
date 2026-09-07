@@ -113,12 +113,12 @@
     "yaml": "^2.8.3"
   },
   "devDependencies": {
-    "@astrojs/sitemap": "^3.7.3",
+    "@astrojs/sitemap": "^3.7.4",
     "@types/mdast": "^4.0.4",
     "@types/picomatch": "^4.0.0",
-    "@types/react": "^19.2.14",
+    "@types/react": "^19.2.18",
     "astro": "^7.2.9",
-    "react": "^19.2.6",
+    "react": "^19.2.8",
     "typescript": "^6.0.3",
     "vitest": "^4.1.9"
   },
