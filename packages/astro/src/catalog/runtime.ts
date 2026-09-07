@@ -9,3 +9,4 @@ export {
   type ResolveCatalogTranslationsDeps,
   type TranslateFn,
 } from "@cloudflare/polystella-core/catalog";
+export { CATALOG_GROUP_TITLE_KEY, detectCatalogFormat, flattenCatalog, type CatalogFormat } from "@cloudflare/polystella-core/catalog";

@@ -1,3 +1,5 @@
+export { CATALOG_GROUP_TITLE_KEY, detectCatalogFormat, flattenCatalog, type CatalogFormat } from "./flatten.js";
+
 export type CatalogDictionary = Record<string, string>;
 
 export type MaybePromise<T> = T | Promise<T>;

@@ -156,7 +156,8 @@ interface SyncCheckArgs {
  */
 async function runSyncCheck(args: SyncCheckArgs): Promise<number> {
   const { readFile } = await import("node:fs/promises");
-  const { syncLocaleDict, parseSourceLayout, formatLocaleFile } = await import("../catalog/index.js");
+  const { detectCatalogFormat, flattenCatalog, formatLocaleFile, formatNestedLocaleFile, parseSourceLayout, syncLocaleDict } =
+    await import("../catalog/index.js");
   // Re-walk in-memory.
   const sourcePath = path.resolve(args.cwd, args.baseDir, `${args.defaultLocale}.json`);
   let sourceRaw: string;
@@ -169,8 +170,11 @@ async function runSyncCheck(args: SyncCheckArgs): Promise<number> {
     }
     throw err;
   }
-  const sourceDict = JSON.parse(sourceRaw) as Record<string, string>;
-  const layout = parseSourceLayout(sourceRaw);
+  const sourceParsed = JSON.parse(sourceRaw) as Record<string, unknown>;
+  const sourceFormat = detectCatalogFormat(sourceParsed);
+  const sourceDict = flattenCatalog(sourceParsed);
+  const layout = sourceFormat === "flat" ? parseSourceLayout(sourceRaw) : undefined;
+  const sourceKeyOrder = layout !== undefined ? layout.keys : Object.keys(sourceDict);
 
   const changes: string[] = [];
   for (const locale of args.locales) {
@@ -186,9 +190,16 @@ async function runSyncCheck(args: SyncCheckArgs): Promise<number> {
         throw err;
       }
     }
-    const existingDict = existingRaw === undefined ? {} : (JSON.parse(existingRaw) as Record<string, string>);
-    const sync = syncLocaleDict({ source: sourceDict, existing: existingDict, sourceKeyOrder: layout.keys });
-    const nextText = formatLocaleFile({ dict: sync.dict, layout });
+    let existingParsed: Record<string, unknown> | undefined;
+    if (existingRaw !== undefined) {
+      existingParsed = JSON.parse(existingRaw) as Record<string, unknown>;
+    }
+    const existingDict = existingParsed === undefined ? {} : flattenCatalog(existingParsed);
+    const sync = syncLocaleDict({ source: sourceDict, existing: existingDict, sourceKeyOrder });
+    const nextText =
+      sourceFormat === "nested" || layout === undefined
+        ? formatNestedLocaleFile({ dict: sync.dict, source: sourceParsed, existing: existingParsed })
+        : formatLocaleFile({ dict: sync.dict, layout });
     const created = existingRaw === undefined;
     const changed = created || existingRaw !== nextText;
     if (changed) {

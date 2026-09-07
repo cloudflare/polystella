@@ -2,26 +2,31 @@
  * UI-string sync — mechanical (no AI) reconciliation of locale JSON
  * files against the default-locale source.
  *
- * Three pure functions:
+ * Pure functions:
  *   - `parseSourceLayout` — extract the top-level key order AND
- *     blank-line section structure from a JSON source file. Lets
+ *     blank-line section structure from a flat JSON source file. Lets
  *     `formatLocaleFile` round-trip without churning diffs on first
  *     run.
  *   - `syncLocaleDict` — given the source dict + the locale's
  *     existing dict, produce the post-sync dict: add missing keys
  *     with `""`, drop extras, preserve existing values (empty or
  *     not). Order follows the source.
- *   - `formatLocaleFile` — render a dict to 2-space-indented JSON
- *     with the source's blank-line layout interleaved between keys.
- *     Always ends with a trailing newline (prettier-compatible).
+ *   - `formatLocaleFile` — render a flat dict to 2-space-indented
+ *     JSON with the source's blank-line layout interleaved between
+ *     keys. Always ends with a trailing newline (prettier-compatible).
+ *   - `formatNestedLocaleFile` — render a flattened dict back to
+ *     nested JSON, mirroring the source's group/key order and
+ *     preserving the locale's own group titles.
  *
- * All disk I/O lives in `applySyncToDisk` which composes the three
- * pure functions. Tests pin behaviour without writing to a tmpdir
- * for everything except the disk-wrapper itself.
+ * All disk I/O lives in `applySyncToDisk` which composes the pure
+ * functions. Tests pin behaviour without writing to a tmpdir for
+ * everything except the disk-wrapper itself.
  */
 
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+
+import { CATALOG_GROUP_TITLE_KEY, detectCatalogFormat, flattenCatalog } from "@cloudflare/polystella-core/catalog";
 
 /**
  * Top-level key order + section-break structure recovered from the
@@ -239,6 +244,90 @@ export function formatLocaleFile(opts: FormatLocaleFileOptions): string {
   return lines.join("\n") + "\n";
 }
 
+export interface FormatNestedLocaleFileOptions {
+  /** Flattened dict to render (dotted keys). */
+  dict: Record<string, string>;
+  /** Source nested JSON object: group order, key order, and group titles. */
+  source: Record<string, unknown>;
+  /** Existing locale JSON (pre-sync). Its group titles are preserved
+   * when present; the source's fill in otherwise. */
+  existing?: Record<string, unknown> | undefined;
+}
+
+/**
+ * Render a flattened dict back to nested JSON using the source
+ * file's structure: groups in source order, keys in source order,
+ * blank line before each top-level group. Group titles come from the
+ * existing locale file when it has one (hand-authored titles are
+ * preserved), otherwise from the source — they are metadata, not
+ * translated. 2-space indent, trailing newline, prettier-compatible.
+ *
+ * Groups that end up with no keys (e.g. only a group title) are
+ * omitted. Keys in `dict` that belong to no source group are ignored
+ * — the caller's sync step guarantees they don't exist.
+ */
+export function formatNestedLocaleFile(opts: FormatNestedLocaleFileOptions): string {
+  const { dict, source, existing } = opts;
+  const groupLines: string[] = [];
+  for (const [groupKey, groupValue] of Object.entries(source)) {
+    if (groupValue === null || typeof groupValue !== "object" || Array.isArray(groupValue)) continue;
+    const existingGroup =
+      existing !== undefined && typeof existing[groupKey] === "object" && existing[groupKey] !== null && !Array.isArray(existing[groupKey])
+        ? (existing[groupKey] as Record<string, unknown>)
+        : undefined;
+    const rendered = renderNestedGroup(groupKey, groupKey, groupValue as Record<string, unknown>, existingGroup, dict, "  ");
+    if (rendered.length === 0) continue;
+    groupLines.push(rendered.join("\n"));
+  }
+  if (groupLines.length === 0) return "{}\n";
+  return ["{", groupLines.join(",\n\n"), "}"].join("\n") + "\n";
+}
+
+function renderNestedGroup(
+  key: string,
+  path: string,
+  node: Record<string, unknown>,
+  existing: Record<string, unknown> | undefined,
+  dict: Record<string, string>,
+  indent: string,
+): string[] {
+  const inner = `${indent}  `;
+  const lines: string[] = [`${indent}${JSON.stringify(key)}: {`];
+  const title =
+    existing !== undefined && typeof existing[CATALOG_GROUP_TITLE_KEY] === "string"
+      ? existing[CATALOG_GROUP_TITLE_KEY]
+      : typeof node[CATALOG_GROUP_TITLE_KEY] === "string"
+        ? node[CATALOG_GROUP_TITLE_KEY]
+        : undefined;
+  if (title !== undefined) {
+    lines.push(`${inner}${JSON.stringify(CATALOG_GROUP_TITLE_KEY)}: ${JSON.stringify(title)},`);
+  }
+  const entries: string[] = [];
+  for (const [childKey, childValue] of Object.entries(node)) {
+    if (childKey === CATALOG_GROUP_TITLE_KEY) continue;
+    const childPath = `${path}.${childKey}`;
+    if (typeof childValue === "string") {
+      const value = dict[childPath];
+      if (value === undefined) continue;
+      entries.push(`${inner}${JSON.stringify(childKey)}: ${JSON.stringify(value)}`);
+    } else if (childValue !== null && typeof childValue === "object" && !Array.isArray(childValue)) {
+      const existingChild =
+        existing !== undefined &&
+        typeof existing[childKey] === "object" &&
+        existing[childKey] !== null &&
+        !Array.isArray(existing[childKey])
+          ? (existing[childKey] as Record<string, unknown>)
+          : undefined;
+      const nested = renderNestedGroup(childKey, childPath, childValue as Record<string, unknown>, existingChild, dict, inner);
+      if (nested.length > 0) entries.push(nested.join("\n"));
+    }
+  }
+  if (entries.length === 0) return [];
+  lines.push(entries.join(",\n"));
+  lines.push(`${indent}}`);
+  return lines;
+}
+
 export interface ApplySyncOptions {
   /** Absolute project root. */
   rootDir: string;
@@ -292,18 +381,23 @@ export async function applySyncToDisk(opts: ApplySyncOptions): Promise<ApplySync
     throw err;
   }
 
-  let sourceDict: Record<string, string>;
+  let sourceParsed: Record<string, unknown>;
   try {
     const parsed = JSON.parse(sourceRaw) as unknown;
     if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
       throw new Error(`expected an object, got ${Array.isArray(parsed) ? "array" : typeof parsed}`);
     }
-    sourceDict = parsed as Record<string, string>;
+    sourceParsed = parsed as Record<string, unknown>;
   } catch (err) {
     throw new Error(`[polystella] failed to parse ${sourcePath}: ${(err as Error).message}`);
   }
 
-  const layout = parseSourceLayout(sourceRaw);
+  const sourceFormat = detectCatalogFormat(sourceParsed);
+  const sourceDict = flattenCatalog(sourceParsed);
+  // Flat files keep their blank-line section layout; nested files
+  // take order from the parsed object (group order, key order).
+  const layout = sourceFormat === "flat" ? parseSourceLayout(sourceRaw) : undefined;
+  const sourceKeyOrder = layout !== undefined ? layout.keys : Object.keys(sourceDict);
 
   const results: ApplySyncLocaleResult[] = [];
   let anyChanged = false;
@@ -338,6 +432,7 @@ export async function applySyncToDisk(opts: ApplySyncOptions): Promise<ApplySync
     }
 
     let existingDict: Record<string, string>;
+    let existingParsed: Record<string, unknown> | undefined;
     if (existingRaw === undefined) {
       existingDict = {};
     } else {
@@ -346,7 +441,11 @@ export async function applySyncToDisk(opts: ApplySyncOptions): Promise<ApplySync
         if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
           throw new Error(`expected an object, got ${Array.isArray(parsed) ? "array" : typeof parsed}`);
         }
-        existingDict = parsed as Record<string, string>;
+        existingParsed = parsed as Record<string, unknown>;
+        // Flattening normalises either format, so a locale file in
+        // the "wrong" format still reconciles and is rewritten in
+        // the source's format.
+        existingDict = flattenCatalog(parsed);
       } catch (err) {
         throw new Error(`[polystella] failed to parse ${filePath}: ${(err as Error).message}`);
       }
@@ -355,10 +454,13 @@ export async function applySyncToDisk(opts: ApplySyncOptions): Promise<ApplySync
     const sync = syncLocaleDict({
       source: sourceDict,
       existing: existingDict,
-      sourceKeyOrder: layout.keys,
+      sourceKeyOrder,
     });
 
-    const nextText = formatLocaleFile({ dict: sync.dict, layout });
+    const nextText =
+      sourceFormat === "nested" || layout === undefined
+        ? formatNestedLocaleFile({ dict: sync.dict, source: sourceParsed, existing: existingParsed })
+        : formatLocaleFile({ dict: sync.dict, layout });
     // Only write when the on-disk bytes would change; keeps `git
     // status` clean on no-op runs.
     const changed = created || existingRaw !== nextText;

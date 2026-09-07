@@ -159,26 +159,20 @@ function generateCatalogVirtualModuleSource(input: CatalogVirtualModuleInput): s
   }
 
   return [
+    `import { flattenCatalog } from ${JSON.stringify(new URL("./runtime.js", import.meta.url).href)};`,
     `const modules = import.meta.glob(${JSON.stringify(`${input.viteBase}/*.json`)}, { import: "default" });`,
     `const localeToPath = ${JSON.stringify(localeToPath)};`,
     `export const defaultLocale = ${JSON.stringify(input.defaultLocale)};`,
     `export const locales = ${JSON.stringify(input.locales)};`,
     `export const noPrefixUrls = ${JSON.stringify(input.noPrefixUrls)};`,
     `export const fallbackToDefault = ${JSON.stringify(input.fallbackToDefault)};`,
-    "function isDictionary(value) {",
-    '  if (value === null || typeof value !== "object" || Array.isArray(value)) return false;',
-    '  return Object.values(value).every((entry) => typeof entry === "string");',
-    "}",
     "export async function getDictionary(locale) {",
     "  const path = localeToPath[locale];",
     "  if (path === undefined) return undefined;",
     "  const load = modules[path];",
     "  if (load === undefined) return undefined;",
     "  const dict = await load();",
-    "  if (!isDictionary(dict)) {",
-    "    throw new Error(`[polystella] catalog ${locale}.json must be a JSON object of string values.`);",
-    "  }",
-    "  return dict;",
+    "  return flattenCatalog(dict);",
     "}",
     "",
   ].join("\n");
