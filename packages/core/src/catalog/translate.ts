@@ -3,7 +3,7 @@ import pRetry from "p-retry";
 import { packGroupsIntoBatches } from "../batch.js";
 import type { Glossary } from "../glossary.js";
 import { assertUniqueSegmentIds, type Segment } from "../segment.js";
-import { translateBatch, type TranslateBatchRetryEvent } from "../translate-batch.js";
+import { translateBatch, type TranslateBatchAttemptEvent, type TranslateBatchRetryEvent } from "../translate-batch.js";
 import { isPermanentProviderError, type Translator } from "../translator.js";
 
 const TOKEN_RE = /\{\{(\w+)\}\}/g;
@@ -76,6 +76,7 @@ export interface CatalogTranslationOptions {
   maxSegmentsPerBatch?: number | undefined;
   signal?: AbortSignal | undefined;
   onRetry?: ((event: TranslateBatchRetryEvent) => void) | undefined;
+  onBatchAttempt?: ((event: TranslateBatchAttemptEvent) => void) | undefined;
 }
 
 export interface TranslateCatalogEntriesOptions extends CatalogTranslationOptions {
@@ -182,6 +183,7 @@ type TranslateUiBatchOptions = Pick<
   | "retryRandomize"
   | "signal"
   | "onRetry"
+  | "onBatchAttempt"
 > & {
   segments: Segment[];
   glossary: Glossary;
@@ -229,6 +231,7 @@ async function translateUiBatchWithRetries(opts: TranslateUiBatchOptions): Promi
             sourceLocale: opts.sourceLocale,
             targetLocale: opts.targetLocale,
             maxRetries: 0,
+            ...(opts.onBatchAttempt === undefined ? {} : { onBatchAttempt: opts.onBatchAttempt }),
             ...(opts.context === undefined ? {} : { context: opts.context }),
             ...(opts.signal === undefined ? {} : { signal: opts.signal }),
           });

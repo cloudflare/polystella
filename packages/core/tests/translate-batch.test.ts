@@ -45,8 +45,12 @@ describe("translateBatch", () => {
   it("builds a prompt, forwards the signal, and parses the response", async () => {
     const controller = new AbortController();
     const translate = vi.fn().mockResolvedValue(goodResponse);
-    const result = await translateBatch({ ...options({ modelId: "test", translate }), signal: controller.signal });
+    const onBatchAttempt = vi.fn(() => {
+      throw new Error("observer failed");
+    });
+    const result = await translateBatch({ ...options({ modelId: "test", translate }), signal: controller.signal, onBatchAttempt });
     expect(result.get("fm:title")).toBe("Um pedido de desculpas");
+    expect(onBatchAttempt).toHaveBeenCalledOnce();
     expect(translate).toHaveBeenCalledOnce();
     expect(translate.mock.calls[0]?.[0]).toMatch(/professional translator/);
     expect(translate.mock.calls[0]?.[1]).toMatch(/@@fm:title@@/);
@@ -60,10 +64,12 @@ describe("translateBatch", () => {
       .mockRejectedValueOnce(new Error("503"))
       .mockResolvedValueOnce(goodResponse);
     const onRetry = vi.fn();
+    const onBatchAttempt = vi.fn();
     const result = await translateBatch({
       ...options({ modelId: "test", translate }),
       maxRetries: 2,
       onRetry,
+      onBatchAttempt,
     });
     expect(result.size).toBe(2);
     expect(translate).toHaveBeenCalledTimes(3);
@@ -72,6 +78,15 @@ describe("translateBatch", () => {
       [1, 3],
       [2, 3],
     ]);
+    expect(onBatchAttempt).toHaveBeenCalledTimes(3);
+    expect(onBatchAttempt.mock.calls[0]?.[0]).toMatchObject({ attempt: 1, totalAttempts: 3, response: "not marker-delimited" });
+    expect(onBatchAttempt.mock.calls[1]?.[0]).toMatchObject({ attempt: 2, totalAttempts: 3, error: expect.any(Error) });
+    expect(onBatchAttempt.mock.calls[2]?.[0]).toMatchObject({
+      attempt: 3,
+      totalAttempts: 3,
+      response: goodResponse,
+      translations: expect.any(Map),
+    });
   });
 
   it("throws the final error and does not report the final failed attempt as a retry", async () => {

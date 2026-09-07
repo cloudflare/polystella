@@ -135,6 +135,62 @@ describe("runSyncUi", () => {
     expect(code).toBe(0);
   });
 
+  it("--check reports nested changes without writing", async () => {
+    const source = `{
+  "site": {
+    "i18n_group_title": "Site",
+    "title": "Title",
+    "description": "Description"
+  }
+}
+`;
+    const locale = `{
+  "site": {
+    "i18n_group_title": "Site",
+    "title": "Título"
+  }
+}
+`;
+    const cwd = await tmpProjectWithAstroConfig({
+      defaultLocale: "en-US",
+      locales: ["en-US", "pt-BR"],
+      files: {
+        "src/content/i18n/en-US.json": source,
+        "src/content/i18n/pt-BR.json": locale,
+      },
+    });
+    const err = vi.fn();
+
+    expect(await runSyncUi({ check: true, help: false }, { cwd, log: vi.fn(), err })).toBe(2);
+    expect(err.mock.calls.flat().join("\n")).toContain("+1 added");
+    expect(await readFile(path.resolve(cwd, "src/content/i18n/pt-BR.json"), "utf8")).toBe(locale);
+  });
+
+  it("--check accepts a clean nested tree", async () => {
+    const cwd = await tmpProjectWithAstroConfig({
+      defaultLocale: "en-US",
+      locales: ["en-US", "pt-BR"],
+      files: {
+        "src/content/i18n/en-US.json": `{
+  "site": {
+    "i18n_group_title": "Site",
+    "title": "Title"
+  }
+}
+`,
+        "src/content/i18n/pt-BR.json": `{
+  "site": {
+    "i18n_group_title": "Site",
+    "title": "Título"
+  }
+}
+`,
+      },
+    });
+
+    expect(await runSyncUi({ check: true, help: false }, { cwd, log: vi.fn(), err: vi.fn() })).toBe(0);
+  });
+
   it("returns 1 when astro.config.mjs is missing", async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "polystella-sync-ui-noconfig-"));
     const err = vi.fn();

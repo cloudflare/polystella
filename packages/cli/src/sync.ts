@@ -1,0 +1,280 @@
+import { readFile, writeFile } from "node:fs/promises";
+import path from "node:path";
+
+import { CATALOG_GROUP_TITLE_KEY, detectCatalogFormat, flattenCatalog } from "@cloudflare/polystella-core/catalog";
+
+export interface SourceLayout {
+  keys: string[];
+  blankBefore: Set<string>;
+}
+
+export function parseSourceLayout(rawText: string): SourceLayout {
+  const keys: string[] = [];
+  const blankBefore = new Set<string>();
+  let lastWasEntry = false;
+  let sawBlankSinceLastEntry = false;
+  const keyLine = /^\s+"([^"\\]|\\.)*"\s*:/;
+  const keyName = /^\s+"((?:[^"\\]|\\.)*)"\s*:/;
+
+  for (const line of rawText.split(/\r?\n/)) {
+    if (line.trim() === "") {
+      if (lastWasEntry) sawBlankSinceLastEntry = true;
+      continue;
+    }
+    if (keyLine.test(line)) {
+      const match = keyName.exec(line);
+      if (match?.[1] !== undefined) {
+        let decoded: string;
+        try {
+          decoded = JSON.parse(`"${match[1]}"`) as string;
+        } catch {
+          decoded = match[1];
+        }
+        if (keys.length > 0 && sawBlankSinceLastEntry) blankBefore.add(decoded);
+        keys.push(decoded);
+        lastWasEntry = true;
+        sawBlankSinceLastEntry = false;
+        continue;
+      }
+    }
+    lastWasEntry = false;
+    sawBlankSinceLastEntry = false;
+  }
+  return { keys, blankBefore };
+}
+
+export interface SyncLocaleDictInput {
+  source: Record<string, string>;
+  existing: Record<string, string>;
+  sourceKeyOrder: ReadonlyArray<string>;
+}
+
+export interface SyncLocaleDictResult {
+  dict: Record<string, string>;
+  added: string[];
+  removed: string[];
+}
+
+export function syncLocaleDict(input: SyncLocaleDictInput): SyncLocaleDictResult {
+  const result: Record<string, string> = {};
+  const added: string[] = [];
+  const sourceKeySet = new Set(Object.keys(input.source));
+
+  for (const key of input.sourceKeyOrder) {
+    if (!sourceKeySet.has(key)) continue;
+    if (Object.hasOwn(input.existing, key)) result[key] = input.existing[key] ?? "";
+    else {
+      result[key] = "";
+      added.push(key);
+    }
+  }
+  for (const key of Object.keys(input.source)) {
+    if (Object.hasOwn(result, key)) continue;
+    if (Object.hasOwn(input.existing, key)) result[key] = input.existing[key] ?? "";
+    else {
+      result[key] = "";
+      added.push(key);
+    }
+  }
+  const removed = Object.keys(input.existing).filter((key) => !sourceKeySet.has(key));
+  added.sort();
+  removed.sort();
+  return { dict: result, added, removed };
+}
+
+export interface FormatLocaleFileOptions {
+  dict: Record<string, string>;
+  layout: SourceLayout;
+}
+
+export function formatLocaleFile(options: FormatLocaleFileOptions): string {
+  const keys = Object.keys(options.dict);
+  if (keys.length === 0) return "{}\n";
+  const lines: string[] = ["{"];
+  for (let index = 0; index < keys.length; index++) {
+    const key = keys[index];
+    if (key === undefined) continue;
+    const value = options.dict[key];
+    if (value === undefined) continue;
+    if (index > 0 && options.layout.blankBefore.has(key)) lines.push("");
+    lines.push(`  ${JSON.stringify(key)}: ${JSON.stringify(value)}${index === keys.length - 1 ? "" : ","}`);
+  }
+  lines.push("}");
+  return `${lines.join("\n")}\n`;
+}
+
+export interface FormatNestedLocaleFileOptions {
+  dict: Record<string, string>;
+  source: Record<string, unknown>;
+  existing?: Record<string, unknown> | undefined;
+}
+
+export function formatNestedLocaleFile(options: FormatNestedLocaleFileOptions): string {
+  const groupLines: string[] = [];
+  for (const [groupKey, groupValue] of Object.entries(options.source)) {
+    if (!isObject(groupValue)) continue;
+    const existingValue = options.existing?.[groupKey];
+    const existingGroup = isObject(existingValue) ? existingValue : undefined;
+    const rendered = renderNestedGroup(groupKey, groupKey, groupValue, existingGroup, options.dict, "  ");
+    if (rendered.length > 0) groupLines.push(rendered.join("\n"));
+  }
+  if (groupLines.length === 0) return "{}\n";
+  return `{\n${groupLines.join(",\n\n")}\n}\n`;
+}
+
+function renderNestedGroup(
+  key: string,
+  path: string,
+  node: Record<string, unknown>,
+  existing: Record<string, unknown> | undefined,
+  dict: Record<string, string>,
+  indent: string,
+): string[] {
+  const inner = `${indent}  `;
+  const lines = [`${indent}${JSON.stringify(key)}: {`];
+  const existingTitle = existing?.[CATALOG_GROUP_TITLE_KEY];
+  const title =
+    typeof existingTitle === "string"
+      ? existingTitle
+      : typeof node[CATALOG_GROUP_TITLE_KEY] === "string"
+        ? node[CATALOG_GROUP_TITLE_KEY]
+        : undefined;
+  if (title !== undefined) lines.push(`${inner}${JSON.stringify(CATALOG_GROUP_TITLE_KEY)}: ${JSON.stringify(title)},`);
+
+  const entries: string[] = [];
+  for (const [childKey, childValue] of Object.entries(node)) {
+    if (childKey === CATALOG_GROUP_TITLE_KEY) continue;
+    const childPath = `${path}.${childKey}`;
+    if (typeof childValue === "string") {
+      const value = dict[childPath];
+      if (value !== undefined) entries.push(`${inner}${JSON.stringify(childKey)}: ${JSON.stringify(value)}`);
+    } else if (isObject(childValue)) {
+      const existingChild = existing?.[childKey];
+      const nested = renderNestedGroup(childKey, childPath, childValue, isObject(existingChild) ? existingChild : undefined, dict, inner);
+      if (nested.length > 0) entries.push(nested.join("\n"));
+    }
+  }
+  if (entries.length === 0) return [];
+  lines.push(entries.join(",\n"), `${indent}}`);
+  return lines;
+}
+
+export interface ApplySyncOptions {
+  rootDir: string;
+  baseDir: string;
+  defaultLocale: string;
+  locales: ReadonlyArray<string>;
+}
+
+export interface ApplySyncLocaleResult {
+  locale: string;
+  added: string[];
+  removed: string[];
+  changed: boolean;
+  filePath: string;
+  created: boolean;
+}
+
+export interface ApplySyncResult {
+  results: ApplySyncLocaleResult[];
+  changed: boolean;
+}
+
+export async function applySyncToDisk(options: ApplySyncOptions): Promise<ApplySyncResult> {
+  const sourcePath = path.resolve(options.rootDir, options.baseDir, `${options.defaultLocale}.json`);
+  let sourceRaw: string;
+  try {
+    sourceRaw = await readFile(sourcePath, "utf8");
+  } catch (error) {
+    if (isNotFound(error)) {
+      throw new Error(
+        `[polystella] default-locale UI-strings file not found at ${sourcePath}. Create it (even as \`{}\`) before running sync-ui.`,
+      );
+    }
+    throw error;
+  }
+  const sourceParsed = parseCatalog(sourceRaw, sourcePath);
+  const sourceFormat = detectCatalogFormat(sourceParsed);
+  const source = flattenCatalogAtPath(sourceParsed, sourcePath);
+  const layout = sourceFormat === "flat" ? parseSourceLayout(sourceRaw) : undefined;
+  const sourceKeyOrder = layout?.keys ?? Object.keys(source);
+  const results: ApplySyncLocaleResult[] = [];
+  let changed = false;
+
+  for (const locale of options.locales) {
+    const filePath = path.resolve(options.rootDir, options.baseDir, `${locale}.json`);
+    if (locale === options.defaultLocale) {
+      results.push({ locale, added: [], removed: [], changed: false, filePath, created: false });
+      continue;
+    }
+    let existingRaw: string | undefined;
+    try {
+      existingRaw = await readFile(filePath, "utf8");
+    } catch (error) {
+      if (!isNotFound(error)) throw error;
+    }
+    const created = existingRaw === undefined;
+    const existingParsed = existingRaw === undefined ? undefined : parseCatalog(existingRaw, filePath);
+    const existing = existingParsed === undefined ? {} : flattenCatalogAtPath(existingParsed, filePath);
+    const sync = syncLocaleDict({ source, existing, sourceKeyOrder });
+    const nextText =
+      sourceFormat === "nested" || layout === undefined
+        ? formatNestedLocaleFile({ dict: sync.dict, source: sourceParsed, existing: existingParsed })
+        : formatLocaleFile({ dict: sync.dict, layout });
+    const localeChanged = created || existingRaw !== nextText;
+    if (localeChanged) {
+      await writeFile(filePath, nextText, "utf8");
+      changed = true;
+    }
+    results.push({ locale, added: sync.added, removed: sync.removed, changed: localeChanged, filePath, created });
+  }
+  return { results, changed };
+}
+
+export function formatSyncSummary(result: ApplySyncResult): string {
+  const lines: string[] = [];
+  for (const locale of result.results) {
+    if (!locale.changed) continue;
+    const parts: string[] = [];
+    if (locale.added.length > 0) parts.push(`+${locale.added.length} added`);
+    if (locale.removed.length > 0) parts.push(`-${locale.removed.length} removed`);
+    if (parts.length === 0 && !locale.created) parts.push("reformatted (layout only)");
+    if (parts.length === 0) parts.push("no key changes");
+    lines.push(`  • ${locale.locale} (${locale.created ? "created" : "updated"}): ${parts.join(", ")}`);
+    for (const key of locale.added) lines.push(`      + ${key}`);
+    for (const key of locale.removed) lines.push(`      - ${key}`);
+  }
+  return lines.join("\n");
+}
+
+function parseCatalog(raw: string, filePath: string): Record<string, unknown> {
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!isObject(parsed)) {
+      throw new Error(`expected an object, got ${Array.isArray(parsed) ? "array" : typeof parsed}`);
+    }
+    return parsed;
+  } catch (error) {
+    throw new Error(`[polystella] failed to parse ${filePath}: ${errorMessage(error)}`);
+  }
+}
+
+function flattenCatalogAtPath(catalog: Record<string, unknown>, filePath: string): Record<string, string> {
+  try {
+    return flattenCatalog(catalog);
+  } catch (error) {
+    throw new Error(`[polystella] failed to parse ${filePath}: ${errorMessage(error)}`);
+  }
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function isNotFound(error: unknown): boolean {
+  return error instanceof Error && "code" in error && error.code === "ENOENT";
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}

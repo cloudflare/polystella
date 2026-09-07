@@ -102,6 +102,7 @@
   },
   "dependencies": {
     "@cloudflare/polystella-adapters": "workspace:^",
+    "@cloudflare/polystella-cli": "workspace:^",
     "@cloudflare/polystella-core": "workspace:^",
     "@cloudflare/polystella-providers": "workspace:^",
     "acorn": "^8.17.0",

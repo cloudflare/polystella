@@ -475,49 +475,11 @@ async function main(): Promise<number> {
   switch (dispatch.name) {
     case "translate":
       return runTranslateSubcommand(dispatch.rest);
-    case "check-ui": {
-      const { CHECK_UI_USAGE, parseCheckUiArgs, runCheckUi } = await import("./cli/check-ui.js");
-      let args: ReturnType<typeof parseCheckUiArgs>;
-      try {
-        args = parseCheckUiArgs(dispatch.rest);
-      } catch (err) {
-        console.error(`[polystella] ${(err as Error).message}\n`);
-        console.error(CHECK_UI_USAGE);
-        return 1;
-      }
-      return runCheckUi(args, {
-        cwd,
-        log: (msg) => console.log(msg),
-        err: (msg) => console.error(msg),
-      });
-    }
-    case "sync-ui": {
-      const { SYNC_UI_USAGE, parseSyncUiArgs, runSyncUi } = await import("./cli/sync-ui.js");
-      let args: ReturnType<typeof parseSyncUiArgs>;
-      try {
-        args = parseSyncUiArgs(dispatch.rest);
-      } catch (err) {
-        console.error(`[polystella] ${(err as Error).message}\n`);
-        console.error(SYNC_UI_USAGE);
-        return 1;
-      }
-      return runSyncUi(args, {
-        cwd,
-        log: (msg) => console.log(msg),
-        err: (msg) => console.error(msg),
-      });
-    }
+    case "check-ui":
+    case "sync-ui":
     case "translate-ui": {
-      const { TRANSLATE_UI_USAGE, parseTranslateUiArgs, runTranslateUi } = await import("./cli/translate-ui.js");
-      let args: ReturnType<typeof parseTranslateUiArgs>;
-      try {
-        args = parseTranslateUiArgs(dispatch.rest);
-      } catch (err) {
-        console.error(`[polystella] ${(err as Error).message}\n`);
-        console.error(TRANSLATE_UI_USAGE);
-        return 1;
-      }
-      return runTranslateUi(args, {
+      const { runCatalogCommand } = await import("@cloudflare/polystella-cli/run-command");
+      return runCatalogCommand(dispatch.name, dispatch.rest, {
         cwd,
         log: (msg) => console.log(msg),
         warn: (msg) => console.warn(msg),

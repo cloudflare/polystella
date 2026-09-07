@@ -10,6 +10,8 @@ This package owns:
 - Prompt construction and provider-response parsing.
 - Token estimation, grouping validation, and batch packing.
 - Translation execution, retries, cancellation, and `PermanentProviderError`.
+- Optional per-attempt observation of prompts, normalized responses, parsing,
+  timing, and batch metrics.
 - Catalog lookup, fallback, interpolation, and UI-string translation.
 
 It does not parse file formats, call a specific AI provider, or depend on

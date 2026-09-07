@@ -127,11 +127,11 @@ for low-level imports that moved out of the Astro package.
 
 **When to use:** Adding a new top-level verb (`polystella <verb>`).
 
-**Pattern:** Each subcommand owns its argv parsing and a `run<Name>(args, deps)` handler. The dispatcher in `packages/astro/src/cli.ts` is a thin router.
+**Pattern:** Each subcommand owns its argv parsing and a `run<Name>(args, deps)` handler. Shared catalog commands live in `packages/cli`; host dispatchers stay thin.
 
 **Steps:**
 
-1. Create `packages/astro/src/cli/<name>.ts`:
+1. Create `packages/cli/src/<name>.ts` for a shared catalog command. Keep an Astro-only command under `packages/astro/src/cli/`:
 
    ```ts
    export interface MySubcommandArgs {
@@ -174,14 +174,14 @@ for low-level imports that moved out of the Astro package.
    }
    ```
 
-2. Wire dispatch in `packages/astro/src/cli.ts`:
+2. Register a shared catalog command in `packages/cli/src/run-command.ts` and both host CLIs. For an Astro-only command, wire `packages/astro/src/cli.ts`:
    - Add to the `Subcommand` union type.
    - Add the literal to `parseSubcommand`'s `if (first === "translate" || ...)` check.
    - Add a case to `main()`'s switch statement.
    - Update `TOP_LEVEL_USAGE` to mention the new verb.
 
 3. Add tests:
-   - `packages/astro/tests/cli/<name>.test.ts` for the argv parser + handler (with stubbed deps).
+   - `packages/cli/tests/<name>.test.ts` for a shared parser + handler, or `packages/astro/tests/cli/<name>.test.ts` for an Astro-only command.
    - Extend `packages/astro/tests/cli.test.ts` if the top-level dispatch needs new coverage (it usually does — add at least one "dispatches `my-subcommand` to the right handler" case).
 
 4. If consumers typically wrap the subcommand in a `pnpm` script (e.g. `pnpm i18n:sync`), document the pattern in the docs site's CLI section. Don't add the wrapper to this package — consumer projects own their own scripts.
@@ -192,7 +192,8 @@ for low-level imports that moved out of the Astro package.
    pnpm test
    pnpm typecheck
    pnpm build
-   node packages/astro/dist/cli.js my-subcommand --help    # sanity-check the emitted CLI
+   node packages/astro/dist/cli.js my-subcommand --help    # Astro host
+   node packages/emdash/dist/cli.js my-subcommand --help   # shared catalog command
    ```
 
 ---
@@ -415,13 +416,13 @@ for low-level imports that moved out of the Astro package.
 
 **Files:**
 
-- `packages/astro/src/i18n/drift.ts` — `checkI18nDrift`, `loadAndCheckDrift`.
-- `packages/astro/src/i18n/sync.ts` — key reconciliation; **layout-aware** JSON writer (`formatLocaleFile`).
+- `packages/cli/src/drift.ts` — `checkI18nDrift`, `loadAndCheckDrift`.
+- `packages/cli/src/sync.ts` — key reconciliation; **layout-aware** JSON writer (`formatLocaleFile`).
 - `packages/core/src/catalog/translate.ts` — AI-fill orchestrator; `{{token}}` validator + retry wrapper.
 - `packages/astro/src/i18n/ui-translate.ts` — compatibility re-export for Astro's CLI.
 - `packages/astro/src/i18n/loader.ts`, `i18n/index.ts` — content-layer loader, dictionary fetcher.
 - `packages/astro/src/catalog/*` — catalog-only public exports, middleware, and Astro integration. Must stay free of content translation, R2, route shims, and localized collection imports.
-- `packages/astro/src/cli/check-ui.ts`, `sync-ui.ts`, `translate-ui.ts` — CLI handlers.
+- `packages/cli/src/check-ui.ts`, `sync-ui.ts`, `translate-ui.ts` — shared CLI handlers.
 
 **Key contracts:**
 
