@@ -43,6 +43,7 @@ const polystellaOptions = {
 
 export default defineConfig({
   integrations: [emdash({ plugins: [polystellaEmdash(polystellaOptions)] }), polystellaEmdashAstro(polystellaOptions)],
+  i18n: { defaultLocale: "en-US", locales: ["en-US"] },
 });
 ```
 
@@ -50,6 +51,9 @@ Keep `polystellaEmdashAstro()` after `emdash()`. It binds `Astro.locals.t` and
 `Astro.locals.lhref`, overlays enabled EmDash overrides, and falls back to the
 deployed dictionaries when storage is unavailable. Configure the named Workers
 AI binding on the EmDash deployment.
+
+Astro's i18n locale set must exactly match `catalogs`. Prerendered pages always
+use deployed dictionaries so temporary overrides cannot be baked into a build.
 
 For Workers AI over HTTP, use runtime environment variable names instead of
 literal credentials:
@@ -102,14 +106,12 @@ or an enabled envelope containing only stored overrides. Overlay enabled values
 on the bundled locale dictionary; keep bundled JSON as the fallback.
 
 For server routes that need a locale other than `Astro.currentLocale`, reference
-the virtual module types and build the translator explicitly:
+the client types and use the request-bound factory:
 
 ```ts
 /// <reference types="@cloudflare/polystella-emdash/client" />
 
-import { buildCatalogTranslator } from "polystella:catalog";
-
-const t = await buildCatalogTranslator(locale);
+const t = await Astro.locals.buildCatalogTranslator(locale);
 ```
 
 ## EmDash 0.36 Limitations

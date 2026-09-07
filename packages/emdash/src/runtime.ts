@@ -18,10 +18,13 @@ export interface PolystellaRuntimeConfig {
     locales: Record<string, RuntimeCatalog>;
   };
   fallbackToDefault: boolean;
+  localePaths?: Record<string, string> | undefined;
+  prefixDefaultLocale?: boolean | undefined;
 }
 
 interface RuntimeContext {
   currentLocale: string | undefined;
+  isPrerendered?: boolean | undefined;
   locals: Record<string, unknown>;
 }
 
@@ -35,33 +38,56 @@ export function createPolystellaRuntime(config: PolystellaRuntimeConfig, depende
   const loadOverrides = dependencies.loadOverrides ?? ((locale: string) => loadStoredOverrides(config, locale));
   const now = dependencies.now ?? Date.now;
   const logError = dependencies.logError ?? ((message: string) => console.error(message));
+  const injectedCacheScope = {};
+
+  function deployedDictionary(locale: string): CatalogDictionary | undefined {
+    if (!Object.hasOwn(config.catalogs.locales, locale)) return undefined;
+    return config.catalogs.locales[locale]?.dictionary;
+  }
 
   async function getDictionary(locale: string): Promise<CatalogDictionary | undefined> {
-    const catalog = config.catalogs.locales[locale];
-    if (catalog === undefined) return undefined;
+    const dictionary = deployedDictionary(locale);
+    if (dictionary === undefined) return undefined;
+
+    let cacheScope = injectedCacheScope;
+    if (dependencies.loadOverrides === undefined) {
+      try {
+        cacheScope = await getDb();
+      } catch (error) {
+        logStorageError(locale, error, logError);
+        return dictionary;
+      }
+    }
 
     const overrides = await cachedRuntimeOverrides(
+      cacheScope,
       locale,
       async () => {
         try {
           return await loadOverrides(locale);
         } catch (error) {
-          const errorType = error instanceof Error ? error.name : typeof error;
-          logError(`[polystella-emdash] runtime overrides unavailable for "${locale}"; using deployed catalog (${errorType})`);
+          logStorageError(locale, error, logError);
           return {};
         }
       },
       now(),
     );
-    return mergeDictionary(catalog.dictionary, overrides);
+    return mergeDictionary(dictionary, overrides);
   }
 
-  async function buildCatalogTranslator(locale: string | undefined): Promise<TranslateFn> {
+  async function resolveCatalogTranslator(
+    locale: string | undefined,
+    getCatalogDictionary: (locale: string) => Promise<CatalogDictionary | undefined> | CatalogDictionary | undefined,
+  ): Promise<TranslateFn> {
     return resolveTranslations(locale, {
       defaultLocale: config.catalogs.defaultLocale,
-      getDictionary,
+      getDictionary: getCatalogDictionary,
       fallbackToDefault: config.fallbackToDefault,
     });
+  }
+
+  function buildCatalogTranslator(locale: string | undefined): Promise<TranslateFn> {
+    return resolveCatalogTranslator(locale, getDictionary);
   }
 
   function buildCatalogHref(locale: string | undefined): (href: string) => string {
@@ -69,12 +95,19 @@ export function createPolystellaRuntime(config: PolystellaRuntimeConfig, depende
   }
 
   const middleware = async (context: RuntimeContext, next: () => unknown) => {
+    const getCatalogDictionary = context.isPrerendered ? deployedDictionary : getDictionary;
     context.locals.lhref = buildCatalogHref(context.currentLocale);
-    context.locals.t = await buildCatalogTranslator(context.currentLocale);
+    context.locals.buildCatalogTranslator = (locale: string | undefined) => resolveCatalogTranslator(locale, getCatalogDictionary);
+    context.locals.t = await resolveCatalogTranslator(context.currentLocale, getCatalogDictionary);
     return next();
   };
 
   return { buildCatalogHref, buildCatalogTranslator, getDictionary, middleware };
+}
+
+function logStorageError(locale: string, error: unknown, logError: (message: string) => void): void {
+  const errorType = error instanceof Error ? error.name : typeof error;
+  logError(`[polystella-emdash] runtime overrides unavailable for "${locale}"; using deployed catalog (${errorType})`);
 }
 
 export function createPolystellaRuntimeMiddleware(
@@ -104,24 +137,27 @@ function mergeDictionary(dictionary: CatalogDictionary, overrides: Record<string
 
 function buildLocalizedHref(locale: string | undefined, config: PolystellaRuntimeConfig): (href: string) => string {
   return (href) => {
+    const localePath = locale === undefined ? undefined : (config.localePaths?.[locale] ?? locale);
     if (
       href.length === 0 ||
       locale === undefined ||
-      locale === config.catalogs.defaultLocale ||
+      localePath === undefined ||
+      (locale === config.catalogs.defaultLocale && config.prefixDefaultLocale !== true) ||
       !Object.hasOwn(config.catalogs.locales, locale) ||
       /^(?:https?:|mailto:|tel:|\/\/|#)/.test(href)
     ) {
       return href;
     }
 
-    for (const configuredLocale of Object.keys(config.catalogs.locales)) {
-      if (href === `/${configuredLocale}` || href.startsWith(`/${configuredLocale}/`)) return href;
+    const configuredPaths = config.localePaths === undefined ? Object.keys(config.catalogs.locales) : Object.values(config.localePaths);
+    for (const configuredPath of configuredPaths) {
+      if (href === `/${configuredPath}` || href.startsWith(`/${configuredPath}/`)) return href;
     }
 
     const suffixIndex = href.search(/[?#]/);
     const path = suffixIndex === -1 ? href : href.slice(0, suffixIndex);
     const suffix = suffixIndex === -1 ? "" : href.slice(suffixIndex);
-    return `/${locale}/${path.replace(/^\/+/, "")}${suffix}`;
+    return `/${localePath}/${path.replace(/^\/+/, "")}${suffix}`;
   };
 }
 

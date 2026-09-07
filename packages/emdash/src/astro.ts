@@ -12,6 +12,7 @@ declare global {
     interface Locals {
       t: TranslateFn;
       lhref: (href: string) => string;
+      buildCatalogTranslator: (locale: string | undefined) => Promise<TranslateFn>;
     }
   }
 }
@@ -42,40 +43,21 @@ export function polystellaEmdashAstro(
   return {
     name: "polystella-emdash-runtime",
     hooks: {
-      "astro:config:setup": async ({ config, updateConfig, addMiddleware, logger }) => {
+      "astro:config:setup": async ({ config, addMiddleware, logger }) => {
+        const routing = validateCatalogI18n(config.i18n, runtimeConfig);
+        const configuredRuntime = { ...runtimeConfig, ...routing };
         const middlewareDirectory = path.resolve(fileURLToPath(config.cacheDir), "polystella-emdash-runtime");
         const middlewarePath = path.join(middlewareDirectory, "middleware.mjs");
-        const runtimeUrl = new URL("./runtime.js", import.meta.url).href;
-        updateConfig({
-          vite: {
-            plugins: [
-              {
-                name: "polystella:emdash-catalog",
-                resolveId(id: string) {
-                  if (id === "polystella:catalog") return "\0polystella:emdash-catalog";
-                  return undefined;
-                },
-                load(id: string) {
-                  if (id !== "\0polystella:emdash-catalog") return undefined;
-                  return [
-                    `import { createPolystellaRuntime } from ${JSON.stringify(runtimeUrl)};`,
-                    `const runtime = createPolystellaRuntime(${JSON.stringify(runtimeConfig)});`,
-                    `export const defaultLocale = ${JSON.stringify(runtimeConfig.catalogs.defaultLocale)};`,
-                    `export const locales = ${JSON.stringify(Object.keys(runtimeConfig.catalogs.locales))};`,
-                    `export const fallbackToDefault = ${JSON.stringify(runtimeConfig.fallbackToDefault)};`,
-                    "export const buildCatalogHref = runtime.buildCatalogHref;",
-                    "export const buildCatalogTranslator = runtime.buildCatalogTranslator;",
-                    "export const getDictionary = runtime.getDictionary;",
-                    "export const onRequest = runtime.middleware;",
-                    "",
-                  ].join("\n");
-                },
-              },
-            ],
-          },
-        });
         await mkdir(middlewareDirectory, { recursive: true });
-        await writeFile(middlewarePath, ['export { onRequest } from "polystella:catalog";', ""].join("\n"), "utf8");
+        await writeFile(
+          middlewarePath,
+          [
+            `import { createPolystellaRuntimeMiddleware } from ${JSON.stringify(new URL("./runtime.js", import.meta.url).href)};`,
+            `export const onRequest = createPolystellaRuntimeMiddleware(${JSON.stringify(configuredRuntime)});`,
+            "",
+          ].join("\n"),
+          "utf8",
+        );
         addMiddleware({ entrypoint: middlewarePath, order: "pre" });
         logger.info("registered runtime catalog middleware (t + lhref + EmDash overrides)");
       },
@@ -91,4 +73,56 @@ export function polystellaEmdashAstro(
       },
     },
   };
+}
+
+function validateCatalogI18n(
+  i18n: unknown,
+  runtimeConfig: PolystellaRuntimeConfig,
+): Pick<PolystellaRuntimeConfig, "localePaths" | "prefixDefaultLocale"> {
+  if (typeof i18n !== "object" || i18n === null) {
+    throw new Error("[polystella-emdash] polystellaEmdashAstro() requires Astro's i18n config");
+  }
+
+  const defaultLocale = (i18n as { defaultLocale?: unknown }).defaultLocale;
+  if (defaultLocale !== runtimeConfig.catalogs.defaultLocale) {
+    throw new Error("[polystella-emdash] Astro i18n.defaultLocale must match catalogs.defaultLocale");
+  }
+
+  const entries = (i18n as { locales?: unknown }).locales;
+  const localeEntries = Array.isArray(entries) ? entries.flatMap(extractLocalePaths) : [];
+  const localePaths = Object.fromEntries(localeEntries);
+  const astroLocales = Object.keys(localePaths);
+  const uniqueAstroLocales = new Set(astroLocales);
+  const catalogLocales = Object.keys(runtimeConfig.catalogs.locales);
+  if (
+    !Array.isArray(entries) ||
+    localeEntries.length !== astroLocales.length ||
+    uniqueAstroLocales.size !== catalogLocales.length ||
+    catalogLocales.some((locale) => !uniqueAstroLocales.has(locale))
+  ) {
+    throw new Error("[polystella-emdash] Astro i18n locales must match configured catalog locales");
+  }
+
+  const routing = (i18n as { routing?: unknown }).routing;
+  const prefixDefaultLocale =
+    typeof routing === "object" && routing !== null && (routing as { prefixDefaultLocale?: unknown }).prefixDefaultLocale === true;
+  return { localePaths, prefixDefaultLocale };
+}
+
+function extractLocalePaths(entry: unknown): Array<[string, string]> {
+  if (typeof entry === "string" && entry.length > 0) return [[entry, entry]];
+  if (typeof entry !== "object" || entry === null) return [];
+
+  const codes = (entry as { codes?: unknown }).codes;
+  const localePath = (entry as { path?: unknown }).path;
+  if (
+    typeof localePath !== "string" ||
+    localePath.length === 0 ||
+    !Array.isArray(codes) ||
+    codes.length === 0 ||
+    !codes.every((code): code is string => typeof code === "string" && code.length > 0)
+  ) {
+    return [];
+  }
+  return codes.map((code) => [code, localePath]);
 }
