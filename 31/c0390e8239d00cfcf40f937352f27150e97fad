@@ -1,0 +1,55 @@
+README.md
+  s_ba2c85839c9831::t_e8c3c9f06c80e1 25,29,56
+docs/.nimbus/routes.json
+  s_ba2c85839c9831::t_59986f66c39d2f 27-32
+docs/src/content/docs/cli/check-ui.md
+  s_ba2c85839c9831::t_b6e4ee8b7a84bb 14-18
+docs/src/content/docs/cli/sync-ui.md
+  s_fe1281f1e2c2ce::t_a499f5f0680b9f 41-43
+docs/src/content/docs/cli/translate-ui.md
+  s_fe1281f1e2c2ce::t_47ed4d72871d0a 53-57
+docs/src/content/docs/concepts/mode-boundary.md
+  s_fe1281f1e2c2ce::t_b45807a815367a 3,7-9,26-46
+docs/src/content/docs/index.mdx
+  s_fe1281f1e2c2ce::t_4a1d359ec935f5 53-60
+docs/src/content/docs/reference/breaking-changes.md
+  s_04b0372f56a381::t_26333654ec1f29 42-68
+llms-full.txt
+  s_ba2c85839c9831::t_9589df94279ff1 76-77,1087-1090,1125-1144,1546-1565
+llms.txt
+  s_fe1281f1e2c2ce::t_3d0ed9b6c38207 5,32-33,39
+packages/astro/README.md
+  s_ba2c85839c9831::t_c03e4944c6027c 27-28
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "31c0390e8239d00cfcf40f937352f27150e97fad",
+  "prompts": {},
+  "sessions": {
+    "s_04b0372f56a381": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f83b80de4ffe1mDTKWUmOjPc5I",
+        "model": "@cf/deepseek-ai/deepseek-v4-flash"
+      },
+      "human_author": "Diogo Carneiro <dcarneiro@cloudflare.com>"
+    },
+    "s_ba2c85839c9831": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f83bd9732ffe8Yi8Aws271tBTq",
+        "model": "@cf/deepseek-ai/deepseek-v4-pro"
+      },
+      "human_author": "Diogo Carneiro <dcarneiro@cloudflare.com>"
+    },
+    "s_fe1281f1e2c2ce": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f83b7ecaaffegg0IK8c8I5xqrh",
+        "model": "@cf/deepseek-ai/deepseek-v4-flash"
+      },
+      "human_author": "Diogo Carneiro <dcarneiro@cloudflare.com>"
+    }
+  }
+}
