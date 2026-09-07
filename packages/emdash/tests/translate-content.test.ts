@@ -57,6 +57,7 @@ describe("translateContentFields", () => {
   });
 
   it("rejects placeholder changes split across Portable Text spans", async () => {
+    const validationIssues: Array<{ segmentIds: string[]; message: string }> = [];
     await expect(
       translateContentFields({
         values: {
@@ -70,14 +71,28 @@ describe("translateContentFields", () => {
                 { _type: "span", _key: "span-3", text: "}}" },
               ],
             },
+            {
+              _type: "block",
+              _key: "block-2",
+              children: [{ _type: "span", _key: "span-4", text: "Other block" }],
+            },
           ],
         },
-        translator: translator("@@field:0:block:0:span:0@@\n{{\n\n@@field:0:block:0:span:1@@\nnom\n\n@@field:0:block:0:span:2@@\n}}"),
+        translator: translator(
+          "@@field:0:block:0:span:0@@\n{{\n\n@@field:0:block:0:span:1@@\nnom\n\n@@field:0:block:0:span:2@@\n}}\n\n@@field:0:block:1:span:0@@\nAutre bloc",
+        ),
         glossary: EMPTY_GLOSSARY,
         sourceLocale: "en-US",
         targetLocale: "fr-FR",
+        onValidationIssue: (segmentIds, message) => validationIssues.push({ segmentIds, message }),
       }),
     ).rejects.toThrow("changed placeholder tokens");
+    expect(validationIssues).toEqual([
+      {
+        segmentIds: ["field:0:block:0:span:0", "field:0:block:0:span:1", "field:0:block:0:span:2"],
+        message: expect.stringContaining("changed placeholder tokens"),
+      },
+    ]);
   });
 
   it("rejects placeholder changes and unsupported field values", async () => {

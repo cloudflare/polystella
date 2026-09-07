@@ -2,14 +2,13 @@ import type { KVAccess, PluginRoute, RouteContext, StorageCollection } from "emd
 import type { WorkersAIInput } from "@cloudflare/polystella-providers/workers-ai";
 import { describe, expect, it } from "vitest";
 
-import type { RuntimeOverridesResponse, TranslateContentResponse } from "../src/contracts.js";
+import type { CatalogGenerationResponse, RuntimeOverridesResponse, TranslateContentResponse } from "../src/contracts.js";
 import { createPluginRoutes, type PluginRouteDependencies } from "../src/routes.js";
 import type { CatalogOverride, PolystellaEmdashOptions } from "../src/index.js";
 
 function options(): PolystellaEmdashOptions {
   return {
     provider: { kind: "workers-ai-binding", binding: "AI" },
-    collections: { posts: { sourceLocale: "en-US", fields: ["title", "body"] } },
     catalogs: {
       defaultLocale: "en-US",
       locales: {
@@ -27,6 +26,7 @@ function options(): PolystellaEmdashOptions {
         notes: "Deployment glossary",
       },
     },
+    rules: ["Keep product names unchanged."],
   };
 }
 
@@ -132,32 +132,103 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+async function enablePosts(kv: KVAccess): Promise<void> {
+  await kv.set("settings:collectionPolicies", {
+    posts: { sourceLocale: "en-US", fields: ["title", "body"] },
+  });
+}
+
+async function enableDebug(routes: Record<string, PluginRoute>, kv: KVAccess, storage: StorageCollection): Promise<void> {
+  await route(routes, "settings/translation").handler(
+    context(
+      {
+        debugEnabled: true,
+        locales: {
+          "en-US": { model: null, glossaryMode: "default", glossaryText: "" },
+          "fr-FR": { model: null, glossaryMode: "default", glossaryText: "" },
+        },
+        instructions: { mode: "default", text: "" },
+      },
+      "PUT",
+      kv,
+      storage,
+    ),
+  );
+}
+
 describe("EmDash plugin routes", () => {
-  it("stores an enabled collection subset and applies it to panel policy", async () => {
+  it("stores collection policies and applies them to the editor panel", async () => {
     const routes = createPluginRoutes(options(), dependencies());
     const kv = createKv();
     const storage = createStorage();
 
-    await expect(route(routes, "settings/collections").handler(context({ collections: [] }, "PUT", kv, storage))).resolves.toEqual({
-      configured: ["posts"],
-      enabled: [],
+    await expect(route(routes, "settings/collections").handler(context({}, "GET", kv, storage))).resolves.toEqual({
+      defaultLocale: "en-US",
+      locales: ["en-US", "fr-FR"],
+      policies: {},
     });
     await expect(route(routes, "policy").handler(context({ collection: "posts" }, "GET", kv, storage))).resolves.toEqual({
       enabled: false,
+      sourceLocale: null,
+      fields: [],
+    });
+    await expect(
+      route(routes, "settings/collections").handler(
+        context({ policies: { posts: { sourceLocale: "en-US", fields: ["title", "body"] } } }, "PUT", kv, storage),
+      ),
+    ).resolves.toEqual({
+      defaultLocale: "en-US",
+      locales: ["en-US", "fr-FR"],
+      policies: { posts: { sourceLocale: "en-US", fields: ["body", "title"] } },
+    });
+    await expect(route(routes, "policy").handler(context({ collection: "posts" }, "GET", kv, storage))).resolves.toEqual({
+      enabled: true,
       sourceLocale: "en-US",
-      fields: ["title", "body"],
+      fields: ["body", "title"],
     });
     await expect(route(routes, "policy").handler(context({ collection: "toString" }, "GET", kv, storage))).resolves.toEqual({
       enabled: false,
       sourceLocale: null,
       fields: [],
     });
+    await expect(
+      route(routes, "settings/collections").handler(
+        context({ policies: { posts: { sourceLocale: "en-US", fields: [] } } }, "PUT", kv, storage),
+      ),
+    ).rejects.toMatchObject({ status: 400 });
+    await expect(
+      route(routes, "settings/collections").handler(
+        context(
+          {
+            policies: {
+              posts: { sourceLocale: "en-US", fields: Array.from({ length: 101 }, (_, index) => `field_${index}`) },
+            },
+          },
+          "PUT",
+          kv,
+          storage,
+        ),
+      ),
+    ).rejects.toMatchObject({ status: 400 });
   });
 
-  it("translates only deployment-allowlisted fields", async () => {
+  it("fails closed for invalid stored collection policies", async () => {
+    const routes = createPluginRoutes(options(), dependencies());
+    const kv = createKv();
+    await kv.set("settings:collectionPolicies", { posts: { sourceLocale: "unknown", fields: ["title"] } });
+
+    await expect(route(routes, "policy").handler(context({ collection: "posts" }, "GET", kv, createStorage()))).resolves.toEqual({
+      enabled: false,
+      sourceLocale: null,
+      fields: [],
+    });
+  });
+
+  it("translates only administrator-enabled fields", async () => {
     const routes = createPluginRoutes(options(), dependencies());
     const kv = createKv();
     const storage = createStorage();
+    await enablePosts(kv);
     const translated = (await route(routes, "translate-content").handler(
       context({ collection: "posts", entryId: "entry-1", targetLocale: "fr-FR", fields: ["title"] }, "POST", kv, storage),
     )) as TranslateContentResponse;
@@ -167,10 +238,136 @@ describe("EmDash plugin routes", () => {
       route(routes, "translate-content").handler(
         context({ collection: "posts", entryId: "entry-1", targetLocale: "fr-FR", fields: ["secret"] }, "POST", kv, storage),
       ),
-    ).rejects.toThrow("deployment-allowlisted");
+    ).rejects.toThrow("enabled in PolyStella collection settings");
   });
 
-  it("uses per-locale model and glossary settings", async () => {
+  it("returns request-scoped debug traces only to administrators", async () => {
+    const routes = createPluginRoutes(options(), dependencies());
+    const kv = createKv();
+    const storage = createStorage();
+    await enablePosts(kv);
+    await enableDebug(routes, kv, storage);
+
+    const input = { collection: "posts", entryId: "entry-1", targetLocale: "fr-FR", fields: ["title"] };
+    const adminResult = (await route(routes, "translate-content").handler(context(input, "POST", kv, storage))) as TranslateContentResponse;
+    expect(adminResult).toMatchObject({
+      patch: { title: "Bonjour" },
+      debug: {
+        operation: "content",
+        provider: "workers-ai-binding",
+        model: "model-b",
+        maxOutputTokens: 8192,
+        inputTokenBudget: 4000,
+        batchCount: 1,
+        providerCallCount: 1,
+        batches: [
+          {
+            batch: 1,
+            segmentCount: 1,
+            segmentLabels: ["title"],
+            attempts: [
+              {
+                attempt: 1,
+                userPrompt: expect.stringContaining("@@field:0@@"),
+                response: "@@field:0@@\nBonjour",
+                translations: { "field:0": "Bonjour" },
+                error: null,
+              },
+            ],
+          },
+        ],
+      },
+    });
+
+    const editorContext = context(input, "POST", kv, storage);
+    if (editorContext.user === undefined) throw new Error("missing test user");
+    editorContext.user = { ...editorContext.user, role: 40 };
+    await expect(route(routes, "translate-content").handler(editorContext)).resolves.not.toHaveProperty("debug");
+
+    const failingRoutes = createPluginRoutes(options(), {
+      ...dependencies(),
+      getEnv: async () => ({ AI: { run: async () => ({ response: "private model response" }) } }),
+    });
+    const failed = (await route(failingRoutes, "translate-content").handler(
+      context(input, "POST", kv, storage),
+    )) as TranslateContentResponse;
+    expect(failed).toMatchObject({
+      patch: null,
+      error: expect.stringMatching(/no segment markers.*Diagnostic ID:/),
+      debug: {
+        error: expect.stringMatching(/Diagnostic ID:/),
+        batches: [{ attempts: [{ response: "private model response", error: expect.stringContaining("no segment markers") }] }],
+      },
+    });
+    if (failed.patch !== null) throw new Error("expected debug translation failure");
+    expect(failed.error).toContain(failed.debug.id);
+
+    const secretFailureRoutes = createPluginRoutes(options(), {
+      ...dependencies(),
+      getEnv: async () => ({
+        AI: {
+          run: async () => {
+            throw new Error("Authorization: secret-token");
+          },
+        },
+      }),
+    });
+    const secretFailure = await route(secretFailureRoutes, "translate-content").handler(context(input, "POST", kv, storage));
+    expect(JSON.stringify(secretFailure)).not.toContain("secret-token");
+  });
+
+  it("attributes content validation failures to their source batch", async () => {
+    let call = 0;
+    const routes = createPluginRoutes(options(), {
+      ...dependencies(),
+      getEnv: async () => ({
+        AI: {
+          run: async () => ({ response: call++ === 0 ? "@@field:0@@\nBonjour" : "@@field:1@@\nDeuxieme" }),
+        },
+      }),
+    });
+    const kv = createKv();
+    const storage = createStorage();
+    await enablePosts(kv);
+    await enableDebug(routes, kv, storage);
+    const routeContext = context(
+      { collection: "posts", entryId: "entry-1", targetLocale: "fr-FR", fields: ["title", "body"] },
+      "POST",
+      kv,
+      storage,
+    );
+    const content = routeContext.content;
+    if (content === undefined) throw new Error("missing content access");
+    const get = content.get.bind(content);
+    content.get = async (collection, id) => {
+      const item = await get(collection, id);
+      return item === null
+        ? null
+        : {
+            ...item,
+            data: {
+              title: `Hello {{name}} ${"x".repeat(11_000)}`,
+              body: `Second field ${"y".repeat(11_000)}`,
+            },
+          };
+    };
+
+    const result = (await route(routes, "translate-content").handler(routeContext)) as TranslateContentResponse;
+
+    expect(result).toMatchObject({
+      patch: null,
+      debug: {
+        batchCount: 2,
+        validationIssues: [expect.stringContaining('placeholder tokens in field "title"')],
+        batches: [
+          { batch: 1, attempts: [{ error: expect.stringContaining('placeholder tokens in field "title"') }] },
+          { batch: 2, attempts: [{ error: null }] },
+        ],
+      },
+    });
+  });
+
+  it("stores and uses model, glossary, and instruction settings", async () => {
     const calls: Array<{ model: string; system: string }> = [];
     const routes = createPluginRoutes(options(), {
       ...dependencies(),
@@ -185,24 +382,76 @@ describe("EmDash plugin routes", () => {
     });
     const kv = createKv();
     const storage = createStorage();
-    await kv.set("settings:model:fr-FR", "model-a");
-    await kv.set("settings:glossaryMode:fr-FR", "append");
-    await kv.set("settings:glossary:fr-FR", "Admin glossary");
+    const settingsRoute = route(routes, "settings/translation");
 
-    await route(routes, "catalog/generate").handler(context({ locale: "fr-FR", keys: ["greeting"] }, "POST", kv, storage));
+    await expect(settingsRoute.handler(context({}, "GET", kv, storage))).resolves.toMatchObject({ debugEnabled: false });
+
+    await expect(
+      settingsRoute.handler(
+        context(
+          {
+            debugEnabled: true,
+            locales: {
+              "en-US": { model: null, glossaryMode: "default", glossaryText: "" },
+              "fr-FR": { model: "model-a", glossaryMode: "append", glossaryText: "Admin glossary" },
+            },
+            instructions: { mode: "append", text: "Prefer direct language." },
+          },
+          "PUT",
+          kv,
+          storage,
+        ),
+      ),
+    ).resolves.toMatchObject({
+      debugEnabled: true,
+      allowedModels: ["model-a", "model-b"],
+      locales: [
+        { locale: "en-US", model: null, glossaryMode: "default", glossaryText: "" },
+        { locale: "fr-FR", model: "model-a", glossaryMode: "append", glossaryText: "Admin glossary" },
+      ],
+      instructions: { mode: "append", text: "Prefer direct language." },
+    });
+
+    const generated = (await route(routes, "catalog/generate").handler(
+      context({ locale: "fr-FR", keys: ["greeting"] }, "POST", kv, storage),
+    )) as CatalogGenerationResponse;
 
     expect(calls[0]?.model).toBe("model-a");
     expect(calls[0]?.system).toContain("Cloudflare");
     expect(calls[0]?.system).toContain("Deployment glossary");
     expect(calls[0]?.system).toContain("Admin glossary");
+    expect(calls[0]?.system).toContain("Keep product names unchanged.");
+    expect(calls[0]?.system).toContain("Prefer direct language.");
+    expect(generated).toMatchObject({
+      debug: {
+        operation: "catalog",
+        maxSegmentsPerBatch: 25,
+        batches: [{ segmentLabels: ["greeting"], attempts: [{ response: "@@catalog:0@@\nBonjour" }] }],
+      },
+    });
 
-    await kv.set("settings:glossaryMode:fr-FR", "replace");
-    await kv.set("settings:glossary:fr-FR", "Replacement glossary");
+    await settingsRoute.handler(
+      context(
+        {
+          debugEnabled: true,
+          locales: {
+            "en-US": { model: null, glossaryMode: "default", glossaryText: "" },
+            "fr-FR": { model: null, glossaryMode: "replace", glossaryText: "Replacement glossary" },
+          },
+          instructions: { mode: "replace", text: "Replacement instructions." },
+        },
+        "PUT",
+        kv,
+        storage,
+      ),
+    );
     await route(routes, "catalog/generate").handler(context({ locale: "fr-FR", keys: ["greeting"] }, "POST", kv, storage));
 
     expect(calls[1]?.system).not.toContain("Deployment glossary");
     expect(calls[1]?.system).not.toContain("Cloudflare");
     expect(calls[1]?.system).toContain("Replacement glossary");
+    expect(calls[1]?.system).not.toContain("Keep product names unchanged.");
+    expect(calls[1]?.system).toContain("Replacement instructions.");
   });
 
   it("supports Workers AI HTTP credentials from runtime environment values", async () => {
@@ -250,6 +499,7 @@ describe("EmDash plugin routes", () => {
     const kv = createKv();
     const storage = createStorage();
     const translateRoute = route(routes, "translate-content");
+    await enablePosts(kv);
 
     await expect(
       translateRoute.handler(
@@ -309,15 +559,60 @@ describe("EmDash plugin routes", () => {
       getEnv: async () => ({ AI: { run: async () => ({ response: "unparseable private draft content" }) } }),
     });
 
+    const translateKv = createKv();
+    await enablePosts(translateKv);
     await expect(
       route(routes, "translate-content").handler(
-        context({ collection: "posts", entryId: "entry-1", targetLocale: "fr-FR", fields: ["title"] }, "POST", createKv(), createStorage()),
+        context(
+          { collection: "posts", entryId: "entry-1", targetLocale: "fr-FR", fields: ["title"] },
+          "POST",
+          translateKv,
+          createStorage(),
+        ),
       ),
-    ).rejects.toMatchObject({ status: 500, message: "PolyStella translation failed" });
+    ).rejects.toMatchObject({
+      code: "TRANSLATION_FAILED",
+      status: 502,
+      message: expect.stringContaining("no segment markers in the model response"),
+    });
+    await expect(
+      route(routes, "translate-content").handler(
+        context(
+          { collection: "posts", entryId: "entry-1", targetLocale: "fr-FR", fields: ["title"] },
+          "POST",
+          translateKv,
+          createStorage(),
+        ),
+      ),
+    ).rejects.not.toThrow("unparseable private draft content");
+
+    const unavailableContent = context(
+      { collection: "posts", entryId: "entry-1", targetLocale: "fr-FR", fields: ["title"] },
+      "POST",
+      translateKv,
+      createStorage(),
+    );
+    const content = unavailableContent.content;
+    if (content === undefined) throw new Error("missing content access");
+    unavailableContent.content = {
+      ...content,
+      get: async () => {
+        throw new Error("private database details");
+      },
+    };
+    await expect(route(routes, "translate-content").handler(unavailableContent)).rejects.toMatchObject({
+      code: "TRANSLATION_FAILED",
+      status: 502,
+      message: expect.stringMatching(/^PolyStella translation failed \(Diagnostic ID: [0-9a-f-]+\)$/),
+    });
+    await expect(route(routes, "translate-content").handler(unavailableContent)).rejects.not.toThrow("private database details");
 
     const kv = createKv();
-    await kv.set("settings:glossary:fr-FR", "x".repeat(10_001));
-    await kv.set("settings:glossaryMode:fr-FR", "append");
+    await enablePosts(kv);
+    await kv.set("settings:translation", {
+      locales: { "fr-FR": { model: null, glossaryMode: "append", glossaryText: "x".repeat(10_001) } },
+      instructions: { mode: "default", text: "" },
+    });
     await expect(
       route(createPluginRoutes(options(), dependencies()), "translate-content").handler(
         context({ collection: "posts", entryId: "entry-1", targetLocale: "fr-FR", fields: ["title"] }, "POST", kv, createStorage()),

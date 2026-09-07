@@ -1,32 +1,25 @@
 import { EMPTY_GLOSSARY, type Glossary } from "@cloudflare/polystella-core";
 
-export const DEPLOYMENT_DEFAULT_MODEL = "__polystella_deployment_default__";
-
-export type GlossaryMode = "default" | "append" | "replace";
-
-export function modelSettingKey(locale: string): string {
-  return `model:${locale}`;
-}
-
-export function glossaryModeSettingKey(locale: string): string {
-  return `glossaryMode:${locale}`;
-}
-
-export function glossarySettingKey(locale: string): string {
-  return `glossary:${locale}`;
-}
+export type CustomizationMode = "default" | "append" | "replace";
 
 export function runtimeOverrideSettingKey(locale: string): string {
   return `runtimeOverride:${locale}`;
 }
 
-export function resolveGlossary(defaultGlossary: Glossary | undefined, mode: GlossaryMode, adminText: string): Glossary {
+export function resolveGlossary(defaultGlossary: Glossary | undefined, mode: CustomizationMode, adminText: string): Glossary {
   if (mode === "replace") return { ...EMPTY_GLOSSARY, notes: adminText };
   const glossary = defaultGlossary ?? EMPTY_GLOSSARY;
   if (mode === "default" || adminText.length === 0) return glossary;
   return { ...glossary, notes: [glossary.notes, adminText].filter((value) => value.length > 0).join("\n") };
 }
 
-export function isGlossaryMode(value: unknown): value is GlossaryMode {
+export function resolveInstructions(defaultInstructions: readonly string[], mode: CustomizationMode, adminText: string): string {
+  const defaultText = defaultInstructions.filter((value) => value.length > 0).join("\n");
+  if (mode === "replace") return adminText;
+  if (mode === "default" || adminText.length === 0) return defaultText;
+  return [defaultText, adminText].filter((value) => value.length > 0).join("\n");
+}
+
+export function isCustomizationMode(value: unknown): value is CustomizationMode {
   return value === "default" || value === "append" || value === "replace";
 }

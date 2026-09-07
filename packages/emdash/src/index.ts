@@ -1,33 +1,23 @@
 import { resolveModelId, type Glossary, type ModelSpec } from "@cloudflare/polystella-core";
-import type { PluginAdminConfig, PluginDescriptor, PluginStorageConfig, ResolvedPlugin } from "emdash";
-import { definePlugin, RESERVED_COLLECTION_SLUGS, RESERVED_FIELD_SLUGS } from "emdash";
+import type { PluginDescriptor, PluginStorageConfig, ResolvedPlugin } from "emdash";
+import { definePlugin } from "emdash";
 
 import packageManifest from "../package.json" with { type: "json" };
-import { POLYSTELLA_PLUGIN_ID } from "./contracts.js";
+import { POLYSTELLA_PLUGIN_ID, USE_CODE_DEFAULT_MODEL } from "./contracts.js";
 import { createPluginRoutes } from "./routes.js";
-import { DEPLOYMENT_DEFAULT_MODEL, glossaryModeSettingKey, glossarySettingKey, modelSettingKey } from "./settings.js";
 
 export * from "./catalog.js";
 
 const ENTRYPOINT = "@cloudflare/polystella-emdash";
 const ADMIN_ENTRY = "@cloudflare/polystella-emdash/admin";
 const version = packageManifest.version;
-const EMDASH_SLUG_PATTERN = /^[a-z][a-z0-9_]*$/;
 const EMDASH_LOCALE_PATTERN = /^[a-z]{2,3}(-[a-z0-9]{2,8})*$/i;
 
 const STORAGE = {
   catalog_overrides: { indexes: ["locale"] },
 } satisfies PluginStorageConfig;
 
-const ADMIN_PAGES = [
-  { path: "/catalog", label: "Catalog" },
-  { path: "/settings", label: "Settings" },
-];
-
-export interface EmDashCollectionPolicy {
-  sourceLocale: string;
-  fields: readonly string[];
-}
+const ADMIN_PAGES = [{ path: "/", label: "PolyStella" }];
 
 export interface EmDashCatalogLocale {
   dictionary: Record<string, string>;
@@ -50,7 +40,6 @@ export type EmDashWorkersAIProvider =
 
 export interface PolystellaEmdashOptions {
   provider: EmDashWorkersAIProvider;
-  collections: Record<string, EmDashCollectionPolicy>;
   catalogs: {
     defaultLocale: string;
     locales: Record<string, EmDashCatalogLocale>;
@@ -69,25 +58,8 @@ interface SerializedPolystellaEmdashOptions {
 
 export function validatePolystellaEmdashOptions(value: unknown): asserts value is PolystellaEmdashOptions {
   const options = readRecord(value, "options");
+  rejectUnknownKeys(options, ["provider", "catalogs", "models", "glossaryDefaults", "rules"], "options");
   validateProvider(options.provider);
-
-  const collections = readRecord(options.collections, "options.collections");
-  for (const [collection, rawPolicy] of Object.entries(collections)) {
-    assertEmdashSlug(collection, `options.collections.${collection}`);
-    if (RESERVED_COLLECTION_SLUGS.some((reserved) => reserved === collection)) {
-      fail(`options.collections.${collection} is reserved by EmDash`);
-    }
-    const policy = readRecord(rawPolicy, `options.collections.${collection}`);
-    readLocale(policy.sourceLocale, `options.collections.${collection}.sourceLocale`);
-    const fields = readStringArray(policy.fields, `options.collections.${collection}.fields`, false);
-    for (const [index, field] of fields.entries()) {
-      assertEmdashSlug(field, `options.collections.${collection}.fields[${index}]`);
-      if (RESERVED_FIELD_SLUGS.some((reserved) => reserved === field)) {
-        fail(`options.collections.${collection}.fields[${index}] is reserved by EmDash`);
-      }
-    }
-    assertUnique(fields, `options.collections.${collection}.fields`);
-  }
 
   const catalogs = readRecord(options.catalogs, "options.catalogs");
   const defaultLocale = readLocale(catalogs.defaultLocale, "options.catalogs.defaultLocale");
@@ -115,8 +87,8 @@ export function validatePolystellaEmdashOptions(value: unknown): asserts value i
   const models = readRecord(options.models, "options.models");
   const allowedModels = readStringArray(models.allowed, "options.models.allowed", false);
   assertUnique(allowedModels, "options.models.allowed");
-  if (allowedModels.includes(DEPLOYMENT_DEFAULT_MODEL)) {
-    fail(`options.models.allowed cannot contain reserved value ${JSON.stringify(DEPLOYMENT_DEFAULT_MODEL)}`);
+  if (allowedModels.includes(USE_CODE_DEFAULT_MODEL)) {
+    fail(`options.models.allowed cannot contain reserved value ${JSON.stringify(USE_CODE_DEFAULT_MODEL)}`);
   }
   const defaultModels = readModelSpec(models.defaults, "options.models.defaults");
   const configuredLocales = new Set(Object.keys(locales));
@@ -150,7 +122,6 @@ export function polystellaEmdash(options: PolystellaEmdashOptions): PluginDescri
     options: serializeOptions(options),
     capabilities: ["content:read"],
     storage: STORAGE,
-    settingsSchema: createSettingsSchema(options),
   };
 }
 
@@ -162,52 +133,11 @@ export function createPlugin(runtimeOptions: SerializedPolystellaEmdashOptions):
     capabilities: ["content:read"],
     storage: STORAGE,
     routes: createPluginRoutes(options),
-    admin: { entry: ADMIN_ENTRY, pages: ADMIN_PAGES, settingsSchema: createSettingsSchema(options) },
+    admin: { entry: ADMIN_ENTRY, pages: ADMIN_PAGES },
   });
 }
 
 export default createPlugin;
-
-function createSettingsSchema(options: PolystellaEmdashOptions): NonNullable<PluginAdminConfig["settingsSchema"]> {
-  const schema: NonNullable<PluginAdminConfig["settingsSchema"]> = {};
-  for (const locale of Object.keys(options.catalogs.locales).sort()) {
-    const deploymentDefault = resolveModelId(options.models.defaults, locale);
-    schema[modelSettingKey(locale)] = {
-      type: "select",
-      label: `Translation model (${locale})`,
-      options: [
-        { value: DEPLOYMENT_DEFAULT_MODEL, label: `Deployment default (${deploymentDefault})` },
-        ...options.models.allowed.map((model) => ({ value: model, label: model })),
-      ],
-      default: DEPLOYMENT_DEFAULT_MODEL,
-    };
-    schema[glossaryModeSettingKey(locale)] = {
-      type: "select",
-      label: `Glossary mode (${locale})`,
-      options: [
-        { value: "default", label: "Use deployment default" },
-        { value: "append", label: "Append admin text to deployment default" },
-        { value: "replace", label: "Replace deployment default with admin text" },
-      ],
-      default: "default",
-    };
-    schema[glossarySettingKey(locale)] = {
-      type: "string",
-      label: `Glossary additions or replacement (${locale})`,
-      description: "Plain-text glossary used according to this locale's glossary mode.",
-      multiline: true,
-      default: "",
-    };
-  }
-  schema.instructions = {
-    type: "string",
-    label: "Additional instructions",
-    description: "Translation guidance applied after deployment-locked rules.",
-    multiline: true,
-    default: "",
-  };
-  return schema;
-}
 
 function readRecord(value: unknown, label: string): Record<string, unknown> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) fail(`${label} must be an object`);
@@ -232,12 +162,6 @@ function readStringArray(value: unknown, label: string, allowEmpty: boolean): st
 
 function assertUnique(values: readonly string[], label: string): void {
   if (new Set(values).size !== values.length) fail(`${label} cannot contain duplicates`);
-}
-
-function assertEmdashSlug(value: string, label: string): void {
-  if (value.length > 63 || !EMDASH_SLUG_PATTERN.test(value)) {
-    fail(`${label} must match /^[a-z][a-z0-9_]*$/ and contain at most 63 characters`);
-  }
 }
 
 function validateProvider(value: unknown): void {
@@ -332,12 +256,6 @@ function serializeOptions(options: PolystellaEmdashOptions): SerializedPolystell
             ...(options.provider.maxTokens === undefined ? {} : { maxTokens: options.provider.maxTokens }),
             ...(options.provider.endpoint === undefined ? {} : { endpoint: options.provider.endpoint }),
           },
-    collections: Object.fromEntries(
-      Object.entries(options.collections).map(([collection, policy]) => [
-        collection,
-        { sourceLocale: policy.sourceLocale, fields: [...policy.fields] },
-      ]),
-    ),
     catalogs: {
       defaultLocale: options.catalogs.defaultLocale,
       locales: Object.fromEntries(

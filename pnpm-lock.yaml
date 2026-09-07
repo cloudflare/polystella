@@ -267,6 +267,9 @@ importers:
         specifier: workspace:^
         version: link:../providers
     devDependencies:
+      '@cloudflare/kumo':
+        specifier: 2.6.0
+        version: 2.6.0(@date-fns/tz@1.5.0)(@phosphor-icons/react@2.1.10(react-dom@19.2.8(react@19.2.6))(react@19.2.6))(@types/react@19.2.14)(date-fns@4.4.0)(echarts@6.1.0)(react-dom@19.2.8(react@19.2.6))(react@19.2.6)(zod@4.4.3)
       '@emdash-cms/admin':
         specifier: 0.36.0
         version: 0.36.0(@atcute/identity@2.0.2(@atcute/lexicons@2.1.0)(typescript@6.0.3))(@date-fns/tz@1.5.0)(@floating-ui/dom@1.8.0)(@tiptap/extensions@3.31.0(@tiptap/core@3.31.0(@tiptap/pm@3.31.0))(@tiptap/pm@3.31.0))(@types/react-dom@19.2.5(@types/react@19.2.14))(@types/react@19.2.14)(date-fns@4.4.0)(echarts@6.1.0)(prosemirror-model@1.25.11)(prosemirror-state@1.4.4)(prosemirror-view@1.42.3)(react-dom@19.2.8(react@19.2.6))(react@19.2.6)(typescript@6.0.3)(zod@4.4.3)

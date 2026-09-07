@@ -36,15 +36,15 @@ Published dependencies on independently versioned packages use compatible
 caret ranges. The compatibility package pins the exact Astro version because
 it forwards that package's API and CLI unchanged.
 
-| Directory                                        | Published package                  | Responsibility                                                                        |
-| :----------------------------------------------- | :--------------------------------- | :------------------------------------------------------------------------------------ |
-| [`packages/core/`](./packages/core/)             | `@cloudflare/polystella-core`      | Translation contracts, catalogs, prompts, batching, retries, and response parsing.    |
-| [`packages/adapters/`](./packages/adapters/)     | `@cloudflare/polystella-adapters`  | Portable parsing, extraction, grouping, and translation application.                  |
-| [`packages/providers/`](./packages/providers/)   | `@cloudflare/polystella-providers` | Workers AI and Anthropic implementations of the core translator contract.             |
-| [`packages/cli/`](./packages/cli/)               | `@cloudflare/polystella-cli`       | Shared Node.js catalog commands, filesystem policy, config loading, and glossary I/O. |
-| [`packages/emdash/`](./packages/emdash/)         | `@cloudflare/polystella-emdash`    | Native EmDash translation, deployment policy, admin UI, overrides, and Astro runtime. |
-| [`packages/astro/`](./packages/astro/)           | `@cloudflare/polystella-astro`     | Canonical Astro integration, host policy, storage, routing, runtime APIs, and CLI.    |
-| [`packages/polystella/`](./packages/polystella/) | `@cloudflare/polystella`           | Temporary compatibility forwarding to `@cloudflare/polystella-astro`.                 |
+| Directory                                        | Published package                  | Responsibility                                                                           |
+| :----------------------------------------------- | :--------------------------------- | :--------------------------------------------------------------------------------------- |
+| [`packages/core/`](./packages/core/)             | `@cloudflare/polystella-core`      | Translation contracts, catalogs, prompts, batching, retries, and response parsing.       |
+| [`packages/adapters/`](./packages/adapters/)     | `@cloudflare/polystella-adapters`  | Portable parsing, extraction, grouping, and translation application.                     |
+| [`packages/providers/`](./packages/providers/)   | `@cloudflare/polystella-providers` | Workers AI and Anthropic implementations of the core translator contract.                |
+| [`packages/cli/`](./packages/cli/)               | `@cloudflare/polystella-cli`       | Shared Node.js catalog commands, filesystem policy, config loading, and glossary I/O.    |
+| [`packages/emdash/`](./packages/emdash/)         | `@cloudflare/polystella-emdash`    | Native EmDash translation, administrator policy, admin UI, overrides, and Astro runtime. |
+| [`packages/astro/`](./packages/astro/)           | `@cloudflare/polystella-astro`     | Canonical Astro integration, host policy, storage, routing, runtime APIs, and CLI.       |
+| [`packages/polystella/`](./packages/polystella/) | `@cloudflare/polystella`           | Temporary compatibility forwarding to `@cloudflare/polystella-astro`.                    |
 
 ## Direct Translation Flow
 

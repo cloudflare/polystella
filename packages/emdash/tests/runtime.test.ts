@@ -32,7 +32,6 @@ function options(): PolystellaEmdashOptions {
       accountIdEnv: "ACCOUNT_ID_NAME",
       apiTokenEnv: "SECRET_TOKEN_NAME",
     },
-    collections: {},
     catalogs: {
       defaultLocale: "en-US",
       locales: {
@@ -170,17 +169,20 @@ describe("EmDash Astro runtime", () => {
     const setup = integration.hooks["astro:config:setup"];
     if (setup === undefined) throw new Error("missing config setup hook");
     const middleware: Array<{ entrypoint: string; order: string }> = [];
+    const configUpdates: unknown[] = [];
 
     await (setup as (context: unknown) => Promise<void>)({
       config: {
         cacheDir: pathToFileURL(`${cacheDirectory}${path.sep}`),
         i18n: { defaultLocale: "en-US", locales: ["en-US", { path: "fr", codes: ["fr-FR"] }] },
       },
+      updateConfig: (update: unknown) => configUpdates.push(update),
       addMiddleware: (entry: { entrypoint: string; order: string }) => middleware.push(entry),
       logger: { info: () => undefined },
     });
 
     expect(middleware).toHaveLength(1);
+    expect(configUpdates).toContainEqual({ vite: { resolve: { dedupe: ["emdash"] } } });
     expect(middleware[0]?.order).toBe("pre");
     const source = await readFile(middleware[0]?.entrypoint ?? "", "utf8");
     expect(source).toContain("createPolystellaRuntimeMiddleware");

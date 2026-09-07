@@ -1,4 +1,10 @@
-import { translateSegments, type Glossary, type Segment, type Translator } from "@cloudflare/polystella-core";
+import {
+  translateSegments,
+  type Glossary,
+  type Segment,
+  type TranslateBatchAttemptEvent,
+  type Translator,
+} from "@cloudflare/polystella-core";
 import { validateTokenPreservation } from "@cloudflare/polystella-core/catalog/translate";
 
 import { MAX_CONTENT_FIELDS } from "./contracts.js";
@@ -25,6 +31,8 @@ export interface TranslateContentFieldsOptions {
   sourceLocale: string;
   targetLocale: string;
   promptInstruction?: string | undefined;
+  onBatchAttempt?: ((event: TranslateBatchAttemptEvent) => void) | undefined;
+  onValidationIssue?: ((segmentIds: string[], message: string) => void) | undefined;
   signal?: AbortSignal | undefined;
 }
 
@@ -92,6 +100,7 @@ export async function translateContentFields(options: TranslateContentFieldsOpti
     sourceLocale: options.sourceLocale,
     targetLocale: options.targetLocale,
     ...(options.promptInstruction === undefined ? {} : { promptInstruction: options.promptInstruction }),
+    ...(options.onBatchAttempt === undefined ? {} : { onBatchAttempt: options.onBatchAttempt }),
     ...(options.signal === undefined ? {} : { signal: options.signal }),
   });
 
@@ -100,20 +109,39 @@ export async function translateContentFields(options: TranslateContentFieldsOpti
     const translation = result.translations.get(segment.id);
     const location = locations.get(segment.id);
     if (translation === undefined || location === undefined) {
-      throw new Error(`[polystella-emdash] missing translation for internal segment "${segment.id}"`);
+      const message = `[polystella-emdash] missing translation for internal segment "${segment.id}"`;
+      notifyValidationIssue(options.onValidationIssue, [segment.id], message);
+      throw new Error(message);
     }
     const tokenIssue = validateTokenPreservation(location.field, segment.text, translation);
     if (tokenIssue !== null) {
-      throw new Error(`[polystella-emdash] translation changed placeholder tokens in field "${location.field}"`);
+      const message = `[polystella-emdash] translation changed placeholder tokens in field "${location.field}"`;
+      notifyValidationIssue(options.onValidationIssue, [segment.id], message);
+      throw new Error(message);
     }
     applyTranslation(patch, location, `${location.leadingWhitespace}${translation}${location.trailingWhitespace}`);
   }
-  validatePortableTextTokens(options.values, patch);
+  validatePortableTextTokens(options.values, patch, (field, blockIndex, message) => {
+    notifyValidationIssue(
+      options.onValidationIssue,
+      segments
+        .filter((segment) => {
+          const location = locations.get(segment.id);
+          return location?.kind === "span" && location.field === field && location.blockIndex === blockIndex;
+        })
+        .map(({ id }) => id),
+      message,
+    );
+  });
 
   return { patch, batchCount: result.batchCount };
 }
 
-function validatePortableTextTokens(source: Record<string, unknown>, patch: Record<string, unknown>): void {
+function validatePortableTextTokens(
+  source: Record<string, unknown>,
+  patch: Record<string, unknown>,
+  onValidationIssue: (field: string, blockIndex: number, message: string) => void,
+): void {
   for (const [field, value] of Object.entries(source)) {
     if (!Array.isArray(value)) continue;
     const translated = patch[field];
@@ -125,9 +153,19 @@ function validatePortableTextTokens(source: Record<string, unknown>, patch: Reco
       const sourceText = block.children.map(spanText).join("");
       const translatedText = translatedBlock.children.map(spanText).join("");
       if (validateTokenPreservation(field, sourceText, translatedText) !== null) {
-        throw new Error(`[polystella-emdash] translation changed placeholder tokens in field "${field}"`);
+        const message = `[polystella-emdash] translation changed placeholder tokens in field "${field}"`;
+        onValidationIssue(field, blockIndex, message);
+        throw new Error(message);
       }
     }
+  }
+}
+
+function notifyValidationIssue(callback: TranslateContentFieldsOptions["onValidationIssue"], segmentIds: string[], message: string): void {
+  try {
+    callback?.(segmentIds, message);
+  } catch {
+    // Diagnostics must not change translation behavior.
   }
 }
 

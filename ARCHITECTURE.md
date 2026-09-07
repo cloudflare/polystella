@@ -108,7 +108,7 @@ Two entry points share `runTranslationPass` in `packages/astro/src/translation/r
   Anthropic transports.
 - `@cloudflare/polystella-cli` owns the Node.js catalog command handlers,
   filesystem drift/sync, config loading, and glossary loading.
-- `@cloudflare/polystella-emdash` owns EmDash deployment policy, plugin
+- `@cloudflare/polystella-emdash` owns EmDash administrator policy, plugin
   declarations, storage, routes, native admin UI, catalog-only CLI host, and
   companion Astro runtime for catalog overrides.
 - `@cloudflare/polystella-astro` owns Astro hooks, filesystem and R2 access,
@@ -579,6 +579,10 @@ invalidate the entire cache on every config tweak.
 the per-pair verbose log line includes `, ${batchCount} batches`
 after the segment count. The oversize-section warning includes the
 source path so operators can find files that need splitting.
+`translateBatch` also accepts an optional `onBatchAttempt` observer
+that receives the exact prompts, normalized response, parsed output,
+timing, and batch metrics for each provider attempt. Observer failures
+are ignored so diagnostics cannot change translation behavior.
 
 ---
 

@@ -5,9 +5,6 @@ import { createPlugin, polystellaEmdash, validatePolystellaEmdashOptions, type P
 function validOptions(): PolystellaEmdashOptions {
   return {
     provider: { kind: "workers-ai-binding", binding: "AI" },
-    collections: {
-      posts: { sourceLocale: "en-US", fields: ["title", "body"] },
-    },
     catalogs: {
       defaultLocale: "en-US",
       locales: {
@@ -42,10 +39,7 @@ describe("polystellaEmdash", () => {
       format: "native",
       entrypoint: "@cloudflare/polystella-emdash",
       adminEntry: "@cloudflare/polystella-emdash/admin",
-      adminPages: [
-        { path: "/catalog", label: "Catalog" },
-        { path: "/settings", label: "Settings" },
-      ],
+      adminPages: [{ path: "/", label: "PolyStella" }],
       capabilities: ["content:read"],
       storage: { catalog_overrides: { indexes: ["locale"] } },
     });
@@ -54,6 +48,7 @@ describe("polystellaEmdash", () => {
     expect(plugin.storage).toEqual(descriptor.storage);
     expect(Object.keys(plugin.routes)).toEqual([
       "settings/collections",
+      "settings/translation",
       "policy",
       "translate-content",
       "catalog",
@@ -65,14 +60,8 @@ describe("polystellaEmdash", () => {
     ]);
     expect(plugin.admin.entry).toBe(descriptor.adminEntry);
     expect(plugin.admin.pages).toEqual(descriptor.adminPages);
-    expect(plugin.admin.settingsSchema).toEqual(descriptor.settingsSchema);
-    expect(plugin.admin.settingsSchema?.["model:ja-JP"]).toMatchObject({
-      type: "select",
-      default: "__polystella_deployment_default__",
-      label: "Translation model (ja-JP)",
-    });
-    expect(plugin.admin.settingsSchema?.["glossaryMode:ja-JP"]).toMatchObject({ type: "select", default: "default" });
-    expect(plugin.admin.settingsSchema?.["glossary:ja-JP"]).toMatchObject({ type: "string", default: "" });
+    expect(descriptor).not.toHaveProperty("settingsSchema");
+    expect(plugin.admin).not.toHaveProperty("settingsSchema");
   });
 
   it("preserves arbitrary dictionary keys through EmDash's generated module", () => {
@@ -95,11 +84,11 @@ describe("polystellaEmdash", () => {
 
   it.each([
     ["binding", { ...validOptions(), provider: { kind: "workers-ai-binding", binding: "not-valid!" } }],
-    ["collection slug", { ...validOptions(), collections: { Posts: validOptions().collections.posts } }],
-    ["reserved collection slug", { ...validOptions(), collections: { media: validOptions().collections.posts } }],
-    ["field slug", { ...validOptions(), collections: { posts: { sourceLocale: "en-US", fields: ["Title-Field"] } } }],
-    ["reserved field slug", { ...validOptions(), collections: { posts: { sourceLocale: "en-US", fields: ["slug"] } } }],
-    ["EmDash locale", { ...validOptions(), collections: { posts: { sourceLocale: "en-US-u-ca-gregory", fields: ["title"] } } }],
+    ["removed collections option", { ...validOptions(), collections: {} }],
+    [
+      "reserved UI model",
+      { ...validOptions(), models: { allowed: ["__polystella_code_default__"], defaults: "__polystella_code_default__" } },
+    ],
     ["default model", { ...validOptions(), models: { allowed: ["model-a"], defaults: "model-b" } }],
     ["model locale", { ...validOptions(), models: { allowed: ["model-a"], defaults: { default: "model-a", "fr-FR": "model-a" } } }],
     ["glossary locale", { ...validOptions(), glossaryDefaults: { "fr-FR": validOptions().glossaryDefaults?.["ja-JP"] } }],
@@ -124,7 +113,6 @@ describe("polystellaEmdash", () => {
         },
       },
     ],
-    ["duplicate fields", { ...validOptions(), collections: { posts: { sourceLocale: "en-US", fields: ["title", "title"] } } }],
   ])("rejects invalid %s configuration", (_name, options) => {
     expect(() => validatePolystellaEmdashOptions(options)).toThrow("[polystella-emdash]");
   });
@@ -143,7 +131,7 @@ describe("polystellaEmdash", () => {
 
     expect(serialized).toContain("CLOUDFLARE_WORKERS_AI_TOKEN");
     expect(serialized).not.toContain("fake-token");
-    expect(JSON.stringify(descriptor.settingsSchema)).not.toContain("apiToken");
+    expect(JSON.stringify(descriptor)).not.toContain('apiToken":"secret');
   });
 
   it("rejects unknown provider properties instead of serializing them", () => {

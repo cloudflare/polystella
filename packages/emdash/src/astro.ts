@@ -43,8 +43,9 @@ export function polystellaEmdashAstro(
   return {
     name: "polystella-emdash-runtime",
     hooks: {
-      "astro:config:setup": async ({ config, addMiddleware, logger }) => {
+      "astro:config:setup": async ({ config, updateConfig, addMiddleware, logger }) => {
         const routing = validateCatalogI18n(config.i18n, runtimeConfig);
+        updateConfig({ vite: { resolve: { dedupe: ["emdash"] } } });
         const configuredRuntime = { ...runtimeConfig, ...routing };
         const middlewareDirectory = path.resolve(fileURLToPath(config.cacheDir), "polystella-emdash-runtime");
         const middlewarePath = path.join(middlewareDirectory, "middleware.mjs");
