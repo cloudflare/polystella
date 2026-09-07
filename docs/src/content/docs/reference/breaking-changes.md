@@ -39,6 +39,33 @@ doesn't affect the cache (the cache key is per-file).
 Existing consumers see no behaviour change unless they set the
 value explicitly.
 
+### Nested catalog format support
+
+UI-string JSON dictionaries now support a nested format, with
+`i18n_group_title` keys grouping related entries. The format is
+auto-detected per file; `i18n_group_title` values are excluded from
+keys, drift detection, and translation.
+
+All locale files must match the default locale's format. A locale
+file that mixes or diverges from the default's nested vs flat
+structure fails validation.
+
+### Catalog CLI commands extracted to `@cloudflare/polystella-cli`
+
+The catalog subcommands (`check-ui`, `sync-ui`, `translate-ui`) and
+their shared filesystem utilities now live in the
+`@cloudflare/polystella-cli` package, shared by both the Astro and
+EmDash hosts. Import the commands from the new package instead of
+the old host-local paths.
+
+### Catalog-only mode entrypoints
+
+A catalog-only adoption path is now available via
+`@cloudflare/polystella-astro/catalog/*` (integration, middleware,
+and pure helpers). It binds only `Astro.locals.t` and
+`Astro.locals.lhref` over JSON UI-string dictionaries, with no
+content translation, routing shims, or R2 cache.
+
 ## How we track breaking changes
 
 - Every breaking change gets an entry under "Breaking changes" in

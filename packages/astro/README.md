@@ -24,7 +24,8 @@ This package composes PolyStella's reusable packages and owns all host policy:
 @cloudflare/polystella-astro
   ├──> @cloudflare/polystella-core
   ├──> @cloudflare/polystella-adapters
-  └──> @cloudflare/polystella-providers
+  ├──> @cloudflare/polystella-providers
+  └──> @cloudflare/polystella-cli
 
 @cloudflare/polystella --> @cloudflare/polystella-astro
 ```

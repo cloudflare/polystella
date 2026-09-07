@@ -64,6 +64,10 @@ const nimbusConfig = defineNimbusConfig({
         label: "Operations",
         items: ["operations/ci", "operations/branch-dispatch", "operations/preview-isolation"],
       },
+      {
+        label: "EmDash plugin",
+        items: ["emdash", "emdash/configuration", "emdash/admin-ui", "emdash/catalog-overrides", "emdash/astro-integration", "emdash/cli"],
+      },
       { label: "Cookbook", autogenerate: { directory: "cookbook" } },
       {
         label: "Troubleshooting",

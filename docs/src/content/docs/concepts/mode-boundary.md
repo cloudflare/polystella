@@ -1,12 +1,12 @@
 ---
 title: Mode boundary
-description: Standalone vs Starlight modes — what differs between them.
+description: Standalone, Starlight, and catalog-only modes — what differs between them.
 aiGenerated: true
 ---
 
-PolyStella ships **standalone mode** today. **Starlight mode** is
-planned but not yet implemented; declaring `mode: "starlight"` is
-rejected at config-parse time.
+PolyStella ships **standalone mode** and **catalog-only mode** today.
+**Starlight mode** is planned but not yet implemented; declaring
+`mode: "starlight"` is rejected at config-parse time.
 
 ## Standalone mode
 
@@ -22,6 +22,27 @@ The default. PolyStella owns:
 
 This works for any Astro project. No assumptions about other
 integrations.
+
+## Catalog-only mode
+
+A third adoption path for projects that only want UI-string
+catalogs. Install the catalog-only integration from
+`@cloudflare/polystella-astro/catalog/astro`; it binds only
+`Astro.locals.t` and `Astro.locals.lhref` over JSON UI-string
+dictionaries.
+
+Catalog-only mode owns:
+
+- **`Astro.locals.t` / `Astro.locals.lhref`.** The catalog-only
+  middleware binds just these two locals.
+- **JSON dictionary helpers.** Lookup, fallback, and interpolation
+  over per-locale JSON files.
+
+It does NOT own:
+
+- Content translation, the R2 cache, or routing shims. No content
+  collections are touched; the catalog-only integration is pure and
+  imports nothing from the full pipeline.
 
 ## Starlight mode (planned)
 

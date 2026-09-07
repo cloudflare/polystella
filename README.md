@@ -22,11 +22,11 @@ Dependencies point toward reusable code:
 ```text
 @cloudflare/polystella --> @cloudflare/polystella-astro
                                ├──> @cloudflare/polystella-adapters --> core
-                               ├──> @cloudflare/polystella-cli --> core
+                               ├──> @cloudflare/polystella-cli --> core, providers
                                ├──> @cloudflare/polystella-providers --> core
                                └──> @cloudflare/polystella-core
 
-@cloudflare/polystella-emdash --> @cloudflare/polystella-cli --> core
+@cloudflare/polystella-emdash --> @cloudflare/polystella-cli --> core, providers
                               ├──> @cloudflare/polystella-providers --> core
                               └──> @cloudflare/polystella-core
 ```
@@ -53,7 +53,7 @@ still enable it.
 
 ## What it does
 
-- **Build-time translation.** Translates `.md`, `.mdx`, and `.toml` content into additional locales during `astro build`. Visitors get static bytes; no runtime AI calls.
+- **Build-time translation.** Translates `.md`, `.mdx`, `.json`, `.yaml`, and `.toml` content into additional locales during `astro build`. Visitors get static bytes; no runtime AI calls.
 - **R2-cached.** Translations are content-addressed by source bytes + glossary + model. Unchanged pages cost zero on rebuild. Translations are never committed to the repo.
 - **Glossary control.** Per-locale YAML files pin do-not-translate terms, preferred translations, and free-form translator notes.
 - **Hand-translation overrides.** Drop a file at `i18n/overrides/{locale}/<mirrored-path>` and it wins over AI output verbatim.
