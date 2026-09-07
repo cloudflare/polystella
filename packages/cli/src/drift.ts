@@ -1,6 +1,8 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
+import { detectCatalogFormat, flattenCatalog, type CatalogFormat } from "@cloudflare/polystella-core/catalog";
+
 export interface DriftIssue {
   locale: string;
   missing: string[];
@@ -86,6 +88,7 @@ export interface LoadAndCheckDriftOptions {
 
 export async function loadAndCheckDrift(options: LoadAndCheckDriftOptions): Promise<DriftCheckResult> {
   const dictionaries: Record<string, Record<string, string>> = {};
+  const formats = new Map<string, CatalogFormat>();
   for (const locale of options.locales) {
     const filePath = path.resolve(options.rootDir, options.baseDir, `${locale}.json`);
     let raw: string;
@@ -101,14 +104,29 @@ export async function loadAndCheckDrift(options: LoadAndCheckDriftOptions): Prom
     } catch (error) {
       throw new Error(`[polystella] failed to parse UI-strings JSON at ${filePath}: ${errorMessage(error)}`);
     }
-    if (!isRecord(parsed)) {
+    if (!isObject(parsed)) {
       throw new Error(
-        `[polystella] UI-strings file at ${filePath} must be a JSON object of string→string entries (got ${
+        `[polystella] UI-strings file at ${filePath} must be a JSON object — either a flat string→string map or nested groups of strings (got ${
           Array.isArray(parsed) ? "array" : typeof parsed
         }).`,
       );
     }
-    dictionaries[locale] = parsed;
+    dictionaries[locale] = flattenCatalog(parsed);
+    formats.set(locale, detectCatalogFormat(parsed));
+  }
+
+  const defaultFormat = formats.get(options.defaultLocale);
+  if (defaultFormat !== undefined) {
+    const mismatched = [...formats.entries()]
+      .filter(([locale, format]) => locale !== options.defaultLocale && format !== defaultFormat)
+      .map(([locale]) => locale);
+    if (mismatched.length > 0) {
+      throw new Error(
+        `[polystella] catalog format mismatch: ${options.defaultLocale}.json is ${defaultFormat}, but ${mismatched
+          .map((locale) => `${locale}.json`)
+          .join(", ")} ${mismatched.length === 1 ? "is" : "are"} the other format. All locale files must use the same format.`,
+      );
+    }
   }
   return checkI18nDrift({
     defaultLocale: options.defaultLocale,
@@ -117,7 +135,7 @@ export async function loadAndCheckDrift(options: LoadAndCheckDriftOptions): Prom
   });
 }
 
-function isRecord(value: unknown): value is Record<string, string> {
+function isObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 

@@ -253,4 +253,57 @@ describe("runTranslateUi", () => {
       globalThis.fetch = originalFetch;
     }
   });
+
+  it("translates nested catalogs and writes them back nested, preserving group titles", async () => {
+    const cwd = await tmpProjectWithAstroConfig({
+      defaultLocale: "en-US",
+      locales: ["en-US", "pt-BR"],
+      polystellaConfig: `export default {
+  maxRetries: 0,
+  provider: {
+    kind: "workers-ai",
+    accountId: "fake-account",
+    apiToken: "fake-token",
+    endpoint: "https://example.test/workers-ai",
+    model: "fake/model",
+  },
+};
+`,
+      files: {
+        "src/content/i18n/en-US.json": `{
+  "site": {
+    "i18n_group_title": "Site",
+    "title": "Cloudflare Blog"
+  }
+}
+`,
+        "src/content/i18n/pt-BR.json": `{
+  "site": {
+    "i18n_group_title": "Sítio",
+    "title": ""
+  }
+}
+`,
+      },
+    });
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (_url: string, init?: RequestInit) => {
+      const userPrompt = workersAiUserPrompt(init);
+      await wait(10);
+      return new Response(JSON.stringify({ result: { response: workersAiResponseFromPrompt(userPrompt) }, success: true }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }) as typeof fetch;
+
+    try {
+      const code = await runTranslateUi({ syncOnly: false, help: false }, { cwd, log: vi.fn(), warn: vi.fn(), err: vi.fn() });
+      expect(code).toBe(0);
+      const ptText = await readFile(path.resolve(cwd, "src/content/i18n/pt-BR.json"), "utf8");
+      expect(ptText).toBe('{\n  "site": {\n    "i18n_group_title": "Sítio",\n    "title": "translated catalog:0"\n  }\n}\n');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
 });

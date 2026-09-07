@@ -363,4 +363,43 @@ describe("loadAndCheckDrift — disk", () => {
       }),
     ).rejects.toThrow(/must be a JSON object/);
   });
+
+  it("compares nested files by flattened key sets, ignoring group titles", async () => {
+    const { rootDir, baseDir } = await makeFixture({
+      "en-US.json": JSON.stringify({
+        site: { i18n_group_title: "Site", title: "Cloudflare Blog" },
+        nav: { home: "Home" },
+      }),
+      "pt-BR.json": JSON.stringify({
+        site: { i18n_group_title: "Sítio", title: "Blog da Cloudflare" },
+        nav: { home: "Início", extra: "Extra" },
+      }),
+    });
+    const result = await loadAndCheckDrift({
+      rootDir,
+      baseDir,
+      locales: ["en-US", "pt-BR"],
+      defaultLocale: "en-US",
+    });
+    expect(result.ok).toBe(false);
+    expect(result.issues[0]).toMatchObject({
+      locale: "pt-BR",
+      extra: ["nav.extra"],
+    });
+  });
+
+  it("throws when locale files mix flat and nested formats", async () => {
+    const { rootDir, baseDir } = await makeFixture({
+      "en-US.json": JSON.stringify({ site: { title: "Cloudflare Blog" } }),
+      "pt-BR.json": JSON.stringify({ "site.title": "Blog da Cloudflare" }),
+    });
+    await expect(
+      loadAndCheckDrift({
+        rootDir,
+        baseDir,
+        locales: ["en-US", "pt-BR"],
+        defaultLocale: "en-US",
+      }),
+    ).rejects.toThrow(/format mismatch/);
+  });
 });

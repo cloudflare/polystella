@@ -247,6 +247,26 @@ polystella sync-ui --base ./src/i18n
 polystella translate-ui --base ./src/i18n
 ```
 
+Catalog files accept two formats, auto-detected per file (all locale
+files must use the same format):
+
+- Flat — `{ "site.title": "Cloudflare Blog" }`.
+- Nested — groups flattened to the same dotted keys, so `t("site.title")`
+  works identically in both formats:
+
+  ```json
+  {
+    "site": {
+      "i18n_group_title": "Site",
+      "title": "Cloudflare Blog"
+    }
+  }
+  ```
+
+`i18n_group_title` is optional per-group metadata for tooling that
+reads the JSON; it is excluded from `t()` keys, drift checks, and AI
+translation.
+
 ## Runtime APIs
 
 In `.astro` files:

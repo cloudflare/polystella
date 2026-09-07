@@ -3,6 +3,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { EMPTY_GLOSSARY } from "@cloudflare/polystella-core";
+import { detectCatalogFormat, flattenCatalog } from "@cloudflare/polystella-core/catalog";
 import {
   DEFAULT_UI_STRING_BATCH_SIZE,
   selectEmptyKeys,
@@ -14,7 +15,7 @@ import { loadAstroI18n, loadPolystellaConfig, resolveCatalogConfig } from "./con
 import { loadGlossaries } from "./glossary.js";
 import { runWithConcurrency } from "./pool.js";
 import { createTranslator } from "./provider.js";
-import { applySyncToDisk, formatLocaleFile, formatSyncSummary, parseSourceLayout, syncLocaleDict } from "./sync.js";
+import { applySyncToDisk, formatLocaleFile, formatNestedLocaleFile, formatSyncSummary, parseSourceLayout, syncLocaleDict } from "./sync.js";
 
 const DEFAULT_CATALOG_BASE = "./src/content/i18n";
 const TRANSLATE_UI_MAX_CONCURRENCY = 3;
@@ -131,8 +132,12 @@ export async function runTranslateUi(args: TranslateUiArgs, deps: TranslateUiDep
 
   const sourcePath = path.resolve(deps.cwd, baseDir, `${i18n.defaultLocale}.json`);
   const sourceRaw = await readFile(sourcePath, "utf8");
-  const sourceDict = JSON.parse(sourceRaw) as Record<string, string>;
-  const layout = parseSourceLayout(sourceRaw);
+  const sourceParsed = JSON.parse(sourceRaw) as unknown;
+  const sourceDict = flattenCatalog(sourceParsed);
+  const sourceObject = sourceParsed as Record<string, unknown>;
+  const sourceFormat = detectCatalogFormat(sourceParsed);
+  const layout = sourceFormat === "flat" ? parseSourceLayout(sourceRaw) : undefined;
+  const sourceKeyOrder = layout?.keys ?? Object.keys(sourceDict);
   const targets = args.locale === undefined ? i18n.locales.filter((locale) => locale !== i18n.defaultLocale) : [args.locale];
   if (targets.length === 0) return 0;
 
@@ -148,9 +153,11 @@ export async function runTranslateUi(args: TranslateUiArgs, deps: TranslateUiDep
     const localePath = path.resolve(deps.cwd, baseDir, `${locale}.json`);
     let localeRaw: string;
     let localeDict: Record<string, string>;
+    let localeParsed: Record<string, unknown>;
     try {
       localeRaw = await readFile(localePath, "utf8");
-      localeDict = JSON.parse(localeRaw) as Record<string, string>;
+      localeParsed = JSON.parse(localeRaw) as Record<string, unknown>;
+      localeDict = flattenCatalog(localeParsed);
     } catch (error) {
       outcome.error = asError(error);
       deps.err(`[polystella] translate-ui: ${progress} ${locale} — failed: ${errorMessage(error)}`);
@@ -162,7 +169,7 @@ export async function runTranslateUi(args: TranslateUiArgs, deps: TranslateUiDep
       continue;
     }
     deps.log(`[polystella] translate-ui: ${progress} ${locale} — queued ${emptyCount} empty placeholder(s).`);
-    pending.push({ locale, position, localePath, localeRaw, localeDict, emptyCount, outcome });
+    pending.push({ locale, position, localePath, localeRaw, localeDict, localeParsed, emptyCount, outcome });
   }
   if (pending.length === 0) return outcomes.some((outcome) => outcome.error !== undefined) ? 2 : 0;
 
@@ -219,8 +226,11 @@ export async function runTranslateUi(args: TranslateUiArgs, deps: TranslateUiDep
           deps.warn(`[polystella]   ${progress} — ${job.locale}: attempt ${attempt}/${totalAttempts} failed: ${error.message}`);
         },
       });
-      const reconciled = syncLocaleDict({ source: sourceDict, existing: result.dict, sourceKeyOrder: layout.keys });
-      const nextText = formatLocaleFile({ dict: reconciled.dict, layout });
+      const reconciled = syncLocaleDict({ source: sourceDict, existing: result.dict, sourceKeyOrder });
+      const nextText =
+        sourceFormat === "nested" || layout === undefined
+          ? formatNestedLocaleFile({ dict: reconciled.dict, source: sourceObject, existing: job.localeParsed })
+          : formatLocaleFile({ dict: reconciled.dict, layout });
       if (nextText !== job.localeRaw) await writeFile(job.localePath, nextText, "utf8");
       job.outcome.filled = result.filled;
       job.outcome.tokenFailures = result.tokenFailures;
@@ -262,6 +272,7 @@ interface PendingLocale {
   localePath: string;
   localeRaw: string;
   localeDict: Record<string, string>;
+  localeParsed: Record<string, unknown>;
   emptyCount: number;
   outcome: PerLocaleOutcome;
 }

@@ -26,6 +26,8 @@
 
 import { z } from "astro/zod";
 
+import { flattenCatalog } from "@cloudflare/polystella-core/catalog";
+
 import { DEFAULT_CATALOG_BASE, DEFAULT_CATALOG_PATTERN } from "../catalog/constants.js";
 
 /** Relative to project root. */
@@ -60,15 +62,19 @@ export function buildI18nLoader<T>(deps: BuildI18nLoaderDeps<T>, options: I18nLo
 }
 
 /**
- * Schema for a single locale's UI-strings entry. Flat
- * `Record<string, string>`; nested shapes are rejected at content-sync
- * time so drift detection can compare uniform key sets. Function form
- * (rather than a bare `z.record(...)`) leaves room for future options.
+ * Schema for a single locale's UI-strings entry. Accepts either a
+ * flat `Record<string, string>` or nested groups of strings (with an
+ * optional `i18n_group_title` metadata key per group); the transform
+ * flattens nested groups to dotted keys so `data` is always a flat
+ * `Record<string, string>` and drift detection can compare uniform
+ * key sets. Function form (rather than a bare `z.record(...)`) leaves
+ * room for future options.
  */
 export function i18nSchema() {
   // Empty keys defeat lookup; empty values are valid (intentionally
   // blank labels).
-  return z.record(z.string().min(1), z.string());
+  const nestedRecord: z.ZodType<Record<string, unknown>> = z.lazy(() => z.record(z.string().min(1), z.union([z.string(), nestedRecord])));
+  return z.record(z.string().min(1), z.union([z.string(), nestedRecord])).transform((value) => flattenCatalog(value));
 }
 
 /** `data` shape for a single i18n entry. */

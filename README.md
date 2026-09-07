@@ -140,6 +140,27 @@ This binds `Astro.locals.t` and `Astro.locals.lhref` only. It does not
 run content translation, route shims, R2 cache setup, or localized
 collection APIs.
 
+Catalog files accept two formats, auto-detected per file (all locale
+files must use the same format):
+
+- **Flat** — a string→string map, conventionally with dotted keys:
+  `{ "site.title": "Cloudflare Blog" }`.
+- **Nested** — groups of strings, flattened to the same dotted keys at
+  runtime, so `t("site.title")` works identically in both formats:
+
+  ```json
+  {
+    "site": {
+      "i18n_group_title": "Site",
+      "title": "Cloudflare Blog"
+    }
+  }
+  ```
+
+  `i18n_group_title` is optional metadata for each group — a display
+  title for tooling that reads the JSON. It is excluded from `t()`
+  keys, drift checks, and AI translation.
+
 ## Documentation
 
 Full documentation lives at the Nimbus docs site (under `docs/` in this repo):

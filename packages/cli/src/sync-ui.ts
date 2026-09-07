@@ -1,8 +1,10 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
+import { detectCatalogFormat, flattenCatalog } from "@cloudflare/polystella-core/catalog";
+
 import { loadAstroI18n } from "./config.js";
-import { applySyncToDisk, formatLocaleFile, formatSyncSummary, parseSourceLayout, syncLocaleDict } from "./sync.js";
+import { applySyncToDisk, formatLocaleFile, formatNestedLocaleFile, formatSyncSummary, parseSourceLayout, syncLocaleDict } from "./sync.js";
 
 const DEFAULT_CATALOG_BASE = "./src/content/i18n";
 
@@ -116,8 +118,12 @@ async function runSyncCheck(
     }
     throw error;
   }
-  const sourceDict = JSON.parse(sourceRaw) as Record<string, string>;
-  const layout = parseSourceLayout(sourceRaw);
+  const sourceParsed = JSON.parse(sourceRaw) as unknown;
+  const sourceDict = flattenCatalog(sourceParsed);
+  const sourceObject = sourceParsed as Record<string, unknown>;
+  const sourceFormat = detectCatalogFormat(sourceParsed);
+  const layout = sourceFormat === "flat" ? parseSourceLayout(sourceRaw) : undefined;
+  const sourceKeyOrder = layout?.keys ?? Object.keys(sourceDict);
   const changes: string[] = [];
 
   for (const locale of locales) {
@@ -129,9 +135,13 @@ async function runSyncCheck(
     } catch (error) {
       if (!isNotFound(error)) throw error;
     }
-    const existingDict = existingRaw === undefined ? {} : (JSON.parse(existingRaw) as Record<string, string>);
-    const sync = syncLocaleDict({ source: sourceDict, existing: existingDict, sourceKeyOrder: layout.keys });
-    const nextText = formatLocaleFile({ dict: sync.dict, layout });
+    const existingParsed = existingRaw === undefined ? undefined : (JSON.parse(existingRaw) as Record<string, unknown>);
+    const existingDict = existingParsed === undefined ? {} : flattenCatalog(existingParsed);
+    const sync = syncLocaleDict({ source: sourceDict, existing: existingDict, sourceKeyOrder });
+    const nextText =
+      sourceFormat === "nested" || layout === undefined
+        ? formatNestedLocaleFile({ dict: sync.dict, source: sourceObject, existing: existingParsed })
+        : formatLocaleFile({ dict: sync.dict, layout });
     if (existingRaw === nextText) continue;
     const parts: string[] = [];
     if (sync.added.length > 0) parts.push(`+${sync.added.length} added`);

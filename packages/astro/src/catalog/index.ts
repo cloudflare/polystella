@@ -10,6 +10,7 @@ export {
   type ResolveCatalogTranslationsDeps,
   type TranslateFn,
 } from "./runtime.js";
+export { CATALOG_GROUP_TITLE_KEY, detectCatalogFormat, flattenCatalog, type CatalogFormat } from "./runtime.js";
 export {
   checkI18nDrift,
   checkI18nDrift as checkCatalogDrift,
@@ -25,6 +26,7 @@ export {
   applySyncToDisk,
   applySyncToDisk as applyCatalogSyncToDisk,
   formatLocaleFile,
+  formatNestedLocaleFile,
   formatSyncSummary,
   parseSourceLayout,
   syncLocaleDict,
@@ -32,6 +34,7 @@ export {
   type ApplySyncOptions,
   type ApplySyncResult,
   type FormatLocaleFileOptions,
+  type FormatNestedLocaleFileOptions,
   type SourceLayout,
   type SyncLocaleDictInput,
   type SyncLocaleDictResult,

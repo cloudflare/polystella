@@ -1,6 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { buildTranslateFn, interpolate, resolveTranslations, type CatalogDictionary } from "../src/catalog/index.js";
+import {
+  buildTranslateFn,
+  detectCatalogFormat,
+  flattenCatalog,
+  interpolate,
+  resolveTranslations,
+  type CatalogDictionary,
+} from "../src/catalog/index.js";
 
 describe("catalog runtime", () => {
   it("translates, interpolates, falls back, then returns the literal key", () => {
@@ -45,5 +52,45 @@ describe("catalog runtime", () => {
 
     expect(buildTranslateFn(dictionary)("constructor")).toBe("constructor");
     expect(interpolate("Hello {{name}}", params)).toBe("Hello {{name}}");
+  });
+});
+
+describe("catalog flattening", () => {
+  it("detects flat vs nested formats", () => {
+    expect(detectCatalogFormat({ "site.title": "X" })).toBe("flat");
+    expect(detectCatalogFormat({})).toBe("flat");
+    expect(detectCatalogFormat({ site: { title: "X" } })).toBe("nested");
+    expect(detectCatalogFormat({ a: "x", site: { title: "X" } })).toBe("nested");
+  });
+
+  it("flattens nested groups to dotted keys and skips group titles", () => {
+    expect(
+      flattenCatalog({
+        "site.title": "Cloudflare Blog",
+        nav: {
+          i18n_group_title: "Navigation",
+          home: "Home",
+          menu: { i18n_group_title: "Menu", ai: "AI" },
+        },
+      }),
+    ).toEqual({
+      "site.title": "Cloudflare Blog",
+      "nav.home": "Home",
+      "nav.menu.ai": "AI",
+    });
+  });
+
+  it("passes flat dictionaries through unchanged, including a literal i18n_group_title key", () => {
+    expect(flattenCatalog({ "site.title": "X", i18n_group_title: "Top" })).toEqual({
+      "site.title": "X",
+      i18n_group_title: "Top",
+    });
+  });
+
+  it("throws on non-string leaves and on key collisions", () => {
+    expect(() => flattenCatalog({ a: 1 })).toThrow(/must be a string or an object of strings/);
+    expect(() => flattenCatalog({ a: ["x"] })).toThrow(/must be a string or an object of strings/);
+    expect(() => flattenCatalog({ "a.b": "flat", a: { b: "nested" } })).toThrow(/defined more than once/);
+    expect(() => flattenCatalog("not an object")).toThrow(/must be a JSON object/);
   });
 });
