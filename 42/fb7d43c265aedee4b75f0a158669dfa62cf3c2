@@ -1,0 +1,43 @@
+packages/astro/src/catalog/index.ts
+  s_2ff12c60f96286::t_46755795913cc8 13,29,37
+packages/astro/src/catalog/runtime.ts
+  s_2ff12c60f96286::t_2f07de61b8d147 12
+packages/astro/src/cli/sync-ui.ts
+  s_2ff12c60f96286::t_3e36539684ee8f 159-160,173-177,193-202
+packages/astro/src/cli/translate-ui.ts
+  s_2ff12c60f96286::t_df71a33f85ba57 20,24-31,201-205,231,234-235,249,334,336-339,388-389
+packages/astro/src/i18n/drift.ts
+  s_15d9087d67c021::t_5f893161c0ac4d 23-24,164,184,190-193,195-212
+packages/astro/src/i18n/loader.ts
+  s_2ff12c60f96286::t_0abc2da4bfca4e 29-30,65-71,76-77
+packages/astro/tests/cli/translate-ui.test.ts
+  s_2ff12c60f96286::t_d76081ed2149f1 256-308
+packages/astro/tests/i18n/sync.test.ts
+  s_2ff12c60f96286::t_591a2392903fe2 6-13,227-302,486-655
+packages/core/src/catalog/flatten.ts
+  s_2ff12c60f96286::t_87e4a2109a9f2c 1-58
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "42fb7d43c265aedee4b75f0a158669dfa62cf3c2",
+  "prompts": {},
+  "sessions": {
+    "s_15d9087d67c021": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_fa39a3a22ffeMAKJ4kOL1d63yD",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Diogo Carneiro <dcarneiro@cloudflare.com>"
+    },
+    "s_2ff12c60f96286": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f84b98da1ffeq4fb9R2CuBunGe",
+        "model": "@cf/deepseek-ai/deepseek-v4-pro"
+      },
+      "human_author": "Diogo Carneiro <dcarneiro@cloudflare.com>"
+    }
+  }
+}
