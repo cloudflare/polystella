@@ -73,8 +73,8 @@ Task → entry-point file(s) → key contract → deep-dive link.
 | Modify runtime APIs (entry/collection/href/middleware) | `packages/astro/src/runtime/*`                                                                   | Bridge timing (**Invariant 5**); per-locale closures                                                                  | [#runtime-bridge](./ARCHITECTURE.md#runtime-bridge)                                                                                                 |
 | Modify routing shims                                   | `packages/astro/src/routing/{shim,expand-routes,walk-pages}.ts`                                  | Stale shims nuked per build; CSS via `routesImports`                                                                  | [#routing-shims](./ARCHITECTURE.md#routing-shims)                                                                                                   |
 | Edit UI-string handling                                | `packages/core/src/catalog/translate.ts`, `packages/cli/src/{drift,sync,translate-ui}.ts`        | Three drift modes; layout-aware writer; `{{token}}` preservation                                                      | [#ui-strings](./ARCHITECTURE.md#ui-strings)                                                                                                         |
-| Edit catalog-only adoption                             | `packages/core/src/catalog/index.ts`, `packages/astro/src/catalog/*`                             | Pure imports; middleware binds only `t` + `lhref`                                                                     | [`CATALOG_ONLY_PLAN.md`](./CATALOG_ONLY_PLAN.md); [consumer SKILL](./skills/polystella-consumer/SKILL.md#catalog-only-adoption)                     |
-| Modify the EmDash plugin                               | `packages/emdash/src/*`                                                                          | Provider/locale/model bounds stay server-owned; collection policy is administrator-owned; Git catalogs stay canonical | [`EMDASH_PLUGIN_IMPLEMENTATION_PLAN.md`](./EMDASH_PLUGIN_IMPLEMENTATION_PLAN.md)                                                                    |
+| Edit catalog-only adoption                             | `packages/core/src/catalog/index.ts`, `packages/astro/src/catalog/*`                             | Pure imports; middleware binds only `t` + `lhref`                                                                     | [#ui-strings](./ARCHITECTURE.md#ui-strings); [consumer SKILL](./skills/polystella-consumer/SKILL.md#catalog-only-adoption)         |
+| Modify the EmDash plugin                               | `packages/emdash/src/*`                                                                          | Provider/locale/model bounds stay server-owned; collection policy is administrator-owned; Git catalogs stay canonical | [#package-boundaries](./ARCHITECTURE.md#package-boundaries)                                                                                          |
 | Edit content-collection wiring                         | `packages/astro/src/content/*`                                                                   | Sibling collections; custom-loader wrapper; bridge timing                                                             | [#runtime-bridge](./ARCHITECTURE.md#runtime-bridge)                                                                                                 |
 | Debug a translation that's wrong                       | Start: `pnpm translate --dry-run` to inspect planned R2 keys; `LOG_LEVEL=debug` for batch detail | —                                                                                                                     | Recipe in [contributor SKILL](./skills/polystella-contributor/SKILL.md#debug-translation)                                                           |
 | Tune cold-cache build performance                      | `r2.bulkListOnStart`, `concurrency`, `batchInputTokenBudget` knobs                               | —                                                                                                                     | [#bulk-prelist](./ARCHITECTURE.md#bulk-prelist), [#translation-batching](./ARCHITECTURE.md#translation-batching)                                    |
@@ -1084,6 +1084,10 @@ invalidate the entire cache on every config tweak.
 the per-pair verbose log line includes `, ${batchCount} batches`
 after the segment count. The oversize-section warning includes the
 source path so operators can find files that need splitting.
+`translateBatch` also accepts an optional `onBatchAttempt` observer
+that receives the exact prompts, normalized response, parsed output,
+timing, and batch metrics for each provider attempt. Observer failures
+are ignored so diagnostics cannot change translation behavior.
 
 ---
 
@@ -1118,9 +1122,26 @@ are supported via the object form (`{ source, imports }`).
 
 <a id="ui-strings"></a>
 
-UI strings live in `src/content/i18n/<locale>.json` as flat
-`Record<string, string>` dicts. The default-locale file is the single
-source of truth; non-default locales must match its key set.
+UI strings live in `src/content/i18n/<locale>.json`. Two formats are
+accepted, auto-detected per file (`detectCatalogFormat` in
+`packages/core/src/catalog/flatten.ts`): **flat** `Record<string, string>`
+dicts (conventionally dotted keys) and **nested** groups of strings.
+Every locale file must use the same format as the default-locale file
+— the drift loader hard-fails on a mix. Nested files may carry an
+optional `i18n_group_title` metadata key per group (a display title
+for tooling that reads the JSON); it is skipped by flattening, so it
+never becomes a `t()` key and never participates in drift or AI
+translation. The default-locale file is the single source of truth;
+non-default locales must match its key set.
+
+`flattenCatalog` normalises both formats to dotted keys, so every
+downstream stage — drift comparison, sync reconciliation, AI
+translation in `packages/core/src/catalog/translate.ts` — operates on flat
+dicts unchanged. Nested files are re-rendered by
+`formatNestedLocaleFile` (`packages/astro/src/i18n/sync.ts`), which walks the
+source JSON's natural key order (groups in order, keys in order,
+blank line between top-level groups) and copies the source's group
+titles verbatim — group titles are metadata, not translated.
 
 Three CLI subcommands maintain the invariant:
 
@@ -1521,6 +1542,26 @@ polystella check-ui --base ./src/i18n
 polystella sync-ui --base ./src/i18n
 polystella translate-ui --base ./src/i18n
 ```
+
+Catalog files accept two formats, auto-detected per file (all locale
+files must use the same format):
+
+- Flat — `{ "site.title": "Cloudflare Blog" }`.
+- Nested — groups flattened to the same dotted keys, so `t("site.title")`
+  works identically in both formats:
+
+  ```json
+  {
+    "site": {
+      "i18n_group_title": "Site",
+      "title": "Cloudflare Blog"
+    }
+  }
+  ```
+
+`i18n_group_title` is optional per-group metadata for tooling that
+reads the JSON; it is excluded from `t()` keys, drift checks, and AI
+translation.
 
 ## Runtime APIs
 

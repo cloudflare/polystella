@@ -38,6 +38,9 @@ that layout intact across runs:
   every non-default locale.
 - **Existing values** (including empty strings) are preserved.
   `sync-ui` never overwrites a non-empty translation.
+- **Nested catalogs** are supported alongside flat string→string
+  files. Format is auto-detected per file; groups reconcile as
+  flattened dotted keys and stay nested on write.
 
 This means `sync-ui` is safe to re-run as often as you like; the
 output is deterministic for a given source.

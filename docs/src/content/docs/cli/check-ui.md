@@ -11,6 +11,11 @@ Reads `astro.config.mjs` for the locale set, then runs the same
 
 No AI, no network, no writes. Safe for pre-commit hooks.
 
+Both flat (string→string) and nested catalogs are supported. The
+format is auto-detected per file; nested groups are flattened to
+dotted keys for comparison, and an optional `i18n_group_title` key
+per group is metadata for tooling — never a drift surface.
+
 ## Usage
 
 ```bash

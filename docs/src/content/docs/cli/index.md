@@ -63,10 +63,22 @@ distinction is mostly for human operators triaging a failure.
 
 ## Where the CLI lives
 
-The CLI is a thin layer over the same `runTranslationPass`
-orchestrator the Astro integration uses. There's nothing the CLI
-does that the integration doesn't — it just exposes the entry point
-outside of `astro build`. This matters for two scenarios:
+The commands are split across two packages:
+
+- **`translate` and `audit-mdx`** are owned by the Astro package
+  (`@cloudflare/polystella-astro`) and shipped in its `polystella`
+  binary. `translate` is a thin layer over the same
+  `runTranslationPass` orchestrator the Astro integration uses —
+  there's nothing it does that the integration doesn't; it just
+  exposes the entry point outside of `astro build`.
+- **`check-ui` / `sync-ui` / `translate-ui`** live in the shared
+  `@cloudflare/polystella-cli` package: Node.js tooling with no
+  standalone binary. Two hosts dispatch the exported command
+  handlers — the `polystella` binary from
+  `@cloudflare/polystella-astro` and the EmDash CLI host in
+  `@cloudflare/polystella-emdash`.
+
+The translate command matters for two scenarios:
 
 - **One-off re-translations.** `polystella translate --file
 "blog/hello.md"` retranslates one file without rebuilding the

@@ -2,7 +2,7 @@
 
 > AI-driven content localization for Astro: build-time translation of Markdown/MDX/TOML/JSON/YAML into additional locales, cached in Cloudflare R2, with locale-prefixed routing.
 
-PolyStella is an Astro integration plus three reusable packages. Translations happen at build time, are content-addressed (source bytes + glossary + model), cached in R2, and rendered as static bytes — no runtime AI calls. The Astro package includes the integration and a `polystella` CLI with verb-style subcommands (`translate`, `check-ui`, `sync-ui`, `translate-ui`).
+PolyStella is an Astro integration plus seven published packages (core, adapters, providers, CLI, EmDash, Astro, and a compatibility shim). Translations happen at build time, are content-addressed (source bytes + glossary + model), cached in R2, and rendered as static bytes — no runtime AI calls. The Astro package includes the integration and a `polystella` CLI with verb-style subcommands (`translate`, `check-ui`, `sync-ui`, `translate-ui`).
 
 Direct flow: `source/record -> adapter -> core -> provider -> core -> adapter -> output`. Core, adapters, and providers use standard Web APIs and work without `nodejs_compat`; consumers may enable it. Low-level APIs live in their owning packages and have no Astro compatibility shims.
 
@@ -29,9 +29,11 @@ The package is dual-audience:
 - `packages/core/src/index.ts`: platform-neutral prompt, batching, retry, and translation contracts.
 - `packages/adapters/src/index.ts`: portable Markdown, MDX, JSON, YAML, and TOML parsing and reconstruction.
 - `packages/providers/src/index.ts`: Workers AI HTTP/binding and Anthropic transports.
+- `packages/cli/src/index.ts`: Node.js catalog command handlers, filesystem drift/sync, config loading, and glossary loading.
+- `packages/emdash/src/index.ts`: EmDash administrator policy, plugin declarations, storage, routes, native admin UI, and catalog-only CLI host.
 - `packages/astro/tests/docs.test.ts`: one of the Astro integration, policy, CLI, storage, routing, and runtime test suites.
 - `packages/core/tests/batch.test.ts`: one of the focused reusable-package test suites.
 
 ## Optional
 
-- [llms-full.txt](llms-full.txt): full concatenation of AGENTS.md, ARCHITECTURE.md, and both skill files for retrieval-time loading by external agents.
+- [llms-full.txt](llms-full.txt): full concatenation of AGENTS.md, PACKAGE_ARCHITECTURE.md, ARCHITECTURE.md, and both skill files for retrieval-time loading by external agents.

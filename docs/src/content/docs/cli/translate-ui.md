@@ -50,6 +50,11 @@ Queued locales run in parallel up to `polystella.config.mjs`'s
 `[n/total]` progress markers during the scan and translation phases so
 large locale sets show how many catalogs are being handled.
 
+Both flat and nested catalogs are supported. Nested groups are
+flattened to dotted keys so `t("site.title")` works identically in
+either format; an optional `i18n_group_title` key per group is
+metadata and is never translated.
+
 ## Why no R2 caching
 
 The markdown pipeline caches translations in R2 because they're
