@@ -17,10 +17,18 @@ import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
+import { detectCatalogFormat, flattenCatalog } from "@cloudflare/polystella-core/catalog";
 import { resolveOptions, type PolyStellaResolvedOptions } from "../config/options.js";
 import { EMPTY_GLOSSARY } from "@cloudflare/polystella-core";
 import { loadGlossaries } from "../glossary/glossary.js";
-import { applySyncToDisk, formatLocaleFile, formatSyncSummary, parseSourceLayout, syncLocaleDict } from "../i18n/sync.js";
+import {
+  applySyncToDisk,
+  formatLocaleFile,
+  formatNestedLocaleFile,
+  formatSyncSummary,
+  parseSourceLayout,
+  syncLocaleDict,
+} from "../i18n/sync.js";
 import {
   DEFAULT_UI_STRING_BATCH_SIZE,
   selectEmptyKeys,
@@ -190,8 +198,11 @@ export async function runTranslateUi(args: TranslateUiArgs, deps: TranslateUiDep
   // what landed on disk byte-for-byte.)
   const sourcePath = path.resolve(deps.cwd, baseDir, `${i18n.defaultLocale}.json`);
   const sourceRaw = await readFile(sourcePath, "utf8");
-  const sourceDict = JSON.parse(sourceRaw) as Record<string, string>;
-  const layout = parseSourceLayout(sourceRaw);
+  const sourceParsed = JSON.parse(sourceRaw) as Record<string, unknown>;
+  const sourceFormat = detectCatalogFormat(sourceParsed);
+  const sourceDict = flattenCatalog(sourceParsed);
+  const layout = sourceFormat === "flat" ? parseSourceLayout(sourceRaw) : undefined;
+  const sourceKeyOrder = layout !== undefined ? layout.keys : Object.keys(sourceDict);
 
   const targets = args.locale !== undefined ? [args.locale] : localeStrings.filter((locale) => locale !== i18n.defaultLocale);
   if (targets.length === 0) {
@@ -217,9 +228,11 @@ export async function runTranslateUi(args: TranslateUiArgs, deps: TranslateUiDep
     const localePath = path.resolve(deps.cwd, baseDir, `${locale}.json`);
     let localeRaw: string;
     let localeDict: Record<string, string>;
+    let localeParsed: Record<string, unknown> | undefined;
     try {
       localeRaw = await readFile(localePath, "utf8");
-      localeDict = JSON.parse(localeRaw) as Record<string, string>;
+      localeParsed = JSON.parse(localeRaw) as Record<string, unknown>;
+      localeDict = flattenCatalog(localeParsed);
     } catch (caught) {
       outcome.error = caught as Error;
       deps.err(`[polystella] translate-ui: ${progress} ${locale} — failed: ${(caught as Error).message}`);
@@ -233,7 +246,7 @@ export async function runTranslateUi(args: TranslateUiArgs, deps: TranslateUiDep
     }
 
     deps.log(`[polystella] translate-ui: ${progress} ${locale} — queued ${emptyCount} empty placeholder(s).`);
-    pending.push({ locale, position, localePath, localeRaw, localeDict, emptyCount, outcome });
+    pending.push({ locale, position, localePath, localeRaw, localeDict, localeParsed, emptyCount, outcome });
   }
 
   if (pending.length === 0) {
@@ -318,9 +331,12 @@ export async function runTranslateUi(args: TranslateUiArgs, deps: TranslateUiDep
       const reconciled = syncLocaleDict({
         source: sourceDict,
         existing: result.dict,
-        sourceKeyOrder: layout.keys,
+        sourceKeyOrder,
       });
-      const nextText = formatLocaleFile({ dict: reconciled.dict, layout });
+      const nextText =
+        sourceFormat === "nested" || layout === undefined
+          ? formatNestedLocaleFile({ dict: reconciled.dict, source: sourceParsed, existing: job.localeParsed })
+          : formatLocaleFile({ dict: reconciled.dict, layout });
       if (nextText !== job.localeRaw) {
         await writeFile(job.localePath, nextText, "utf8");
       }
@@ -369,6 +385,8 @@ interface PendingLocale {
   localePath: string;
   localeRaw: string;
   localeDict: Record<string, string>;
+  /** Raw parsed locale JSON (pre-sync) for nested group-title preservation. */
+  localeParsed: Record<string, unknown> | undefined;
   emptyCount: number;
   outcome: PerLocaleOutcome;
 }

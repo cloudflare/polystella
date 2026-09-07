@@ -20,6 +20,8 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
+import { detectCatalogFormat, flattenCatalog, type CatalogFormat } from "@cloudflare/polystella-core/catalog";
+
 export interface DriftIssue {
   locale: string;
   /** Default-locale keys missing from this locale. */
@@ -159,6 +161,7 @@ export interface LoadAndCheckDriftOptions {
 
 export async function loadAndCheckDrift(opts: LoadAndCheckDriftOptions): Promise<DriftCheckResult> {
   const dictionaries: Record<string, Record<string, string>> = {};
+  const formats = new Map<string, CatalogFormat>();
   for (const locale of opts.locales) {
     const filePath = path.resolve(opts.rootDir, opts.baseDir, `${locale}.json`);
     let raw: string;
@@ -178,15 +181,35 @@ export async function loadAndCheckDrift(opts: LoadAndCheckDriftOptions): Promise
     }
     if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
       throw new Error(
-        `[polystella] UI-strings file at ${filePath} must be a JSON object of string→string entries (got ${
+        `[polystella] UI-strings file at ${filePath} must be a JSON object — either a flat string→string map or nested groups of strings (got ${
           Array.isArray(parsed) ? "array" : typeof parsed
         }).`,
       );
     }
     // Drift only cares about key sets; value-type validation lives
-    // in `i18nSchema` at content-sync time.
-    dictionaries[locale] = parsed as Record<string, string>;
+    // in `i18nSchema` at content-sync time. Flattening normalises
+    // nested groups to dotted keys so both formats compare uniformly.
+    dictionaries[locale] = flattenCatalog(parsed);
+    formats.set(locale, detectCatalogFormat(parsed));
   }
+
+  // All locale files must use the same format as the default-locale
+  // file, otherwise drift comparisons silently compare dotted keys
+  // against group names.
+  const defaultFormat = formats.get(opts.defaultLocale);
+  if (defaultFormat !== undefined) {
+    const mismatched = [...formats.entries()]
+      .filter(([locale, format]) => locale !== opts.defaultLocale && format !== defaultFormat)
+      .map(([locale]) => locale);
+    if (mismatched.length > 0) {
+      throw new Error(
+        `[polystella] catalog format mismatch: ${opts.defaultLocale}.json is ${defaultFormat}, but ${mismatched
+          .map((locale) => `${locale}.json`)
+          .join(", ")} ${mismatched.length === 1 ? "is" : "are"} the other format. All locale files must use the same format.`,
+      );
+    }
+  }
+
   return checkI18nDrift({
     defaultLocale: opts.defaultLocale,
     locales: opts.locales,

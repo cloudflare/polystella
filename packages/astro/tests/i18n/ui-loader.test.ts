@@ -90,12 +90,22 @@ describe("i18nSchema", () => {
     expect(schema.safeParse({ "nav.home": ["a", "b"] }).success).toBe(false);
   });
 
-  it("rejects nested objects (flat dictionary contract)", () => {
+  it("accepts nested groups and flattens them to dotted keys", () => {
     const schema = i18nSchema();
     const result = schema.safeParse({
+      site: { i18n_group_title: "Site", title: "Cloudflare Blog" },
       nav: { home: "Home" },
     });
-    expect(result.success).toBe(false);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data).toEqual({ "site.title": "Cloudflare Blog", "nav.home": "Home" });
+    }
+  });
+
+  it("rejects arrays and numbers at any depth", () => {
+    const schema = i18nSchema();
+    expect(schema.safeParse({ nav: { home: ["a", "b"] } }).success).toBe(false);
+    expect(schema.safeParse({ nav: { home: 42 } }).success).toBe(false);
   });
 
   it("returns a fresh schema instance per call (no shared mutable state)", () => {

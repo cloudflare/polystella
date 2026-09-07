@@ -609,9 +609,26 @@ are supported via the object form (`{ source, imports }`).
 
 <a id="ui-strings"></a>
 
-UI strings live in `src/content/i18n/<locale>.json` as flat
-`Record<string, string>` dicts. The default-locale file is the single
-source of truth; non-default locales must match its key set.
+UI strings live in `src/content/i18n/<locale>.json`. Two formats are
+accepted, auto-detected per file (`detectCatalogFormat` in
+`packages/core/src/catalog/flatten.ts`): **flat** `Record<string, string>`
+dicts (conventionally dotted keys) and **nested** groups of strings.
+Every locale file must use the same format as the default-locale file
+— the drift loader hard-fails on a mix. Nested files may carry an
+optional `i18n_group_title` metadata key per group (a display title
+for tooling that reads the JSON); it is skipped by flattening, so it
+never becomes a `t()` key and never participates in drift or AI
+translation. The default-locale file is the single source of truth;
+non-default locales must match its key set.
+
+`flattenCatalog` normalises both formats to dotted keys, so every
+downstream stage — drift comparison, sync reconciliation, AI
+translation in `packages/core/src/catalog/translate.ts` — operates on flat
+dicts unchanged. Nested files are re-rendered by
+`formatNestedLocaleFile` (`packages/astro/src/i18n/sync.ts`), which walks the
+source JSON's natural key order (groups in order, keys in order,
+blank line between top-level groups) and copies the source's group
+titles verbatim — group titles are metadata, not translated.
 
 Three CLI subcommands maintain the invariant:
 

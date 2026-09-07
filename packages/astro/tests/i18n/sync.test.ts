@@ -3,7 +3,14 @@ import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
 
-import { applySyncToDisk, formatLocaleFile, formatSyncSummary, parseSourceLayout, syncLocaleDict } from "../../src/i18n/sync.js";
+import {
+  applySyncToDisk,
+  formatLocaleFile,
+  formatNestedLocaleFile,
+  formatSyncSummary,
+  parseSourceLayout,
+  syncLocaleDict,
+} from "../../src/i18n/sync.js";
 
 /**
  * Tests for the UI-strings sync layer:
@@ -217,6 +224,82 @@ describe("formatLocaleFile", () => {
   });
 });
 
+describe("formatNestedLocaleFile", () => {
+  it("renders groups in source order with titles and blank-line separators", () => {
+    const text = formatNestedLocaleFile({
+      dict: { "site.title": "Cloudflare Blog", "nav.home": "Home", "nav.menu.ai": "AI" },
+      source: {
+        site: { i18n_group_title: "Site", title: "Cloudflare Blog" },
+        nav: { i18n_group_title: "Navigation", home: "Home", menu: { ai: "AI" } },
+      },
+    });
+    expect(text).toBe(
+      [
+        "{",
+        '  "site": {',
+        '    "i18n_group_title": "Site",',
+        '    "title": "Cloudflare Blog"',
+        "  },",
+        "",
+        '  "nav": {',
+        '    "i18n_group_title": "Navigation",',
+        '    "home": "Home",',
+        '    "menu": {',
+        '      "ai": "AI"',
+        "    }",
+        "  }",
+        "}",
+        "",
+      ].join("\n"),
+    );
+  });
+
+  it("omits keys absent from the dict and groups left empty", () => {
+    const text = formatNestedLocaleFile({
+      dict: { "site.title": "X" },
+      source: {
+        site: { title: "X", removed: "gone" },
+        empty: { i18n_group_title: "Nothing here" },
+        other: { i18n_group_title: "Also empty" },
+      },
+    });
+    expect(text).toBe('{\n  "site": {\n    "title": "X"\n  }\n}\n');
+  });
+
+  it("renders `{}` for an empty dict", () => {
+    expect(formatNestedLocaleFile({ dict: {}, source: {} })).toBe("{}\n");
+  });
+
+  it("preserves the existing locale's group titles, falling back to the source's", () => {
+    const text = formatNestedLocaleFile({
+      dict: { "site.title": "X", "nav.home": "Y" },
+      source: {
+        site: { i18n_group_title: "Site", title: "X" },
+        nav: { home: "Y" },
+      },
+      existing: {
+        site: { i18n_group_title: "Sítio", title: "X" },
+        nav: { home: "Y" },
+      },
+    });
+    expect(text).toBe(
+      [
+        "{",
+        '  "site": {',
+        '    "i18n_group_title": "Sítio",',
+        '    "title": "X"',
+        "  },",
+        "",
+        '  "nav": {',
+        '    "home": "Y"',
+        "  }",
+        "}",
+        "",
+      ].join("\n"),
+    );
+  });
+});
+
 describe("applySyncToDisk", () => {
   async function tmpProject(): Promise<string> {
     const dir = await mkdtemp(path.join(os.tmpdir(), "polystella-sync-"));
@@ -398,6 +481,176 @@ describe("applySyncToDisk", () => {
     const ptContents = await readFile(path.resolve(root, baseDir, "pt-BR.json"), "utf8");
     // Reordered to match the source.
     expect(ptContents).toBe('{\n  "a": "ALocale",\n  "b": "BLocale"\n}\n');
+  });
+
+  it("creates a missing locale file in nested format with group titles copied from the source", async () => {
+    const root = await tmpProject();
+    const baseDir = "./src/content/i18n";
+    await writeFile(
+      path.resolve(root, baseDir, "en-US.json"),
+      `{
+  "site": {
+    "i18n_group_title": "Site",
+    "title": "Cloudflare Blog"
+  }
+}
+`,
+      "utf8",
+    );
+
+    const result = await applySyncToDisk({
+      rootDir: root,
+      baseDir,
+      defaultLocale: "en-US",
+      locales: ["en-US", "pt-BR"],
+    });
+
+    const ptResult = result.results.find((r) => r.locale === "pt-BR");
+    expect(ptResult).toMatchObject({
+      added: ["site.title"],
+      removed: [],
+      changed: true,
+      created: true,
+    });
+
+    const ptContents = await readFile(path.resolve(root, baseDir, "pt-BR.json"), "utf8");
+    expect(ptContents).toBe('{\n  "site": {\n    "i18n_group_title": "Site",\n    "title": ""\n  }\n}\n');
+  });
+
+  it("adds and removes nested keys while preserving translated values", async () => {
+    const root = await tmpProject();
+    const baseDir = "./src/content/i18n";
+    await writeFile(
+      path.resolve(root, baseDir, "en-US.json"),
+      `{
+  "site": {
+    "title": "Cloudflare Blog",
+    "new": "New"
+  },
+  "nav": {
+    "home": "Home"
+  }
+}
+`,
+      "utf8",
+    );
+    await writeFile(
+      path.resolve(root, baseDir, "pt-BR.json"),
+      `{
+  "site": {
+    "title": "Blog da Cloudflare",
+    "stale": "Obsoleto"
+  }
+}
+`,
+      "utf8",
+    );
+
+    const result = await applySyncToDisk({
+      rootDir: root,
+      baseDir,
+      defaultLocale: "en-US",
+      locales: ["en-US", "pt-BR"],
+    });
+
+    const ptResult = result.results.find((r) => r.locale === "pt-BR");
+    expect(ptResult).toMatchObject({
+      added: ["nav.home", "site.new"],
+      removed: ["site.stale"],
+      changed: true,
+      created: false,
+    });
+
+    const ptContents = await readFile(path.resolve(root, baseDir, "pt-BR.json"), "utf8");
+    expect(ptContents).toBe(
+      [
+        "{",
+        '  "site": {',
+        '    "title": "Blog da Cloudflare",',
+        '    "new": ""',
+        "  },",
+        "",
+        '  "nav": {',
+        '    "home": ""',
+        "  }",
+        "}",
+        "",
+      ].join("\n"),
+    );
+  });
+
+  it("normalises a flat locale file to the source's nested format", async () => {
+    const root = await tmpProject();
+    const baseDir = "./src/content/i18n";
+    await writeFile(
+      path.resolve(root, baseDir, "en-US.json"),
+      `{
+  "site": {
+    "title": "Cloudflare Blog"
+  }
+}
+`,
+      "utf8",
+    );
+    await writeFile(
+      path.resolve(root, baseDir, "pt-BR.json"),
+      `{
+  "site.title": "Blog da Cloudflare"
+}
+`,
+      "utf8",
+    );
+
+    const result = await applySyncToDisk({
+      rootDir: root,
+      baseDir,
+      defaultLocale: "en-US",
+      locales: ["en-US", "pt-BR"],
+    });
+
+    expect(result.changed).toBe(true);
+    const ptContents = await readFile(path.resolve(root, baseDir, "pt-BR.json"), "utf8");
+    expect(ptContents).toBe('{\n  "site": {\n    "title": "Blog da Cloudflare"\n  }\n}\n');
+  });
+
+  it("preserves a locale's own group titles through a nested sync", async () => {
+    const root = await tmpProject();
+    const baseDir = "./src/content/i18n";
+    await writeFile(
+      path.resolve(root, baseDir, "en-US.json"),
+      `{
+  "site": {
+    "i18n_group_title": "Site",
+    "title": "Cloudflare Blog",
+    "new": "New"
+  }
+}
+`,
+      "utf8",
+    );
+    await writeFile(
+      path.resolve(root, baseDir, "pt-BR.json"),
+      `{
+  "site": {
+    "i18n_group_title": "Sítio",
+    "title": "Blog da Cloudflare"
+  }
+}
+`,
+      "utf8",
+    );
+
+    await applySyncToDisk({
+      rootDir: root,
+      baseDir,
+      defaultLocale: "en-US",
+      locales: ["en-US", "pt-BR"],
+    });
+
+    const ptContents = await readFile(path.resolve(root, baseDir, "pt-BR.json"), "utf8");
+    expect(ptContents).toBe(
+      '{\n  "site": {\n    "i18n_group_title": "Sítio",\n    "title": "Blog da Cloudflare",\n    "new": ""\n  }\n}\n',
+    );
   });
 
   it("never modifies the default-locale file", async () => {
