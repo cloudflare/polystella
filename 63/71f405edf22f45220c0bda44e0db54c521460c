@@ -1,0 +1,49 @@
+ARCHITECTURE.md
+  s_15d9087d67c021::t_8412a360180ffd 620-639
+README.md
+  s_15d9087d67c021::t_cc0374cb925729 143-163
+packages/astro/src/catalog/astro.ts
+  s_15d9087d67c021::t_19187cb90612e0 162,175
+packages/astro/src/catalog/index.ts
+  s_15d9087d67c021::t_df66f0a7c5ef7d 13,29,37
+packages/astro/src/catalog/runtime.ts
+  s_15d9087d67c021::t_34c9f4ae7e8d6c 12
+packages/astro/src/i18n/loader.ts
+  s_15d9087d67c021::t_cf51f58dbdd56c 29-30,65-71,76-77
+packages/astro/tests/cli/translate-ui.test.ts
+  s_15d9087d67c021::t_f556f2ebd342f1 256-308
+packages/astro/tests/i18n/sync.test.ts
+  s_15d9087d67c021::t_364657b4c32a63 6-13,227-302,486-655
+packages/astro/tests/i18n/ui-drift.test.ts
+  s_15d9087d67c021::t_d08b74ac36e235 366-404
+packages/astro/tests/i18n/ui-loader.test.ts
+  s_15d9087d67c021::t_142b1f61d84d28 93,96,99-108
+packages/cli/src/sync-ui.ts
+  s_15d9087d67c021::t_64057b9a39dc7a 4-5,7,121-126,138-144
+packages/cli/src/translate-ui.ts
+  s_15d9087d67c021::t_8df252e794fb32 6,18,135-140,156,159-160,172,229-233,275
+packages/core/src/catalog/flatten.ts
+  s_15d9087d67c021::t_40a656eaf45830 1-58
+packages/core/src/catalog/index.ts
+  s_15d9087d67c021::t_c40ec7375653c0 1-2
+packages/core/tests/catalog.test.ts
+  s_15d9087d67c021::t_1a3dbd44050caa 3-10,57-96
+skills/polystella-consumer/SKILL.md
+  s_15d9087d67c021::t_4aa96cb2cd0ff5 250-269
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "6371f405edf22f45220c0bda44e0db54c521460c",
+  "prompts": {},
+  "sessions": {
+    "s_15d9087d67c021": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_fa39a3a22ffeMAKJ4kOL1d63yD",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Diogo Carneiro <dcarneiro@cloudflare.com>"
+    }
+  }
+}
