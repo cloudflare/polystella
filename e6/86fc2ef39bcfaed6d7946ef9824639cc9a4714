@@ -1,0 +1,41 @@
+AGENTS.md
+  s_15d9087d67c021::t_c327b0e8d3b651 49-64
+PACKAGE_ARCHITECTURE.md
+  s_15d9087d67c021::t_89044e4bd23a2a 39-47
+docs/src/content/docs/reference/exports.md
+  s_15d9087d67c021::t_2939616e505b7d 30
+llms-full.txt
+  s_15d9087d67c021::t_0e2a2f5d954d2b 65-80,250-258,616
+packages/core/src/translate-batch.ts
+  s_15d9087d67c021::t_33eba7ffe9fff5 3,21,35-50,63,82,84-88,90-140,142-150
+packages/emdash/tests/index.test.ts
+  s_2ff12c60f96286::t_8bcc12bf1f8b77 42,51,63-64,87-91,134
+pnpm-lock.yaml
+  s_15d9087d67c021::t_adbd89d1d7bdc4 270-272
+scripts/check-packages.mjs
+  s_15d9087d67c021::t_2e45db38332b08 506
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "e686fc2ef39bcfaed6d7946ef9824639cc9a4714",
+  "prompts": {},
+  "sessions": {
+    "s_15d9087d67c021": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_fa39a3a22ffeMAKJ4kOL1d63yD",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Diogo Carneiro <dcarneiro@cloudflare.com>"
+    },
+    "s_2ff12c60f96286": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f84b98da1ffeq4fb9R2CuBunGe",
+        "model": "@cf/deepseek-ai/deepseek-v4-pro"
+      },
+      "human_author": "Diogo Carneiro <dcarneiro@cloudflare.com>"
+    }
+  }
+}
