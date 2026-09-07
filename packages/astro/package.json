@@ -105,11 +105,11 @@
     "@cloudflare/polystella-cli": "workspace:^",
     "@cloudflare/polystella-core": "workspace:^",
     "@cloudflare/polystella-providers": "workspace:^",
-    "acorn": "^8.17.0",
-    "p-retry": "^8.0.0",
-    "picomatch": "^4.0.4",
+    "acorn": "^8.18.0",
+    "p-retry": "^8.0.1",
+    "picomatch": "^4.0.7",
     "s3mini": "^0.9.4",
-    "satteri": "^0.9.4",
+    "satteri": "^0.10.5",
     "yaml": "^2.8.3"
   },
   "devDependencies": {
@@ -117,7 +117,7 @@
     "@types/mdast": "^4.0.4",
     "@types/picomatch": "^4.0.0",
     "@types/react": "^19.2.14",
-    "astro": "^7.2.9",
+    "astro": "^7.3.1",
     "react": "^19.2.6",
     "typescript": "^6.0.3",
     "vitest": "^4.1.9"
