@@ -10,6 +10,7 @@ import {
   type ContentItem,
 } from "@emdash-cms/admin";
 import { Banner, Button, Checkbox, Input, LayerCard, Select, Switch, Table, Tabs, Textarea, Tooltip } from "@cloudflare/kumo";
+import { Question } from "@phosphor-icons/react";
 import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 
 import {
@@ -58,7 +59,6 @@ const stackStyle: CSSProperties = { display: "grid", gap: 12 };
 const rowStyle: CSSProperties = { alignItems: "center", display: "flex", flexWrap: "wrap", gap: 12 };
 const inputStyle: CSSProperties = { width: "100%" };
 const mutedStyle: CSSProperties = { opacity: 0.7 };
-const introStyle: CSSProperties = { ...mutedStyle, marginBottom: 24 };
 const codeStyle: CSSProperties = { margin: 0, overflowX: "auto", whiteSpace: "pre-wrap" };
 const ADMIN_ROLE = 50;
 
@@ -83,15 +83,14 @@ export function TranslationProgress({ percent, label }: TranslationProgressState
 export function PolystellaPage(): ReactNode {
   const [activeTab, setActiveTab] = useState<AdminTab>("catalog");
   return (
-    <Page title="PolyStella">
-      <p style={introStyle}>Manage temporary catalog overrides and translation behavior.</p>
+    <Page title="PolyStella - Settings">
       <Tabs
         variant="underline"
         tabs={[
           { value: "catalog", label: <span style={tabLabelStyle}>Catalog</span> },
           { value: "collections", label: <span style={tabLabelStyle}>Collections</span> },
           { value: "translation", label: <span style={tabLabelStyle}>Translation settings</span> },
-          { value: "sandbox", label: <span style={tabLabelStyle}>Translation sandbox</span> },
+          { value: "sandbox", label: <span style={tabLabelStyle}>Sandbox</span> },
         ]}
         value={activeTab}
         onValueChange={(value) => {
@@ -722,6 +721,15 @@ export function PolystellaPanel({ collection, entry, locale }: ContentEditorPane
   );
 }
 
+function useDebouncedValue<T>(value: T, delayMs: number): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const timer = setTimeout(() => setDebounced(value), delayMs);
+    return () => clearTimeout(timer);
+  }, [value, delayMs]);
+  return debounced;
+}
+
 function CatalogTab(): ReactNode {
   const [catalog, setCatalog] = useState<CatalogViewResponse | null>(null);
   const [drafts, setDrafts] = useState<Map<string, string>>(new Map());
@@ -733,10 +741,17 @@ function CatalogTab(): ReactNode {
   const [error, setError] = useState<string | null>(null);
   const [debug, setDebug] = useState<TranslationDebugTrace | null>(null);
   const [search, setSearch] = useState("");
+  const debouncedSearch = useDebouncedValue(search, 200);
 
   useEffect(() => {
     void loadCatalog();
   }, []);
+
+  useEffect(() => {
+    if (catalog === null) return;
+    const runtimeOn = catalog.locales.find((item) => item.locale === catalog.locale)?.runtimeEnabled === true;
+    if (enabledOverrides.size > 0 !== runtimeOn) void setRuntimeEnabled(enabledOverrides.size > 0);
+  }, [enabledOverrides]);
 
   async function loadCatalog(locale?: string): Promise<void> {
     setWorking(true);
@@ -901,14 +916,32 @@ function CatalogTab(): ReactNode {
 
   if (catalog === null && error === null) return <p style={sectionStyle}>Loading catalog...</p>;
   const localeSummary = catalog?.locales.find((item) => item.locale === catalog.locale);
-  const groups = filterCatalogGroups(groupCatalogEntries(catalog?.entries ?? [], catalog?.groups ?? []), search);
+  const groups = filterCatalogGroups(groupCatalogEntries(catalog?.entries ?? [], catalog?.groups ?? []), debouncedSearch);
+  const actions = (
+    <div style={rowStyle}>
+      <Button
+        variant="primary"
+        loading={working}
+        disabled={working || selected.length === 0 || catalog?.locale === catalog?.defaultLocale}
+        onClick={() => void generate()}
+      >
+        Generate selected
+      </Button>
+      <Button variant="secondary" loading={working} disabled={touched.size === 0} onClick={() => void save()}>
+        Save changes
+      </Button>
+      <Button variant="secondary" disabled={working || touched.size > 0} onClick={() => void exportJson()}>
+        Export JSON
+      </Button>
+      <small style={mutedStyle}>
+        {selected.length}/{MAX_CATALOG_KEYS} keys selected
+      </small>
+    </div>
+  );
 
   return (
     <section style={sectionStyle}>
-      <div>
-        <h2>Catalog</h2>
-        <p style={mutedStyle}>Generate, edit, and export temporary UI string overrides.</p>
-      </div>
+      <p style={mutedStyle}>Generate, edit, and export temporary UI string overrides.</p>
       {error === null ? null : <ErrorMessage>{error}</ErrorMessage>}
       {debug === null ? null : <TranslationDebugView trace={debug} onDismiss={() => setDebug(null)} />}
       {catalog === null ? null : (
@@ -932,40 +965,21 @@ function CatalogTab(): ReactNode {
                 </Select>
               </div>
               <Switch
-                label="Apply temporary overrides at runtime"
+                label="Apply overrides"
                 checked={localeSummary?.runtimeEnabled === true}
-                disabled={working || touched.size > 0}
+                disabled={working || touched.size > 0 || enabledOverrides.size === 0}
                 onCheckedChange={(enabled) => void setRuntimeEnabled(enabled)}
               />
-              <span style={mutedStyle}>Repository file: {localeSummary?.filePath}</span>
             </div>
           </LayerCard>
           {localeSummary?.runtimeEnabled === true &&
           !catalog.entries.some((entry) => entry.state === "active" || entry.state === "missing") ? (
             <Banner variant="secondary" title="Overrides are synced" description="Runtime overrides can be disabled for this locale." />
           ) : null}
-          <div style={rowStyle}>
-            <Button
-              variant="primary"
-              loading={working}
-              disabled={working || selected.length === 0 || catalog.locale === catalog.defaultLocale}
-              onClick={() => void generate()}
-            >
-              Generate selected
-            </Button>
-            <Button variant="secondary" loading={working} disabled={touched.size === 0} onClick={() => void save()}>
-              Save changes
-            </Button>
-            <Button variant="secondary" disabled={working || touched.size > 0} onClick={() => void exportJson()}>
-              Export JSON
-            </Button>
-            <small style={mutedStyle}>
-              {selected.length}/{MAX_CATALOG_KEYS} keys selected
-            </small>
-          </div>
+          {actions}
           <Input
             label="Search catalog"
-            placeholder="Filter groups by title, key, or keys within groups"
+            placeholder="Filter groups by title, key, source text, or keys within groups"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
           />
@@ -993,6 +1007,7 @@ function CatalogTab(): ReactNode {
                             checked={selectableKeys.length > 0 && selectedCount === selectableKeys.length}
                             indeterminate={selectedCount > 0 && selectedCount < selectableKeys.length}
                             disabled={working || selectableKeys.length === 0}
+                            style={{ width: 40 }}
                             onCheckedChange={(checked) =>
                               setSelected((current) =>
                                 checked
@@ -1031,13 +1046,7 @@ function CatalogTab(): ReactNode {
                                 <strong style={{ overflowWrap: "anywhere" }}>{entry.key}</strong>
                               </Table.Cell>
                               <Table.Cell>
-                                {sourceContainsTokens(entry.source) ? (
-                                  <Tooltip content="This string contains {{tokens}}. Overrides should retain them.">
-                                    <span style={mutedStyle}>{entry.source ?? "Missing"}</span>
-                                  </Tooltip>
-                                ) : (
-                                  <span style={mutedStyle}>{entry.source ?? "Missing"}</span>
-                                )}
+                                <TokenGuidance source={entry.source} />
                               </Table.Cell>
                               <Table.Cell>
                                 <span style={mutedStyle}>{entry.deployed ?? "Missing"}</span>
@@ -1081,6 +1090,7 @@ function CatalogTab(): ReactNode {
               </LayerCard>
             );
           })}
+          {actions}
         </>
       )}
     </section>
@@ -1116,12 +1126,40 @@ export function filterCatalogGroups(groups: readonly CatalogGroup[], query: stri
     (group) =>
       group.key.toLowerCase().includes(needle) ||
       (group.title ?? "").toLowerCase().includes(needle) ||
-      group.entries.some((entry) => entry.key.toLowerCase().includes(needle)),
+      group.entries.some((entry) => entry.key.toLowerCase().includes(needle) || (entry.source ?? "").toLowerCase().includes(needle)),
   );
 }
 
 export function sourceContainsTokens(source: string | null): boolean {
   return source !== null && source.includes("{{");
+}
+
+function TokenGuidance({ source }: { source: string | null }): ReactNode {
+  const [open, setOpen] = useState(false);
+  if (!sourceContainsTokens(source)) return <span style={mutedStyle}>{source ?? "Missing"}</span>;
+  return (
+    <>
+      <Tooltip open={open} onOpenChange={setOpen} content="This string contains {{variables}}. Overrides should retain them.">
+        <button
+          type="button"
+          aria-label="Contains {{variables}} placeholders"
+          onClick={() => setOpen((current) => !current)}
+          style={{
+            background: "none",
+            border: "none",
+            color: "inherit",
+            cursor: "help",
+            marginRight: 4,
+            padding: 0,
+            verticalAlign: "middle",
+          }}
+        >
+          <Question size={14} />
+        </button>
+      </Tooltip>
+      <span style={mutedStyle}>{source}</span>
+    </>
+  );
 }
 
 export const pages = {

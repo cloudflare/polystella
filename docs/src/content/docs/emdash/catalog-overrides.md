@@ -19,8 +19,9 @@ Entries are grouped by their first key segment. A group with an
 `i18n_group_title` displays that title with the group key alongside;
 groups without one fall back to the key. A search box filters groups
 by title, group key, or any entry key. Source cells containing
-`{{tokens}}` show a tooltip reminding Administrators that overrides
-should retain those placeholders.
+`{{variables}}` placeholders show a question-mark icon before the text;
+hovering or clicking it explains that overrides should retain those
+placeholders.
 
 ## Override states
 

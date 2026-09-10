@@ -131,8 +131,8 @@ overrides are disabled per locale until an Administrator explicitly enables them
 The catalog view groups entries by their first key segment; groups with an
 `i18n_group_title` show that title with the group key alongside. A search box
 filters groups by title, group key, or entry keys. Source cells containing
-`{{tokens}}` show a tooltip reminding administrators that overrides should
-retain those placeholders.
+`{{variables}}` placeholders show a question-mark icon before the text; hovering
+or clicking it explains that overrides should retain those placeholders.
 
 The Astro integration reads enabled overrides directly from EmDash storage. It
 caches each locale's override dictionary for 60 seconds per database and Worker

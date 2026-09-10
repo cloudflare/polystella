@@ -266,6 +266,9 @@ importers:
       '@cloudflare/polystella-providers':
         specifier: workspace:^
         version: link:../providers
+      '@phosphor-icons/react':
+        specifier: ^2.1.10
+        version: 2.1.10(react-dom@19.2.8(react@19.2.6))(react@19.2.6)
     devDependencies:
       '@cloudflare/kumo':
         specifier: 2.6.0
