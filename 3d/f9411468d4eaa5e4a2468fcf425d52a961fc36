@@ -1,0 +1,65 @@
+.changeset/fresh-sandboxes-translate.md
+  s_0d52ccc71c9291::t_abafc3d9fca25b 1-5
+docs/src/content/docs/emdash/catalog-overrides.md
+  s_0d52ccc71c9291::t_d219336cd6f023 13-23
+packages/core/src/catalog/flatten.ts
+  s_365dc1ae4b47b1::t_f406393a53a055 3-6,50,63-134
+packages/core/tests/catalog.test.ts
+  s_365dc1ae4b47b1::t_3c5849b4ac7e93 7,89-98
+packages/emdash/README.md
+  s_0d52ccc71c9291::t_d88dc99f2267b1 5-8,54-56,77-83,86-89,98-101,109-124,131-136
+packages/emdash/src/admin.tsx
+  s_d196a4c8c95758::t_9bc7adc6519e60 12,19,25,34,53-54,61,65-81,87,91-94,98,110-112,196,205,207-208,242,248,446-581,592,651,657,667,677,712,732,735,768,779,801,804,904,966-972,980,983-985,992,1007,1031,1034-1040,1048,1094-1102,1104-1107,1109-1124,1143,1313
+packages/emdash/src/catalog.ts
+  s_a95a6bcb6eba5d::t_79ac1a8e494fe5 1-33,79-98
+packages/emdash/src/contracts.ts
+  s_a95a6bcb6eba5d::t_63522f16f527bb 6,37,70,104-108,113,144-146
+packages/emdash/src/routes.ts
+  s_0d52ccc71c9291::t_f055b83bac3a27 4,6,10,28-37,42,58,93,96,103,122,126,140,143,171,181,213-219,227,296,328,340,347,351-410,416,431,441,459,466,477-478,491,500-512,514,529,534,587,618,635,639,641-644,648,653,662-667,669,726,732,942,956-958,966-977
+packages/emdash/tests/admin.test.ts
+  s_0d52ccc71c9291::t_fd78a7254f0124 7,12-13,17-18,29,31-34,36-38,42-62,96-112
+packages/emdash/tests/catalog.test.ts
+  s_a95a6bcb6eba5d::t_0d9f0bd9e240bd 3-10,38-53
+packages/emdash/tests/routes.test.ts
+  s_a95a6bcb6eba5d::t_f3387982b4776a 5-13,145,183,187,199-201,204,212,226,235-246,407-410,428,431,435-442,583-635,773-871
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "3df9411468d4eaa5e4a2468fcf425d52a961fc36",
+  "prompts": {},
+  "sessions": {
+    "s_0d52ccc71c9291": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f83c8e567ffeksIQ6HU63aKph0",
+        "model": "@cf/moonshotai/kimi-k2.6"
+      },
+      "human_author": "Diogo Carneiro <dcarneiro@cloudflare.com>"
+    },
+    "s_365dc1ae4b47b1": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f839a331affe5ylMQGe1PaUtth",
+        "model": "@cf/deepseek-ai/deepseek-v4-pro"
+      },
+      "human_author": "Diogo Carneiro <dcarneiro@cloudflare.com>"
+    },
+    "s_a95a6bcb6eba5d": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f7465ff07ffeZG7AVaSInnHVQQ",
+        "model": "@cf/deepseek-ai/deepseek-v4-flash"
+      },
+      "human_author": "Diogo Carneiro <dcarneiro@cloudflare.com>"
+    },
+    "s_d196a4c8c95758": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f74557cb0ffejHAKSO9la2CV2y",
+        "model": "@cf/deepseek-ai/deepseek-v4-flash"
+      },
+      "human_author": "Diogo Carneiro <dcarneiro@cloudflare.com>"
+    }
+  }
+}
