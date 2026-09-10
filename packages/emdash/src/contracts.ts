@@ -3,12 +3,12 @@ export const POLYSTELLA_API_BASE = "/_emdash/api/plugins/polystella";
 export const MAX_CONTENT_FIELDS = 25;
 export const MAX_CATALOG_KEYS = 100;
 export const MAX_COLLECTION_POLICY_FIELDS = 100;
+export const MAX_SANDBOX_CHARACTERS = 30_000;
 export const USE_CODE_DEFAULT_MODEL = "__polystella_code_default__";
 
 export type CustomizationMode = "default" | "append" | "replace";
 
 export interface CollectionPolicy {
-  sourceLocale: string;
   fields: string[];
 }
 
@@ -34,6 +34,7 @@ export interface TranslationLocaleSettings {
 }
 
 export interface TranslationSettingsResponse {
+  defaultLocale: string;
   debugEnabled: boolean;
   allowedModels: string[];
   locales: TranslationLocaleSettings[];
@@ -66,7 +67,7 @@ export interface TranslationDebugBatch {
 
 export interface TranslationDebugTrace {
   id: string;
-  operation: "content" | "catalog";
+  operation: "content" | "catalog" | "sandbox";
   provider: "workers-ai-binding" | "workers-ai-http";
   model: string;
   maxOutputTokens: number;
@@ -100,10 +101,16 @@ export interface CatalogEntryView {
   state: "active" | "synced" | "missing" | null;
 }
 
+export interface CatalogGroupView {
+  key: string;
+  title: string | null;
+}
+
 export interface CatalogViewResponse {
   defaultLocale: string;
   locale: string;
   locales: CatalogLocaleSummary[];
+  groups: CatalogGroupView[];
   entries: CatalogEntryView[];
 }
 
@@ -134,3 +141,6 @@ export interface RuntimeOverridesResponse {
   enabled: boolean;
   overrides: Record<string, string>;
 }
+
+export type TranslationSandboxResponse =
+  { translation: string; debug?: TranslationDebugTrace | undefined } | { translation: null; error: string; debug: TranslationDebugTrace };

@@ -633,10 +633,14 @@ non-default locales must match its key set.
 downstream stage — drift comparison, sync reconciliation, AI
 translation in `packages/core/src/catalog/translate.ts` — operates on flat
 dicts unchanged. Nested files are re-rendered by
-`formatNestedLocaleFile` (`packages/astro/src/i18n/sync.ts`), which walks the
+`formatNestedLocaleFile` (`packages/core/src/catalog/flatten.ts`), which walks the
 source JSON's natural key order (groups in order, keys in order,
 blank line between top-level groups) and copies the source's group
 titles verbatim — group titles are metadata, not translated.
+
+The main Astro catalog integration and the EmDash companion integration both
+use these core functions. EmDash adds its server-stored override overlay after
+normalization and uses the same formatter for nested catalog exports.
 
 Three CLI subcommands maintain the invariant:
 

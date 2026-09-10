@@ -9,18 +9,20 @@ import {
   type ContentEditorPanelExtension,
   type ContentItem,
 } from "@emdash-cms/admin";
-import { Badge, Banner, Button, Checkbox, LayerCard, Select, Switch, Table, Tabs, Textarea } from "@cloudflare/kumo";
+import { Banner, Button, Checkbox, Input, LayerCard, Select, Switch, Table, Tabs, Textarea, Tooltip } from "@cloudflare/kumo";
 import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 
 import {
   MAX_CATALOG_KEYS,
   MAX_COLLECTION_POLICY_FIELDS,
   MAX_CONTENT_FIELDS,
+  MAX_SANDBOX_CHARACTERS,
   POLYSTELLA_API_BASE,
   USE_CODE_DEFAULT_MODEL,
   type CatalogExportResponse,
   type CatalogGenerationResponse,
   type CatalogEntryView,
+  type CatalogGroupView,
   type CatalogOverrideMutationResponse,
   type CatalogRuntimeMutationResponse,
   type CatalogViewResponse,
@@ -29,6 +31,7 @@ import {
   type CustomizationMode,
   type TranslationLocaleSettings,
   type TranslationDebugTrace,
+  type TranslationSandboxResponse,
   type TranslationSettingsResponse,
   type TranslateContentResponse,
 } from "./contracts.js";
@@ -47,32 +50,52 @@ interface PanelError {
 }
 
 const pageStyle: CSSProperties = { margin: "0 auto", maxWidth: 1280, padding: "32px 24px 64px" };
+const titleStyle: CSSProperties = { fontSize: 24 };
+const tabLabelStyle: CSSProperties = { fontSize: 16 };
 const sectionStyle: CSSProperties = { display: "grid", gap: 20, marginTop: 24 };
 const cardStyle: CSSProperties = { padding: 20 };
 const stackStyle: CSSProperties = { display: "grid", gap: 12 };
 const rowStyle: CSSProperties = { alignItems: "center", display: "flex", flexWrap: "wrap", gap: 12 };
 const inputStyle: CSSProperties = { width: "100%" };
 const mutedStyle: CSSProperties = { opacity: 0.7 };
+const introStyle: CSSProperties = { ...mutedStyle, marginBottom: 24 };
 const codeStyle: CSSProperties = { margin: 0, overflowX: "auto", whiteSpace: "pre-wrap" };
 const ADMIN_ROLE = 50;
 
-type AdminTab = "catalog" | "collections" | "translation";
+type AdminTab = "catalog" | "collections" | "translation" | "sandbox";
+
+interface TranslationProgressState {
+  percent: number;
+  label: string;
+}
+
+export function TranslationProgress({ percent, label }: TranslationProgressState): ReactNode {
+  return (
+    <div style={{ display: "grid", gap: 4 }}>
+      <progress aria-label={label} value={percent} max={100} style={{ width: "100%" }} />
+      <small style={mutedStyle}>
+        {percent}%: {label}
+      </small>
+    </div>
+  );
+}
 
 export function PolystellaPage(): ReactNode {
   const [activeTab, setActiveTab] = useState<AdminTab>("catalog");
   return (
     <Page title="PolyStella">
-      <p style={mutedStyle}>Manage temporary catalog overrides and translation behavior.</p>
+      <p style={introStyle}>Manage temporary catalog overrides and translation behavior.</p>
       <Tabs
         variant="underline"
         tabs={[
-          { value: "catalog", label: "Catalog" },
-          { value: "collections", label: "Collections" },
-          { value: "translation", label: "Translation settings" },
+          { value: "catalog", label: <span style={tabLabelStyle}>Catalog</span> },
+          { value: "collections", label: <span style={tabLabelStyle}>Collections</span> },
+          { value: "translation", label: <span style={tabLabelStyle}>Translation settings</span> },
+          { value: "sandbox", label: <span style={tabLabelStyle}>Translation sandbox</span> },
         ]}
         value={activeTab}
         onValueChange={(value) => {
-          if (value === "catalog" || value === "collections" || value === "translation") setActiveTab(value);
+          if (value === "catalog" || value === "collections" || value === "translation" || value === "sandbox") setActiveTab(value);
         }}
       />
       <div hidden={activeTab !== "catalog"}>
@@ -83,6 +106,9 @@ export function PolystellaPage(): ReactNode {
       </div>
       <div hidden={activeTab !== "translation"}>
         <TranslationSettingsTab />
+      </div>
+      <div hidden={activeTab !== "sandbox"}>
+        <SandboxTab />
       </div>
     </Page>
   );
@@ -167,7 +193,7 @@ function CollectionsTab(): ReactNode {
       setSchemas((current) => new Map(current).set(collection, schema));
       setPolicies((current) => ({
         ...current,
-        [collection]: { sourceLocale: settings?.defaultLocale ?? "", fields },
+        [collection]: { fields },
       }));
     } catch (cause) {
       setError(errorMessage(cause));
@@ -176,18 +202,10 @@ function CollectionsTab(): ReactNode {
     }
   }
 
-  function updateCollection(collection: string, sourceLocale: string | undefined, fields: string[] | undefined): void {
+  function updateCollectionFields(collection: string, fields: string[]): void {
     setPolicies((current) => {
-      const policy = Object.hasOwn(current, collection) ? current[collection] : undefined;
-      if (policy === undefined) return current;
-      if (fields?.length === 0) return Object.fromEntries(Object.entries(current).filter(([slug]) => slug !== collection));
-      return {
-        ...current,
-        [collection]: {
-          sourceLocale: sourceLocale ?? policy.sourceLocale,
-          fields: fields ?? policy.fields,
-        },
-      };
+      if (fields.length === 0) return Object.fromEntries(Object.entries(current).filter(([slug]) => slug !== collection));
+      return { ...current, [collection]: { fields } };
     });
   }
 
@@ -221,26 +239,13 @@ function CollectionsTab(): ReactNode {
                 <span style={mutedStyle}>Loading fields...</span>
               ) : (
                 <>
-                  <Select
-                    label="Source locale"
-                    value={policy.sourceLocale}
-                    disabled={working}
-                    onValueChange={(value) => {
-                      if (typeof value === "string") updateCollection(collection.slug, value, undefined);
-                    }}
-                  >
-                    {settings?.locales.map((locale) => (
-                      <Select.Option key={locale} value={locale}>
-                        {locale}
-                      </Select.Option>
-                    ))}
-                  </Select>
+                  <span style={mutedStyle}>Source locale: code default ({settings?.defaultLocale})</span>
                   <Checkbox.Group
                     legend="Fields available for translation"
                     value={policy.fields}
                     allValues={eligibleFields.slice(0, MAX_COLLECTION_POLICY_FIELDS).map((field) => field.slug)}
                     disabled={working}
-                    onValueChange={(fields) => updateCollection(collection.slug, undefined, fields)}
+                    onValueChange={(fields) => updateCollectionFields(collection.slug, fields)}
                   >
                     {eligibleFields.map((field) => (
                       <Checkbox.Item
@@ -257,11 +262,6 @@ function CollectionsTab(): ReactNode {
           </LayerCard>
         );
       })}
-      <Banner
-        variant="secondary"
-        title="Schema changes"
-        description="EmDash 0.36 cannot expose collection schemas to plugin routes. Revisit this tab after changing field types or translatable flags."
-      />
       <div>
         <Button variant="primary" loading={working} disabled={settings === null} onClick={() => void save()}>
           Save collections
@@ -443,6 +443,142 @@ function TranslationSettingsTab(): ReactNode {
   );
 }
 
+function SandboxTab(): ReactNode {
+  const [settings, setSettings] = useState<TranslationSettingsResponse | null>(null);
+  const [sourceText, setSourceText] = useState("");
+  const [targetLocale, setTargetLocale] = useState("");
+  const [model, setModel] = useState("");
+  const [output, setOutput] = useState("");
+  const [working, setWorking] = useState(false);
+  const [progress, setProgress] = useState<TranslationProgressState | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [debug, setDebug] = useState<TranslationDebugTrace | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    pluginRequest<TranslationSettingsResponse>("settings/translation")
+      .then((value) => {
+        if (!active) return;
+        setSettings(value);
+        const firstLocale = value.locales[0];
+        setTargetLocale(firstLocale?.locale ?? "");
+        setModel(firstLocale?.model ?? firstLocale?.defaultModel ?? "");
+      })
+      .catch((cause: unknown) => {
+        if (active) setError(errorMessage(cause));
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  async function translate(): Promise<void> {
+    if (settings === null) return;
+    setWorking(true);
+    setError(null);
+    setDebug(null);
+    setOutput("");
+    setProgress({ percent: 50, label: "Translating text" });
+    try {
+      const result = await pluginRequest<TranslationSandboxResponse>("translation-sandbox", {
+        method: "POST",
+        body: JSON.stringify({ targetLocale, model, text: sourceText }),
+      });
+      if (result.debug !== undefined) setDebug(result.debug);
+      if (result.translation === null) {
+        setError(result.error);
+        setProgress(null);
+      } else {
+        setOutput(result.translation);
+        setProgress({ percent: 100, label: "Translation complete" });
+      }
+    } catch (cause) {
+      setError(errorMessage(cause));
+      setProgress(null);
+    } finally {
+      setWorking(false);
+    }
+  }
+
+  if (settings === null && error === null) return <p style={sectionStyle}>Loading translation settings...</p>;
+
+  return (
+    <section style={sectionStyle}>
+      <div>
+        <h2>Translation sandbox</h2>
+        <p style={mutedStyle}>Test translations without affecting saved content or settings.</p>
+      </div>
+      {error === null ? null : <ErrorMessage>{error}</ErrorMessage>}
+      {debug === null ? null : <TranslationDebugView trace={debug} onDismiss={() => setDebug(null)} />}
+      <LayerCard style={cardStyle}>
+        <div style={stackStyle}>
+          <div style={rowStyle}>
+            <span>
+              Source locale: <strong>{settings?.defaultLocale ?? "Unavailable"}</strong> (code default)
+            </span>
+            <div style={{ minWidth: 180 }}>
+              <Select
+                label="Target locale"
+                value={targetLocale}
+                disabled={working}
+                onValueChange={(value) => {
+                  if (typeof value === "string") {
+                    const locale = settings?.locales.find((item) => item.locale === value);
+                    setTargetLocale(value);
+                    setModel(locale?.model ?? locale?.defaultModel ?? "");
+                  }
+                }}
+              >
+                {settings?.locales.map((locale) => (
+                  <Select.Option key={locale.locale} value={locale.locale}>
+                    {locale.locale}
+                  </Select.Option>
+                ))}
+              </Select>
+            </div>
+            <div style={{ minWidth: 180 }}>
+              <Select
+                label="Translation model"
+                value={model}
+                disabled={working}
+                onValueChange={(value) => {
+                  if (typeof value === "string") setModel(value);
+                }}
+              >
+                {settings?.allowedModels.map((allowedModel) => (
+                  <Select.Option key={allowedModel} value={allowedModel}>
+                    {allowedModel}
+                  </Select.Option>
+                ))}
+              </Select>
+            </div>
+          </div>
+          <Textarea
+            label="Source text"
+            description={`${sourceText.length}/${MAX_SANDBOX_CHARACTERS} characters`}
+            rows={6}
+            value={sourceText}
+            disabled={working}
+            onValueChange={setSourceText}
+          />
+          <Button
+            variant="primary"
+            loading={working}
+            disabled={
+              sourceText.length === 0 || sourceText.length > MAX_SANDBOX_CHARACTERS || targetLocale.length === 0 || model.length === 0
+            }
+            onClick={() => void translate()}
+          >
+            Translate
+          </Button>
+          {progress === null ? null : <TranslationProgress {...progress} />}
+          <Textarea label="Output" rows={6} value={output} readOnly />
+        </div>
+      </LayerCard>
+    </section>
+  );
+}
+
 export function PolystellaPanel({ collection, entry, locale }: ContentEditorPanelContext): ReactNode {
   const targetLocale = locale ?? entry.locale;
   const currentUser = useCurrentUser();
@@ -453,6 +589,7 @@ export function PolystellaPanel({ collection, entry, locale }: ContentEditorPane
   const [loadAttempt, setLoadAttempt] = useState(0);
   const [hidden, setHidden] = useState(false);
   const [translating, setTranslating] = useState(false);
+  const [translationProgress, setTranslationProgress] = useState<TranslationProgressState | null>(null);
   const [debug, setDebug] = useState<TranslationDebugTrace | null>(null);
 
   useEffect(() => {
@@ -511,11 +648,13 @@ export function PolystellaPanel({ collection, entry, locale }: ContentEditorPane
     }
 
     setTranslating(true);
+    setTranslationProgress({ percent: 15, label: "Loading the latest saved entry" });
     setError(null);
     setDebug(null);
     try {
       const saved = await contentRequest<SavedContentResponse>(collection, entry.id, targetLocale);
       if (saved._rev === undefined) throw new Error("EmDash did not return a revision token; no fields were changed.");
+      setTranslationProgress({ percent: 45, label: "Translating selected fields" });
       const result = await pluginRequest<TranslateContentResponse>("translate-content", {
         method: "POST",
         body: JSON.stringify({ collection, entryId: entry.id, targetLocale, fields: selected }),
@@ -525,6 +664,7 @@ export function PolystellaPanel({ collection, entry, locale }: ContentEditorPane
         setError(panelError(new Error(result.error)));
         return;
       }
+      setTranslationProgress({ percent: 85, label: "Saving translated fields" });
       await updateContent(collection, entry.id, targetLocale, result.patch, saved._rev);
       if (result.debug !== undefined && currentUser.data !== undefined && currentUser.data.role >= ADMIN_ROLE) {
         storeTranslationDebug(collection, entry.id, targetLocale, currentUser.data.id, result.debug);
@@ -534,6 +674,7 @@ export function PolystellaPanel({ collection, entry, locale }: ContentEditorPane
       setError(panelError(cause));
     } finally {
       setTranslating(false);
+      setTranslationProgress(null);
     }
   }
 
@@ -568,6 +709,7 @@ export function PolystellaPanel({ collection, entry, locale }: ContentEditorPane
         />
       ))}
       {eligibleFields.length === 0 ? <small>No supported fields are configured for this collection.</small> : null}
+      {translationProgress === null ? null : <TranslationProgress {...translationProgress} />}
       <Button
         variant="primary"
         loading={translating}
@@ -587,8 +729,10 @@ function CatalogTab(): ReactNode {
   const [selected, setSelected] = useState<string[]>([]);
   const [touched, setTouched] = useState<Set<string>>(new Set());
   const [working, setWorking] = useState(false);
+  const [generationProgress, setGenerationProgress] = useState<TranslationProgressState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [debug, setDebug] = useState<TranslationDebugTrace | null>(null);
+  const [search, setSearch] = useState("");
 
   useEffect(() => {
     void loadCatalog();
@@ -621,6 +765,7 @@ function CatalogTab(): ReactNode {
   async function generate(): Promise<void> {
     if (catalog === null) return;
     setWorking(true);
+    setGenerationProgress({ percent: 50, label: "Translating selected catalog strings" });
     setError(null);
     setDebug(null);
     try {
@@ -631,6 +776,7 @@ function CatalogTab(): ReactNode {
       if (result.debug !== undefined) setDebug(result.debug);
       if (result.translations === null) {
         setError(result.error);
+        setGenerationProgress(null);
         return;
       }
       setDrafts((current) => {
@@ -652,8 +798,10 @@ function CatalogTab(): ReactNode {
       if (result.tokenFailures.length > 0) {
         setError(`Placeholder validation failed for: ${result.tokenFailures.map((failure) => failure.key).join(", ")}`);
       }
+      setGenerationProgress({ percent: 100, label: "Catalog generation complete" });
     } catch (cause) {
       setError(errorMessage(cause));
+      setGenerationProgress(null);
     } finally {
       setWorking(false);
     }
@@ -753,7 +901,7 @@ function CatalogTab(): ReactNode {
 
   if (catalog === null && error === null) return <p style={sectionStyle}>Loading catalog...</p>;
   const localeSummary = catalog?.locales.find((item) => item.locale === catalog.locale);
-  const groups = groupCatalogEntries(catalog?.entries ?? []);
+  const groups = filterCatalogGroups(groupCatalogEntries(catalog?.entries ?? [], catalog?.groups ?? []), search);
 
   return (
     <section style={sectionStyle}>
@@ -815,6 +963,13 @@ function CatalogTab(): ReactNode {
               {selected.length}/{MAX_CATALOG_KEYS} keys selected
             </small>
           </div>
+          <Input
+            label="Search catalog"
+            placeholder="Filter groups by title, key, or keys within groups"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+          />
+          {generationProgress === null ? null : <TranslationProgress {...generationProgress} />}
           {groups.map((group) => {
             const groupKeys = new Set(group.entries.map((entry) => entry.key));
             const selectableKeys = group.entries
@@ -822,17 +977,19 @@ function CatalogTab(): ReactNode {
               .map((entry) => entry.key);
             const selectedCount = selectableKeys.filter((key) => selected.includes(key)).length;
             return (
-              <LayerCard key={group.name}>
+              <LayerCard key={group.key}>
                 <details>
                   <summary style={{ cursor: "pointer", padding: 20 }}>
-                    <strong>{group.name}</strong> <small style={mutedStyle}>{group.entries.length} keys</small>
+                    <strong>{group.title ?? group.key}</strong>{" "}
+                    {group.title === null ? null : <small style={mutedStyle}>({group.key}) </small>}
+                    <small style={mutedStyle}>{group.entries.length} keys</small>
                   </summary>
                   <div style={{ overflowX: "auto", padding: "0 20px 20px" }}>
                     <Table layout="fixed" style={{ minWidth: 960 }}>
                       <Table.Header>
                         <Table.Row>
                           <Table.CheckHead
-                            label={`Select all ${group.name} keys`}
+                            label={`Select all ${group.key} keys`}
                             checked={selectableKeys.length > 0 && selectedCount === selectableKeys.length}
                             indeterminate={selectedCount > 0 && selectedCount < selectableKeys.length}
                             disabled={working || selectableKeys.length === 0}
@@ -847,8 +1004,7 @@ function CatalogTab(): ReactNode {
                           <Table.Head style={{ width: "18%" }}>Key</Table.Head>
                           <Table.Head style={{ width: "22%" }}>Source</Table.Head>
                           <Table.Head style={{ width: "22%" }}>Deployed</Table.Head>
-                          <Table.Head style={{ width: "30%" }}>Override</Table.Head>
-                          <Table.Head style={{ width: "8%" }}>State</Table.Head>
+                          <Table.Head style={{ width: "22%" }}>Override</Table.Head>
                         </Table.Row>
                       </Table.Header>
                       <Table.Body>
@@ -872,10 +1028,16 @@ function CatalogTab(): ReactNode {
                                 }
                               />
                               <Table.Cell>
-                                <strong>{entry.key}</strong>
+                                <strong style={{ overflowWrap: "anywhere" }}>{entry.key}</strong>
                               </Table.Cell>
                               <Table.Cell>
-                                <span style={mutedStyle}>{entry.source ?? "Missing"}</span>
+                                {sourceContainsTokens(entry.source) ? (
+                                  <Tooltip content="This string contains {{tokens}}. Overrides should retain them.">
+                                    <span style={mutedStyle}>{entry.source ?? "Missing"}</span>
+                                  </Tooltip>
+                                ) : (
+                                  <span style={mutedStyle}>{entry.source ?? "Missing"}</span>
+                                )}
                               </Table.Cell>
                               <Table.Cell>
                                 <span style={mutedStyle}>{entry.deployed ?? "Missing"}</span>
@@ -883,7 +1045,7 @@ function CatalogTab(): ReactNode {
                               <Table.Cell>
                                 <div style={stackStyle}>
                                   <Switch
-                                    label="Enable override"
+                                    label={overrideEnabled ? "Enabled" : "Disabled"}
                                     checked={overrideEnabled}
                                     disabled={working}
                                     onCheckedChange={(enabled) => {
@@ -909,13 +1071,6 @@ function CatalogTab(): ReactNode {
                                   />
                                 </div>
                               </Table.Cell>
-                              <Table.Cell>
-                                {entry.state === null ? null : (
-                                  <Badge variant={entry.state === "active" ? "orange" : entry.state === "missing" ? "red" : "neutral"}>
-                                    {entry.state}
-                                  </Badge>
-                                )}
-                              </Table.Cell>
                             </Table.Row>
                           );
                         })}
@@ -936,15 +1091,37 @@ export function catalogOverrideChanged(originalValue: string | null, enabled: bo
   return enabled ? value !== originalValue : originalValue !== null;
 }
 
-export function groupCatalogEntries(entries: readonly CatalogEntryView[]): Array<{ name: string; entries: CatalogEntryView[] }> {
-  const groups = new Map<string, CatalogEntryView[]>();
+export interface CatalogGroup {
+  key: string;
+  title: string | null;
+  entries: CatalogEntryView[];
+}
+
+export function groupCatalogEntries(entries: readonly CatalogEntryView[], groups: readonly CatalogGroupView[]): CatalogGroup[] {
+  const titleByKey = new Map(groups.map((group) => [group.key, group.title]));
+  const grouped = new Map<string, CatalogEntryView[]>();
   for (const entry of entries) {
-    const name = entry.key.split(".", 1)[0] ?? entry.key;
-    const group = groups.get(name);
-    if (group === undefined) groups.set(name, [entry]);
-    else group.push(entry);
+    const key = entry.key.split(".", 1)[0] ?? entry.key;
+    const list = grouped.get(key);
+    if (list === undefined) grouped.set(key, [entry]);
+    else list.push(entry);
   }
-  return [...groups].map(([name, groupedEntries]) => ({ name, entries: groupedEntries }));
+  return [...grouped].map(([key, groupEntries]) => ({ key, title: titleByKey.get(key) ?? null, entries: groupEntries }));
+}
+
+export function filterCatalogGroups(groups: readonly CatalogGroup[], query: string): CatalogGroup[] {
+  const needle = query.trim().toLowerCase();
+  if (needle.length === 0) return [...groups];
+  return groups.filter(
+    (group) =>
+      group.key.toLowerCase().includes(needle) ||
+      (group.title ?? "").toLowerCase().includes(needle) ||
+      group.entries.some((entry) => entry.key.toLowerCase().includes(needle)),
+  );
+}
+
+export function sourceContainsTokens(source: string | null): boolean {
+  return source !== null && source.includes("{{");
 }
 
 export const pages = {
@@ -963,7 +1140,7 @@ export const contentEditorPanels = [
 function Page({ title, children }: { title: string; children: ReactNode }): ReactNode {
   return (
     <main style={pageStyle}>
-      <h1>{title}</h1>
+      <h1 style={titleStyle}>{title}</h1>
       {children}
     </main>
   );
@@ -1133,7 +1310,7 @@ export function isTranslationDebugTrace(value: unknown): value is TranslationDeb
   return (
     isRecord(value) &&
     typeof value.id === "string" &&
-    (value.operation === "content" || value.operation === "catalog") &&
+    (value.operation === "content" || value.operation === "catalog" || value.operation === "sandbox") &&
     (value.provider === "workers-ai-binding" || value.provider === "workers-ai-http") &&
     typeof value.model === "string" &&
     typeof value.maxOutputTokens === "number" &&

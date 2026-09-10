@@ -1,4 +1,5 @@
 import { resolveModelId, type Glossary, type ModelSpec } from "@cloudflare/polystella-core";
+import { flattenCatalog, type CatalogSource } from "@cloudflare/polystella-core/catalog";
 import type { PluginDescriptor, PluginStorageConfig, ResolvedPlugin } from "emdash";
 import { definePlugin } from "emdash";
 
@@ -6,7 +7,14 @@ import packageManifest from "../package.json" with { type: "json" };
 import { POLYSTELLA_PLUGIN_ID, USE_CODE_DEFAULT_MODEL } from "./contracts.js";
 import { createPluginRoutes } from "./routes.js";
 
-export * from "./catalog.js";
+export {
+  applyCatalogOverrides,
+  catalogOverrideId,
+  catalogOverrideState,
+  serializeCatalog,
+  type CatalogOverride,
+  type CatalogOverrideState,
+} from "./catalog.js";
 
 const ENTRYPOINT = "@cloudflare/polystella-emdash";
 const ADMIN_ENTRY = "@cloudflare/polystella-emdash/admin";
@@ -20,7 +28,7 @@ const STORAGE = {
 const ADMIN_PAGES = [{ path: "/", label: "PolyStella" }];
 
 export interface EmDashCatalogLocale {
-  dictionary: Record<string, string>;
+  dictionary: CatalogSource;
   filePath: string;
 }
 
@@ -70,8 +78,10 @@ export function validatePolystellaEmdashOptions(value: unknown): asserts value i
     readLocale(locale, `options.catalogs.locales.${locale}`);
     const catalog = readRecord(rawCatalog, `options.catalogs.locales.${locale}`);
     const dictionary = readRecord(catalog.dictionary, `options.catalogs.locales.${locale}.dictionary`);
-    for (const [key, text] of Object.entries(dictionary)) {
-      if (typeof text !== "string") fail(`options.catalogs.locales.${locale}.dictionary.${key} must be a string`);
+    try {
+      flattenCatalog(dictionary);
+    } catch (error) {
+      fail(`options.catalogs.locales.${locale}.dictionary is invalid: ${error instanceof Error ? error.message : "invalid catalog"}`);
     }
     const filePath = readString(catalog.filePath, `options.catalogs.locales.${locale}.filePath`);
     if (

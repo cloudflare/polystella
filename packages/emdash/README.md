@@ -2,10 +2,10 @@
 
 Native EmDash integration for PolyStella.
 
-The plugin translates selected saved content fields, manages temporary UI-string
-overrides, and exports deterministic locale JSON. Deployment configuration is
-the upper bound for locales and models. Administrators own enabled collections,
-source locales, and field policies in EmDash.
+The plugin translates selected saved content fields and freeform sandbox text,
+manages temporary UI-string overrides, and exports deterministic locale JSON.
+Deployment configuration owns the default locale and bounds available locales
+and models. Administrators own enabled collections and field policies in EmDash.
 
 ```ts
 import { polystellaEmdash, type PolystellaEmdashOptions } from "@cloudflare/polystella-emdash";
@@ -51,6 +51,9 @@ AI binding on the EmDash deployment.
 
 Astro's i18n locale set must exactly match `catalogs`. Prerendered pages always
 use deployed dictionaries so temporary overrides cannot be baked into a build.
+Catalog dictionaries accept the same flat and nested JSON shapes as the main
+Astro integration. Nested groups become dotted `t()` keys, group-title metadata
+is ignored at runtime, and catalog exports retain the nested shape.
 
 For Workers AI over HTTP, use runtime environment variable names instead of
 literal credentials:
@@ -71,17 +74,19 @@ outside `models.allowed`. Shared code-defined instructions can likewise be used
 unchanged, appended to, or replaced.
 
 Administrators can also enable request-scoped debug traces from **Translation
-settings**. Content and catalog translation traces include the effective model,
-batch metrics, exact prompts, every provider attempt, normalized model responses,
-parsed translations, validation issues, timings, and a diagnostic ID. Traces are
-returned only to administrators, are not stored server-side, and never include
-credentials, authorization headers, account IDs, or raw provider HTTP envelopes.
-Successful content traces survive the existing editor reload in browser session
-storage for one view.
+settings**. Content, catalog, and sandbox translation traces include the
+effective model, batch metrics, exact prompts, every provider attempt, normalized
+model responses, parsed translations, validation issues, timings, and a
+diagnostic ID. Traces are returned only to administrators, are not stored
+server-side, and never include credentials, authorization headers, account IDs,
+or raw provider HTTP envelopes. Successful content traces survive the existing
+editor reload in browser session storage for one view.
 
 The native admin registers one **PolyStella** page with **Catalog**,
-**Collections**, and **Translation settings** tabs. These controls use EmDash's
-Kumo design system; no generated plugin settings page is registered.
+**Collections**, **Translation settings**, and **Translation sandbox** tabs.
+These controls use EmDash's Kumo design system; no generated plugin settings
+page is registered. Translation settings and catalog controls list target
+locales only; the code-defined default locale remains the source.
 
 This package also installs `polystella check-ui`, `polystella sync-ui`, and
 `polystella translate-ui`. They retain the Astro CLI's config and flags.
@@ -90,9 +95,10 @@ This package also installs `polystella check-ui`, `polystella sync-ui`, and
 
 The native editor panel appears for Editors and Administrators. The PolyStella
 **Collections** tab lets an Administrator enable project collections and choose
-their source locale and translatable fields. No collection is enabled until an
-Administrator saves a valid policy. Missing or malformed stored policy fails
-closed.
+translatable fields. The source locale is always the code-defined
+`catalogs.defaultLocale` and cannot be changed in plugin settings. No collection
+is enabled until an Administrator saves a valid policy. Missing or malformed
+stored policy fails closed.
 
 The panel translates selected `string`, `text`, and Portable Text fields in an
 existing target-locale draft. The private route rereads selected values through
@@ -100,11 +106,33 @@ its `content:read` capability, while the panel updates with EmDash's `_rev` toke
 and reloads after success. Unsaved browser changes are not translated and are
 lost after confirmation.
 
+Content translation displays named percentage stages while loading the saved
+entry, translating fields, and saving the patch.
+
+## Translation Sandbox
+
+Administrators can translate up to 30,000 characters of freeform text from the
+code-defined default locale to any configured non-default locale. Sandbox output
+stays browser-local and does not change content, catalog overrides, or repository
+files. Each request can use any deployment-allowed model without changing saved
+translation settings; the target locale's glossary and shared instructions still
+apply. The UI displays a named percentage stage while translating and an explicit
+100% completion state.
+
+Progress percentages are client-side request stages, not streamed provider or
+batch completion.
+
 ## Catalog Overrides
 
 Repository JSON remains canonical. The catalog page can generate, edit, clear,
 inspect deployment state, and export temporary per-key overrides. Runtime
 overrides are disabled per locale until an Administrator explicitly enables them.
+
+The catalog view groups entries by their first key segment; groups with an
+`i18n_group_title` show that title with the group key alongside. A search box
+filters groups by title, group key, or entry keys. Source cells containing
+`{{tokens}}` show a tooltip reminding administrators that overrides should
+retain those placeholders.
 
 The Astro integration reads enabled overrides directly from EmDash storage. It
 caches each locale's override dictionary for 60 seconds per database and Worker

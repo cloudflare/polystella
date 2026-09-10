@@ -1,5 +1,9 @@
 export type CatalogFormat = "flat" | "nested";
 
+export interface CatalogSource {
+  readonly [key: string]: string | CatalogSource;
+}
+
 /**
  * Reserved metadata key inside nested groups. Holds a display title
  * for the group that "equipped readers" (tooling, editors) can read
@@ -43,7 +47,7 @@ export function flattenCatalog(value: unknown): Record<string, string> {
         if (Object.hasOwn(flat, path)) {
           throw new Error(`[polystella] catalog key "${path}" is defined more than once (nested group and flat key collide).`);
         }
-        flat[path] = entry;
+        Object.defineProperty(flat, path, { configurable: true, enumerable: true, value: entry, writable: true });
       } else if (entry !== null && typeof entry === "object" && !Array.isArray(entry)) {
         walk(entry as Record<string, unknown>, path);
       } else {
@@ -55,4 +59,76 @@ export function flattenCatalog(value: unknown): Record<string, string> {
   };
   walk(value as Record<string, unknown>, "");
   return flat;
+}
+
+export interface FormatNestedLocaleFileOptions {
+  dict: Record<string, string>;
+  source: Record<string, unknown>;
+  existing?: Record<string, unknown> | undefined;
+}
+
+export function formatNestedLocaleFile(options: FormatNestedLocaleFileOptions): string {
+  const blocks: string[] = [];
+  let scalarLines: string[] = [];
+  const flushScalars = (): void => {
+    if (scalarLines.length > 0) blocks.push(scalarLines.join(",\n"));
+    scalarLines = [];
+  };
+  for (const [groupKey, groupValue] of Object.entries(options.source)) {
+    if (typeof groupValue === "string") {
+      const value = options.dict[groupKey];
+      if (value !== undefined) scalarLines.push(`  ${JSON.stringify(groupKey)}: ${JSON.stringify(value)}`);
+      continue;
+    }
+    if (!isObject(groupValue)) continue;
+    flushScalars();
+    const existingValue = options.existing?.[groupKey];
+    const existingGroup = isObject(existingValue) ? existingValue : undefined;
+    const rendered = renderNestedGroup(groupKey, groupKey, groupValue, existingGroup, options.dict, "  ");
+    if (rendered.length > 0) blocks.push(rendered.join("\n"));
+  }
+  flushScalars();
+  if (blocks.length === 0) return "{}\n";
+  return `{\n${blocks.join(",\n\n")}\n}\n`;
+}
+
+function renderNestedGroup(
+  key: string,
+  path: string,
+  node: Record<string, unknown>,
+  existing: Record<string, unknown> | undefined,
+  dict: Record<string, string>,
+  indent: string,
+): string[] {
+  const inner = `${indent}  `;
+  const lines = [`${indent}${JSON.stringify(key)}: {`];
+  const existingTitle = existing?.[CATALOG_GROUP_TITLE_KEY];
+  const title =
+    typeof existingTitle === "string"
+      ? existingTitle
+      : typeof node[CATALOG_GROUP_TITLE_KEY] === "string"
+        ? node[CATALOG_GROUP_TITLE_KEY]
+        : undefined;
+  if (title !== undefined) lines.push(`${inner}${JSON.stringify(CATALOG_GROUP_TITLE_KEY)}: ${JSON.stringify(title)},`);
+
+  const entries: string[] = [];
+  for (const [childKey, childValue] of Object.entries(node)) {
+    if (childKey === CATALOG_GROUP_TITLE_KEY) continue;
+    const childPath = `${path}.${childKey}`;
+    if (typeof childValue === "string") {
+      const value = dict[childPath];
+      if (value !== undefined) entries.push(`${inner}${JSON.stringify(childKey)}: ${JSON.stringify(value)}`);
+    } else if (isObject(childValue)) {
+      const existingChild = existing?.[childKey];
+      const nested = renderNestedGroup(childKey, childPath, childValue, isObject(existingChild) ? existingChild : undefined, dict, inner);
+      if (nested.length > 0) entries.push(nested.join("\n"));
+    }
+  }
+  if (entries.length === 0) return [];
+  lines.push(entries.join(",\n"), `${indent}}`);
+  return lines;
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }

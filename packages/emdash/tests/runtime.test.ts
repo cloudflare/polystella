@@ -35,8 +35,8 @@ function options(): PolystellaEmdashOptions {
     catalogs: {
       defaultLocale: "en-US",
       locales: {
-        "en-US": { dictionary: { greeting: "Hello" }, filePath: "src/i18n/en-US.json" },
-        "fr-FR": { dictionary: { greeting: "Bonjour" }, filePath: "src/i18n/fr-FR.json" },
+        "en-US": { dictionary: { nav: { greeting: "Hello" } }, filePath: "src/i18n/en-US.json" },
+        "fr-FR": { dictionary: { nav: { greeting: "Bonjour" } }, filePath: "src/i18n/fr-FR.json" },
       },
     },
     models: { allowed: ["model-a"], defaults: "model-a" },
@@ -186,7 +186,7 @@ describe("EmDash Astro runtime", () => {
     expect(middleware[0]?.order).toBe("pre");
     const source = await readFile(middleware[0]?.entrypoint ?? "", "utf8");
     expect(source).toContain("createPolystellaRuntimeMiddleware");
-    expect(source).toContain('"greeting":"Bonjour"');
+    expect(source).toContain('"nav.greeting":"Bonjour"');
     expect(source).toContain('"localePaths":{"en-US":"en-US","fr-FR":"fr"}');
     expect(source).not.toContain("SECRET_TOKEN_NAME");
     expect(source).not.toContain("ACCOUNT_ID_NAME");

@@ -56,6 +56,7 @@ describe("polystellaEmdash", () => {
       "catalog/overrides",
       "catalog/runtime",
       "catalog/export",
+      "translation-sandbox",
       "overrides",
     ]);
     expect(plugin.admin.entry).toBe(descriptor.adminEntry);
@@ -80,6 +81,22 @@ describe("polystellaEmdash", () => {
 
     expect(Object.hasOwn(decoded.catalogs.locales["en-US"]?.dictionary ?? {}, "__proto__")).toBe(true);
     expect(() => createPlugin(generatedOptions)).not.toThrow();
+  });
+
+  it("accepts and preserves nested catalog dictionaries", () => {
+    const options = validOptions();
+    options.catalogs.locales["en-US"] = {
+      dictionary: { nav: { i18n_group_title: "Navigation", home: "Home" } },
+      filePath: "src/i18n/en-US.json",
+    };
+    const runtimeOptions = polystellaEmdash(options).options;
+    if (runtimeOptions === undefined) throw new Error("descriptor options are missing");
+
+    const decoded = JSON.parse(runtimeOptions.serialized) as PolystellaEmdashOptions;
+    expect(decoded.catalogs.locales["en-US"]?.dictionary).toEqual({
+      nav: { i18n_group_title: "Navigation", home: "Home" },
+    });
+    expect(() => createPlugin(runtimeOptions)).not.toThrow();
   });
 
   it.each([

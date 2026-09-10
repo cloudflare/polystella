@@ -10,7 +10,17 @@ Repository JSON remains canonical. The **Catalog** tab lets an
 Administrator generate, edit, clear, inspect deployment state, and
 export temporary per-key overrides on top of the deployed
 dictionaries. Overrides are stored in EmDash, never in the
-repository.
+repository. The locale selector lists translation targets only;
+`catalogs.defaultLocale` remains the source catalog.
+
+## Catalog view
+
+Entries are grouped by their first key segment. A group with an
+`i18n_group_title` displays that title with the group key alongside;
+groups without one fall back to the key. A search box filters groups
+by title, group key, or any entry key. Source cells containing
+`{{tokens}}` show a tooltip reminding Administrators that overrides
+should retain those placeholders.
 
 ## Override states
 

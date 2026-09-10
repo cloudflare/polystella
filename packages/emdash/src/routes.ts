@@ -1,10 +1,13 @@
 import {
   DEFAULT_INPUT_TOKEN_BUDGET,
   resolveModelId,
+  translateSegments,
   type Glossary,
+  type Segment,
   type TranslateBatchAttemptEvent,
   type Translator,
 } from "@cloudflare/polystella-core";
+import type { CatalogSource } from "@cloudflare/polystella-core/catalog";
 import { DEFAULT_UI_STRING_BATCH_SIZE, translateCatalogEntries } from "@cloudflare/polystella-core/catalog/translate";
 import {
   createWorkersAIBindingTranslator,
@@ -22,11 +25,21 @@ import {
   type StorageCollection,
 } from "emdash";
 
-import { applyCatalogOverrides, catalogOverrideId, catalogOverrideState, serializeCatalog, type CatalogOverride } from "./catalog.js";
+import {
+  applyCatalogOverrides,
+  catalogGroupTitles,
+  catalogOverrideId,
+  catalogOverrideState,
+  flattenEmdashCatalogs,
+  serializeCatalog,
+  type CatalogOverride,
+  type FlatPolystellaEmdashOptions,
+} from "./catalog.js";
 import {
   MAX_CATALOG_KEYS,
   MAX_COLLECTION_POLICY_FIELDS,
   MAX_CONTENT_FIELDS,
+  MAX_SANDBOX_CHARACTERS,
   type CollectionPolicy,
   type CatalogEntryView,
   type CatalogExportResponse,
@@ -42,6 +55,7 @@ import {
   type TranslationDebugBatch,
   type TranslationDebugTrace,
   type TranslateContentResponse,
+  type TranslationSandboxResponse,
 } from "./contracts.js";
 import { ContentTranslationInputError, translateContentFields } from "./translate-content.js";
 import type { PolystellaEmdashOptions } from "./index.js";
@@ -76,16 +90,17 @@ const defaultDependencies: PluginRouteDependencies = {
 };
 
 export function createPluginRoutes(
-  options: PolystellaEmdashOptions,
+  inputOptions: PolystellaEmdashOptions,
   dependencies: PluginRouteDependencies = defaultDependencies,
 ): Record<string, PluginRoute> {
+  const options = flattenEmdashCatalogs(inputOptions);
   return {
     "settings/collections": {
       permission: "plugins:manage",
       async handler(ctx) {
         if (ctx.request.method === "GET") return collectionSettings(options, ctx.kv);
         requireMethod(ctx.request, "PUT");
-        const policies = readCollectionPolicies(options, readRecord(ctx.input, "request body").policies);
+        const policies = readCollectionPolicies(readRecord(ctx.input, "request body").policies);
         await ctx.kv.set(COLLECTION_POLICIES_KEY, policies);
         return collectionSettings(options, ctx.kv);
       },
@@ -104,11 +119,11 @@ export function createPluginRoutes(
       async handler(ctx) {
         requireMethod(ctx.request, "GET");
         const collection = readString(readRecord(ctx.input, "query").collection, "collection");
-        const policies = await collectionPolicies(options, ctx.kv);
+        const policies = await collectionPolicies(ctx.kv);
         const policy = Object.hasOwn(policies, collection) ? policies[collection] : undefined;
         return {
           enabled: policy !== undefined,
-          sourceLocale: policy?.sourceLocale ?? null,
+          sourceLocale: policy !== undefined ? options.catalogs.defaultLocale : null,
           fields: policy === undefined ? [] : [...policy.fields],
         } satisfies CollectionPolicyResponse;
       },
@@ -122,15 +137,14 @@ export function createPluginRoutes(
           requireMethod(ctx.request, "POST");
           const input = readRecord(ctx.input, "request body");
           const collection = readString(input.collection, "collection");
-          const targetLocale = configuredLocale(options, readLocale(input.targetLocale, "targetLocale"));
+          const targetLocale = configuredTargetLocale(options, readLocale(input.targetLocale, "targetLocale"));
           const entryId = readString(input.entryId, "entryId");
           const selectedFields = [...new Set(readStringArray(input.fields, "fields", false))];
-          const policies = await collectionPolicies(options, ctx.kv);
+          const policies = await collectionPolicies(ctx.kv);
           const policy = Object.hasOwn(policies, collection) ? policies[collection] : undefined;
           if (policy === undefined) {
             throw PluginRouteError.forbidden("PolyStella is not enabled for this collection");
           }
-          if (targetLocale === policy.sourceLocale) throw PluginRouteError.badRequest("targetLocale must differ from sourceLocale");
           if (selectedFields.length > MAX_CONTENT_FIELDS) {
             throw PluginRouteError.badRequest(`fields cannot contain more than ${MAX_CONTENT_FIELDS} values`);
           }
@@ -154,7 +168,7 @@ export function createPluginRoutes(
               model: settings.translator.modelId,
               maxOutputTokens: options.provider.maxTokens ?? MAX_TOKENS,
               maxSegmentsPerBatch: null,
-              sourceLocale: policy.sourceLocale,
+              sourceLocale: options.catalogs.defaultLocale,
               targetLocale,
               labelSegment: (id) => contentSegmentLabel(id, Object.keys(values)),
             });
@@ -164,7 +178,7 @@ export function createPluginRoutes(
             values,
             translator: settings.translator,
             glossary: settings.glossary,
-            sourceLocale: policy.sourceLocale,
+            sourceLocale: options.catalogs.defaultLocale,
             targetLocale,
             ...(settings.promptInstruction === undefined ? {} : { promptInstruction: settings.promptInstruction }),
             ...(debug === undefined
@@ -196,7 +210,13 @@ export function createPluginRoutes(
         requireMethod(ctx.request, "GET");
         const query = readRecord(ctx.input, "query");
         const locale = query.locale === undefined ? preferredCatalogLocale(options) : readString(query.locale, "locale");
-        return catalogView(options, ctx.kv, overrideStorage(ctx.storage), locale);
+        return catalogView(
+          options,
+          ctx.kv,
+          overrideStorage(ctx.storage),
+          locale,
+          inputOptions.catalogs.locales[inputOptions.catalogs.defaultLocale]?.dictionary,
+        );
       },
     },
     "catalog/generate": {
@@ -204,8 +224,7 @@ export function createPluginRoutes(
       async handler(ctx) {
         requireMethod(ctx.request, "POST");
         const input = readRecord(ctx.input, "request body");
-        const locale = configuredLocale(options, readString(input.locale, "locale"));
-        if (locale === options.catalogs.defaultLocale) throw PluginRouteError.badRequest("cannot translate the default locale");
+        const locale = configuredTargetLocale(options, readString(input.locale, "locale"));
         const keys = [...new Set(readStringArray(input.keys, "keys", false))];
         if (keys.length > MAX_CATALOG_KEYS) throw PluginRouteError.badRequest(`keys cannot contain more than ${MAX_CATALOG_KEYS} values`);
         const source = options.catalogs.locales[options.catalogs.defaultLocale]?.dictionary;
@@ -274,7 +293,7 @@ export function createPluginRoutes(
       async handler(ctx) {
         requireMethod(ctx.request, "PUT");
         const input = readRecord(ctx.input, "request body");
-        const locale = configuredLocale(options, readString(input.locale, "locale"));
+        const locale = configuredTargetLocale(options, readString(input.locale, "locale"));
         const values = Object.entries(readNullableStringRecord(input.overrides, "overrides"));
         if (values.length !== 1) throw PluginRouteError.badRequest("overrides must contain exactly one key");
         const catalog = options.catalogs.locales[locale];
@@ -306,7 +325,7 @@ export function createPluginRoutes(
       async handler(ctx) {
         requireMethod(ctx.request, "PUT");
         const input = readRecord(ctx.input, "request body");
-        const locale = configuredLocale(options, readString(input.locale, "locale"));
+        const locale = configuredTargetLocale(options, readString(input.locale, "locale"));
         const enabled = readBoolean(input.enabled, "enabled");
         if (enabled) await ctx.kv.set(runtimeLocaleKey(locale), true);
         else await ctx.kv.delete(runtimeLocaleKey(locale));
@@ -318,15 +337,75 @@ export function createPluginRoutes(
       permission: "plugins:manage",
       async handler(ctx) {
         requireMethod(ctx.request, "GET");
-        const locale = configuredLocale(options, readString(readRecord(ctx.input, "query").locale, "locale"));
+        const locale = configuredTargetLocale(options, readString(readRecord(ctx.input, "query").locale, "locale"));
         const catalog = options.catalogs.locales[locale];
         if (catalog === undefined) throw PluginRouteError.internal("catalog configuration is unavailable");
         const overrides = usableOverrides(options, locale, await listOverrides(overrideStorage(ctx.storage), locale));
         return {
           filePath: catalog.filePath,
           filename: catalog.filePath.split("/").at(-1) ?? `${locale}.json`,
-          json: serializeCatalog(locale, catalog.dictionary, overrides),
+          json: serializeCatalog(locale, catalog.dictionary, overrides, inputOptions.catalogs.locales[locale]?.dictionary),
         } satisfies CatalogExportResponse;
+      },
+    },
+    "translation-sandbox": {
+      permission: "plugins:manage",
+      async handler(ctx) {
+        let translationStarted = false;
+        let debug: TranslationDebugCollector | undefined;
+        try {
+          requireMethod(ctx.request, "POST");
+          const input = readRecord(ctx.input, "request body");
+          const text = readText(input.text, "text", MAX_SANDBOX_CHARACTERS);
+          if (text.length === 0) throw PluginRouteError.badRequest("text must not be empty");
+          const targetLocale = configuredTargetLocale(options, readLocale(input.targetLocale, "targetLocale"));
+          const model = readString(input.model, "model");
+          if (!options.models.allowed.includes(model)) {
+            throw PluginRouteError.badRequest("model must be allowed by deployment configuration");
+          }
+          const settings = await translationSettings(options, targetLocale, ctx.kv, ctx.log, dependencies, model);
+          if (settings.debugEnabled && (ctx.user?.role ?? 0) >= ADMIN_ROLE) {
+            debug = createTranslationDebugCollector({
+              operation: "sandbox",
+              provider: options.provider.kind,
+              model: settings.translator.modelId,
+              maxOutputTokens: options.provider.maxTokens ?? MAX_TOKENS,
+              maxSegmentsPerBatch: null,
+              sourceLocale: options.catalogs.defaultLocale,
+              targetLocale,
+              labelSegment: () => "text",
+            });
+          }
+          const segment: Segment = { id: "sandbox:0", text };
+          translationStarted = true;
+          const result = await translateSegments({
+            translator: settings.translator,
+            segments: [segment],
+            glossary: settings.glossary,
+            sourceLocale: options.catalogs.defaultLocale,
+            targetLocale,
+            ...(settings.promptInstruction === undefined ? {} : { promptInstruction: settings.promptInstruction }),
+            ...(debug === undefined ? {} : { onBatchAttempt: debug.record }),
+            signal: ctx.request.signal,
+          });
+          const translation = result.translations.get(segment.id);
+          if (translation === undefined) {
+            const message = "[polystella-emdash] missing translation for sandbox text";
+            if (debug !== undefined) debug.markValidationIssue(message, [segment.id]);
+            throw new Error(message);
+          }
+          return {
+            translation,
+            ...(debug === undefined ? {} : { debug: debug.finish(result.batchCount) }),
+          } satisfies TranslationSandboxResponse;
+        } catch (error) {
+          if (debug !== undefined && translationStarted) {
+            const message = translationFailureMessage(error, ctx.log, "sandbox", true, debug.id);
+            const trace = debug.finish(undefined, message);
+            return { translation: null, error: message, debug: trace } satisfies TranslationSandboxResponse;
+          }
+          throwTranslationFailure(error, ctx.log, "sandbox", translationStarted);
+        }
       },
     },
     overrides: {
@@ -334,7 +413,7 @@ export function createPluginRoutes(
       cacheControl: "public, max-age=60, stale-while-revalidate=300",
       async handler(ctx) {
         requireMethod(ctx.request, "GET");
-        const locale = configuredLocale(options, readString(readRecord(ctx.input, "query").locale, "locale"));
+        const locale = configuredTargetLocale(options, readString(readRecord(ctx.input, "query").locale, "locale"));
         if (!(await runtimeLocaleEnabled(ctx.kv, locale))) {
           return { enabled: false, overrides: {} } satisfies RuntimeOverridesResponse;
         }
@@ -349,7 +428,7 @@ async function collectionSettings(options: PolystellaEmdashOptions, kv: KVAccess
   return {
     defaultLocale: options.catalogs.defaultLocale,
     locales: Object.keys(options.catalogs.locales).sort(),
-    policies: await collectionPolicies(options, kv),
+    policies: await collectionPolicies(kv),
   };
 }
 
@@ -359,7 +438,7 @@ function overrideStorage(storage: Record<string, StorageCollection | undefined>)
   return collection;
 }
 
-async function collectionPolicies(options: PolystellaEmdashOptions, kv: KVAccess): Promise<Record<string, CollectionPolicy>> {
+async function collectionPolicies(kv: KVAccess): Promise<Record<string, CollectionPolicy>> {
   const stored = await kv.get<unknown>(COLLECTION_POLICIES_KEY);
   if (!isRecord(stored)) return {};
   const policies: Record<string, CollectionPolicy> = {};
@@ -367,8 +446,6 @@ async function collectionPolicies(options: PolystellaEmdashOptions, kv: KVAccess
     if (
       !isAllowedCollectionSlug(collection) ||
       !isRecord(value) ||
-      typeof value.sourceLocale !== "string" ||
-      !Object.hasOwn(options.catalogs.locales, value.sourceLocale) ||
       !isStringArray(value.fields) ||
       value.fields.length === 0 ||
       value.fields.length > MAX_COLLECTION_POLICY_FIELDS ||
@@ -379,14 +456,14 @@ async function collectionPolicies(options: PolystellaEmdashOptions, kv: KVAccess
     Object.defineProperty(policies, collection, {
       configurable: true,
       enumerable: true,
-      value: { sourceLocale: value.sourceLocale, fields: [...new Set(value.fields)].sort() },
+      value: { fields: [...new Set(value.fields)].sort() },
       writable: true,
     });
   }
   return policies;
 }
 
-function readCollectionPolicies(options: PolystellaEmdashOptions, value: unknown): Record<string, CollectionPolicy> {
+function readCollectionPolicies(value: unknown): Record<string, CollectionPolicy> {
   const input = readRecord(value, "policies");
   if (Object.keys(input).length > MAX_COLLECTIONS) {
     throw PluginRouteError.badRequest(`policies cannot contain more than ${MAX_COLLECTIONS} collections`);
@@ -397,9 +474,8 @@ function readCollectionPolicies(options: PolystellaEmdashOptions, value: unknown
     if (!isAllowedCollectionSlug(collection))
       throw PluginRouteError.badRequest(`collection ${JSON.stringify(collection)} is not supported`);
     const policy = readRecord(rawPolicy, `policies.${collection}`);
-    const sourceLocale = readLocale(policy.sourceLocale, `policies.${collection}.sourceLocale`);
-    if (!Object.hasOwn(options.catalogs.locales, sourceLocale)) {
-      throw PluginRouteError.badRequest(`policies.${collection}.sourceLocale must be a configured locale`);
+    if (Object.hasOwn(policy, "sourceLocale")) {
+      throw PluginRouteError.badRequest(`policies.${collection}.sourceLocale is controlled by deployment configuration`);
     }
     const fields = [...new Set(readStringArray(policy.fields, `policies.${collection}.fields`, false))].sort();
     if (fields.length > MAX_COLLECTION_POLICY_FIELDS) {
@@ -412,7 +488,7 @@ function readCollectionPolicies(options: PolystellaEmdashOptions, value: unknown
     Object.defineProperty(policies, collection, {
       configurable: true,
       enumerable: true,
-      value: { sourceLocale, fields },
+      value: { fields },
       writable: true,
     });
   }
@@ -421,22 +497,21 @@ function readCollectionPolicies(options: PolystellaEmdashOptions, value: unknown
 
 async function translationSettingsView(options: PolystellaEmdashOptions, kv: KVAccess): Promise<TranslationSettingsResponse> {
   const stored = await storedTranslationSettings(options, kv);
-  const locales = Object.keys(options.catalogs.locales)
-    .sort()
-    .map((locale) => {
-      const settings = stored.locales[locale];
-      if (settings === undefined) throw PluginRouteError.internal(`translation settings for ${locale} are unavailable`);
-      const defaultGlossary = options.glossaryDefaults?.[locale];
-      return {
-        locale,
-        defaultModel: resolveModelId(options.models.defaults, locale),
-        model: settings.model,
-        defaultGlossary: defaultGlossary === undefined ? "" : JSON.stringify(defaultGlossary, null, 2),
-        glossaryMode: settings.glossaryMode,
-        glossaryText: settings.glossaryText,
-      };
-    });
+  const locales = targetLocales(options).map((locale) => {
+    const settings = stored.locales[locale];
+    if (settings === undefined) throw PluginRouteError.internal(`translation settings for ${locale} are unavailable`);
+    const defaultGlossary = options.glossaryDefaults?.[locale];
+    return {
+      locale,
+      defaultModel: resolveModelId(options.models.defaults, locale),
+      model: settings.model,
+      defaultGlossary: defaultGlossary === undefined ? "" : JSON.stringify(defaultGlossary, null, 2),
+      glossaryMode: settings.glossaryMode,
+      glossaryText: settings.glossaryText,
+    };
+  });
   return {
+    defaultLocale: options.catalogs.defaultLocale,
     debugEnabled: stored.debugEnabled,
     allowedModels: [...options.models.allowed],
     locales,
@@ -451,12 +526,12 @@ async function translationSettingsView(options: PolystellaEmdashOptions, kv: KVA
 async function saveTranslationSettings(options: PolystellaEmdashOptions, kv: KVAccess, input: Record<string, unknown>): Promise<void> {
   const debugEnabled = input.debugEnabled === undefined ? false : readBoolean(input.debugEnabled, "debugEnabled");
   const localeInput = readRecord(input.locales, "locales");
-  const configuredLocales = Object.keys(options.catalogs.locales).sort();
+  const configuredLocales = targetLocales(options);
   if (
     Object.keys(localeInput).length !== configuredLocales.length ||
     configuredLocales.some((locale) => !Object.hasOwn(localeInput, locale))
   ) {
-    throw PluginRouteError.badRequest("locales must contain every configured locale");
+    throw PluginRouteError.badRequest("locales must contain every configured target locale");
   }
 
   const values = configuredLocales.map((locale) => {
@@ -509,7 +584,7 @@ async function storedTranslationSettings(options: PolystellaEmdashOptions, kv: K
   const storedLocales = isRecord(storedRoot.locales) ? storedRoot.locales : {};
   const storedInstructions = isRecord(storedRoot.instructions) ? storedRoot.instructions : {};
   const locales = Object.fromEntries(
-    Object.keys(options.catalogs.locales).map((locale) => {
+    targetLocales(options).map((locale) => {
       const localeSettings = isRecord(storedLocales[locale]) ? storedLocales[locale] : {};
       const storedModel = localeSettings.model;
       const storedMode = localeSettings.glossaryMode;
@@ -540,7 +615,7 @@ async function storedTranslationSettings(options: PolystellaEmdashOptions, kv: K
 }
 
 async function runtimeLocales(options: PolystellaEmdashOptions, kv: KVAccess): Promise<string[]> {
-  const configured = Object.keys(options.catalogs.locales);
+  const configured = targetLocales(options);
   const states = await Promise.all(configured.map(async (locale) => ({ locale, enabled: await runtimeLocaleEnabled(kv, locale) })));
   return states
     .filter(({ enabled }) => enabled)
@@ -557,23 +632,25 @@ function runtimeLocaleKey(locale: string): string {
 }
 
 async function catalogView(
-  options: PolystellaEmdashOptions,
+  options: FlatPolystellaEmdashOptions,
   kv: KVAccess,
   storage: StorageCollection,
   locale: string,
+  source?: CatalogSource | undefined,
 ): Promise<CatalogViewResponse> {
-  const catalog = options.catalogs.locales[configuredLocale(options, locale)];
-  const source = options.catalogs.locales[options.catalogs.defaultLocale]?.dictionary;
-  if (catalog === undefined || source === undefined) throw PluginRouteError.internal("catalog configuration is unavailable");
+  const catalog = options.catalogs.locales[configuredTargetLocale(options, locale)];
+  const flatSource = options.catalogs.locales[options.catalogs.defaultLocale]?.dictionary;
+  if (catalog === undefined || flatSource === undefined || source === undefined)
+    throw PluginRouteError.internal("catalog configuration is unavailable");
   const [storedOverrides, enabledLocales] = await Promise.all([listOverrides(storage, locale), runtimeLocales(options, kv)]);
   const overrides = usableOverrides(options, locale, storedOverrides);
   const overrideByKey = new Map(overrides.map((override) => [override.key, override]));
-  const keys = [...new Set([...Object.keys(source), ...Object.keys(catalog.dictionary), ...overrideByKey.keys()])].sort();
+  const keys = [...new Set([...Object.keys(flatSource), ...Object.keys(catalog.dictionary), ...overrideByKey.keys()])].sort();
   const entries: CatalogEntryView[] = keys.map((key) => {
     const override = overrideByKey.get(key);
     return {
       key,
-      source: Object.hasOwn(source, key) ? (source[key] ?? null) : null,
+      source: Object.hasOwn(flatSource, key) ? (flatSource[key] ?? null) : null,
       deployed: Object.hasOwn(catalog.dictionary, key) ? (catalog.dictionary[key] ?? null) : null,
       override: override?.value ?? null,
       state: override === undefined ? null : catalogOverrideState(catalog.dictionary, override),
@@ -582,9 +659,14 @@ async function catalogView(
   return {
     defaultLocale: options.catalogs.defaultLocale,
     locale,
-    locales: Object.entries(options.catalogs.locales)
-      .map(([code, value]) => ({ locale: code, filePath: value.filePath, runtimeEnabled: enabledLocales.includes(code) }))
+    locales: targetLocales(options)
+      .map((code) => {
+        const value = options.catalogs.locales[code];
+        if (value === undefined) throw PluginRouteError.internal(`catalog for ${code} is unavailable`);
+        return { locale: code, filePath: value.filePath, runtimeEnabled: enabledLocales.includes(code) };
+      })
       .sort((left, right) => left.locale.localeCompare(right.locale)),
+    groups: catalogGroupTitles(source),
     entries,
   };
 }
@@ -641,12 +723,13 @@ async function translationSettings(
   kv: KVAccess,
   log: LogAccess,
   dependencies: PluginRouteDependencies,
+  modelOverride?: string | undefined,
 ): Promise<{ translator: Translator; glossary: Glossary; debugEnabled: boolean; promptInstruction?: string | undefined }> {
   const [storedSettings, env] = await Promise.all([storedTranslationSettings(options, kv), dependencies.getEnv()]);
   const stored = storedSettings.locales[locale];
   if (stored === undefined) throw PluginRouteError.internal(`translation settings for ${locale} are unavailable`);
   const deploymentModel = resolveModelId(options.models.defaults, locale);
-  const model = stored.model ?? deploymentModel;
+  const model = modelOverride ?? stored.model ?? deploymentModel;
   const glossary = resolveGlossary(options.glossaryDefaults?.[locale], stored.glossaryMode, stored.glossaryText.trim());
   const promptInstruction = resolveInstructions(
     options.rules ?? [],
@@ -856,6 +939,7 @@ function safeTranslationFailure(message: string): boolean {
     message.startsWith("[polystella] unexpected Workers AI binding response shape ") ||
     message.startsWith("[polystella] token-preservation validation failed for ") ||
     message.startsWith("[polystella-emdash] missing translation for internal segment ") ||
+    message.startsWith("[polystella-emdash] missing translation for sandbox text") ||
     message.startsWith("[polystella-emdash] translation changed placeholder tokens in field ")
   );
 }
@@ -869,14 +953,26 @@ function isWorkersAIBinding(value: unknown): value is WorkersAIBinding {
 }
 
 function preferredCatalogLocale(options: PolystellaEmdashOptions): string {
-  return (
-    Object.keys(options.catalogs.locales).find((locale) => locale !== options.catalogs.defaultLocale) ?? options.catalogs.defaultLocale
-  );
+  const locale = targetLocales(options)[0];
+  if (locale === undefined) throw PluginRouteError.badRequest("no target locales are configured");
+  return locale;
 }
 
 function configuredLocale(options: PolystellaEmdashOptions, locale: string): string {
   if (!Object.hasOwn(options.catalogs.locales, locale)) throw PluginRouteError.notFound(`unknown locale "${locale}"`);
   return locale;
+}
+
+function configuredTargetLocale(options: PolystellaEmdashOptions, locale: string): string {
+  const configured = configuredLocale(options, locale);
+  if (configured === options.catalogs.defaultLocale) throw PluginRouteError.badRequest("locale must be a translation target");
+  return configured;
+}
+
+function targetLocales(options: PolystellaEmdashOptions): string[] {
+  return Object.keys(options.catalogs.locales)
+    .filter((locale) => locale !== options.catalogs.defaultLocale)
+    .sort();
 }
 
 function requireMethod(request: Request, expected: string): void {

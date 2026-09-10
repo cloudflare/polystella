@@ -5,6 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { validatePolystellaEmdashOptions, type PolystellaEmdashOptions } from "./index.js";
+import { flattenEmdashCatalogs } from "./catalog.js";
 import type { PolystellaRuntimeConfig } from "./runtime.js";
 
 declare global {
@@ -27,11 +28,12 @@ export function polystellaEmdashAstro(
   runtimeOptions: PolystellaEmdashAstroOptions = {},
 ): AstroIntegration {
   validatePolystellaEmdashOptions(options);
+  const normalized = flattenEmdashCatalogs(options);
   const runtimeConfig: PolystellaRuntimeConfig = {
     catalogs: {
-      defaultLocale: options.catalogs.defaultLocale,
+      defaultLocale: normalized.catalogs.defaultLocale,
       locales: Object.fromEntries(
-        Object.entries(options.catalogs.locales).map(([locale, catalog]) => [
+        Object.entries(normalized.catalogs.locales).map(([locale, catalog]) => [
           locale,
           { dictionary: Object.fromEntries(Object.entries(catalog.dictionary)) },
         ]),
