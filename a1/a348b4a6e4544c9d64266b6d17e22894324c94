@@ -1,0 +1,19 @@
+pnpm-lock.yaml
+  s_b5a678f478be2f::t_99a41f1f220ff0 269-271
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "a1a348b4a6e4544c9d64266b6d17e22894324c94",
+  "prompts": {},
+  "sessions": {
+    "s_b5a678f478be2f": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f74470190ffeqy3C4K4G8txNY4",
+        "model": "@cf/deepseek-ai/deepseek-v4-flash"
+      },
+      "human_author": "Diogo Carneiro <dcarneiro@cloudflare.com>"
+    }
+  }
+}
