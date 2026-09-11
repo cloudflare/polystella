@@ -105,7 +105,7 @@ export function ContentEditorPanel({ collection, entry, locale }: ContentEditorP
     }
     if (
       !window.confirm(
-        "PolyStella translates the latest saved values, replaces the selected fields, and reloads the editor. Unsaved changes will be lost. Continue?",
+        `PolyStella translates the latest saved ${policy?.sourceLocale ?? "source"} values into this ${targetLocale} draft, replaces the selected fields, and reloads the editor. Unsaved changes will be lost. Continue?`,
       )
     ) {
       return;
@@ -159,7 +159,7 @@ export function ContentEditorPanel({ collection, entry, locale }: ContentEditorP
         <TranslationDebugView trace={debug} onDismiss={() => setDebug(null)} />
       )}
       <p style={mutedStyle}>
-        Translate saved fields from {policy.sourceLocale} to {targetLocale}.
+        Translate the latest saved {policy.sourceLocale} values into this {targetLocale} draft.
       </p>
       {eligibleFields.map((field) => (
         <Checkbox

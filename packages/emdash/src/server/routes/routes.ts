@@ -50,6 +50,7 @@ import {
   MAX_INSTRUCTION_CHARACTERS,
 } from "../settings-storage.js";
 import { ContentTranslationInputError, translateContentFields } from "../translate-content.js";
+import { findSourceContentItem } from "../source-content.js";
 import {
   catalogSegmentLabel,
   contentSegmentLabel,
@@ -79,6 +80,7 @@ const defaultDependencies: PluginRouteDependencies = {
     return (await import("virtual:emdash/env")).env ?? process.env;
   },
   now: () => new Date(),
+  findSourceContent: findSourceContentItem,
 };
 
 export function createPluginRoutes(
@@ -147,8 +149,10 @@ export function createPluginRoutes(
           const item = await ctx.content.get(collection, entryId);
           if (item === null) throw PluginRouteError.notFound("content entry not found");
           if (item.locale !== targetLocale) throw PluginRouteError.badRequest("entry locale does not match targetLocale");
+          const sourceItem =
+            (await dependencies.findSourceContent?.(collection, entryId, options.catalogs.defaultLocale)) ?? item;
           const values = Object.fromEntries(
-            selectedFields.flatMap((field) => (Object.hasOwn(item.data, field) ? [[field, item.data[field]]] : [])),
+            selectedFields.flatMap((field) => (Object.hasOwn(sourceItem.data, field) ? [[field, sourceItem.data[field]]] : [])),
           );
           if (Object.keys(values).length === 0) throw PluginRouteError.badRequest("selected fields have no saved values");
 

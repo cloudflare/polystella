@@ -1,4 +1,4 @@
-import type { KVAccess, PluginRoute, RouteContext, StorageCollection } from "emdash";
+import type { ContentItem, KVAccess, PluginRoute, RouteContext, StorageCollection } from "emdash";
 import type { WorkersAIInput } from "@cloudflare/polystella-providers/workers-ai";
 import { describe, expect, it } from "vitest";
 
@@ -146,6 +146,27 @@ async function enablePosts(kv: KVAccess): Promise<void> {
   });
 }
 
+function sourceItem(title: string): ContentItem {
+  return {
+    id: "entry-source",
+    type: "posts",
+    slug: "hello",
+    status: "published",
+    data: { title },
+    authorId: null,
+    primaryBylineId: null,
+    createdAt: "2026-09-03T00:00:00.000Z",
+    updatedAt: "2026-09-03T00:00:00.000Z",
+    publishedAt: null,
+    scheduledAt: null,
+    liveRevisionId: null,
+    draftRevisionId: null,
+    version: 1,
+    locale: "en-US",
+    translationGroup: "group-1",
+  };
+}
+
 async function enableDebug(routes: Record<string, PluginRoute>, kv: KVAccess, storage: StorageCollection): Promise<void> {
   await route(routes, "settings/translation").handler(
     context(
@@ -259,6 +280,49 @@ describe("EmDash plugin routes", () => {
         context({ collection: "posts", entryId: "entry-1", targetLocale: "fr-FR", fields: ["secret"] }, "POST", kv, storage),
       ),
     ).rejects.toThrow("enabled in PolyStella collection settings");
+  });
+
+  it("translates the source-locale sibling's saved values, not the draft copy", async () => {
+    const translatedTexts: string[] = [];
+    const routes = createPluginRoutes(options(), {
+      ...dependencies(),
+      findSourceContent: async () => sourceItem("Fresh source title"),
+      getEnv: async () => ({
+        AI: {
+          run: async (_model: string, input: WorkersAIInput) => {
+            translatedTexts.push(input.messages.map((message) => message.content).join("\n"));
+            return { response: "@@field:0@@\nTitre traduit" };
+          },
+        },
+      }),
+    });
+    const kv = createKv();
+    const storage = createStorage();
+    await enablePosts(kv);
+
+    const translated = (await route(routes, "translate-content").handler(
+      context({ collection: "posts", entryId: "entry-1", targetLocale: "fr-FR", fields: ["title"] }, "POST", kv, storage),
+    )) as TranslateContentResponse;
+
+    expect(translated.patch).toEqual({ title: "Titre traduit" });
+    expect(translatedTexts.join("")).toContain("Fresh source title");
+    expect(translatedTexts.join("")).not.toContain("Hello");
+  });
+
+  it("falls back to the draft's saved values when no source sibling exists", async () => {
+    const routes = createPluginRoutes(options(), {
+      ...dependencies(),
+      findSourceContent: async () => null,
+    });
+    const kv = createKv();
+    const storage = createStorage();
+    await enablePosts(kv);
+
+    const translated = (await route(routes, "translate-content").handler(
+      context({ collection: "posts", entryId: "entry-1", targetLocale: "fr-FR", fields: ["title"] }, "POST", kv, storage),
+    )) as TranslateContentResponse;
+
+    expect(translated.patch).toEqual({ title: "Bonjour" });
   });
 
   it("returns request-scoped debug traces only to administrators", async () => {
