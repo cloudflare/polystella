@@ -1,6 +1,6 @@
 import { EMPTY_GLOSSARY, type Glossary } from "@cloudflare/polystella-core";
 
-export type CustomizationMode = "default" | "append" | "replace";
+import type { CustomizationMode } from "./contracts.js";
 
 export function runtimeOverrideSettingKey(locale: string): string {
   return `runtimeOverride:${locale}`;

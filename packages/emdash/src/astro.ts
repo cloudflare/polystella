@@ -4,9 +4,9 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { validatePolystellaEmdashOptions, type PolystellaEmdashOptions } from "./index.js";
+import { validatePolystellaEmdashOptions, type PolystellaEmdashOptions } from "./server/options.js";
 import { flattenEmdashCatalogs } from "./catalog.js";
-import type { PolystellaRuntimeConfig } from "./runtime.js";
+import type { PolystellaRuntimeConfig } from "./runtime/runtime.js";
 
 declare global {
   namespace App {

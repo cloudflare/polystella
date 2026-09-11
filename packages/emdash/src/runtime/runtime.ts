@@ -2,11 +2,10 @@ import { resolveTranslations, type CatalogDictionary, type TranslateFn } from "@
 import { getPluginSetting, PluginStorageRepository } from "emdash";
 import { getDb } from "emdash/runtime";
 
-import { applyCatalogOverrides } from "./catalog.js";
-import { POLYSTELLA_PLUGIN_ID } from "./contracts.js";
-import { cachedRuntimeOverrides } from "./runtime-cache.js";
-import { listOverrides, usableOverrides } from "./routes.js";
-import { runtimeOverrideSettingKey } from "./settings.js";
+import { applyCatalogOverrides, listOverrides, usableOverrides } from "../catalog.js";
+import { POLYSTELLA_PLUGIN_ID } from "../contracts.js";
+import { cachedRuntimeOverrides } from "../runtime-cache.js";
+import { runtimeOverrideSettingKey } from "../settings.js";
 
 interface RuntimeCatalog {
   dictionary: CatalogDictionary;

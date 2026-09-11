@@ -11,7 +11,7 @@ import {
   type TranslateContentResponse,
   type TranslationSandboxResponse,
 } from "../src/contracts.js";
-import { createPluginRoutes, type PluginRouteDependencies } from "../src/routes.js";
+import { createPluginRoutes, type PluginRouteDependencies } from "../src/server/routes/routes.js";
 import type { CatalogOverride, PolystellaEmdashOptions } from "../src/index.js";
 
 function options(): PolystellaEmdashOptions {

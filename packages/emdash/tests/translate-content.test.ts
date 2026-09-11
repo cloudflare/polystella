@@ -2,7 +2,7 @@ import type { Translator } from "@cloudflare/polystella-core";
 import { EMPTY_GLOSSARY } from "@cloudflare/polystella-core";
 import { describe, expect, it } from "vitest";
 
-import { translateContentFields } from "../src/translate-content.js";
+import { translateContentFields } from "../src/server/translate-content.js";
 
 function translator(response: string): Translator {
   return { modelId: "test", translate: async () => response };

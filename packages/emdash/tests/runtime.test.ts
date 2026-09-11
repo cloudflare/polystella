@@ -9,7 +9,7 @@ import { describe, expect, it } from "vitest";
 import { polystellaEmdashAstro } from "../src/astro.js";
 import type { PolystellaEmdashOptions } from "../src/index.js";
 import { invalidateRuntimeOverrides } from "../src/runtime-cache.js";
-import { createPolystellaRuntime, createPolystellaRuntimeMiddleware, type PolystellaRuntimeConfig } from "../src/runtime.js";
+import { createPolystellaRuntime, createPolystellaRuntimeMiddleware, type PolystellaRuntimeConfig } from "../src/runtime/runtime.js";
 
 function runtimeConfig(): PolystellaRuntimeConfig {
   return {
