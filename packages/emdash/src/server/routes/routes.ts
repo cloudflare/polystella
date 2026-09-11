@@ -149,8 +149,7 @@ export function createPluginRoutes(
           const item = await ctx.content.get(collection, entryId);
           if (item === null) throw PluginRouteError.notFound("content entry not found");
           if (item.locale !== targetLocale) throw PluginRouteError.badRequest("entry locale does not match targetLocale");
-          const sourceItem =
-            (await dependencies.findSourceContent?.(collection, entryId, options.catalogs.defaultLocale)) ?? item;
+          const sourceItem = (await dependencies.findSourceContent?.(collection, entryId, options.catalogs.defaultLocale)) ?? item;
           const values = Object.fromEntries(
             selectedFields.flatMap((field) => (Object.hasOwn(sourceItem.data, field) ? [[field, sourceItem.data[field]]] : [])),
           );

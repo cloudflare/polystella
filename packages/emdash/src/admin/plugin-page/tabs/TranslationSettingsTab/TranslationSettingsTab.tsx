@@ -73,6 +73,54 @@ export function TranslationSettingsTab(): ReactNode {
         <p style={mutedStyle}>Choose a model and customize code-defined guidance without redeploying.</p>
       </div>
       {error === null ? null : <ErrorMessage>{error}</ErrorMessage>}
+      {settings === null ? null : (
+        <LayerCard style={cardStyle}>
+          <div style={stackStyle}>
+            <Switch
+              label="Debug mode"
+              checked={settings.debugEnabled}
+              disabled={working}
+              onCheckedChange={(debugEnabled) => setSettings((current) => (current === null ? null : { ...current, debugEnabled }))}
+            />
+            <small style={mutedStyle}>
+              Administrators receive request-scoped prompts, normalized model responses, and batch diagnostics. Debug traces are not stored
+              on the server.
+            </small>
+            <h3>Shared translation instructions</h3>
+            <Select
+              label="Instruction behavior"
+              value={settings.instructions.mode}
+              disabled={working}
+              onValueChange={(value) => {
+                if (isCustomizationMode(value)) {
+                  setSettings((current) =>
+                    current === null ? null : { ...current, instructions: { ...current.instructions, mode: value } },
+                  );
+                }
+              }}
+            >
+              <Select.Option value="default">Use code defaults</Select.Option>
+              <Select.Option value="append">Append custom instructions</Select.Option>
+              <Select.Option value="replace">Replace code instructions</Select.Option>
+            </Select>
+            {settings.instructions.mode === "default" ? null : (
+              <Textarea
+                label="Custom instructions"
+                rows={5}
+                value={settings.instructions.text}
+                disabled={working}
+                onValueChange={(text) =>
+                  setSettings((current) => (current === null ? null : { ...current, instructions: { ...current.instructions, text } }))
+                }
+              />
+            )}
+            <details>
+              <summary>View code-defined instructions</summary>
+              <pre style={codeStyle}>{settings.instructions.defaultText || "No code-defined instructions."}</pre>
+            </details>
+          </div>
+        </LayerCard>
+      )}
       {settings?.locales.map((locale) => (
         <LayerCard key={locale.locale}>
           <details>
@@ -112,14 +160,16 @@ export function TranslationSettingsTab(): ReactNode {
                 <Select.Option value="append">Append custom glossary</Select.Option>
                 <Select.Option value="replace">Replace code glossary</Select.Option>
               </Select>
-              <Textarea
-                label="Custom glossary"
-                description="Plain text appended to or used instead of the code-defined glossary."
-                rows={5}
-                value={locale.glossaryText}
-                disabled={working || locale.glossaryMode === "default"}
-                onValueChange={(glossaryText) => updateLocale(locale.locale, { glossaryText })}
-              />
+              {locale.glossaryMode === "default" ? null : (
+                <Textarea
+                  label="Custom glossary"
+                  description="Plain text appended to or used instead of the code-defined glossary."
+                  rows={5}
+                  value={locale.glossaryText}
+                  disabled={working}
+                  onValueChange={(glossaryText) => updateLocale(locale.locale, { glossaryText })}
+                />
+              )}
               <details>
                 <summary>View code-defined glossary</summary>
                 <pre style={codeStyle}>{locale.defaultGlossary || "No code-defined glossary."}</pre>
@@ -128,52 +178,6 @@ export function TranslationSettingsTab(): ReactNode {
           </details>
         </LayerCard>
       ))}
-      {settings === null ? null : (
-        <LayerCard style={cardStyle}>
-          <div style={stackStyle}>
-            <Switch
-              label="Debug mode"
-              checked={settings.debugEnabled}
-              disabled={working}
-              onCheckedChange={(debugEnabled) => setSettings((current) => (current === null ? null : { ...current, debugEnabled }))}
-            />
-            <small style={mutedStyle}>
-              Administrators receive request-scoped prompts, normalized model responses, and batch diagnostics. Debug traces are not stored
-              on the server.
-            </small>
-            <h3>Shared translation instructions</h3>
-            <Select
-              label="Instruction behavior"
-              value={settings.instructions.mode}
-              disabled={working}
-              onValueChange={(value) => {
-                if (isCustomizationMode(value)) {
-                  setSettings((current) =>
-                    current === null ? null : { ...current, instructions: { ...current.instructions, mode: value } },
-                  );
-                }
-              }}
-            >
-              <Select.Option value="default">Use code defaults</Select.Option>
-              <Select.Option value="append">Append custom instructions</Select.Option>
-              <Select.Option value="replace">Replace code instructions</Select.Option>
-            </Select>
-            <Textarea
-              label="Custom instructions"
-              rows={5}
-              value={settings.instructions.text}
-              disabled={working || settings.instructions.mode === "default"}
-              onValueChange={(text) =>
-                setSettings((current) => (current === null ? null : { ...current, instructions: { ...current.instructions, text } }))
-              }
-            />
-            <details>
-              <summary>View code-defined instructions</summary>
-              <pre style={codeStyle}>{settings.instructions.defaultText || "No code-defined instructions."}</pre>
-            </details>
-          </div>
-        </LayerCard>
-      )}
       <div>
         <Button variant="primary" loading={working} disabled={settings === null} onClick={() => void save()}>
           Save translation settings

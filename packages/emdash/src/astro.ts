@@ -55,7 +55,7 @@ export function polystellaEmdashAstro(
         await writeFile(
           middlewarePath,
           [
-            `import { createPolystellaRuntimeMiddleware } from ${JSON.stringify(new URL("./runtime.js", import.meta.url).href)};`,
+            `import { createPolystellaRuntimeMiddleware } from ${JSON.stringify(new URL("./runtime/runtime.js", import.meta.url).href)};`,
             `export const onRequest = createPolystellaRuntimeMiddleware(${JSON.stringify(configuredRuntime)});`,
             "",
           ].join("\n"),
