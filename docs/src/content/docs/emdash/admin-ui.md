@@ -1,22 +1,23 @@
 ---
 title: EmDash admin UI
-description: The Kumo React panels — Catalog, Collections, Translation settings — and the content-editor translation panel.
+description: The Kumo React panels — Catalog, Collections, Translation settings, Translation sandbox — and the content-editor translation panel.
 aiGenerated: true
 sidebar:
   label: Admin UI
 ---
 
-The native admin registers one **PolyStella** page with three tabs —
-**Catalog**, **Collections**, and **Translation settings** — rendered
-with EmDash's Kumo design system. No generated plugin settings page
-is registered.
+The native admin registers one **PolyStella** page with four tabs —
+**Catalog**, **Collections**, **Translation settings**, and
+**Translation sandbox** — rendered with EmDash's Kumo design system.
+No generated plugin settings page is registered.
 
 ## Collections tab
 
 Lets an Administrator enable project collections and choose their
-source locale and translatable fields. Only fields the collection
-schema marks as translatable and of a supported type (`string`,
-`text`, Portable Text) are offered.
+translatable fields. The source is always the code-defined
+`catalogs.defaultLocale`; plugin settings display it but cannot change
+it. Only fields the collection schema marks as translatable and of a
+supported type (`string`, `text`, Portable Text) are offered.
 
 No collection is enabled until an Administrator saves a valid policy.
 Missing or malformed stored policy fails closed — the collection is
@@ -27,7 +28,8 @@ metadata to plugin routes).
 
 ## Translation settings tab
 
-Per-locale settings, each with its own model and glossary behavior:
+Target-locale settings, each with its own model and glossary behavior. The
+code-defined default locale is source-only and is not listed here:
 
 - **Translation model** — pick from `models.allowed`, or keep the
   code default (`models.defaults`). A model outside `allowed` cannot
@@ -39,26 +41,42 @@ Per-locale settings, each with its own model and glossary behavior:
 - **Shared translation instructions** — use code defaults, append,
   or replace the `rules` from configuration.
 
-**Debug mode** is a per-project switch. When enabled, content and
-catalog translation traces include the effective model, batch
+**Debug mode** is a per-project switch. When enabled, content,
+catalog, and sandbox translation traces include the effective model, batch
 metrics, exact prompts, every provider attempt, normalized model
 responses, parsed translations, validation issues, timings, and a
 diagnostic ID. Traces are returned only to administrators, are not
 stored server-side, and never include credentials, authorization
 headers, account IDs, or raw provider HTTP envelopes.
 
+## Translation sandbox tab
+
+Lets an Administrator translate up to 30,000 characters of freeform
+text from `catalogs.defaultLocale` to any configured non-default
+locale. Each request can select any model in `models.allowed` without
+changing saved settings. The target locale's glossary and shared
+instructions apply. Output stays in the browser and does not change
+content, catalog overrides, or repository files.
+
+The tab shows a named percentage stage while translation runs and a
+100% completion state. These percentages describe client request
+stages; EmDash plugin routes do not stream provider or batch progress.
+
 ## Content-editor panel
 
 The panel appears for Editors and Administrators. It translates
 selected `string`, `text`, and Portable Text fields in an existing
-target-locale draft — the source locale is the collection's policy
-source, and the target must differ from it.
+target-locale draft — the source locale is the code-defined
+`catalogs.defaultLocale`, and the target must differ from it.
 
 The private route rereads selected values through its `content:read`
 capability, so the browser never supplies the values being
 translated. The panel updates the draft with EmDash's `_rev` token
 and reloads after success. Unsaved browser changes are not translated
 and are lost after confirmation.
+
+Named percentage stages show when the panel is loading the latest
+saved entry, translating selected fields, and saving the patch.
 
 Successful content traces survive the existing editor reload in
 browser session storage for one view, so an Administrator can inspect

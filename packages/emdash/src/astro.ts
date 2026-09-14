@@ -4,8 +4,9 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { validatePolystellaEmdashOptions, type PolystellaEmdashOptions } from "./index.js";
-import type { PolystellaRuntimeConfig } from "./runtime.js";
+import { validatePolystellaEmdashOptions, type PolystellaEmdashOptions } from "./server/options.js";
+import { flattenEmdashCatalogs } from "./catalog.js";
+import type { PolystellaRuntimeConfig } from "./runtime/runtime.js";
 
 declare global {
   namespace App {
@@ -27,11 +28,12 @@ export function polystellaEmdashAstro(
   runtimeOptions: PolystellaEmdashAstroOptions = {},
 ): AstroIntegration {
   validatePolystellaEmdashOptions(options);
+  const normalized = flattenEmdashCatalogs(options);
   const runtimeConfig: PolystellaRuntimeConfig = {
     catalogs: {
-      defaultLocale: options.catalogs.defaultLocale,
+      defaultLocale: normalized.catalogs.defaultLocale,
       locales: Object.fromEntries(
-        Object.entries(options.catalogs.locales).map(([locale, catalog]) => [
+        Object.entries(normalized.catalogs.locales).map(([locale, catalog]) => [
           locale,
           { dictionary: Object.fromEntries(Object.entries(catalog.dictionary)) },
         ]),
@@ -53,7 +55,7 @@ export function polystellaEmdashAstro(
         await writeFile(
           middlewarePath,
           [
-            `import { createPolystellaRuntimeMiddleware } from ${JSON.stringify(new URL("./runtime.js", import.meta.url).href)};`,
+            `import { createPolystellaRuntimeMiddleware } from ${JSON.stringify(new URL("./runtime/runtime.js", import.meta.url).href)};`,
             `export const onRequest = createPolystellaRuntimeMiddleware(${JSON.stringify(configuredRuntime)});`,
             "",
           ].join("\n"),

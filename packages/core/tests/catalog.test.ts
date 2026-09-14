@@ -4,6 +4,7 @@ import {
   buildTranslateFn,
   detectCatalogFormat,
   flattenCatalog,
+  formatNestedLocaleFile,
   interpolate,
   resolveTranslations,
   type CatalogDictionary,
@@ -85,6 +86,16 @@ describe("catalog flattening", () => {
       "site.title": "X",
       i18n_group_title: "Top",
     });
+    const prototypeKey = flattenCatalog(JSON.parse('{"__proto__":"Safe"}'));
+    expect(Object.hasOwn(prototypeKey, "__proto__")).toBe(true);
+    expect(prototypeKey.__proto__).toBe("Safe");
+  });
+
+  it("writes flattened values back into the nested source shape", () => {
+    const source = { product: "Product", nav: { i18n_group_title: "Navigation", home: "Home" } };
+    expect(formatNestedLocaleFile({ dict: { product: "Produit", "nav.home": "Accueil" }, source, existing: source })).toBe(
+      '{\n  "product": "Produit",\n\n  "nav": {\n    "i18n_group_title": "Navigation",\n    "home": "Accueil"\n  }\n}\n',
+    );
   });
 
   it("throws on non-string leaves and on key collisions", () => {

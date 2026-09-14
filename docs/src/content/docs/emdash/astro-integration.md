@@ -49,6 +49,11 @@ to the deployed dictionary. See [catalog
 overrides](/emdash/catalog-overrides/) for the 60-second caching
 behavior.
 
+Flat and nested dictionaries use the same core normalization and
+lookup as the main Astro catalog integration. EmDash adds only the
+server override layer; nested groups still resolve through dotted
+keys such as `t("nav.home")`.
+
 ## Prerendering
 
 Prerendered pages always use deployed dictionaries, so temporary

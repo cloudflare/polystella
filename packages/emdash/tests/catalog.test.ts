@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { applyCatalogOverrides, catalogOverrideId, catalogOverrideState, serializeCatalog, type CatalogOverride } from "../src/catalog.js";
+import {
+  applyCatalogOverrides,
+  catalogGroupTitles,
+  catalogOverrideId,
+  catalogOverrideState,
+  serializeCatalog,
+  type CatalogOverride,
+} from "../src/catalog.js";
 
 function override(key: string, value: string, locale = "ja-JP"): CatalogOverride {
   return { locale, key, value, updatedAt: "2026-09-02T00:00:00.000Z", updatedBy: "user-1" };
@@ -26,6 +33,22 @@ describe("catalog overrides", () => {
     expect(result).toEqual({ first: "Ichi", second: "Ni" });
     expect(dictionary).toEqual({ first: "One", second: "Two" });
     expect(serializeCatalog("ja-JP", dictionary, [override("second", "Ni")])).toBe('{\n  "first": "One",\n  "second": "Ni"\n}\n');
+  });
+
+  it("preserves nested catalog structure and group titles", () => {
+    const source = { nav: { i18n_group_title: "Navigation", home: "Home" } };
+    expect(serializeCatalog("ja-JP", { "nav.home": "ホーム" }, [override("nav.home", "家")], source)).toBe(
+      '{\n  "nav": {\n    "i18n_group_title": "Navigation",\n    "home": "家"\n  }\n}\n',
+    );
+  });
+
+  it("extracts top-level group titles from nested sources", () => {
+    const source = { nav: { i18n_group_title: "Navigation", home: "Home" }, site: { title: "X" }, plain: "Flat" };
+    expect(catalogGroupTitles(source)).toEqual([
+      { key: "nav", title: "Navigation" },
+      { key: "site", title: null },
+    ]);
+    expect(catalogGroupTitles({ plain: "Flat" })).toEqual([]);
   });
 
   it("rejects mixed locales and duplicate keys", () => {

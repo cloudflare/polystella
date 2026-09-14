@@ -1,7 +1,9 @@
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import { CATALOG_GROUP_TITLE_KEY, detectCatalogFormat, flattenCatalog } from "@cloudflare/polystella-core/catalog";
+import { detectCatalogFormat, flattenCatalog, formatNestedLocaleFile } from "@cloudflare/polystella-core/catalog";
+
+export { formatNestedLocaleFile, type FormatNestedLocaleFileOptions } from "@cloudflare/polystella-core/catalog";
 
 export interface SourceLayout {
   keys: string[];
@@ -101,62 +103,6 @@ export function formatLocaleFile(options: FormatLocaleFileOptions): string {
   }
   lines.push("}");
   return `${lines.join("\n")}\n`;
-}
-
-export interface FormatNestedLocaleFileOptions {
-  dict: Record<string, string>;
-  source: Record<string, unknown>;
-  existing?: Record<string, unknown> | undefined;
-}
-
-export function formatNestedLocaleFile(options: FormatNestedLocaleFileOptions): string {
-  const groupLines: string[] = [];
-  for (const [groupKey, groupValue] of Object.entries(options.source)) {
-    if (!isObject(groupValue)) continue;
-    const existingValue = options.existing?.[groupKey];
-    const existingGroup = isObject(existingValue) ? existingValue : undefined;
-    const rendered = renderNestedGroup(groupKey, groupKey, groupValue, existingGroup, options.dict, "  ");
-    if (rendered.length > 0) groupLines.push(rendered.join("\n"));
-  }
-  if (groupLines.length === 0) return "{}\n";
-  return `{\n${groupLines.join(",\n\n")}\n}\n`;
-}
-
-function renderNestedGroup(
-  key: string,
-  path: string,
-  node: Record<string, unknown>,
-  existing: Record<string, unknown> | undefined,
-  dict: Record<string, string>,
-  indent: string,
-): string[] {
-  const inner = `${indent}  `;
-  const lines = [`${indent}${JSON.stringify(key)}: {`];
-  const existingTitle = existing?.[CATALOG_GROUP_TITLE_KEY];
-  const title =
-    typeof existingTitle === "string"
-      ? existingTitle
-      : typeof node[CATALOG_GROUP_TITLE_KEY] === "string"
-        ? node[CATALOG_GROUP_TITLE_KEY]
-        : undefined;
-  if (title !== undefined) lines.push(`${inner}${JSON.stringify(CATALOG_GROUP_TITLE_KEY)}: ${JSON.stringify(title)},`);
-
-  const entries: string[] = [];
-  for (const [childKey, childValue] of Object.entries(node)) {
-    if (childKey === CATALOG_GROUP_TITLE_KEY) continue;
-    const childPath = `${path}.${childKey}`;
-    if (typeof childValue === "string") {
-      const value = dict[childPath];
-      if (value !== undefined) entries.push(`${inner}${JSON.stringify(childKey)}: ${JSON.stringify(value)}`);
-    } else if (isObject(childValue)) {
-      const existingChild = existing?.[childKey];
-      const nested = renderNestedGroup(childKey, childPath, childValue, isObject(existingChild) ? existingChild : undefined, dict, inner);
-      if (nested.length > 0) entries.push(nested.join("\n"));
-    }
-  }
-  if (entries.length === 0) return [];
-  lines.push(entries.join(",\n"), `${indent}}`);
-  return lines;
 }
 
 export interface ApplySyncOptions {

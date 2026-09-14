@@ -1,4 +1,12 @@
-export { CATALOG_GROUP_TITLE_KEY, detectCatalogFormat, flattenCatalog, type CatalogFormat } from "./flatten.js";
+export {
+  CATALOG_GROUP_TITLE_KEY,
+  detectCatalogFormat,
+  flattenCatalog,
+  formatNestedLocaleFile,
+  type CatalogFormat,
+  type CatalogSource,
+  type FormatNestedLocaleFileOptions,
+} from "./flatten.js";
 
 export type CatalogDictionary = Record<string, string>;
 

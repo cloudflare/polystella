@@ -1,9 +1,17 @@
-import type { KVAccess, PluginRoute, RouteContext, StorageCollection } from "emdash";
+import type { ContentItem, KVAccess, PluginRoute, RouteContext, StorageCollection } from "emdash";
 import type { WorkersAIInput } from "@cloudflare/polystella-providers/workers-ai";
 import { describe, expect, it } from "vitest";
 
-import type { CatalogGenerationResponse, RuntimeOverridesResponse, TranslateContentResponse } from "../src/contracts.js";
-import { createPluginRoutes, type PluginRouteDependencies } from "../src/routes.js";
+import {
+  MAX_SANDBOX_CHARACTERS,
+  type CatalogExportResponse,
+  type CatalogGenerationResponse,
+  type CatalogViewResponse,
+  type RuntimeOverridesResponse,
+  type TranslateContentResponse,
+  type TranslationSandboxResponse,
+} from "../src/contracts.js";
+import { createPluginRoutes, type PluginRouteDependencies } from "../src/server/routes/routes.js";
 import type { CatalogOverride, PolystellaEmdashOptions } from "../src/index.js";
 
 function options(): PolystellaEmdashOptions {
@@ -134,8 +142,29 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 async function enablePosts(kv: KVAccess): Promise<void> {
   await kv.set("settings:collectionPolicies", {
-    posts: { sourceLocale: "en-US", fields: ["title", "body"] },
+    posts: { fields: ["title", "body"] },
   });
+}
+
+function sourceItem(title: string): ContentItem {
+  return {
+    id: "entry-source",
+    type: "posts",
+    slug: "hello",
+    status: "published",
+    data: { title },
+    authorId: null,
+    primaryBylineId: null,
+    createdAt: "2026-09-03T00:00:00.000Z",
+    updatedAt: "2026-09-03T00:00:00.000Z",
+    publishedAt: null,
+    scheduledAt: null,
+    liveRevisionId: null,
+    draftRevisionId: null,
+    version: 1,
+    locale: "en-US",
+    translationGroup: "group-1",
+  };
 }
 
 async function enableDebug(routes: Record<string, PluginRoute>, kv: KVAccess, storage: StorageCollection): Promise<void> {
@@ -144,7 +173,6 @@ async function enableDebug(routes: Record<string, PluginRoute>, kv: KVAccess, st
       {
         debugEnabled: true,
         locales: {
-          "en-US": { model: null, glossaryMode: "default", glossaryText: "" },
           "fr-FR": { model: null, glossaryMode: "default", glossaryText: "" },
         },
         instructions: { mode: "default", text: "" },
@@ -173,13 +201,11 @@ describe("EmDash plugin routes", () => {
       fields: [],
     });
     await expect(
-      route(routes, "settings/collections").handler(
-        context({ policies: { posts: { sourceLocale: "en-US", fields: ["title", "body"] } } }, "PUT", kv, storage),
-      ),
+      route(routes, "settings/collections").handler(context({ policies: { posts: { fields: ["title", "body"] } } }, "PUT", kv, storage)),
     ).resolves.toEqual({
       defaultLocale: "en-US",
       locales: ["en-US", "fr-FR"],
-      policies: { posts: { sourceLocale: "en-US", fields: ["body", "title"] } },
+      policies: { posts: { fields: ["body", "title"] } },
     });
     await expect(route(routes, "policy").handler(context({ collection: "posts" }, "GET", kv, storage))).resolves.toEqual({
       enabled: true,
@@ -192,8 +218,11 @@ describe("EmDash plugin routes", () => {
       fields: [],
     });
     await expect(
+      route(routes, "settings/collections").handler(context({ policies: { posts: { fields: [] } } }, "PUT", kv, storage)),
+    ).rejects.toMatchObject({ status: 400 });
+    await expect(
       route(routes, "settings/collections").handler(
-        context({ policies: { posts: { sourceLocale: "en-US", fields: [] } } }, "PUT", kv, storage),
+        context({ policies: { posts: { sourceLocale: "fr-FR", fields: ["title"] } } }, "PUT", kv, storage),
       ),
     ).rejects.toMatchObject({ status: 400 });
     await expect(
@@ -201,7 +230,7 @@ describe("EmDash plugin routes", () => {
         context(
           {
             policies: {
-              posts: { sourceLocale: "en-US", fields: Array.from({ length: 101 }, (_, index) => `field_${index}`) },
+              posts: { fields: Array.from({ length: 101 }, (_, index) => `field_${index}`) },
             },
           },
           "PUT",
@@ -215,12 +244,24 @@ describe("EmDash plugin routes", () => {
   it("fails closed for invalid stored collection policies", async () => {
     const routes = createPluginRoutes(options(), dependencies());
     const kv = createKv();
-    await kv.set("settings:collectionPolicies", { posts: { sourceLocale: "unknown", fields: ["title"] } });
+    await kv.set("settings:collectionPolicies", { posts: { fields: ["invalid!"] } });
 
     await expect(route(routes, "policy").handler(context({ collection: "posts" }, "GET", kv, createStorage()))).resolves.toEqual({
       enabled: false,
       sourceLocale: null,
       fields: [],
+    });
+  });
+
+  it("ignores legacy sourceLocale in stored collection policies", async () => {
+    const routes = createPluginRoutes(options(), dependencies());
+    const kv = createKv();
+    await kv.set("settings:collectionPolicies", { posts: { sourceLocale: "unknown", fields: ["title"] } });
+
+    await expect(route(routes, "policy").handler(context({ collection: "posts" }, "GET", kv, createStorage()))).resolves.toEqual({
+      enabled: true,
+      sourceLocale: "en-US",
+      fields: ["title"],
     });
   });
 
@@ -239,6 +280,49 @@ describe("EmDash plugin routes", () => {
         context({ collection: "posts", entryId: "entry-1", targetLocale: "fr-FR", fields: ["secret"] }, "POST", kv, storage),
       ),
     ).rejects.toThrow("enabled in PolyStella collection settings");
+  });
+
+  it("translates the source-locale sibling's saved values, not the draft copy", async () => {
+    const translatedTexts: string[] = [];
+    const routes = createPluginRoutes(options(), {
+      ...dependencies(),
+      findSourceContent: async () => sourceItem("Fresh source title"),
+      getEnv: async () => ({
+        AI: {
+          run: async (_model: string, input: WorkersAIInput) => {
+            translatedTexts.push(input.messages.map((message) => message.content).join("\n"));
+            return { response: "@@field:0@@\nTitre traduit" };
+          },
+        },
+      }),
+    });
+    const kv = createKv();
+    const storage = createStorage();
+    await enablePosts(kv);
+
+    const translated = (await route(routes, "translate-content").handler(
+      context({ collection: "posts", entryId: "entry-1", targetLocale: "fr-FR", fields: ["title"] }, "POST", kv, storage),
+    )) as TranslateContentResponse;
+
+    expect(translated.patch).toEqual({ title: "Titre traduit" });
+    expect(translatedTexts.join("")).toContain("Fresh source title");
+    expect(translatedTexts.join("")).not.toContain("Hello");
+  });
+
+  it("falls back to the draft's saved values when no source sibling exists", async () => {
+    const routes = createPluginRoutes(options(), {
+      ...dependencies(),
+      findSourceContent: async () => null,
+    });
+    const kv = createKv();
+    const storage = createStorage();
+    await enablePosts(kv);
+
+    const translated = (await route(routes, "translate-content").handler(
+      context({ collection: "posts", entryId: "entry-1", targetLocale: "fr-FR", fields: ["title"] }, "POST", kv, storage),
+    )) as TranslateContentResponse;
+
+    expect(translated.patch).toEqual({ title: "Bonjour" });
   });
 
   it("returns request-scoped debug traces only to administrators", async () => {
@@ -384,7 +468,10 @@ describe("EmDash plugin routes", () => {
     const storage = createStorage();
     const settingsRoute = route(routes, "settings/translation");
 
-    await expect(settingsRoute.handler(context({}, "GET", kv, storage))).resolves.toMatchObject({ debugEnabled: false });
+    await expect(settingsRoute.handler(context({}, "GET", kv, storage))).resolves.toMatchObject({
+      debugEnabled: false,
+      locales: [{ locale: "fr-FR" }],
+    });
 
     await expect(
       settingsRoute.handler(
@@ -392,7 +479,6 @@ describe("EmDash plugin routes", () => {
           {
             debugEnabled: true,
             locales: {
-              "en-US": { model: null, glossaryMode: "default", glossaryText: "" },
               "fr-FR": { model: "model-a", glossaryMode: "append", glossaryText: "Admin glossary" },
             },
             instructions: { mode: "append", text: "Prefer direct language." },
@@ -403,13 +489,19 @@ describe("EmDash plugin routes", () => {
         ),
       ),
     ).resolves.toMatchObject({
+      defaultLocale: "en-US",
       debugEnabled: true,
       allowedModels: ["model-a", "model-b"],
-      locales: [
-        { locale: "en-US", model: null, glossaryMode: "default", glossaryText: "" },
-        { locale: "fr-FR", model: "model-a", glossaryMode: "append", glossaryText: "Admin glossary" },
-      ],
+      locales: [{ locale: "fr-FR", model: "model-a", glossaryMode: "append", glossaryText: "Admin glossary" }],
       instructions: { mode: "append", text: "Prefer direct language." },
+    });
+
+    await expect(route(routes, "catalog").handler(context({}, "GET", kv, storage))).resolves.toMatchObject({
+      locale: "fr-FR",
+      locales: [{ locale: "fr-FR" }],
+    });
+    await expect(route(routes, "catalog").handler(context({ locale: "en-US" }, "GET", kv, storage))).rejects.toMatchObject({
+      status: 400,
     });
 
     const generated = (await route(routes, "catalog/generate").handler(
@@ -435,7 +527,6 @@ describe("EmDash plugin routes", () => {
         {
           debugEnabled: true,
           locales: {
-            "en-US": { model: null, glossaryMode: "default", glossaryText: "" },
             "fr-FR": { model: null, glossaryMode: "replace", glossaryText: "Replacement glossary" },
           },
           instructions: { mode: "replace", text: "Replacement instructions." },
@@ -551,6 +642,59 @@ describe("EmDash plugin routes", () => {
         context({ locale: "fr-FR", overrides: { greeting: "x".repeat(20_001) } }, "PUT", kv, storage),
       ),
     ).rejects.toMatchObject({ status: 400 });
+  });
+
+  it("normalizes nested catalogs for admin routes and preserves nested exports", async () => {
+    const configured = options();
+    configured.catalogs.locales["en-US"] = {
+      dictionary: { nav: { i18n_group_title: "Navigation", greeting: "Hello" } },
+      filePath: "src/i18n/en-US.json",
+    };
+    configured.catalogs.locales["fr-FR"] = {
+      dictionary: { nav: { i18n_group_title: "Navigation", greeting: "Bonjour" } },
+      filePath: "src/i18n/fr-FR.json",
+    };
+    const routes = createPluginRoutes(configured, dependencies());
+    const kv = createKv();
+    const storage = createStorage();
+
+    const view = (await route(routes, "catalog").handler(context({}, "GET", kv, storage))) as CatalogViewResponse;
+    expect(view.groups).toEqual([{ key: "nav", title: "Navigation" }]);
+    expect(view.entries).toEqual([{ key: "nav.greeting", source: "Hello", deployed: "Bonjour", override: null, state: null }]);
+
+    await route(routes, "catalog/overrides").handler(
+      context({ locale: "fr-FR", overrides: { "nav.greeting": "Salut" } }, "PUT", kv, storage),
+    );
+    const exported = (await route(routes, "catalog/export").handler(
+      context({ locale: "fr-FR" }, "GET", kv, storage),
+    )) as CatalogExportResponse;
+    expect(exported.json).toBe('{\n  "nav": {\n    "i18n_group_title": "Navigation",\n    "greeting": "Salut"\n  }\n}\n');
+  });
+
+  it("exposes top-level group titles from the source dictionary", async () => {
+    const configured = options();
+    configured.catalogs.locales["en-US"] = {
+      dictionary: { nav: { home: "Home" }, site: { i18n_group_title: "Site", title: "X" }, plain: "Flat" },
+      filePath: "src/i18n/en-US.json",
+    };
+    configured.catalogs.locales["fr-FR"] = {
+      dictionary: { nav: { home: "Accueil" }, site: { i18n_group_title: "Sítio", title: "Y" } },
+      filePath: "src/i18n/fr-FR.json",
+    };
+    const routes = createPluginRoutes(configured, dependencies());
+
+    const view = (await route(routes, "catalog").handler(context({}, "GET", createKv(), createStorage()))) as CatalogViewResponse;
+    expect(view.groups).toEqual([
+      { key: "nav", title: null },
+      { key: "site", title: "Site" },
+    ]);
+  });
+
+  it("returns no groups for flat source dictionaries", async () => {
+    const routes = createPluginRoutes(options(), dependencies());
+
+    const view = (await route(routes, "catalog").handler(context({}, "GET", createKv(), createStorage()))) as CatalogViewResponse;
+    expect(view.groups).toEqual([]);
   });
 
   it("sanitizes provider response failures", async () => {
@@ -689,5 +833,104 @@ describe("EmDash plugin routes", () => {
       enabled: true,
       overrides: {},
     });
+  });
+
+  it("translates freeform sandbox text", async () => {
+    let usedModel = "";
+    const routes = createPluginRoutes(options(), {
+      ...dependencies(),
+      getEnv: async () => ({
+        AI: {
+          run: async (model: string) => {
+            usedModel = model;
+            return { response: "@@sandbox:0@@\nBonjour" };
+          },
+        },
+      }),
+    });
+    const kv = createKv();
+    const storage = createStorage();
+    const result = (await route(routes, "translation-sandbox").handler(
+      context({ targetLocale: "fr-FR", model: "model-a", text: "Hello" }, "POST", kv, storage),
+    )) as TranslationSandboxResponse;
+    expect(result.translation).toBe("Bonjour");
+    expect(usedModel).toBe("model-a");
+    expect(result).not.toHaveProperty("debug");
+  });
+
+  it("returns sandbox debug traces only to administrators", async () => {
+    const routes = createPluginRoutes(options(), {
+      ...dependencies(),
+      getEnv: async () => ({
+        AI: {
+          run: async () => ({ response: "@@sandbox:0@@\nBonjour" }),
+        },
+      }),
+    });
+    const kv = createKv();
+    const storage = createStorage();
+    await enableDebug(routes, kv, storage);
+    const input = { targetLocale: "fr-FR", model: "model-a", text: "Hello" };
+    const adminResult = (await route(routes, "translation-sandbox").handler(
+      context(input, "POST", kv, storage),
+    )) as TranslationSandboxResponse;
+    expect(adminResult).toMatchObject({
+      translation: "Bonjour",
+      debug: {
+        operation: "sandbox",
+        provider: "workers-ai-binding",
+        model: "model-a",
+        maxOutputTokens: 8192,
+        inputTokenBudget: 4000,
+        batchCount: 1,
+        providerCallCount: 1,
+        batches: [
+          {
+            batch: 1,
+            segmentCount: 1,
+            segmentLabels: ["text"],
+            attempts: [
+              {
+                attempt: 1,
+                userPrompt: expect.stringContaining("@@sandbox:0@@"),
+                response: "@@sandbox:0@@\nBonjour",
+                translations: { "sandbox:0": "Bonjour" },
+                error: null,
+              },
+            ],
+          },
+        ],
+      },
+    });
+
+    const editorContext = context(input, "POST", kv, storage);
+    if (editorContext.user === undefined) throw new Error("missing test user");
+    editorContext.user = { ...editorContext.user, role: 40 };
+    await expect(route(routes, "translation-sandbox").handler(editorContext)).resolves.not.toHaveProperty("debug");
+  });
+
+  it("rejects sandbox requests with invalid input", async () => {
+    const routes = createPluginRoutes(options(), dependencies());
+    const kv = createKv();
+    const storage = createStorage();
+
+    await expect(
+      route(routes, "translation-sandbox").handler(
+        context({ targetLocale: "en-US", model: "model-a", text: "Hello" }, "POST", kv, storage),
+      ),
+    ).rejects.toMatchObject({ status: 400 });
+    await expect(
+      route(routes, "translation-sandbox").handler(
+        context({ targetLocale: "fr-FR", model: "model-a", text: "x".repeat(MAX_SANDBOX_CHARACTERS + 1) }, "POST", kv, storage),
+      ),
+    ).rejects.toMatchObject({ status: 400 });
+    await expect(
+      route(routes, "translation-sandbox").handler(context({ targetLocale: "fr-FR", model: "model-a", text: "" }, "POST", kv, storage)),
+    ).rejects.toMatchObject({ status: 400 });
+    await expect(
+      route(routes, "translation-sandbox").handler(
+        context({ targetLocale: "fr-FR", model: "not-allowed", text: "Hello" }, "POST", kv, storage),
+      ),
+    ).rejects.toMatchObject({ status: 400 });
   });
 });

@@ -7,7 +7,7 @@ import {
 } from "@cloudflare/polystella-core";
 import { validateTokenPreservation } from "@cloudflare/polystella-core/catalog/translate";
 
-import { MAX_CONTENT_FIELDS } from "./contracts.js";
+import { MAX_CONTENT_FIELDS } from "../contracts.js";
 
 const MAX_SEGMENTS = 500;
 const MAX_SEGMENT_CHARACTERS = 20_000;

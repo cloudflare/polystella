@@ -74,7 +74,8 @@ It owns:
 - Prompt construction and provider-response parsing.
 - Token estimation, grouping validation, and batch packing.
 - Translation execution, retries, cancellation, and permanent provider errors.
-- Dependency-free catalog lookup, fallback, and interpolation.
+- Dependency-free catalog normalization, formatting, lookup,
+  fallback, and interpolation.
 - Catalog AI translation and `{{token}}` validation.
 
 Start at [`packages/core/src/index.ts`](./packages/core/src/index.ts). The main
@@ -133,15 +134,20 @@ glossary loading. Astro and EmDash expose those handlers through their own
 
 [`@cloudflare/polystella-emdash`](./packages/emdash/) owns EmDash-specific
 deployment validation, plugin declarations, storage policy, routes, and native
-admin UI. Git-owned catalog lookup and translation remain in core.
+admin UI. Git-owned catalog normalization, formatting, lookup, and translation
+remain in core; EmDash layers server overrides on the normalized dictionaries.
 
 Start at [`packages/emdash/src/index.ts`](./packages/emdash/src/index.ts). The
-route boundary lives in [`packages/emdash/src/routes.ts`](./packages/emdash/src/routes.ts),
+route boundary lives in
+[`packages/emdash/src/server/routes/routes.ts`](./packages/emdash/src/server/routes/routes.ts),
 the native UI in [`packages/emdash/src/admin.tsx`](./packages/emdash/src/admin.tsx),
 the catalog override model in
 [`packages/emdash/src/catalog.ts`](./packages/emdash/src/catalog.ts), and the
 companion Astro integration in
-[`packages/emdash/src/astro.ts`](./packages/emdash/src/astro.ts). EmDash depends
+[`packages/emdash/src/astro.ts`](./packages/emdash/src/astro.ts). Server-only
+code lives under [`packages/emdash/src/server/`](./packages/emdash/src/server/)
+and the Astro runtime under
+[`packages/emdash/src/runtime/`](./packages/emdash/src/runtime/). EmDash depends
 on providers for Workers AI and CLI for the catalog commands exposed by its
 binary.
 

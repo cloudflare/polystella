@@ -37,7 +37,10 @@ The UI-string dictionaries. Repository JSON remains canonical.
 
 Each locale's `filePath` is a repository-relative path (no leading
 `/`, no `..`, no backslashes) used by the JSON export. The
-`dictionary` maps keys to strings.
+`dictionary` accepts the same flat string-to-string or nested group
+shape as the main Astro catalog integration. Nested groups are
+flattened to dotted runtime keys; `i18n_group_title` remains metadata
+and is preserved by JSON export.
 
 ## `models`
 
@@ -69,7 +72,8 @@ glossaryDefaults: await loadGlossaryDefaults({
 
 Every key must match a configured catalog locale. Administrators can
 use each glossary unchanged, append plain-text `notes`, or replace
-them; structured YAML remains code-defined.
+them for target locales; structured YAML and the source-only default
+locale remain code-defined.
 
 ## `rules`
 
@@ -79,18 +83,18 @@ them, or replace them.
 
 ## Collections are not a config option
 
-Enabled collections, their source locales, and their translatable
-fields are administrator-owned and stored per project in EmDash —
-they are deliberately absent from `PolystellaEmdashOptions`. The
-deployment only sets the bounds (locale set, allowed models) that
-administrator policy operates within. Configure them in the
+Enabled collections and their translatable fields are
+administrator-owned and stored per project in EmDash — they are
+deliberately absent from `PolystellaEmdashOptions`. Their source locale
+is always `catalogs.defaultLocale`, which plugin settings cannot
+replace. Configure collection and field policy in the
 [Collections tab](/emdash/admin-ui/).
 
 ## Validation rules
 
 - `catalogs.defaultLocale` must exist in `catalogs.locales`.
-- `catalogs.locales` must contain at least one locale; every
-  dictionary value must be a string.
+- `catalogs.locales` must contain at least one locale; every catalog
+  leaf must be a string.
 - `filePath` must be a repository-relative path.
 - `models.allowed` must be non-empty and unique, and must not
   contain `__polystella_code_default__`.

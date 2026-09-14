@@ -1,6 +1,6 @@
 ---
 title: EmDash plugin
-description: "Native EmDash integration for PolyStella: in-editor content translation, catalog overrides, and deterministic locale JSON."
+description: "Native EmDash integration for PolyStella: content and sandbox translation, catalog overrides, and deterministic locale JSON."
 aiGenerated: true
 sidebar:
   label: Overview
@@ -8,10 +8,11 @@ sidebar:
 
 `@cloudflare/polystella-emdash` is a native EmDash plugin for
 PolyStella. It translates selected saved content fields inside the
-EmDash content editor, manages temporary UI-string overrides, and
-exports deterministic locale JSON. Deployment configuration is the
-upper bound for locales and models; administrators own enabled
-collections, source locales, and field policies.
+EmDash content editor, provides a freeform translation sandbox,
+manages temporary UI-string overrides, and exports deterministic
+locale JSON. Deployment configuration owns the default locale and
+bounds available locales and models; administrators own enabled
+collections and field policies.
 
 ## Install
 
@@ -97,7 +98,8 @@ administrator policy.
 **Server-owned (code, cannot be changed from the admin UI):**
 
 - Provider credentials and the Workers AI binding.
-- The locale set and per-locale dictionaries (`catalogs`).
+- The default locale, locale set, and per-locale dictionaries
+  (`catalogs`).
 - `models.allowed` — administrators cannot select a model outside
   this list.
 - Structured glossary YAML defaults and code-defined translation
@@ -105,9 +107,9 @@ administrator policy.
 
 **Administrator-owned (EmDash admin UI, stored per project):**
 
-- Which collections are enabled for translation, their source
-  locale, and which fields are translatable.
-- The per-locale model (within `models.allowed`) and glossary
+- Which collections are enabled for translation and which fields are
+  translatable.
+- The per-target-locale model (within `models.allowed`) and glossary
   behavior: use the code default, append plain text, or replace it.
 - Shared instruction customization (append or replace).
 - Whether runtime overrides are enabled per locale.
@@ -121,14 +123,22 @@ remains code-defined.
 ## What the plugin installs
 
 - One native admin page (**PolyStella**) with **Catalog**,
-  **Collections**, and **Translation settings** tabs, rendered with
-  EmDash's Kumo design system. No generated plugin settings page is
-  registered.
+  **Collections**, **Translation settings**, and **Translation
+  sandbox** tabs, rendered with EmDash's Kumo design system. No
+  generated plugin settings page is registered.
 - A content-editor panel that translates selected fields in an
   existing target-locale draft.
+- An administrator-only freeform sandbox that translates from the
+  code-defined default locale with a per-request allowlisted model,
+  without saving its output or model choice.
 - A `polystella` binary that hosts `check-ui`, `sync-ui`, and
   `translate-ui`, retaining the Astro CLI's config and flags.
 - A public overrides endpoint for other runtimes.
+
+Translation actions show named percentage stages. Content translation
+tracks its load, provider, and save requests; catalog and sandbox
+translation show their provider stage and a 100% completion state.
+The routes do not stream batch-level progress.
 
 ## EmDash 0.36 limitations
 
