@@ -72,7 +72,7 @@ The commands are split across two packages:
   there's nothing it does that the integration doesn't; it just
   exposes the entry point outside of `astro build`.
 - **`check-ui` / `sync-ui` / `translate-ui`** live in the shared
-  `@cloudflare/polystella-cli` package: Node.js tooling with no
+  `@cloudflare/polystella-core/cli` subpath: Node.js tooling with no
   standalone binary. Two hosts dispatch the exported command
   handlers — the `polystella` binary from
   `@cloudflare/polystella-astro` and the EmDash CLI host in

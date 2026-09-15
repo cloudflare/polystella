@@ -7,7 +7,7 @@ import {
   type MarkdownAdapterApplyOptions as AdapterApplyOptions,
   type MarkdownAdapterExtractOptions as AdapterExtractOptions,
   type PathSegment,
-} from "@cloudflare/polystella-adapters";
+} from "@cloudflare/polystella-core/adapters";
 import type { Segment } from "@cloudflare/polystella-core";
 import type { MarkdownParser } from "./parse.js";
 

@@ -1,4 +1,4 @@
-import { yamlAdapter as portableYamlAdapter, type YamlData } from "@cloudflare/polystella-adapters";
+import { yamlAdapter as portableYamlAdapter, type YamlData } from "@cloudflare/polystella-core/adapters";
 import { createStructuredAstroAdapter } from "../adapter.js";
 
 /**

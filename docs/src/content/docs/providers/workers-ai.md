@@ -44,11 +44,11 @@ provider call.
 ## Worker binding
 
 Direct Worker consumers can use the binding transport from the providers
-package. Its callback and `WorkersAIInput` are package-owned structural
-types, so the provider package does not import generated Cloudflare types:
+subpath. Its callback and `WorkersAIInput` are package-owned structural
+types, so the provider code does not import generated Cloudflare types:
 
 ```ts
-import { createWorkersAIBindingTranslator, type WorkersAIInput } from "@cloudflare/polystella-providers/workers-ai";
+import { createWorkersAIBindingTranslator, type WorkersAIInput } from "@cloudflare/polystella-core/providers/workers-ai";
 
 interface Env {
   AI: {

@@ -4,7 +4,7 @@ import {
   createWorkersAIHttpTranslator,
   type WorkersAIBindingRun,
   type WorkersAIInput,
-} from "@cloudflare/polystella-providers/workers-ai";
+} from "@cloudflare/polystella-core/providers/workers-ai";
 import { PluginRouteError, type ContentItem, type LogAccess } from "emdash";
 
 import type { PolystellaEmdashOptions } from "../options.js";

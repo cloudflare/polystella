@@ -1,4 +1,4 @@
-import { jsonAdapter as portableJsonAdapter, type JsonData } from "@cloudflare/polystella-adapters";
+import { jsonAdapter as portableJsonAdapter, type JsonData } from "@cloudflare/polystella-core/adapters";
 import { createStructuredAstroAdapter } from "../adapter.js";
 
 /**

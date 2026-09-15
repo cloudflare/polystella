@@ -1,6 +1,6 @@
 import type { Root } from "mdast";
 import { parse as parseJavaScript, type Comment } from "acorn";
-import { remarkMarkdownParser, type MarkdownParser as PortableMarkdownParser } from "@cloudflare/polystella-adapters";
+import { remarkMarkdownParser, type MarkdownParser as PortableMarkdownParser } from "@cloudflare/polystella-core/adapters";
 import { markdownToMdast, mdxToMdast } from "satteri";
 
 export type MarkdownParser = "satteri" | "remark";

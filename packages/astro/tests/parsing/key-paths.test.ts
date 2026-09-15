@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { expandPath, formatPath, parsePath, readAtPath, writeAtPath } from "@cloudflare/polystella-adapters";
+import { expandPath, formatPath, parsePath, readAtPath, writeAtPath } from "@cloudflare/polystella-core/adapters";
 
 /**
  * Key-path utilities — unit-level tests. The TOML / JSON / YAML

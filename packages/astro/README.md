@@ -22,10 +22,7 @@ This package composes PolyStella's reusable packages and owns all host policy:
 
 ```text
 @cloudflare/polystella-astro
-  ├──> @cloudflare/polystella-core
-  ├──> @cloudflare/polystella-adapters
-  ├──> @cloudflare/polystella-providers
-  └──> @cloudflare/polystella-cli
+  └──> @cloudflare/polystella-core
 
 @cloudflare/polystella --> @cloudflare/polystella-astro
 ```

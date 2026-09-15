@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyTranslations, extractSegments } from "@cloudflare/polystella-adapters";
+import { applyTranslations, extractSegments } from "@cloudflare/polystella-core/adapters";
 import { parseMarkdown } from "../../src/parsing/parse.js";
 
 /**

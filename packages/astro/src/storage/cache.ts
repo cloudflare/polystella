@@ -1,5 +1,5 @@
 import pRetry from "p-retry";
-import { MdxPlaceholderError } from "@cloudflare/polystella-adapters";
+import { MdxPlaceholderError } from "@cloudflare/polystella-core/adapters";
 import {
   translateSegments,
   type Glossary,

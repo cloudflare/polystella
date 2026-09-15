@@ -2,7 +2,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { applyTranslations, extractSegments } from "@cloudflare/polystella-adapters";
+import { applyTranslations, extractSegments } from "@cloudflare/polystella-core/adapters";
 import { parseMarkdown } from "../../src/parsing/parse.js";
 
 /**

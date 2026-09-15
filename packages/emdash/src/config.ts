@@ -1,5 +1,5 @@
 import type { Glossary } from "@cloudflare/polystella-core";
-import { loadGlossaries } from "@cloudflare/polystella-cli/glossary";
+import { loadGlossaries } from "@cloudflare/polystella-core/cli/glossary";
 
 export interface LoadGlossaryDefaultsOptions {
   file: string;

@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-import { MDX_RULES_VERSION, type NormalizedMdxComponentRule, type NormalizedMdxRules } from "@cloudflare/polystella-adapters";
+import { MDX_RULES_VERSION, type NormalizedMdxComponentRule, type NormalizedMdxRules } from "@cloudflare/polystella-core/adapters";
 import picomatch from "picomatch";
 
 import type { PolyStellaResolvedOptions } from "../config/options.js";

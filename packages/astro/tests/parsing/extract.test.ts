@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { collectMarkdownSegments, extractSegments, type ExtractOptions } from "@cloudflare/polystella-adapters";
+import { collectMarkdownSegments, extractSegments, type ExtractOptions } from "@cloudflare/polystella-core/adapters";
 import type { Root } from "mdast";
 import { markdownAdapter } from "../../src/parsing/adapters/markdown.js";
 import { parseMarkdown } from "../../src/parsing/parse.js";
