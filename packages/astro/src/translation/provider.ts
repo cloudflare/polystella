@@ -1,6 +1,6 @@
 import { resolveModelId, type Translator } from "@cloudflare/polystella-core";
-import { createAnthropicTranslator } from "@cloudflare/polystella-providers/anthropic";
-import { createWorkersAIHttpTranslator } from "@cloudflare/polystella-providers/workers-ai";
+import { createAnthropicTranslator } from "@cloudflare/polystella-core/providers/anthropic";
+import { createWorkersAIHttpTranslator } from "@cloudflare/polystella-core/providers/workers-ai";
 
 import type { PolyStellaResolvedOptions } from "../config/options.js";
 

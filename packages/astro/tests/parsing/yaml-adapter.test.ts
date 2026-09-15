@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { parse as parseYaml } from "yaml";
 
-import type { AdapterExtractOptions } from "@cloudflare/polystella-adapters";
+import type { AdapterExtractOptions } from "@cloudflare/polystella-core/adapters";
 import { yamlAdapter } from "../../src/parsing/adapters/yaml.js";
 
 /**

@@ -1,1 +1,1 @@
-export * from "@cloudflare/polystella-cli/glossary";
+export * from "@cloudflare/polystella-core/cli/glossary";

@@ -8,9 +8,6 @@ import { fileURLToPath } from "node:url";
 const DOCS_ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const PACKAGE_MANIFESTS = [
   { owner: "Core", directory: "core" },
-  { owner: "Adapters", directory: "adapters" },
-  { owner: "Providers", directory: "providers" },
-  { owner: "CLI", directory: "cli" },
   { owner: "EmDash", directory: "emdash" },
   { owner: "Astro", directory: "astro" },
   { owner: "Astro", directory: "polystella" },

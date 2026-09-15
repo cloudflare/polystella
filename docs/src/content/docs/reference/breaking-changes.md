@@ -12,12 +12,26 @@ the breaking entries.
 
 ## Unreleased (v0.x)
 
+### Low-level packages merged into core
+
+The `@cloudflare/polystella-adapters`, `@cloudflare/polystella-providers`,
+and `@cloudflare/polystella-cli` packages are removed. Their contents moved
+into `@cloudflare/polystella-core` as namespaced subpaths:
+
+- `@cloudflare/polystella-core/adapters` — portable formats.
+- `@cloudflare/polystella-core/providers`, `.../workers-ai`, `.../anthropic` — provider transports.
+- `@cloudflare/polystella-core/cli` and `@cloudflare/polystella-core/cli/*` — shared catalog commands.
+
+No compatibility wrapper packages are published for the old names. Rewrite
+imports to the new subpaths. Core's root, catalog, adapters, and providers
+entrypoints remain Workerd-portable; Node imports exist only under `/cli`.
+
 ### Low-level APIs moved to owning packages
 
 Translation contracts and orchestration now come from
 `@cloudflare/polystella-core`, portable formats from
-`@cloudflare/polystella-adapters`, and provider transports from
-`@cloudflare/polystella-providers`. `@cloudflare/polystella-astro` owns the
+`@cloudflare/polystella-core/adapters`, and provider transports from
+`@cloudflare/polystella-core/providers`. `@cloudflare/polystella-astro` owns the
 Astro integration and host-owned APIs. No compatibility shims preserve the
 old low-level root imports.
 
@@ -50,12 +64,12 @@ All locale files must match the default locale's format. A locale
 file that mixes or diverges from the default's nested vs flat
 structure fails validation.
 
-### Catalog CLI commands extracted to `@cloudflare/polystella-cli`
+### Catalog CLI commands extracted to `@cloudflare/polystella-core/cli`
 
 The catalog subcommands (`check-ui`, `sync-ui`, `translate-ui`) and
 their shared filesystem utilities now live in the
-`@cloudflare/polystella-cli` package, shared by both the Astro and
-EmDash hosts. Import the commands from the new package instead of
+`@cloudflare/polystella-core/cli` subpath, shared by both the Astro and
+EmDash hosts. Import the commands from the new subpath instead of
 the old host-local paths.
 
 ### Catalog-only mode entrypoints

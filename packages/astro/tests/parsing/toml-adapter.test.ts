@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { AdapterExtractOptions } from "@cloudflare/polystella-adapters";
+import type { AdapterExtractOptions } from "@cloudflare/polystella-core/adapters";
 import { tomlAdapter } from "../../src/parsing/adapters/toml.js";
 
 /**

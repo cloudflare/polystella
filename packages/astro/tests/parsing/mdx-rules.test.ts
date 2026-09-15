@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MDX_RULES_VERSION } from "@cloudflare/polystella-adapters";
+import { MDX_RULES_VERSION } from "@cloudflare/polystella-core/adapters";
 
 import { resolveOptions } from "../../src/config/options.js";
 import { computeMdxRulesPolicyHash, DEFAULT_MDX_HTML_ATTRIBUTES, normalizeMdxRulesForSource } from "../../src/parsing/mdx-rules.js";

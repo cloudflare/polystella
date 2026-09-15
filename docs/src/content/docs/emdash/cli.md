@@ -12,8 +12,8 @@ hosts the catalog subcommands — `check-ui`, `sync-ui`, and
 
 ## Where the handlers live
 
-The command handlers live in the shared `@cloudflare/polystella-cli`
-package, which has no standalone binary. Two hosts dispatch them:
+The command handlers live in the shared `@cloudflare/polystella-core/cli`
+subpath, which has no standalone binary. Two hosts dispatch them:
 
 - The `polystella` binary from `@cloudflare/polystella-astro`, which
   also hosts `translate` and `audit-mdx`.

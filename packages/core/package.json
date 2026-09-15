@@ -2,7 +2,7 @@
   "name": "@cloudflare/polystella-core",
   "version": "0.4.0",
   "type": "module",
-  "description": "Platform-neutral translation primitives for PolyStella.",
+  "description": "Platform-neutral translation primitives, portable format adapters, AI provider transports, and shared catalog CLI commands for PolyStella.",
   "license": "MIT",
   "homepage": "https://github.com/cloudflare/polystella",
   "repository": {
@@ -38,6 +38,58 @@
     "./catalog/translate": {
       "types": "./dist/catalog/translate.d.ts",
       "default": "./dist/catalog/translate.js"
+    },
+    "./adapters": {
+      "types": "./dist/adapters/index.d.ts",
+      "default": "./dist/adapters/index.js"
+    },
+    "./providers": {
+      "types": "./dist/providers/index.d.ts",
+      "default": "./dist/providers/index.js"
+    },
+    "./providers/workers-ai": {
+      "types": "./dist/providers/workers-ai.d.ts",
+      "default": "./dist/providers/workers-ai.js"
+    },
+    "./providers/anthropic": {
+      "types": "./dist/providers/anthropic.d.ts",
+      "default": "./dist/providers/anthropic.js"
+    },
+    "./cli": {
+      "types": "./dist/cli/index.d.ts",
+      "default": "./dist/cli/index.js"
+    },
+    "./cli/check-ui": {
+      "types": "./dist/cli/check-ui.d.ts",
+      "default": "./dist/cli/check-ui.js"
+    },
+    "./cli/config": {
+      "types": "./dist/cli/config.d.ts",
+      "default": "./dist/cli/config.js"
+    },
+    "./cli/drift": {
+      "types": "./dist/cli/drift.d.ts",
+      "default": "./dist/cli/drift.js"
+    },
+    "./cli/glossary": {
+      "types": "./dist/cli/glossary.d.ts",
+      "default": "./dist/cli/glossary.js"
+    },
+    "./cli/run-command": {
+      "types": "./dist/cli/run-command.d.ts",
+      "default": "./dist/cli/run-command.js"
+    },
+    "./cli/sync": {
+      "types": "./dist/cli/sync.d.ts",
+      "default": "./dist/cli/sync.js"
+    },
+    "./cli/sync-ui": {
+      "types": "./dist/cli/sync-ui.d.ts",
+      "default": "./dist/cli/sync-ui.js"
+    },
+    "./cli/translate-ui": {
+      "types": "./dist/cli/translate-ui.d.ts",
+      "default": "./dist/cli/translate-ui.js"
     }
   },
   "files": [
@@ -50,12 +102,23 @@
   "scripts": {
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "build": "tsc -p tsconfig.build.json"
+    "build": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\" && tsc -p tsconfig.build.json"
   },
   "dependencies": {
-    "p-retry": "^8.0.0"
+    "@types/mdast": "^4.0.4",
+    "p-retry": "^8.0.0",
+    "picomatch": "^4.0.4",
+    "remark-frontmatter": "^5.0.0",
+    "remark-gfm": "^4.0.1",
+    "remark-mdx": "^3.1.1",
+    "remark-parse": "^11.0.0",
+    "smol-toml": "^1.6.1",
+    "unified": "^11.0.5",
+    "yaml": "^2.8.3"
   },
   "devDependencies": {
+    "@types/node": "^26.0.0",
+    "@types/picomatch": "^4.0.0",
     "typescript": "^6.0.3",
     "vitest": "^4.1.9"
   }

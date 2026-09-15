@@ -33,8 +33,8 @@ reflects the current state.
 | Nested catalog JSON format                                     | Shipped |
 | Catalog-only mode                                              | Shipped |
 | `polystella` CLI with subcommands                              | Shipped |
-| Shared catalog CLI package (`@cloudflare/polystella-cli`)      | Shipped |
-| Multi-package split (core/adapters/providers/cli/emdash/astro) | Shipped |
+| Shared catalog CLI subpath (`@cloudflare/polystella-core/cli`) | Shipped |
+| Low-level packages merged into core subpaths                   | Shipped |
 | EmDash plugin                                                  | Shipped |
 | `PermanentProviderError` + retry contract                      | Shipped |
 | `AbortSignal` threading                                        | Shipped |

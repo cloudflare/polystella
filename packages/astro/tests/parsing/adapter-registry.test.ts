@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import type { AdapterApplyOptions, AdapterExtractOptions } from "@cloudflare/polystella-adapters";
+import type { AdapterApplyOptions, AdapterExtractOptions } from "@cloudflare/polystella-core/adapters";
 import type { Segment } from "@cloudflare/polystella-core";
 
 import type { FileTypeAdapter } from "../../src/parsing/adapter.js";

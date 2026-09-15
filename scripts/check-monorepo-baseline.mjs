@@ -141,7 +141,7 @@ try {
   assertEqual("user prompt digest", sha256(prompt.userPrompt), "975ae31980e7f7a782ec257d7584e0ba689b01f006e86c34c82ba029a1363685");
 
   const { jsonAdapter, yamlAdapter, tomlAdapter } = await import(
-    pathToFileURL(path.join(repositoryRoot, "packages", "adapters", "dist", "index.js")).href
+    pathToFileURL(path.join(repositoryRoot, "packages", "core", "dist", "adapters", "index.js")).href
   );
   const adapterCases = [
     [

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { buildCacheMetadata, translateOrLoadFromCache, type TranslateOrLoadOptions } from "../../src/storage/cache.js";
-import { applyTranslations, extractSegments } from "@cloudflare/polystella-adapters";
+import { applyTranslations, extractSegments } from "@cloudflare/polystella-core/adapters";
 import { EMPTY_GLOSSARY, type Glossary, type Segment, type Translator } from "@cloudflare/polystella-core";
 import { hashGlossary } from "../../src/glossary/glossary.js";
 import { computeSourceHash } from "../../src/storage/hash.js";

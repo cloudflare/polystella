@@ -1,54 +1,64 @@
 # PolyStella Package Architecture
 
-This guide explains the repository structure after the package migration. It
+This guide explains the repository structure after the package merge. It
 is the starting point for deciding where a change belongs. For detailed
 pipeline behavior and hard correctness contracts, use
 [`ARCHITECTURE.md`](./ARCHITECTURE.md).
 
 ## Package Graph
 
-PolyStella publishes seven packages. The canonical Astro package and its
-compatibility package form one fixed version group. The other packages are
+PolyStella publishes four packages. The canonical Astro package and its
+compatibility package form one fixed version group. Core and EmDash are
 versioned independently. Arrows mean "depends on."
 
 ```mermaid
 flowchart TD
   compat["@cloudflare/polystella<br/>compatibility only"] --> astro["@cloudflare/polystella-astro<br/>canonical Astro package"]
-  astro --> adapters["@cloudflare/polystella-adapters<br/>portable formats"]
-  astro --> cli["@cloudflare/polystella-cli<br/>catalog CLI"]
-  astro --> providers["@cloudflare/polystella-providers<br/>portable transports"]
-  astro --> core["@cloudflare/polystella-core<br/>translation and catalogs"]
-  adapters --> core
-  providers --> core
-  cli --> core
-  cli --> providers
+  astro --> core["@cloudflare/polystella-core<br/>translation, catalogs, adapters, providers, CLI"]
   emdash["@cloudflare/polystella-emdash<br/>native EmDash plugin"] --> core
-  emdash --> cli
-  emdash --> providers
 ```
 
-Dependencies point toward reusable code. Core never imports adapters,
-providers, CLI, Astro, or EmDash. Adapters and providers do not import each
-other. The compatibility package contains no implementation and points only to
+Dependencies point toward reusable code. Core never imports Astro or
+EmDash. The compatibility package contains no implementation and points only to
 the canonical Astro package.
 
 Published dependencies on independently versioned packages use compatible
 caret ranges. The compatibility package pins the exact Astro version because
 it forwards that package's API and CLI unchanged.
 
-| Directory                                        | Published package                  | Responsibility                                                                           |
-| :----------------------------------------------- | :--------------------------------- | :--------------------------------------------------------------------------------------- |
-| [`packages/core/`](./packages/core/)             | `@cloudflare/polystella-core`      | Translation contracts, catalogs, prompts, batching, retries, and response parsing.       |
-| [`packages/adapters/`](./packages/adapters/)     | `@cloudflare/polystella-adapters`  | Portable parsing, extraction, grouping, and translation application.                     |
-| [`packages/providers/`](./packages/providers/)   | `@cloudflare/polystella-providers` | Workers AI and Anthropic implementations of the core translator contract.                |
-| [`packages/cli/`](./packages/cli/)               | `@cloudflare/polystella-cli`       | Shared Node.js catalog commands, filesystem policy, config loading, and glossary I/O.    |
-| [`packages/emdash/`](./packages/emdash/)         | `@cloudflare/polystella-emdash`    | Native EmDash translation, administrator policy, admin UI, overrides, and Astro runtime. |
-| [`packages/astro/`](./packages/astro/)           | `@cloudflare/polystella-astro`     | Canonical Astro integration, host policy, storage, routing, runtime APIs, and CLI.       |
-| [`packages/polystella/`](./packages/polystella/) | `@cloudflare/polystella`           | Temporary compatibility forwarding to `@cloudflare/polystella-astro`.                    |
+| Directory                                        | Published package               | Responsibility                                                                                                                                                        |
+| :----------------------------------------------- | :------------------------------ | :-------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`packages/core/`](./packages/core/)             | `@cloudflare/polystella-core`   | Translation contracts, catalogs, prompts, batching, retries, response parsing, portable format adapters, AI provider transports, and shared Node.js catalog commands. |
+| [`packages/emdash/`](./packages/emdash/)         | `@cloudflare/polystella-emdash` | Native EmDash translation, administrator policy, admin UI, overrides, and Astro runtime.                                                                              |
+| [`packages/astro/`](./packages/astro/)           | `@cloudflare/polystella-astro`  | Canonical Astro integration, host policy, storage, routing, runtime APIs, and CLI.                                                                                    |
+| [`packages/polystella/`](./packages/polystella/) | `@cloudflare/polystella`        | Temporary compatibility forwarding to `@cloudflare/polystella-astro`.                                                                                                 |
+
+## Core Subpaths
+
+Core publishes namespaced subpaths. The root entrypoint exports only
+translation contracts, catalogs, prompts, batching, retries, and response
+parsing. Adapters, providers, and the CLI are separate subpaths so Worker
+consumers never pull Node-only CLI code:
+
+| Subpath                                            | Contents                                                                                               |
+| :------------------------------------------------- | :----------------------------------------------------------------------------------------------------- |
+| `@cloudflare/polystella-core`                      | Translation contracts, catalogs, prompts, batching, retries, response parsing.                         |
+| `@cloudflare/polystella-core/catalog`              | Catalog normalization, formatting, lookup, fallback, and interpolation.                                |
+| `@cloudflare/polystella-core/catalog/translate`    | Catalog AI translation and `{{token}}` validation.                                                     |
+| `@cloudflare/polystella-core/adapters`             | Portable parsing, extraction, grouping, and translation application.                                   |
+| `@cloudflare/polystella-core/providers`            | All provider factories from one entrypoint.                                                            |
+| `@cloudflare/polystella-core/providers/workers-ai` | Workers AI HTTP and binding factories plus their structural input types.                               |
+| `@cloudflare/polystella-core/providers/anthropic`  | Anthropic HTTP factory.                                                                                |
+| `@cloudflare/polystella-core/cli`                  | Shared Node.js catalog commands, filesystem policy, config loading, and glossary I/O.                  |
+| `@cloudflare/polystella-core/cli/*`                | Per-command entrypoints (check-ui, config, drift, glossary, run-command, sync, sync-ui, translate-ui). |
+
+The root, `catalog`, `adapters`, and `providers` subpaths use standard Web
+APIs and run in Workerd without `nodejs_compat`. Node imports may exist only
+under `cli`.
 
 ## Direct Translation Flow
 
-The three reusable packages form an in-process translation pipeline:
+The portable layers form an in-process translation pipeline:
 
 ```mermaid
 flowchart LR
@@ -68,7 +78,7 @@ provider owns transport-specific I/O. None of these layers needs Astro.
 ### Core
 
 [`@cloudflare/polystella-core`](./packages/core/) is the lowest internal layer.
-It owns:
+Its root entrypoint owns:
 
 - `Segment`, `Glossary`, `Logger`, and `Translator` contracts.
 - Prompt construction and provider-response parsing.
@@ -83,21 +93,21 @@ implementations are `translator.ts`, `prompt.ts`, `batch.ts`,
 `translate-batch.ts`, `translate-segments.ts`, and
 [`catalog/`](./packages/core/src/catalog/).
 
-Core does not know about file formats, R2, the filesystem, Astro, or any
+Core's root does not know about file formats, R2, the filesystem, Astro, or any
 specific AI transport.
 
 ### Adapters
 
-[`@cloudflare/polystella-adapters`](./packages/adapters/) owns portable format
-handling:
+The [`@cloudflare/polystella-core/adapters`](./packages/core/src/adapters/)
+subpath owns portable format handling:
 
-- The [`FileAdapter`](./packages/adapters/src/adapter.ts) contract.
+- The [`FileAdapter`](./packages/core/src/adapters/adapter.ts) contract.
 - Markdown, MDX, JSON, YAML, and TOML adapters.
 - Segment extraction, grouping, and translation application.
 - Structured key paths, MDX rules, and placeholder handling.
 
-Start at [`packages/adapters/src/index.ts`](./packages/adapters/src/index.ts)
-and [`packages/adapters/src/adapters/`](./packages/adapters/src/adapters/).
+Start at [`packages/core/src/adapters/index.ts`](./packages/core/src/adapters/index.ts)
+and [`packages/core/src/adapters/`](./packages/core/src/adapters/).
 Adapters depend on core for `Segment` and related contracts.
 
 Astro-specific defaults, configuration, staging, and URL policy do not belong
@@ -106,15 +116,15 @@ here. Those wrappers live under
 
 ### Providers
 
-[`@cloudflare/polystella-providers`](./packages/providers/) implements the
-core `Translator` contract for external model APIs:
+The [`@cloudflare/polystella-core/providers`](./packages/core/src/providers/)
+subpath implements the core `Translator` contract for external model APIs:
 
 - Workers AI over HTTP.
 - Workers AI through a binding described with package-owned structural types.
 - Anthropic over HTTP.
 - Transport error normalization and permanent/retriable classification.
 
-Start at [`packages/providers/src/index.ts`](./packages/providers/src/index.ts),
+Start at [`packages/core/src/providers/index.ts`](./packages/core/src/providers/index.ts),
 `workers-ai.ts`, `anthropic.ts`, and `http-error.ts`. Providers depend only on
 core internally.
 
@@ -124,11 +134,12 @@ options to provider factories is
 
 ### CLI
 
-[`@cloudflare/polystella-cli`](./packages/cli/) owns the Node.js implementation
-of `check-ui`, `sync-ui`, and `translate-ui`, including filesystem config and
-glossary loading. Astro and EmDash expose those handlers through their own
-`polystella` executables instead of duplicating them. Start at
-[`packages/cli/src/run-command.ts`](./packages/cli/src/run-command.ts).
+The [`@cloudflare/polystella-core/cli`](./packages/core/src/cli/) subpath owns
+the Node.js implementation of `check-ui`, `sync-ui`, and `translate-ui`,
+including filesystem config and glossary loading. Astro and EmDash expose
+those handlers through their own `polystella` executables instead of
+duplicating them. Start at
+[`packages/core/src/cli/run-command.ts`](./packages/core/src/cli/run-command.ts).
 
 ### EmDash
 
@@ -148,13 +159,13 @@ companion Astro integration in
 code lives under [`packages/emdash/src/server/`](./packages/emdash/src/server/)
 and the Astro runtime under
 [`packages/emdash/src/runtime/`](./packages/emdash/src/runtime/). EmDash depends
-on providers for Workers AI and CLI for the catalog commands exposed by its
-binary.
+on core's providers for Workers AI and core's CLI for the catalog commands
+exposed by its binary.
 
 ### Astro
 
 [`@cloudflare/polystella-astro`](./packages/astro/) is the canonical product
-package. It composes the reusable packages and owns host-specific behavior:
+package. It composes core and owns host-specific behavior:
 
 - Astro hooks, option validation, and virtual modules.
 - Source walking, translation-pass orchestration, and local staging.
@@ -195,7 +206,7 @@ immediate import rewrite.
 - `client.d.ts` references the canonical client declarations.
 - Its CLI launches the canonical package's CLI.
 - It must not gain independent behavior or restore low-level exports moved to
-  core, adapters, or providers.
+  core subpaths.
 
 When adding an Astro public export, update the canonical manifest, add the
 matching forwarding file and export in `packages/polystella/`, update the
@@ -232,18 +243,20 @@ before `build:start`. See [`ARCHITECTURE.md#hook-timing`](./ARCHITECTURE.md#hook
 
 ## Where Changes Belong
 
-| Change                                                                | Package               |
+| Change                                                                | Package / subpath     |
 | :-------------------------------------------------------------------- | :-------------------- |
-| Change prompts, batching, retry behavior, or translator contracts     | Core                  |
-| Parse or reconstruct a portable content format                        | Adapters              |
-| Add or change an external AI transport                                | Providers             |
+| Change prompts, batching, retry behavior, or translator contracts     | Core root             |
+| Parse or reconstruct a portable content format                        | Core `/adapters`      |
+| Add or change an external AI transport                                | Core `/providers`     |
+| Add or change a shared catalog CLI command                            | Core `/cli`           |
 | Change Astro options, files, R2, routing, middleware, content, or CLI | Astro                 |
 | Change EmDash options, storage, routes, or native admin UI            | EmDash                |
 | Mirror a canonical Astro export under the old package name            | Compatibility package |
 
 If a change requires Node, Astro, filesystem, or R2 APIs, it does not belong in
-core, adapters, or providers. If a provider implementation starts importing
-Astro config types, move that mapping back to the Astro package instead.
+the core root, `/adapters`, or `/providers`. If a provider implementation starts
+importing Astro config types, move that mapping back to the Astro package
+instead.
 
 ## Boundary Enforcement
 
@@ -252,20 +265,20 @@ The boundaries are executable, not only documented:
 | Contract                                                                            | Enforcement                                                                                                                 |
 | :---------------------------------------------------------------------------------- | :-------------------------------------------------------------------------------------------------------------------------- |
 | Package dependency graph, exports, tarball contents, CLIs, and compatibility parity | [`scripts/check-packages.mjs`](./scripts/check-packages.mjs)                                                                |
-| Reusable packages avoid Node and host imports                                       | [`tests/boundaries/reusable-packages.test.ts`](./tests/boundaries/reusable-packages.test.ts)                                |
-| Reusable packages execute under Workerd without `nodejs_compat`                     | [`tests/workerd/`](./tests/workerd/) and [`scripts/check-workerd-portability.mjs`](./scripts/check-workerd-portability.mjs) |
+| Core's portable entrypoints avoid Node and host imports                             | [`tests/boundaries/reusable-packages.test.ts`](./tests/boundaries/reusable-packages.test.ts)                                |
+| Core's portable entrypoints execute under Workerd without `nodejs_compat`           | [`tests/workerd/`](./tests/workerd/) and [`scripts/check-workerd-portability.mjs`](./scripts/check-workerd-portability.mjs) |
 | End-to-end extraction behavior remains stable                                       | [`scripts/check-monorepo-baseline.mjs`](./scripts/check-monorepo-baseline.mjs)                                              |
 | Public export documentation matches manifests                                       | [`docs/scripts/check-exports.ts`](./docs/scripts/check-exports.ts)                                                          |
 | All packages version together                                                       | [`.changeset/config.json`](./.changeset/config.json)                                                                        |
 
 The root [`package.json`](./package.json) builds in dependency order: core,
-adapters, providers, canonical Astro, then compatibility forwarding.
+canonical Astro, then compatibility forwarding.
 
 ## Contributor Checklist
 
 Before opening a package-affecting change:
 
-1. Put the change in the lowest package that can own it without importing a
+1. Put the change in the lowest core layer that can own it without importing a
    higher layer.
 2. Export it only if downstream consumers need it; package manifests are the
    public API source of truth.

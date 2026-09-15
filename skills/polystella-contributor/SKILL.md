@@ -52,11 +52,11 @@ for low-level imports that moved out of the Astro package.
 
 **When to use:** Supporting a new file extension (`.xml`, `.html`, `.po`, custom format).
 
-**Contract:** `FileAdapter` in `packages/adapters/src/adapter.ts`; Astro policies wrap it in `packages/astro/src/parsing/adapter.ts`. See [#adapter-contract](../../ARCHITECTURE.md#adapter-contract).
+**Contract:** `FileAdapter` in `packages/core/src/adapters/adapter.ts`; Astro policies wrap it in `packages/astro/src/parsing/adapter.ts`. See [#adapter-contract](../../ARCHITECTURE.md#adapter-contract).
 
 **Steps:**
 
-1. Implement the portable adapter at `packages/adapters/src/adapters/<name>.ts`:
+1. Implement the portable adapter at `packages/core/src/adapters/<name>.ts`:
 
    ```ts
    import type { Segment } from "@cloudflare/polystella-core";
@@ -101,7 +101,7 @@ for low-level imports that moved out of the Astro package.
 
    **First-registered wins.** If your adapter claims an extension another adapter already owns, your registration is silently ignored. The order at the bottom of `registry.ts` is the de-facto priority.
 
-3. Add portable tests under `packages/adapters/tests/` and retain Astro-policy parity tests under `packages/astro/tests/parsing/`.
+3. Add portable tests under `packages/core/tests/adapters/` and retain Astro-policy parity tests under `packages/astro/tests/parsing/`.
 
    Required portable coverage: parsing/reconstruction, segment IDs,
    translation application, and group flattening by reference. Astro wrapper
@@ -127,11 +127,11 @@ for low-level imports that moved out of the Astro package.
 
 **When to use:** Adding a new top-level verb (`polystella <verb>`).
 
-**Pattern:** Each subcommand owns its argv parsing and a `run<Name>(args, deps)` handler. Shared catalog commands live in `packages/cli`; host dispatchers stay thin.
+**Pattern:** Each subcommand owns its argv parsing and a `run<Name>(args, deps)` handler. Shared catalog commands live in `packages/core/src/cli/`; host dispatchers stay thin.
 
 **Steps:**
 
-1. Create `packages/cli/src/<name>.ts` for a shared catalog command. Keep an Astro-only command under `packages/astro/src/cli/`:
+1. Create `packages/core/src/cli/<name>.ts` for a shared catalog command. Keep an Astro-only command under `packages/astro/src/cli/`:
 
    ```ts
    export interface MySubcommandArgs {
@@ -174,14 +174,14 @@ for low-level imports that moved out of the Astro package.
    }
    ```
 
-2. Register a shared catalog command in `packages/cli/src/run-command.ts` and both host CLIs. For an Astro-only command, wire `packages/astro/src/cli.ts`:
+2. Register a shared catalog command in `packages/core/src/cli/run-command.ts` and both host CLIs. For an Astro-only command, wire `packages/astro/src/cli.ts`:
    - Add to the `Subcommand` union type.
    - Add the literal to `parseSubcommand`'s `if (first === "translate" || ...)` check.
    - Add a case to `main()`'s switch statement.
    - Update `TOP_LEVEL_USAGE` to mention the new verb.
 
 3. Add tests:
-   - `packages/cli/tests/<name>.test.ts` for a shared parser + handler, or `packages/astro/tests/cli/<name>.test.ts` for an Astro-only command.
+   - `packages/core/tests/cli/<name>.test.ts` for a shared parser + handler, or `packages/astro/tests/cli/<name>.test.ts` for an Astro-only command.
    - Extend `packages/astro/tests/cli.test.ts` if the top-level dispatch needs new coverage (it usually does — add at least one "dispatches `my-subcommand` to the right handler" case).
 
 4. If consumers typically wrap the subcommand in a `pnpm` script (e.g. `pnpm i18n:sync`), document the pattern in the docs site's CLI section. Don't add the wrapper to this package — consumer projects own their own scripts.
@@ -204,7 +204,7 @@ for low-level imports that moved out of the Astro package.
 
 **When to use:** Adding a third translator (e.g. OpenAI, Bedrock).
 
-**Contract:** `Translator` in `packages/core/src/translator.ts`. Provider transports live in `packages/providers`; `packages/astro/src/translation/provider.ts` only maps Astro config. See [#translator-contract](../../ARCHITECTURE.md#translator-contract).
+**Contract:** `Translator` in `packages/core/src/translator.ts`. Provider transports live in `packages/core/src/providers/`; `packages/astro/src/translation/provider.ts` only maps Astro config. See [#translator-contract](../../ARCHITECTURE.md#translator-contract).
 
 **Steps:**
 
@@ -223,7 +223,7 @@ for low-level imports that moved out of the Astro package.
    const providerSchema = z.discriminatedUnion("kind", [workersAISchema, anthropicSchema, newProviderSchema]);
    ```
 
-2. Implement a concrete-model factory in `packages/providers/src/<name>.ts`:
+2. Implement a concrete-model factory in `packages/core/src/providers/<name>.ts`:
 
    ```ts
    export function createNewProviderTranslator(options: {
@@ -249,7 +249,7 @@ for low-level imports that moved out of the Astro package.
    }
    ```
 
-3. Export the factory from `packages/providers/src/index.ts`, then map the validated config in Astro's `createTranslator`:
+3. Export the factory from `packages/core/src/providers/index.ts`, then map the validated config in Astro's `createTranslator`:
 
    ```ts
    if (provider.kind === "new-provider") {
@@ -263,7 +263,7 @@ for low-level imports that moved out of the Astro package.
 
 4. **Permanent vs retriable** — reuse the providers package's HTTP classifier. The permanent set is `{400, 401, 403, 404, 422}`; 5xx, 408, 425, and 429 are retriable. **Ask first** before adding statuses.
 
-5. Add transport tests under `packages/providers/tests/` and retain Astro facade parity coverage in `packages/astro/tests/translation/provider.test.ts`:
+5. Add transport tests under `packages/core/tests/providers/` and retain Astro facade parity coverage in `packages/astro/tests/translation/provider.test.ts`:
    - Happy path (mock fetch returns expected shape).
    - Each permanent status → `PermanentProviderError`.
    - 5xx → plain `Error` (retriable).
@@ -416,13 +416,13 @@ for low-level imports that moved out of the Astro package.
 
 **Files:**
 
-- `packages/cli/src/drift.ts` — `checkI18nDrift`, `loadAndCheckDrift`.
-- `packages/cli/src/sync.ts` — key reconciliation; **layout-aware** JSON writer (`formatLocaleFile`).
+- `packages/core/src/cli/drift.ts` — `checkI18nDrift`, `loadAndCheckDrift`.
+- `packages/core/src/cli/sync.ts` — key reconciliation; **layout-aware** JSON writer (`formatLocaleFile`).
 - `packages/core/src/catalog/translate.ts` — AI-fill orchestrator; `{{token}}` validator + retry wrapper.
 - `packages/astro/src/i18n/ui-translate.ts` — compatibility re-export for Astro's CLI.
 - `packages/astro/src/i18n/loader.ts`, `i18n/index.ts` — content-layer loader, dictionary fetcher.
 - `packages/astro/src/catalog/*` — catalog-only public exports, middleware, and Astro integration. Must stay free of content translation, R2, route shims, and localized collection imports.
-- `packages/cli/src/check-ui.ts`, `sync-ui.ts`, `translate-ui.ts` — shared CLI handlers.
+- `packages/core/src/cli/check-ui.ts`, `sync-ui.ts`, `translate-ui.ts` — shared CLI handlers.
 
 **Key contracts:**
 

@@ -10,14 +10,13 @@ easier to evaluate when maintainer time is available.
 
 ## Repository overview
 
-PolyStella is a pnpm workspace with seven public packages under `packages/`:
+PolyStella is a pnpm workspace with four public packages under `packages/`:
 
 - `packages/astro/` — `@cloudflare/polystella-astro`.
 - `packages/polystella/` — `@cloudflare/polystella`, a forwarding compatibility package.
-- `packages/core/` — platform-neutral translation orchestration.
-- `packages/adapters/` — Markdown, MDX, JSON, YAML, and TOML adapters.
-- `packages/providers/` — Workers AI and Anthropic transports.
-- `packages/cli/` — shared catalog CLI commands and filesystem policy.
+- `packages/core/` — platform-neutral translation orchestration, portable
+  format adapters (`src/adapters/`), AI provider transports
+  (`src/providers/`), and shared catalog CLI commands (`src/cli/`).
 - `packages/emdash/` — native EmDash integration and catalog override policy.
 
 The private root coordinates those packages, the `docs/` site, and the
@@ -47,8 +46,8 @@ Required:
 | Command                               | Purpose                                                         |
 | ------------------------------------- | --------------------------------------------------------------- |
 | `pnpm test`                           | Run package, Astro, workerd, and boundary tests.                |
-| `pnpm typecheck`                      | Build and typecheck all seven public packages.                  |
-| `pnpm build`                          | Build all seven public packages.                                |
+| `pnpm typecheck`                      | Build and typecheck all four public packages.                   |
+| `pnpm build`                          | Build all four public packages.                                 |
 | `pnpm build:llms`                     | Regenerate `llms-full.txt` from canonical agent docs.           |
 | `pnpm --filter polystella-docs dev`   | Run the Nimbus docs site locally.                               |
 | `pnpm --filter polystella-docs build` | Build the docs site (includes auto-generated config reference). |
@@ -111,7 +110,7 @@ Before adding to the public surface:
 ## Adding a new adapter
 
 Portable adapters implement `FileAdapter` in
-`packages/adapters/src/adapter.ts`; Astro policy wrappers implement
+`packages/core/src/adapters/adapter.ts`; Astro policy wrappers implement
 `FileTypeAdapter` in `packages/astro/src/parsing/adapter.ts` and register via
 `packages/astro/src/parsing/registry.ts`.
 See [`ARCHITECTURE.md`](./ARCHITECTURE.md) `#adapter-contract` for
@@ -122,7 +121,7 @@ implementation.
 
 Providers implement the `Translator` interface in
 `packages/core/src/translator.ts` and expose transports from
-`packages/providers/src/`. Throw `PermanentProviderError` on
+`packages/core/src/providers/`. Throw `PermanentProviderError` on
 4xx HTTP responses that retries can't fix (400/401/403/404/422); throw
 plain `Error` on anything retriable. See [`ARCHITECTURE.md`](./ARCHITECTURE.md)
 `#translator-contract` for the detail.

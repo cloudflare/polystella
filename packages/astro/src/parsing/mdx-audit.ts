@@ -1,5 +1,5 @@
 import type { Root } from "mdast";
-import type { NormalizedMdxRules } from "@cloudflare/polystella-adapters";
+import type { NormalizedMdxRules } from "@cloudflare/polystella-core/adapters";
 import picomatch from "picomatch";
 
 export type MdxAuditSeverity = "low" | "medium" | "high";

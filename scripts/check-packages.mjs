@@ -30,12 +30,7 @@ const packages = [
       "./recipes/starlight",
       "./client",
     ],
-    internalDependencies: [
-      "@cloudflare/polystella-core",
-      "@cloudflare/polystella-adapters",
-      "@cloudflare/polystella-providers",
-      "@cloudflare/polystella-cli",
-    ],
+    internalDependencies: ["@cloudflare/polystella-core"],
     allowedTopLevel: [
       "CHANGELOG.md",
       "LICENSE",
@@ -94,40 +89,49 @@ const packages = [
   {
     directory: path.join(repositoryRoot, "packages", "core"),
     name: "@cloudflare/polystella-core",
-    exports: [".", "./catalog", "./catalog/translate"],
+    exports: [
+      ".",
+      "./catalog",
+      "./catalog/translate",
+      "./adapters",
+      "./providers",
+      "./providers/workers-ai",
+      "./providers/anthropic",
+      "./cli",
+      "./cli/check-ui",
+      "./cli/config",
+      "./cli/drift",
+      "./cli/glossary",
+      "./cli/run-command",
+      "./cli/sync",
+      "./cli/sync-ui",
+      "./cli/translate-ui",
+    ],
     internalDependencies: [],
     allowedTopLevel: ["CHANGELOG.md", "LICENSE", "README.md", "dist", "package.json", "src"],
-    requiredFiles: ["CHANGELOG.md", "LICENSE", "README.md", "dist/index.d.ts", "dist/index.js", "src/index.ts"],
-  },
-  {
-    directory: path.join(repositoryRoot, "packages", "adapters"),
-    name: "@cloudflare/polystella-adapters",
-    exports: ["."],
-    internalDependencies: ["@cloudflare/polystella-core"],
-    allowedTopLevel: ["CHANGELOG.md", "LICENSE", "README.md", "dist", "package.json", "src"],
-    requiredFiles: ["CHANGELOG.md", "LICENSE", "README.md", "dist/index.d.ts", "dist/index.js", "src/index.ts"],
-  },
-  {
-    directory: path.join(repositoryRoot, "packages", "providers"),
-    name: "@cloudflare/polystella-providers",
-    exports: [".", "./workers-ai", "./anthropic"],
-    internalDependencies: ["@cloudflare/polystella-core"],
-    allowedTopLevel: ["CHANGELOG.md", "LICENSE", "README.md", "dist", "package.json", "src"],
-    requiredFiles: ["CHANGELOG.md", "LICENSE", "README.md", "dist/index.d.ts", "dist/index.js", "src/index.ts"],
-  },
-  {
-    directory: path.join(repositoryRoot, "packages", "cli"),
-    name: "@cloudflare/polystella-cli",
-    exports: [".", "./check-ui", "./config", "./drift", "./glossary", "./run-command", "./sync", "./sync-ui", "./translate-ui"],
-    internalDependencies: ["@cloudflare/polystella-core", "@cloudflare/polystella-providers"],
-    allowedTopLevel: ["CHANGELOG.md", "LICENSE", "README.md", "dist", "package.json", "src"],
-    requiredFiles: ["CHANGELOG.md", "LICENSE", "README.md", "dist/index.d.ts", "dist/index.js", "src/index.ts"],
+    requiredFiles: [
+      "CHANGELOG.md",
+      "LICENSE",
+      "README.md",
+      "dist/index.d.ts",
+      "dist/index.js",
+      "dist/adapters/index.d.ts",
+      "dist/adapters/index.js",
+      "dist/providers/index.d.ts",
+      "dist/providers/index.js",
+      "dist/cli/index.d.ts",
+      "dist/cli/index.js",
+      "src/index.ts",
+      "src/adapters/index.ts",
+      "src/providers/index.ts",
+      "src/cli/index.ts",
+    ],
   },
   {
     directory: path.join(repositoryRoot, "packages", "emdash"),
     name: "@cloudflare/polystella-emdash",
     exports: [".", "./admin", "./astro", "./client", "./config"],
-    internalDependencies: ["@cloudflare/polystella-cli", "@cloudflare/polystella-core", "@cloudflare/polystella-providers"],
+    internalDependencies: ["@cloudflare/polystella-core"],
     allowedTopLevel: ["CHANGELOG.md", "LICENSE", "README.md", "client.d.ts", "dist", "package.json", "src"],
     requiredFiles: [
       "CHANGELOG.md",
@@ -154,19 +158,19 @@ const lowerPackageEntries = [
   "@cloudflare/polystella-core",
   "@cloudflare/polystella-core/catalog",
   "@cloudflare/polystella-core/catalog/translate",
-  "@cloudflare/polystella-adapters",
-  "@cloudflare/polystella-providers",
-  "@cloudflare/polystella-providers/workers-ai",
-  "@cloudflare/polystella-providers/anthropic",
-  "@cloudflare/polystella-cli",
-  "@cloudflare/polystella-cli/check-ui",
-  "@cloudflare/polystella-cli/config",
-  "@cloudflare/polystella-cli/drift",
-  "@cloudflare/polystella-cli/glossary",
-  "@cloudflare/polystella-cli/run-command",
-  "@cloudflare/polystella-cli/sync",
-  "@cloudflare/polystella-cli/sync-ui",
-  "@cloudflare/polystella-cli/translate-ui",
+  "@cloudflare/polystella-core/adapters",
+  "@cloudflare/polystella-core/providers",
+  "@cloudflare/polystella-core/providers/workers-ai",
+  "@cloudflare/polystella-core/providers/anthropic",
+  "@cloudflare/polystella-core/cli",
+  "@cloudflare/polystella-core/cli/check-ui",
+  "@cloudflare/polystella-core/cli/config",
+  "@cloudflare/polystella-core/cli/drift",
+  "@cloudflare/polystella-core/cli/glossary",
+  "@cloudflare/polystella-core/cli/run-command",
+  "@cloudflare/polystella-core/cli/sync",
+  "@cloudflare/polystella-core/cli/sync-ui",
+  "@cloudflare/polystella-core/cli/translate-ui",
   "@cloudflare/polystella-emdash",
   "@cloudflare/polystella-emdash/admin",
   "@cloudflare/polystella-emdash/astro",
@@ -284,6 +288,15 @@ async function main() {
       { cwd: consumerDirectory },
     );
     if (!emdashCli.stdout.includes("check-ui")) throw new Error("EmDash CLI help omits catalog commands");
+    for (const [host, cliPath] of [
+      ["Astro", path.join("node_modules", "@cloudflare", "polystella-astro", "dist", "cli.js")],
+      ["EmDash", path.join("node_modules", "@cloudflare", "polystella-emdash", "dist", "cli.js")],
+    ]) {
+      const catalogCli = await runCommand(process.execPath, [cliPath, "check-ui", "--help"], { cwd: consumerDirectory });
+      if (!catalogCli.stdout.includes("polystella check-ui")) {
+        throw new Error(`${host} CLI does not dispatch catalog commands`);
+      }
+    }
     await runCommand(pnpm, ["exec", "astro", "build"], {
       cwd: consumerDirectory,
       env: { ...process.env, CI: "true" },
@@ -503,7 +516,7 @@ export default defineConfig({
   await writeFile(path.join(consumerDirectory, "src", "content", "docs", "hello.md"), `---\ntitle: Hello\n---\n\n# Hello\n`);
   await writeFile(
     path.join(consumerDirectory, "src", "entrypoints.ts"),
-    `import { jsonAdapter } from "@cloudflare/polystella-adapters";\nimport { buildPrompt, EMPTY_GLOSSARY, type Segment, type Translator } from "@cloudflare/polystella-core";\nimport { polystellaEmdash } from "@cloudflare/polystella-emdash";\nimport { createWorkersAIHttpTranslator } from "@cloudflare/polystella-providers";\nimport { createAnthropicTranslator, type AnthropicTranslatorOptions } from "@cloudflare/polystella-providers/anthropic";\nimport { createWorkersAIBindingTranslator, type WorkersAIInput } from "@cloudflare/polystella-providers/workers-ai";\nimport { polystellaCollections } from "@cloudflare/polystella-astro/content";\nimport { getTranslations } from "@cloudflare/polystella-astro/i18n";\nimport { useTranslations } from "@cloudflare/polystella-astro/react";\nimport { localizedHref } from "@cloudflare/polystella-astro/runtime";\nimport { polystellaMiddleware } from "@cloudflare/polystella-astro/runtime/middleware";\nimport { defaultLocale } from "polystella:runtime-config";\n\nconst segment: Segment = { id: "body:0", text: "Hello" };\nconst prompt = buildPrompt({ segments: [segment], glossary: EMPTY_GLOSSARY, sourceLocale: "en-US", targetLocale: "pt-BR" });\nconst input: WorkersAIInput = { messages: [{ role: "user", content: prompt.userPrompt }], max_tokens: 64 };\nconst bindingTranslator: Translator = createWorkersAIBindingTranslator({ modelId: "test", maxTokens: 64, run: async () => ({ response: "Ola" }) });\nconst httpTranslator: Translator = createWorkersAIHttpTranslator({ accountId: "test", apiToken: "test", modelId: "test", maxTokens: 64 });\nconst anthropicOptions: AnthropicTranslatorOptions = { apiKey: "test", modelId: "test", maxTokens: 64 };\nconst anthropicTranslator: Translator = createAnthropicTranslator(anthropicOptions);\nconst emdashPlugin = polystellaEmdash({ provider: { kind: "workers-ai-binding", binding: "AI" }, catalogs: { defaultLocale: "en-US", locales: { "en-US": { dictionary: { greeting: "Hello" }, filePath: "src/i18n/en-US.json" } } }, models: { allowed: ["test"], defaults: { default: "test" } } });\n\nexport const typedEntrypoints = [jsonAdapter, prompt, input, bindingTranslator, httpTranslator, anthropicTranslator, emdashPlugin, polystellaCollections, getTranslations, useTranslations, localizedHref, polystellaMiddleware, defaultLocale];\n`,
+    `import { jsonAdapter } from "@cloudflare/polystella-core/adapters";\nimport { buildPrompt, EMPTY_GLOSSARY, type Segment, type Translator } from "@cloudflare/polystella-core";\nimport { polystellaEmdash } from "@cloudflare/polystella-emdash";\nimport { createWorkersAIHttpTranslator } from "@cloudflare/polystella-core/providers";\nimport { createAnthropicTranslator, type AnthropicTranslatorOptions } from "@cloudflare/polystella-core/providers/anthropic";\nimport { createWorkersAIBindingTranslator, type WorkersAIInput } from "@cloudflare/polystella-core/providers/workers-ai";\nimport { polystellaCollections } from "@cloudflare/polystella-astro/content";\nimport { getTranslations } from "@cloudflare/polystella-astro/i18n";\nimport { useTranslations } from "@cloudflare/polystella-astro/react";\nimport { localizedHref } from "@cloudflare/polystella-astro/runtime";\nimport { polystellaMiddleware } from "@cloudflare/polystella-astro/runtime/middleware";\nimport { defaultLocale } from "polystella:runtime-config";\n\nconst segment: Segment = { id: "body:0", text: "Hello" };\nconst prompt = buildPrompt({ segments: [segment], glossary: EMPTY_GLOSSARY, sourceLocale: "en-US", targetLocale: "pt-BR" });\nconst input: WorkersAIInput = { messages: [{ role: "user", content: prompt.userPrompt }], max_tokens: 64 };\nconst bindingTranslator: Translator = createWorkersAIBindingTranslator({ modelId: "test", maxTokens: 64, run: async () => ({ response: "Ola" }) });\nconst httpTranslator: Translator = createWorkersAIHttpTranslator({ accountId: "test", apiToken: "test", modelId: "test", maxTokens: 64 });\nconst anthropicOptions: AnthropicTranslatorOptions = { apiKey: "test", modelId: "test", maxTokens: 64 };\nconst anthropicTranslator: Translator = createAnthropicTranslator(anthropicOptions);\nconst emdashPlugin = polystellaEmdash({ provider: { kind: "workers-ai-binding", binding: "AI" }, catalogs: { defaultLocale: "en-US", locales: { "en-US": { dictionary: { greeting: "Hello" }, filePath: "src/i18n/en-US.json" } } }, models: { allowed: ["test"], defaults: { default: "test" } } });\n\nexport const typedEntrypoints = [jsonAdapter, prompt, input, bindingTranslator, httpTranslator, anthropicTranslator, emdashPlugin, polystellaCollections, getTranslations, useTranslations, localizedHref, polystellaMiddleware, defaultLocale];\n`,
   );
   await writeFile(
     path.join(consumerDirectory, "src", "emdash-entrypoints.ts"),

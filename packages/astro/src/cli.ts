@@ -478,7 +478,7 @@ async function main(): Promise<number> {
     case "check-ui":
     case "sync-ui":
     case "translate-ui": {
-      const { runCatalogCommand } = await import("@cloudflare/polystella-cli/run-command");
+      const { runCatalogCommand } = await import("@cloudflare/polystella-core/cli/run-command");
       return runCatalogCommand(dispatch.name, dispatch.rest, {
         cwd,
         log: (msg) => console.log(msg),
