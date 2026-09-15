@@ -1,0 +1,165 @@
+packages/core/src/providers/http-error.ts
+  s_c89bdbdc5200b3::t_96f5b3671c3095 1
+packages/core/tests/adapters/markdown.test.ts
+  s_c89bdbdc5200b3::t_d2a3cd7ede1d20 11
+.changeset/README.md
+  s_c89bdbdc5200b3::t_d255e27111821a 16-18
+packages/astro/src/glossary/glossary.ts
+  s_c89bdbdc5200b3::t_34dcd184a13521 1
+packages/astro/src/translation/run.ts
+  s_c89bdbdc5200b3::t_145ea30538a7f4 7
+packages/astro/src/parsing/adapter.ts
+  s_c89bdbdc5200b3::t_f5b29880650695 10
+packages/astro/src/parsing/adapters/json.ts
+  s_c89bdbdc5200b3::t_3d953aaa634e49 1
+packages/astro/tests/parsing/mdx-rules.test.ts
+  s_c89bdbdc5200b3::t_652c1cb5476a5e 2
+packages/core/src/cli/sync-ui.ts
+  s_c89bdbdc5200b3::t_bb511db09043ca 4
+packages/astro/src/cli/sync-ui.ts
+  s_c89bdbdc5200b3::t_edd61ed8352a18 1
+packages/astro/src/cli.ts
+  s_c89bdbdc5200b3::t_56f8c9d4cdc61c 481
+packages/astro/tests/parsing/key-paths.test.ts
+  s_c89bdbdc5200b3::t_a255ceafcfd9bd 3
+packages/emdash/tests/routes.test.ts
+  s_c89bdbdc5200b3::t_749b08a15231dc 2
+packages/core/src/cli/drift.ts
+  s_c89bdbdc5200b3::t_3a0cada44ca596 4
+packages/astro/src/i18n/drift.ts
+  s_c89bdbdc5200b3::t_7ea8bf99d63940 1
+packages/core/src/cli/provider.ts
+  s_c89bdbdc5200b3::t_891b96eaa6d59d 1-3
+.changeset/clean-stars-extract.md
+  s_c89bdbdc5200b3::t_d7937b6b868603 7
+tests/workerd/portability.test.ts
+  s_c89bdbdc5200b3::t_15288ed3fa51f7 1,12
+packages/astro/src/parsing/adapters/markdown.ts
+  s_c89bdbdc5200b3::t_2b7e0e9671a1dc 6
+packages/astro/tests/parsing/markdown-adapter.test.ts
+  s_c89bdbdc5200b3::t_9078a8e4699b50 1
+packages/core/src/adapters/toml.ts
+  s_c89bdbdc5200b3::t_e8a7c9a0011c38 1-5
+packages/emdash/src/server/routes/provider.ts
+  s_c89bdbdc5200b3::t_7e63e433a19063 7
+llms-full.txt
+  s_c89bdbdc5200b3::t_9fc91f76eea9dd 49-51,67-69,75-77,88-90,122,215,222-223,229,233-234,243,248-270,273,293,299-300,308,313-314,316,321-322,331-332,339,349-354,360-361,364-365,370-375,380,421,458-466,469-471,480-481,487,493,629-633,640-645,966,1018,1161,1166-1169,1172,1178-1179,1184,1192,1483,1485,1798,1802,1847,1873,1877,1920,1927,1950,1969,1995,2009,2162-2163,2168
+packages/core/tests/adapters/mdx.test.ts
+  s_c89bdbdc5200b3::t_1d1b5768bb7fbe 3
+docs/examples/direct-packages/index.ts
+  s_c89bdbdc5200b3::t_ff6995036fcfd9 1,3
+packages/astro/src/parsing/adapters/yaml.ts
+  s_c89bdbdc5200b3::t_a9a117813c5f04 1
+ARCHITECTURE.md
+  s_c89bdbdc5200b3::t_bfa5786d277b3d 104-108,115-120,441,493,647,653-654,659,667
+tests/workerd/fixture/worker.ts
+  s_c89bdbdc5200b3::t_245077ae5f54d5 1,5
+packages/core/tests/adapters/structured-adapters.test.ts
+  s_c89bdbdc5200b3::t_f04c064abc925a 3
+packages/astro/tests/parsing/extract.test.ts
+  s_c89bdbdc5200b3::t_266af168ec1dab 2
+docs/src/content/docs/roadmap.md
+  s_c89bdbdc5200b3::t_086edbd764a465 36-37
+docs/src/content/docs/emdash/cli.md
+  s_c89bdbdc5200b3::t_ff93355ecfeae8 15-16
+packages/astro/src/parsing/adapters/toml.ts
+  s_c89bdbdc5200b3::t_46c3a7f2c6f41a 1
+packages/astro/src/parsing/mdx-audit.ts
+  s_c89bdbdc5200b3::t_01f4970dfb0652 2
+docs/src/content/docs/cli/index.md
+  s_c89bdbdc5200b3::t_9f4072896e2f3c 75
+packages/astro/src/runtime/custom-loader-runtime.ts
+  s_c89bdbdc5200b3::t_0cd8ec33d1a2b3 18
+.changeset/tidy-adapter-layout.md
+  s_c89bdbdc5200b3::t_96be5c5d9408e0 3
+packages/astro/tests/parsing/spot.test.ts
+  s_c89bdbdc5200b3::t_b673e15d46366a 2
+packages/core/tests/cli/run-command.test.ts
+  s_c89bdbdc5200b3::t_ed1ff8bbcddfa9 3
+packages/emdash/src/config.ts
+  s_c89bdbdc5200b3::t_edd5eae7ebca4d 2
+packages/astro/src/parsing/mdx-rules.ts
+  s_c89bdbdc5200b3::t_133f2cb4c952fe 3
+packages/astro/src/i18n/sync.ts
+  s_c89bdbdc5200b3::t_922087d1eaf855 1
+docs/src/content/docs/providers/workers-ai.md
+  s_c89bdbdc5200b3::t_fba8afaf2d75c5 47-48,51
+packages/core/src/providers/workers-ai.ts
+  s_c89bdbdc5200b3::t_c47d650ea18ac9 1
+packages/astro/src/cli/check-ui.ts
+  s_c89bdbdc5200b3::t_ca2beaab39939c 1
+packages/astro/src/translation/provider.ts
+  s_c89bdbdc5200b3::t_fd2fd32562f38c 2-3
+packages/astro/tests/parsing/apply.test.ts
+  s_c89bdbdc5200b3::t_ab5293661152de 3
+.changeset/merge-low-level-packages.md
+  s_c89bdbdc5200b3::t_006867f84fc541 1-7
+packages/astro/src/cli/translate-ui.ts
+  s_c89bdbdc5200b3::t_d9273d7d63e2bd 1
+packages/core/src/cli/config.ts
+  s_c89bdbdc5200b3::t_c7033148c5280e 4
+packages/astro/tests/parsing/toml-adapter.test.ts
+  s_c89bdbdc5200b3::t_3ef404c33ed8e0 3
+.changeset/curvy-pandas-translate.md
+  s_c89bdbdc5200b3::t_1d21a771a1411c 3,7
+packages/core/src/adapters/markdown/adapter.ts
+  s_c89bdbdc5200b3::t_80321d17869c16 1-4
+packages/core/src/adapters/json.ts
+  s_c89bdbdc5200b3::t_0728ddbbe510a4 1-4
+packages/core/src/providers/anthropic.ts
+  s_c89bdbdc5200b3::t_b66ae321307b0a 1
+packages/astro/tests/storage/cache.test.ts
+  s_c89bdbdc5200b3::t_1106dcf72980a0 3
+packages/core/tests/adapters/key-paths.test.ts
+  s_c89bdbdc5200b3::t_18eafc9992dc88 3
+packages/astro/tests/parsing/json-adapter.test.ts
+  s_c89bdbdc5200b3::t_981711e8917b31 3
+packages/core/src/cli/glossary.ts
+  s_c89bdbdc5200b3::t_f1b2de4073f1ff 6
+packages/core/tests/cli/config.test.ts
+  s_c89bdbdc5200b3::t_0e92ee51e701e1 3
+packages/astro/src/storage/cache.ts
+  s_c89bdbdc5200b3::t_ab5ef219d337e9 2
+packages/core/src/adapters/index.ts
+  s_c89bdbdc5200b3::t_86dfd7ae1931b2 2-10
+packages/core/src/adapters/markdown/extract.ts
+  s_c89bdbdc5200b3::t_05deff5a4c2c05 1
+skills/polystella-contributor/SKILL.md
+  s_c89bdbdc5200b3::t_8721fd35b14326 55,59,104,130,134,177,184,207,226,252,266,419-420,425
+packages/astro/tests/parsing/round-trip.test.ts
+  s_c89bdbdc5200b3::t_8e67c00dfd2b54 5
+packages/emdash/src/cli.ts
+  s_c89bdbdc5200b3::t_3197ae0c80a271 2
+packages/astro/tests/parsing/adapter-registry.test.ts
+  s_c89bdbdc5200b3::t_fe985b24d773d9 2
+packages/core/src/adapters/yaml.ts
+  s_c89bdbdc5200b3::t_c7f1787777902f 1-5
+packages/core/src/cli/translate-ui.ts
+  s_c89bdbdc5200b3::t_005ab6ca5c3a13 5-12
+packages/core/src/adapters/adapter.ts
+  s_c89bdbdc5200b3::t_f146746a77002d 1
+pnpm-lock.yaml
+  s_c89bdbdc5200b3::t_df6edab02fcc51 162,164-190,198-200,9374,9385,9412
+packages/astro/src/parsing/parse.ts
+  s_c89bdbdc5200b3::t_d58266d02b97d3 3
+packages/astro/tests/parsing/yaml-adapter.test.ts
+  s_c89bdbdc5200b3::t_a0ac3fd3cf9792 4
+packages/core/src/cli/sync.ts
+  s_c89bdbdc5200b3::t_c60db510e00cc7 4-6
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "0b8fa4d772132a69b6371a04537ac54aee648fcf",
+  "prompts": {},
+  "sessions": {
+    "s_c89bdbdc5200b3": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f5ae55063ffeT2CqMhTizP7SCn",
+        "model": "@cf/deepseek-ai/deepseek-v4-pro"
+      },
+      "human_author": "Diogo Carneiro <dcarneiro@cloudflare.com>"
+    }
+  }
+}
