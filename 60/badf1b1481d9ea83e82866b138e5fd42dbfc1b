@@ -1,0 +1,19 @@
+llms-full.txt
+  s_d28ada8a5d8508::t_609c7794286b2d 49-51,65-68,70-80,241-246,255-265,458-466,480-481,807,1641-1645,1647-1648
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "60badf1b1481d9ea83e82866b138e5fd42dbfc1b",
+  "prompts": {},
+  "sessions": {
+    "s_d28ada8a5d8508": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f3c8d1076ffeFX9QnypC0kTOGk",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Diogo Carneiro <dcarneiro@cloudflare.com>"
+    }
+  }
+}
