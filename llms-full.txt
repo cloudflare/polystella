@@ -46,9 +46,9 @@ section numbers. Inserting new sections never breaks links.
 | :-------------------- | :----------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `pnpm test`           | Run all package, Astro, workerd, and boundary tests.                                                                                                   |
 | `pnpm test:watch`     | Run the Astro package tests in watch mode.                                                                                                             |
-| `pnpm build`          | Build all four public packages. Astro and EmDash emit standalone CLI entries.                                                                         |
-| `pnpm typecheck`      | Build all four packages, then typecheck every public package against its package-local `tsconfig.json`.                                               |
-| `pnpm check:packages` | Pack all four public packages and exercise every export from a clean temporary consumer.                                                              |
+| `pnpm build`          | Build all four public packages. Astro and EmDash emit standalone CLI entries.                                                                          |
+| `pnpm typecheck`      | Build all four packages, then typecheck every public package against its package-local `tsconfig.json`.                                                |
+| `pnpm check:packages` | Pack all four public packages and exercise every export from a clean temporary consumer.                                                               |
 | `pnpm changeset`      | Add a Changesets entry for package-affecting work. Use `pnpm changeset add --empty` only for changes that intentionally do not need a package release. |
 
 No lint step yet.
@@ -62,22 +62,22 @@ No lint step yet.
 
 Task → entry-point file(s) → key contract → deep-dive link.
 
-| Task                                                   | Entry point                                                                                      | Contract                                                                                                              | See                                                                                                                                                 |
-| :----------------------------------------------------- | :----------------------------------------------------------------------------------------------- | :-------------------------------------------------------------------------------------------------------------------- | :-------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Add a file-format adapter                              | `packages/core/src/adapters/<name>.ts`; wrap/register in `packages/astro/src/parsing/` | `FileAdapter` in `packages/core/src/adapters/adapter.ts`                                                             | [#adapter-contract](./ARCHITECTURE.md#adapter-contract); recipe in [contributor SKILL](./skills/polystella-contributor/SKILL.md#add-adapter)        |
-| Add a shared catalog CLI subcommand                    | Handler in `packages/core/src/cli/<name>.ts`; register in `packages/core/src/cli/run-command.ts` | Argv parser + `run<Name>(args, deps)`                                                                                 | Recipe in [contributor SKILL](./skills/polystella-contributor/SKILL.md#add-cli-subcommand)                                                          |
+| Task                                                   | Entry point                                                                                           | Contract                                                                                                              | See                                                                                                                                                 |
+| :----------------------------------------------------- | :---------------------------------------------------------------------------------------------------- | :-------------------------------------------------------------------------------------------------------------------- | :-------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Add a file-format adapter                              | `packages/core/src/adapters/<name>.ts`; wrap/register in `packages/astro/src/parsing/`                | `FileAdapter` in `packages/core/src/adapters/adapter.ts`                                                              | [#adapter-contract](./ARCHITECTURE.md#adapter-contract); recipe in [contributor SKILL](./skills/polystella-contributor/SKILL.md#add-adapter)        |
+| Add a shared catalog CLI subcommand                    | Handler in `packages/core/src/cli/<name>.ts`; register in `packages/core/src/cli/run-command.ts`      | Argv parser + `run<Name>(args, deps)`                                                                                 | Recipe in [contributor SKILL](./skills/polystella-contributor/SKILL.md#add-cli-subcommand)                                                          |
 | Add a translation provider                             | Factory in `packages/core/src/providers/`; map config in `packages/astro/src/translation/provider.ts` | `Translator` in `packages/core/src/translator.ts`                                                                     | [#translator-contract](./ARCHITECTURE.md#translator-contract); recipe in [contributor SKILL](./skills/polystella-contributor/SKILL.md#add-provider) |
-| Change cache key formula                               | `packages/astro/src/storage/hash.ts`                                                             | **Invariant 1** — cache-wide invalidation                                                                             | [#cache-key](./ARCHITECTURE.md#cache-key)                                                                                                           |
-| Edit translation batching                              | `packages/core/src/{batch,translate-segments}.ts`                                                | **Invariant 2** — `flat(groups) === segments`                                                                         | [#translation-batching](./ARCHITECTURE.md#translation-batching)                                                                                     |
-| Modify cache/storage behaviour                         | `packages/astro/src/storage/{cache,r2,prune,local-cache,report}.ts`                              | Apply-before-PUT (**Invariant 3**); index isolation (**Invariant 4**)                                                 | [#cache-write-order](./ARCHITECTURE.md#cache-write-order), [#local-staging-index](./ARCHITECTURE.md#local-staging-index)                            |
-| Modify runtime APIs (entry/collection/href/middleware) | `packages/astro/src/runtime/*`                                                                   | Bridge timing (**Invariant 5**); per-locale closures                                                                  | [#runtime-bridge](./ARCHITECTURE.md#runtime-bridge)                                                                                                 |
-| Modify routing shims                                   | `packages/astro/src/routing/{shim,expand-routes,walk-pages}.ts`                                  | Stale shims nuked per build; CSS via `routesImports`                                                                  | [#routing-shims](./ARCHITECTURE.md#routing-shims)                                                                                                   |
-| Edit UI-string handling                                | `packages/core/src/catalog/translate.ts`, `packages/core/src/cli/{drift,sync,translate-ui}.ts`  | Three drift modes; layout-aware writer; `{{token}}` preservation                                                      | [#ui-strings](./ARCHITECTURE.md#ui-strings)                                                                                                         |
-| Edit catalog-only adoption                             | `packages/core/src/catalog/index.ts`, `packages/astro/src/catalog/*`                             | Pure imports; middleware binds only `t` + `lhref`                                                                     | [#ui-strings](./ARCHITECTURE.md#ui-strings); [consumer SKILL](./skills/polystella-consumer/SKILL.md#catalog-only-adoption)                          |
-| Modify the EmDash plugin                               | `packages/emdash/src/*`                                                                          | Provider/locale/model bounds stay server-owned; collection policy is administrator-owned; Git catalogs stay canonical | [#package-boundaries](./ARCHITECTURE.md#package-boundaries)                                                                                         |
-| Edit content-collection wiring                         | `packages/astro/src/content/*`                                                                   | Sibling collections; custom-loader wrapper; bridge timing                                                             | [#runtime-bridge](./ARCHITECTURE.md#runtime-bridge)                                                                                                 |
-| Debug a translation that's wrong                       | Start: `pnpm translate --dry-run` to inspect planned R2 keys; `LOG_LEVEL=debug` for batch detail | —                                                                                                                     | Recipe in [contributor SKILL](./skills/polystella-contributor/SKILL.md#debug-translation)                                                           |
-| Tune cold-cache build performance                      | `r2.bulkListOnStart`, `concurrency`, `batchInputTokenBudget` knobs                               | —                                                                                                                     | [#bulk-prelist](./ARCHITECTURE.md#bulk-prelist), [#translation-batching](./ARCHITECTURE.md#translation-batching)                                    |
+| Change cache key formula                               | `packages/astro/src/storage/hash.ts`                                                                  | **Invariant 1** — cache-wide invalidation                                                                             | [#cache-key](./ARCHITECTURE.md#cache-key)                                                                                                           |
+| Edit translation batching                              | `packages/core/src/{batch,translate-segments}.ts`                                                     | **Invariant 2** — `flat(groups) === segments`                                                                         | [#translation-batching](./ARCHITECTURE.md#translation-batching)                                                                                     |
+| Modify cache/storage behaviour                         | `packages/astro/src/storage/{cache,r2,prune,local-cache,report}.ts`                                   | Apply-before-PUT (**Invariant 3**); index isolation (**Invariant 4**)                                                 | [#cache-write-order](./ARCHITECTURE.md#cache-write-order), [#local-staging-index](./ARCHITECTURE.md#local-staging-index)                            |
+| Modify runtime APIs (entry/collection/href/middleware) | `packages/astro/src/runtime/*`                                                                        | Bridge timing (**Invariant 5**); per-locale closures                                                                  | [#runtime-bridge](./ARCHITECTURE.md#runtime-bridge)                                                                                                 |
+| Modify routing shims                                   | `packages/astro/src/routing/{shim,expand-routes,walk-pages}.ts`                                       | Stale shims nuked per build; CSS via `routesImports`                                                                  | [#routing-shims](./ARCHITECTURE.md#routing-shims)                                                                                                   |
+| Edit UI-string handling                                | `packages/core/src/catalog/translate.ts`, `packages/core/src/cli/{drift,sync,translate-ui}.ts`        | Three drift modes; layout-aware writer; `{{token}}` preservation                                                      | [#ui-strings](./ARCHITECTURE.md#ui-strings)                                                                                                         |
+| Edit catalog-only adoption                             | `packages/core/src/catalog/index.ts`, `packages/astro/src/catalog/*`                                  | Pure imports; middleware binds only `t` + `lhref`                                                                     | [#ui-strings](./ARCHITECTURE.md#ui-strings); [consumer SKILL](./skills/polystella-consumer/SKILL.md#catalog-only-adoption)                          |
+| Modify the EmDash plugin                               | `packages/emdash/src/*`                                                                               | Provider/locale/model bounds stay server-owned; collection policy is administrator-owned; Git catalogs stay canonical | [#package-boundaries](./ARCHITECTURE.md#package-boundaries)                                                                                         |
+| Edit content-collection wiring                         | `packages/astro/src/content/*`                                                                        | Sibling collections; custom-loader wrapper; bridge timing                                                             | [#runtime-bridge](./ARCHITECTURE.md#runtime-bridge)                                                                                                 |
+| Debug a translation that's wrong                       | Start: `pnpm translate --dry-run` to inspect planned R2 keys; `LOG_LEVEL=debug` for batch detail      | —                                                                                                                     | Recipe in [contributor SKILL](./skills/polystella-contributor/SKILL.md#debug-translation)                                                           |
+| Tune cold-cache build performance                      | `r2.bulkListOnStart`, `concurrency`, `batchInputTokenBudget` knobs                                    | —                                                                                                                     | [#bulk-prelist](./ARCHITECTURE.md#bulk-prelist), [#translation-batching](./ARCHITECTURE.md#translation-batching)                                    |
 
 If your task isn't on this list, the answer is in `packages/astro/src/<area>/`
 matching one of the subsystem sections in
@@ -238,12 +238,12 @@ Published dependencies on independently versioned packages use compatible
 caret ranges. The compatibility package pins the exact Astro version because
 it forwards that package's API and CLI unchanged.
 
-| Directory                                        | Published package                  | Responsibility                                                                           |
-| :----------------------------------------------- | :--------------------------------- | :--------------------------------------------------------------------------------------- |
-| [`packages/core/`](./packages/core/)             | `@cloudflare/polystella-core`      | Translation contracts, catalogs, prompts, batching, retries, response parsing, portable format adapters, AI provider transports, and shared Node.js catalog commands. |
-| [`packages/emdash/`](./packages/emdash/)         | `@cloudflare/polystella-emdash`    | Native EmDash translation, administrator policy, admin UI, overrides, and Astro runtime. |
-| [`packages/astro/`](./packages/astro/)           | `@cloudflare/polystella-astro`     | Canonical Astro integration, host policy, storage, routing, runtime APIs, and CLI.       |
-| [`packages/polystella/`](./packages/polystella/) | `@cloudflare/polystella`           | Temporary compatibility forwarding to `@cloudflare/polystella-astro`.                    |
+| Directory                                        | Published package               | Responsibility                                                                                                                                                        |
+| :----------------------------------------------- | :------------------------------ | :-------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`packages/core/`](./packages/core/)             | `@cloudflare/polystella-core`   | Translation contracts, catalogs, prompts, batching, retries, response parsing, portable format adapters, AI provider transports, and shared Node.js catalog commands. |
+| [`packages/emdash/`](./packages/emdash/)         | `@cloudflare/polystella-emdash` | Native EmDash translation, administrator policy, admin UI, overrides, and Astro runtime.                                                                              |
+| [`packages/astro/`](./packages/astro/)           | `@cloudflare/polystella-astro`  | Canonical Astro integration, host policy, storage, routing, runtime APIs, and CLI.                                                                                    |
+| [`packages/polystella/`](./packages/polystella/) | `@cloudflare/polystella`        | Temporary compatibility forwarding to `@cloudflare/polystella-astro`.                                                                                                 |
 
 ## Core Subpaths
 
@@ -252,17 +252,17 @@ translation contracts, catalogs, prompts, batching, retries, and response
 parsing. Adapters, providers, and the CLI are separate subpaths so Worker
 consumers never pull Node-only CLI code:
 
-| Subpath                                     | Contents                                                                      |
-| :------------------------------------------ | :---------------------------------------------------------------------------- |
-| `@cloudflare/polystella-core`               | Translation contracts, catalogs, prompts, batching, retries, response parsing. |
-| `@cloudflare/polystella-core/catalog`       | Catalog normalization, formatting, lookup, fallback, and interpolation.       |
-| `@cloudflare/polystella-core/catalog/translate` | Catalog AI translation and `{{token}}` validation.                          |
-| `@cloudflare/polystella-core/adapters`      | Portable parsing, extraction, grouping, and translation application.          |
-| `@cloudflare/polystella-core/providers`     | All provider factories from one entrypoint.                                   |
-| `@cloudflare/polystella-core/providers/workers-ai` | Workers AI HTTP and binding factories plus their structural input types. |
-| `@cloudflare/polystella-core/providers/anthropic` | Anthropic HTTP factory.                                                      |
-| `@cloudflare/polystella-core/cli`           | Shared Node.js catalog commands, filesystem policy, config loading, and glossary I/O. |
-| `@cloudflare/polystella-core/cli/*`         | Per-command entrypoints (check-ui, config, drift, glossary, run-command, sync, sync-ui, translate-ui). |
+| Subpath                                            | Contents                                                                                               |
+| :------------------------------------------------- | :----------------------------------------------------------------------------------------------------- |
+| `@cloudflare/polystella-core`                      | Translation contracts, catalogs, prompts, batching, retries, response parsing.                         |
+| `@cloudflare/polystella-core/catalog`              | Catalog normalization, formatting, lookup, fallback, and interpolation.                                |
+| `@cloudflare/polystella-core/catalog/translate`    | Catalog AI translation and `{{token}}` validation.                                                     |
+| `@cloudflare/polystella-core/adapters`             | Portable parsing, extraction, grouping, and translation application.                                   |
+| `@cloudflare/polystella-core/providers`            | All provider factories from one entrypoint.                                                            |
+| `@cloudflare/polystella-core/providers/workers-ai` | Workers AI HTTP and binding factories plus their structural input types.                               |
+| `@cloudflare/polystella-core/providers/anthropic`  | Anthropic HTTP factory.                                                                                |
+| `@cloudflare/polystella-core/cli`                  | Shared Node.js catalog commands, filesystem policy, config loading, and glossary I/O.                  |
+| `@cloudflare/polystella-core/cli/*`                | Per-command entrypoints (check-ui, config, drift, glossary, run-command, sync, sync-ui, translate-ui). |
 
 The root, `catalog`, `adapters`, and `providers` subpaths use standard Web
 APIs and run in Workerd without `nodejs_compat`. Node imports may exist only
@@ -455,15 +455,15 @@ before `build:start`. See [`ARCHITECTURE.md#hook-timing`](./ARCHITECTURE.md#hook
 
 ## Where Changes Belong
 
-| Change                                                                | Package / subpath       |
-| :-------------------------------------------------------------------- | :---------------------- |
-| Change prompts, batching, retry behavior, or translator contracts     | Core root               |
-| Parse or reconstruct a portable content format                        | Core `/adapters`        |
-| Add or change an external AI transport                                | Core `/providers`       |
-| Add or change a shared catalog CLI command                            | Core `/cli`             |
-| Change Astro options, files, R2, routing, middleware, content, or CLI | Astro                   |
-| Change EmDash options, storage, routes, or native admin UI            | EmDash                  |
-| Mirror a canonical Astro export under the old package name            | Compatibility package   |
+| Change                                                                | Package / subpath     |
+| :-------------------------------------------------------------------- | :-------------------- |
+| Change prompts, batching, retry behavior, or translator contracts     | Core root             |
+| Parse or reconstruct a portable content format                        | Core `/adapters`      |
+| Add or change an external AI transport                                | Core `/providers`     |
+| Add or change a shared catalog CLI command                            | Core `/cli`           |
+| Change Astro options, files, R2, routing, middleware, content, or CLI | Astro                 |
+| Change EmDash options, storage, routes, or native admin UI            | EmDash                |
+| Mirror a canonical Astro export under the old package name            | Compatibility package |
 
 If a change requires Node, Astro, filesystem, or R2 APIs, it does not belong in
 the core root, `/adapters`, or `/providers`. If a provider implementation starts
@@ -477,8 +477,8 @@ The boundaries are executable, not only documented:
 | Contract                                                                            | Enforcement                                                                                                                 |
 | :---------------------------------------------------------------------------------- | :-------------------------------------------------------------------------------------------------------------------------- |
 | Package dependency graph, exports, tarball contents, CLIs, and compatibility parity | [`scripts/check-packages.mjs`](./scripts/check-packages.mjs)                                                                |
-| Core's portable entrypoints avoid Node and host imports                            | [`tests/boundaries/reusable-packages.test.ts`](./tests/boundaries/reusable-packages.test.ts)                                |
-| Core's portable entrypoints execute under Workerd without `nodejs_compat`          | [`tests/workerd/`](./tests/workerd/) and [`scripts/check-workerd-portability.mjs`](./scripts/check-workerd-portability.mjs) |
+| Core's portable entrypoints avoid Node and host imports                             | [`tests/boundaries/reusable-packages.test.ts`](./tests/boundaries/reusable-packages.test.ts)                                |
+| Core's portable entrypoints execute under Workerd without `nodejs_compat`           | [`tests/workerd/`](./tests/workerd/) and [`scripts/check-workerd-portability.mjs`](./scripts/check-workerd-portability.mjs) |
 | End-to-end extraction behavior remains stable                                       | [`scripts/check-monorepo-baseline.mjs`](./scripts/check-monorepo-baseline.mjs)                                              |
 | Public export documentation matches manifests                                       | [`docs/scripts/check-exports.ts`](./docs/scripts/check-exports.ts)                                                          |
 | All packages version together                                                       | [`.changeset/config.json`](./.changeset/config.json)                                                                        |
@@ -804,8 +804,7 @@ Inputs:
   untranslated fields (e.g. an internal `id`) doesn't invalidate the
   cache.
 - **`glossaryHash`** — `hashGlossary(...)`. Changing a glossary entry
-  re-translates the pages that mention the changed term, not the whole
-  corpus.
+  re-translates the whole corpus for that locale.
 - **`modelId`** — the per-locale resolved model. Switching models is
   an explicit invalidation.
 - **`optionalExtractionPolicyHash`** — included by adapters whose
@@ -1639,19 +1638,14 @@ Use overrides for content you want to control exactly (legal copy, brand names, 
 
 ## Glossary
 
-YAML file per locale at `<glossaryDir>/<locale>.yaml`:
+Configure one per-locale YAML source using `glossary.file`,
+`glossary.http`, `glossary.r2`, or `glossary.inline`. File paths, HTTP
+URLs, and R2 keys use `{locale}`; PolyStella loads one object per target
+locale. See the glossary concept guide for the YAML shape and private
+repository examples.
 
-```yaml
-- term: "Cloudflare"
-  translation: "Cloudflare" # do-not-translate
-- term: "edge computing"
-  translation: "edge computing"
-  notes: "Keep English; widely understood as a technical term in <locale>."
-- term: "free tier"
-  translation: "<locale-specific preferred phrasing>"
-```
-
-Editing the glossary re-translates only pages mentioning the changed term (the glossary hash folds into the cache key).
+Editing a glossary changes that locale's glossary hash and re-translates
+the whole corpus for that locale.
 
 ## Build report
 

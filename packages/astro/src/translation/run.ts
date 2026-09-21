@@ -8,7 +8,7 @@ import type { MarkdownAdapterExtractOptions as AdapterExtractOptions } from "@cl
 import { EMPTY_GLOSSARY, type Glossary, type Logger, type Translator } from "@cloudflare/polystella-core";
 
 import type { PolyStellaResolvedOptions } from "../config/options.js";
-import { EMPTY_GLOSSARY_HASH, hashGlossary, loadGlossaries } from "../glossary/glossary.js";
+import { EMPTY_GLOSSARY_HASH, glossarySourceLabel, hashGlossary, loadGlossaries } from "../glossary/glossary.js";
 import type { FileTypeAdapter } from "../parsing/adapter.js";
 import { computeMdxRulesPolicyHash, normalizeMdxRulesForSource } from "../parsing/mdx-rules.js";
 import { rewriteInternalLinks, rewriteUrlIfInternal, type RewriteInternalLinksOptions } from "../parsing/rewrite-links.js";
@@ -81,7 +81,7 @@ export interface RunTranslationResult {
   entries: BuildReportEntry[];
   /** Prune outcome; `deletedKeys` empty when no prune ran. */
   pruning: BuildReportPruning;
-  /** Per-locale glossary metadata for the build report's inventory. */
+  /** Per-locale glossary metadata; `file` is a path or redacted source label. */
   glossariesForReport: Record<string, { file: string; sha256: string }>;
   /** Pairs the run processed (translated / hit / override). For diagnostics. */
   touchedPairs: Set<string>;
@@ -275,22 +275,27 @@ export async function runTranslationPass(opts: RunTranslationOptions): Promise<R
   const glossaries = await loadGlossaries({
     config: resolved,
     projectRoot: pathToFileURL(rootDir + path.sep),
+    signal,
   });
   const glossaryHashByLocale = new Map<string, string>();
   for (const locale of resolved.locales) {
     const glossary = glossaries.get(locale);
     const hash = glossary ? hashGlossary(glossary) : EMPTY_GLOSSARY_HASH;
     glossaryHashByLocale.set(locale, hash);
-    if (glossary) {
-      const fileTemplate = resolved.glossary && "file" in resolved.glossary ? resolved.glossary.file : "<inline>";
+    if (glossary && resolved.glossary) {
       glossariesForReport[locale] = {
-        file: fileTemplate.replace("{locale}", locale),
+        file: glossarySourceLabel(resolved.glossary, locale),
         sha256: hash,
       };
     }
   }
   if (glossaries.size > 0) {
     logger.info(`loaded glossaries for: ${[...glossaries.keys()].sort().join(", ")}`);
+    if (resolved.dryRun && resolved.glossary) {
+      for (const locale of [...glossaries.keys()].sort()) {
+        logger.info(`dry-run: glossary ${locale} from ${glossarySourceLabel(resolved.glossary, locale)}`);
+      }
+    }
   }
 
   // One Translator per locale. Empty when no provider — model-id in

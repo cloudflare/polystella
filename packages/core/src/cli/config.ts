@@ -35,7 +35,23 @@ export interface GlossaryInput {
   preferredTranslations?: Record<string, string> | undefined;
   notes?: string | undefined;
 }
-export type CatalogGlossaryConfig = { file: string } | { inline: Record<string, GlossaryInput> };
+export interface HttpGlossaryConfig {
+  url: string;
+  headers?: Record<string, string> | undefined;
+}
+export interface R2GlossaryConfig {
+  accountId: string;
+  bucket: string;
+  key: string;
+  accessKeyId: string;
+  secretAccessKey: string;
+  endpoint?: string | undefined;
+}
+export type CatalogGlossaryConfig =
+  | { file: string; inline?: undefined; http?: undefined; r2?: undefined }
+  | { file?: undefined; inline: Record<string, GlossaryInput>; http?: undefined; r2?: undefined }
+  | { file?: undefined; inline?: undefined; http: HttpGlossaryConfig; r2?: undefined }
+  | { file?: undefined; inline?: undefined; http?: undefined; r2: R2GlossaryConfig };
 
 export interface CatalogResolvedConfig {
   defaultLocale: string;
@@ -151,9 +167,15 @@ function parseModel(value: unknown): ModelSpec {
 
 function parseGlossaryConfig(value: unknown): CatalogGlossaryConfig {
   const glossary = requireRecord(value, "glossary");
-  if (typeof glossary.file === "string" && glossary.file.length > 0) return { file: glossary.file };
-  const inline = asRecordOrUndefined(glossary.inline);
-  if (inline !== undefined) {
+  rejectUnknownKeys(glossary, ["file", "inline", "http", "r2"], "glossary");
+  const sources = ["file", "inline", "http", "r2"].filter((key) => glossary[key] !== undefined);
+  if (sources.length !== 1) {
+    throw configurationError("glossary", "must configure exactly one of file, inline, http, or r2");
+  }
+
+  if (sources[0] === "file") return { file: requireNonEmptyString(glossary.file, "glossary.file") };
+  if (sources[0] === "inline") {
+    const inline = requireRecord(glossary.inline, "glossary.inline");
     const entries: Record<string, GlossaryInput> = {};
     for (const [locale, data] of Object.entries(inline)) {
       const rawEntry = asRecordOrUndefined(data);
@@ -167,7 +189,40 @@ function parseGlossaryConfig(value: unknown): CatalogGlossaryConfig {
     }
     return { inline: entries };
   }
-  throw configurationError("glossary", 'must be { file: "path/{locale}.yaml" } or { inline: { ... } }');
+  if (sources[0] === "http") {
+    const http = requireRecord(glossary.http, "glossary.http");
+    rejectUnknownKeys(http, ["url", "headers"], "glossary.http");
+    const rawHeaders = http.headers === undefined ? undefined : requireRecord(http.headers, "glossary.http.headers");
+    const headers =
+      rawHeaders === undefined
+        ? undefined
+        : Object.fromEntries(
+            Object.entries(rawHeaders).map(([name, headerValue]) => [
+              name,
+              requireNonEmptyString(headerValue, `glossary.http.headers.${name}`),
+            ]),
+          );
+    return {
+      http: {
+        url: requireNonEmptyString(http.url, "glossary.http.url"),
+        ...(headers === undefined ? {} : { headers }),
+      },
+    };
+  }
+
+  const r2 = requireRecord(glossary.r2, "glossary.r2");
+  rejectUnknownKeys(r2, ["accountId", "bucket", "key", "accessKeyId", "secretAccessKey", "endpoint"], "glossary.r2");
+  const endpoint = optionalUrl(r2.endpoint, "glossary.r2.endpoint");
+  return {
+    r2: {
+      accountId: requireNonEmptyString(r2.accountId, "glossary.r2.accountId"),
+      bucket: requireNonEmptyString(r2.bucket, "glossary.r2.bucket"),
+      key: requireNonEmptyString(r2.key, "glossary.r2.key"),
+      accessKeyId: requireNonEmptyString(r2.accessKeyId, "glossary.r2.accessKeyId"),
+      secretAccessKey: requireNonEmptyString(r2.secretAccessKey, "glossary.r2.secretAccessKey"),
+      ...(endpoint === undefined ? {} : { endpoint }),
+    },
+  };
 }
 
 function parsePrompt(value: unknown): { context?: string | undefined } {
@@ -206,6 +261,11 @@ function requireRecord(value: unknown, name: string): Record<string, unknown> {
   const record = asRecordOrUndefined(value);
   if (record === undefined) throw configurationError(name, "must be an object");
   return record;
+}
+
+function rejectUnknownKeys(record: Record<string, unknown>, allowed: ReadonlyArray<string>, path: string): void {
+  const unknown = Object.keys(record).find((key) => !allowed.includes(key));
+  if (unknown !== undefined) throw configurationError(`${path}.${unknown}`, "is not recognized");
 }
 
 function asRecordOrUndefined(value: unknown): Record<string, unknown> | undefined {

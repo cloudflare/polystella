@@ -177,6 +177,41 @@ describe("resolveOptions — option-surface", () => {
   it("rejects unknown markdown.parser values", () => {
     expect(() => resolveOptions({ markdown: { parser: "other" } }, HAPPY_I18N)).toThrowError(/markdown\.parser/);
   });
+
+  it("accepts HTTP and R2 glossary sources", () => {
+    expect(resolveOptions({ glossary: { http: { url: "https://example.com/{locale}.yaml" } } }, HAPPY_I18N).glossary).toEqual({
+      http: { url: "https://example.com/{locale}.yaml" },
+    });
+    expect(
+      resolveOptions(
+        {
+          glossary: {
+            r2: {
+              accountId: "account-id",
+              bucket: "glossaries",
+              key: "{locale}.yaml",
+              accessKeyId: "access-key",
+              secretAccessKey: "secret-key",
+            },
+          },
+        },
+        HAPPY_I18N,
+      ).glossary,
+    ).toMatchObject({ r2: { bucket: "glossaries", key: "{locale}.yaml" } });
+  });
+
+  it("rejects mixed or unknown glossary sources", () => {
+    expect(() =>
+      resolveOptions(
+        { glossary: { file: "./{locale}.yaml", http: { url: "https://example.com/{locale}.yaml" } } } as Record<string, unknown>,
+        HAPPY_I18N,
+      ),
+    ).toThrowError(/glossary/);
+    expect(() =>
+      resolveOptions({ glossary: { htp: { url: "https://example.com/{locale}.yaml" } } } as Record<string, unknown>, HAPPY_I18N),
+    ).toThrowError(/glossary/);
+    expect(() => resolveOptions({ glossary: { file: "./{locale}.yaml", http: undefined } }, HAPPY_I18N)).not.toThrow();
+  });
 });
 
 describe("resolveOptions — routes normalisation", () => {

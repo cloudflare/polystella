@@ -59,4 +59,37 @@ describe("resolveCatalogConfig", () => {
     expect(() => resolveCatalogConfig({ concurrency: 0 }, i18n)).toThrow(/concurrency/);
     expect(() => resolveCatalogConfig({}, { ...i18n, locales: ["en-US", "pt-BR", "pt-BR"] })).toThrow(/duplicates/);
   });
+
+  it("accepts HTTP and R2 glossary sources", () => {
+    expect(
+      resolveCatalogConfig(
+        { glossary: { http: { url: "https://example.com/{locale}.yaml", headers: { Authorization: "Bearer test" } } } },
+        i18n,
+      ).glossary,
+    ).toEqual({ http: { url: "https://example.com/{locale}.yaml", headers: { Authorization: "Bearer test" } } });
+
+    expect(
+      resolveCatalogConfig(
+        {
+          glossary: {
+            r2: {
+              accountId: "account-id",
+              bucket: "glossaries",
+              key: "{locale}.yaml",
+              accessKeyId: "access-key",
+              secretAccessKey: "secret-key",
+            },
+          },
+        },
+        i18n,
+      ).glossary,
+    ).toMatchObject({ r2: { bucket: "glossaries", key: "{locale}.yaml" } });
+  });
+
+  it("requires exactly one glossary source", () => {
+    expect(() =>
+      resolveCatalogConfig({ glossary: { file: "./{locale}.yaml", http: { url: "https://example.com/{locale}.yaml" } } }, i18n),
+    ).toThrow(/exactly one/);
+    expect(() => resolveCatalogConfig({ glossary: { file: "./{locale}.yaml", http: undefined } }, i18n)).not.toThrow();
+  });
 });

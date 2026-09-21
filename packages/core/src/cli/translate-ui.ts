@@ -190,7 +190,7 @@ export async function runTranslateUi(args: TranslateUiArgs, deps: TranslateUiDep
 
   let glossaries: Awaited<ReturnType<typeof loadGlossaries>>;
   try {
-    glossaries = await loadGlossaries({ config: resolved, projectRoot: pathToFileURL(deps.cwd + path.sep) });
+    glossaries = await loadGlossaries({ config: resolved, projectRoot: pathToFileURL(deps.cwd + path.sep), signal: deps.signal });
   } catch (error) {
     deps.err(`[polystella] ${errorMessage(error)}`);
     return 1;

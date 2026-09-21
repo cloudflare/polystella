@@ -27,8 +27,7 @@ Inputs:
   untranslated fields (e.g. an internal `id`) doesn't invalidate
   the cache.
 - **`glossaryHash`** — `hashGlossary(...)`. Changing a glossary
-  entry re-translates the pages that mention the changed term, not
-  the whole corpus.
+  entry re-translates the whole corpus for that locale.
 - **`modelId`** — the per-locale resolved model. Switching models
   is an explicit invalidation.
 - **`optionalExtractionPolicyHash`** — included by adapters whose

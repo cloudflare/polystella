@@ -137,26 +137,72 @@ const anthropicProviderSchema = z.object({
 
 const providerSchema = z.discriminatedUnion("kind", [workersAiProviderSchema, anthropicProviderSchema]);
 
-const glossaryFileSchema = z.object({
-  file: z
-    .string()
-    .min(1)
-    .describe("Path template for per-locale glossary files. Use `{locale}` as the placeholder. Example: './i18n/glossary/{locale}.yaml'."),
-});
+const glossaryFileSchema = z
+  .object({
+    file: z
+      .string()
+      .min(1)
+      .describe(
+        "Path template for per-locale glossary files. Use `{locale}` as the placeholder. Example: './i18n/glossary/{locale}.yaml'.",
+      ),
+    inline: z.never().optional(),
+    http: z.never().optional(),
+    r2: z.never().optional(),
+  })
+  .strict();
 
-const glossaryInlineSchema = z.object({
-  inline: z.record(
-    z.string(),
-    z.object({
-      version: z.string().optional(),
-      doNotTranslate: z.array(z.string()).optional(),
-      preferredTranslations: z.record(z.string(), z.string()).optional(),
-      notes: z.string().optional(),
-    }),
-  ),
-});
+const glossaryInlineSchema = z
+  .object({
+    file: z.never().optional(),
+    inline: z.record(
+      z.string(),
+      z.object({
+        version: z.string().optional(),
+        doNotTranslate: z.array(z.string()).optional(),
+        preferredTranslations: z.record(z.string(), z.string()).optional(),
+        notes: z.string().optional(),
+      }),
+    ),
+    http: z.never().optional(),
+    r2: z.never().optional(),
+  })
+  .strict();
 
-const glossarySchema = z.union([glossaryFileSchema, glossaryInlineSchema]);
+const glossaryHttpSchema = z
+  .object({
+    file: z.never().optional(),
+    inline: z.never().optional(),
+    http: z
+      .object({
+        url: z.string().min(1).describe("HTTPS URL template returning raw YAML. Use `{locale}` as the placeholder."),
+        headers: z.record(z.string(), z.string().min(1)).optional().describe("Optional request headers for private repositories."),
+      })
+      .strict(),
+    r2: z.never().optional(),
+  })
+  .strict();
+
+const glossaryR2Schema = z
+  .object({
+    file: z.never().optional(),
+    inline: z.never().optional(),
+    http: z.never().optional(),
+    r2: z
+      .object({
+        accountId: z.string().min(1).describe("Cloudflare account ID owning the glossary bucket."),
+        bucket: z.string().min(1).describe("R2 bucket containing glossary YAML files."),
+        key: z.string().min(1).describe("R2 object-key template. Use `{locale}` as the placeholder."),
+        accessKeyId: z.string().min(1).describe("R2 access key id with read access to the glossary bucket."),
+        secretAccessKey: z.string().min(1).describe("R2 secret access key for the glossary bucket."),
+        endpoint: z.string().url().optional().describe("Override the default R2 endpoint. Useful for testing."),
+      })
+      .strict(),
+  })
+  .strict();
+
+const glossarySchema = z
+  .union([glossaryFileSchema, glossaryInlineSchema, glossaryHttpSchema, glossaryR2Schema])
+  .describe("Per-locale glossary source. Configure exactly one of file, inline, http, or r2.");
 
 const mdxComponentRuleSchema = z
   .object({
@@ -377,9 +423,7 @@ export const polystellaOptionsSchema = z
 
     r2: r2OptionsSchema.optional().describe("Cloudflare R2 cache configuration. Omit to run without caching."),
     provider: providerSchema.optional().describe("AI translator provider. Omit for dry-run / parse-only workflows."),
-    glossary: glossarySchema
-      .optional()
-      .describe("Per-locale glossary. Either `{ file: 'path/{locale}.yaml' }` or `{ inline: { locale: { ... } } }`."),
+    glossary: glossarySchema.optional().describe("Per-locale glossary source. Configure exactly one of `file`, `inline`, `http`, or `r2`."),
     overridesDir: z
       .string()
       .default("./i18n/overrides")

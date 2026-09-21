@@ -44,6 +44,10 @@ export default defineConfig({
 });
 ```
 
+`loadGlossaryDefaults` also accepts PolyStella's `http` and `r2`
+glossary source forms. Remote sources load one `{locale}` YAML object
+per configured locale and do not require `projectRoot`.
+
 Keep `polystellaEmdashAstro()` after `emdash()`. It binds `Astro.locals.t` and
 `Astro.locals.lhref`, overlays enabled EmDash overrides, and falls back to the
 deployed dictionaries when storage is unavailable. Configure the named Workers

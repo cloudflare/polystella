@@ -96,7 +96,7 @@ export interface BuildReport {
   /** Full locale set INCLUDING the default. */
   locales: string[];
   defaultLocale: string;
-  /** Per-locale glossary metadata; missing locales = no glossary. */
+  /** Per-locale glossary metadata. `file` is a path or redacted external source label. */
   glossaries: Record<string, { file: string; sha256: string }>;
   entries: BuildReportEntry[];
   totals: BuildReportTotals;
