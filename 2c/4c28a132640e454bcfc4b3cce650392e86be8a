@@ -1,0 +1,27 @@
+docs/src/content/docs/configuration/reference.md
+  s_d28ada8a5d8508::t_4eafd572054ff6 73-85
+docs/src/content/docs/reference/exports.md
+  s_d28ada8a5d8508::t_2128a8b8352a9a 25,34
+packages/cli/src/glossary.ts
+  s_d28ada8a5d8508::t_1ac819784cda60 4,8,13-16,19-33,37-38,41,43-44,47,56-101,103,105-166,168-173,176-177,179-324,326-327
+packages/cli/tests/glossary.test.ts
+  s_d28ada8a5d8508::t_98a577de2fbee1 1-205
+pnpm-lock.yaml
+  s_d28ada8a5d8508::t_66483cb8c98978 231-233
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "2c4c28a132640e454bcfc4b3cce650392e86be8a",
+  "prompts": {},
+  "sessions": {
+    "s_d28ada8a5d8508": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f3c8d1076ffeFX9QnypC0kTOGk",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Diogo Carneiro <dcarneiro@cloudflare.com>"
+    }
+  }
+}
