@@ -319,19 +319,14 @@ Use overrides for content you want to control exactly (legal copy, brand names, 
 
 ## Glossary
 
-YAML file per locale at `<glossaryDir>/<locale>.yaml`:
+Configure one per-locale YAML source using `glossary.file`,
+`glossary.http`, `glossary.r2`, or `glossary.inline`. File paths, HTTP
+URLs, and R2 keys use `{locale}`; PolyStella loads one object per target
+locale. See the glossary concept guide for the YAML shape and private
+repository examples.
 
-```yaml
-- term: "Cloudflare"
-  translation: "Cloudflare" # do-not-translate
-- term: "edge computing"
-  translation: "edge computing"
-  notes: "Keep English; widely understood as a technical term in <locale>."
-- term: "free tier"
-  translation: "<locale-specific preferred phrasing>"
-```
-
-Editing the glossary re-translates only pages mentioning the changed term (the glossary hash folds into the cache key).
+Editing a glossary changes that locale's glossary hash and re-translates
+the whole corpus for that locale.
 
 ## Build report
 

@@ -70,6 +70,9 @@ glossaryDefaults: await loadGlossaryDefaults({
 }),
 ```
 
+The helper also accepts the same `http` and `r2` source forms as the
+Astro integration. Remote sources do not require `projectRoot`.
+
 Every key must match a configured catalog locale. Administrators can
 use each glossary unchanged, append plain-text `notes`, or replace
 them for target locales; structured YAML and the source-only default

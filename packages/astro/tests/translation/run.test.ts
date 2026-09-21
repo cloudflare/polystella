@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { resolveOptions } from "../../src/config/options.js";
 import { runTranslationPass } from "../../src/translation/run.js";
@@ -126,6 +126,7 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
+  vi.unstubAllGlobals();
   // Best-effort cleanup; rmdir failures are non-fatal because the
   // OS will reap the temp dir later.
   for (const root of tempRoots) {
@@ -815,6 +816,35 @@ describe("runTranslationPass — early returns", () => {
     // No staging output, no entries — but the function ran the
     // dry-run key enumeration without throwing.
     expect(result.entries).toHaveLength(0);
+  });
+
+  it("logs redacted glossary sources during dry runs", async () => {
+    const { rootDir, stagingDir } = await makeProjectFixture({
+      files: { "content/publications/sample.md": SAMPLE_MD },
+    });
+    const resolved = resolveOptions(
+      {
+        sourceDir: "./content",
+        include: ["**/*.md"],
+        dryRun: true,
+        glossary: { http: { url: "https://example.com/glossaries/{locale}.yaml?token=do-not-log" } },
+      },
+      { defaultLocale: "en-US", locales: ["en-US", "pt-BR"] },
+    );
+    const info: string[] = [];
+    const logger: Logger = { ...NULL_LOGGER, info: (message) => info.push(message) };
+    vi.stubGlobal("fetch", async () => new Response("notes: Test glossary"));
+
+    await runTranslationPass({
+      resolved,
+      rootDir,
+      stagingDir,
+      logger,
+      polystellaVersion: "0.2.0",
+    });
+
+    expect(info).toContain("dry-run: glossary pt-BR from https://example.com/glossaries/pt-BR.yaml");
+    expect(info.join("\n")).not.toContain("do-not-log");
   });
 });
 

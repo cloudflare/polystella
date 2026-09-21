@@ -158,9 +158,8 @@ function getDescription(fieldSchema: z.ZodTypeAny, unwrappedInner: z.ZodTypeAny)
 
 /**
  * Walk a ZodObject's shape, emitting one row per field. Nested
- * objects recurse to produce `parent.child` paths; discriminated
- * unions emit a row per variant with a `(when kind = "...")` suffix
- * on the path so the variant fields read clearly.
+ * objects recurse to produce `parent.child` paths; unions emit a row
+ * per variant so each accepted object shape remains visible.
  */
 function walk(schema: z.ZodTypeAny, prefix: string, rows: FieldRow[]): void {
   const top = unwrap(schema);
@@ -170,6 +169,7 @@ function walk(schema: z.ZodTypeAny, prefix: string, rows: FieldRow[]): void {
     for (const [key, child] of Object.entries(shape)) {
       const path = prefix ? `${prefix}.${key}` : key;
       const { inner: childInner, optional: childOptional, defaultValue: childDefault } = unwrap(child);
+      if (childInner instanceof z.ZodNever) continue;
 
       rows.push({
         path,
@@ -186,6 +186,9 @@ function walk(schema: z.ZodTypeAny, prefix: string, rows: FieldRow[]): void {
         walk(child, path, rows);
       } else if (childInner instanceof z.ZodDiscriminatedUnion) {
         walk(child, path, rows);
+      } else if (childInner instanceof z.ZodUnion) {
+        const options = (childInner._def as { options: readonly z.ZodTypeAny[] }).options;
+        if (options.every((option) => unwrap(option).inner instanceof z.ZodObject)) walk(child, path, rows);
       }
     }
     return;
@@ -209,6 +212,19 @@ function walk(schema: z.ZodTypeAny, prefix: string, rows: FieldRow[]): void {
       const kindValue = kindValues && kindValues.length > 0 ? String(kindValues[0]) : "?";
       const variantPrefix = `${prefix} (${discriminator} = "${kindValue}")`;
       walk(option, variantPrefix, rows);
+    }
+    return;
+  }
+
+  if (top.inner instanceof z.ZodUnion) {
+    const options = (top.inner._def as { options: readonly z.ZodTypeAny[] }).options;
+    if (!options.every((option) => unwrap(option).inner instanceof z.ZodObject)) return;
+    for (const option of options) {
+      const optInner = unwrap(option).inner;
+      if (!(optInner instanceof z.ZodObject)) continue;
+      const shape = optInner.shape as Record<string, z.ZodTypeAny>;
+      const variant = Object.entries(shape).find(([, field]) => !(unwrap(field).inner instanceof z.ZodNever))?.[0] ?? "variant";
+      walk(option, `${prefix} (${variant})`, rows);
     }
     return;
   }

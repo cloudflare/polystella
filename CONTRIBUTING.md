@@ -89,6 +89,8 @@ Required:
 - **Tests are integration-heavy.** Package tests live under each
   `packages/*/tests/` directory. Astro tests under `packages/astro/tests/`
   mirror `packages/astro/src/` and include an end-to-end smoke suite.
+  External glossary checks are documented in
+  [`TESTING_EXTERNAL_GLOSSARIES.md`](./TESTING_EXTERNAL_GLOSSARIES.md).
 
 ## Adding new APIs
 

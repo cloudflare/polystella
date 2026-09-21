@@ -228,6 +228,9 @@ importers:
       '@cloudflare/polystella-providers':
         specifier: workspace:^
         version: link:../providers
+      s3mini:
+        specifier: ^0.9.4
+        version: 0.9.5
       yaml:
         specifier: ^2.8.3
         version: 2.9.0
