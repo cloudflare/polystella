@@ -1,0 +1,19 @@
+pnpm-lock.yaml
+  s_d28ada8a5d8508::t_c67ebdf6e79943 8,10,13-14,38,82-83,114,192-193,2824-2825,3397-3398,4474-4479,5209,5213,5220,5224,5313,5745,5833,5839,5841,5845,7525,7537,7551,7822,7948,8598,9213,9216,9222,10132-10134,10579,10585,10592
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "d3818a171decd5dbea80f069de5d7d9a3c42f3bd",
+  "prompts": {},
+  "sessions": {
+    "s_d28ada8a5d8508": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f3c8d1076ffeFX9QnypC0kTOGk",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Diogo Carneiro <dcarneiro@cloudflare.com>"
+    }
+  }
+}
