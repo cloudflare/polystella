@@ -1,1 +1,1 @@
-export * from "@cloudflare/polystella-cli/check-ui";
+export * from "@cloudflare/polystella-core/cli/check-ui";

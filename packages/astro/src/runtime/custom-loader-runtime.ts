@@ -15,7 +15,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import type { Loader } from "astro/loaders";
-import { parsePath, readAtPath, writeAtPath, type PathSegment } from "@cloudflare/polystella-adapters";
+import { parsePath, readAtPath, writeAtPath, type PathSegment } from "@cloudflare/polystella-core/adapters";
 import { EMPTY_GLOSSARY, type Glossary, type Segment, type Translator } from "@cloudflare/polystella-core";
 
 import type { CapturedEntry, PolystellaCustomLoaderMarker } from "../content/custom-loader.js";

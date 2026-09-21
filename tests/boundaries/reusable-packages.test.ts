@@ -1,12 +1,12 @@
 import { builtinModules } from "node:module";
 import { readFile, readdir } from "node:fs/promises";
-import { join, relative } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
 
 const ROOT = process.cwd();
-const PACKAGE_NAMES = ["core", "adapters", "providers"] as const;
+const PACKAGE_NAMES = ["core"] as const;
 const NODE_BUILTINS = new Set(builtinModules.map((name) => name.replace(/^node:/, "")));
 const FORBIDDEN_PACKAGES = new Set(["astro", "react", "react-dom", "satteri", "dotenv", "std-env", "wrangler"]);
 
@@ -18,6 +18,7 @@ interface ModuleReference {
 describe.each(PACKAGE_NAMES)("packages/%s boundary", (packageName) => {
   it("has only portable, declared source imports", async () => {
     const packageRoot = join(ROOT, "packages", packageName);
+    const cliRoot = join(packageRoot, "src", "cli");
     const manifest = JSON.parse(await readFile(join(packageRoot, "package.json"), "utf8")) as {
       name: string;
       dependencies?: Record<string, string>;
@@ -33,7 +34,11 @@ describe.each(PACKAGE_NAMES)("packages/%s boundary", (packageName) => {
 
     for (const filePath of await listTypeScriptFiles(join(packageRoot, "src"))) {
       const source = await readFile(filePath, "utf8");
-      violations.push(...sourceViolations(source, relative(ROOT, filePath), manifest.name, declaredRuntimeDependencies));
+      const isCli = filePath.startsWith(cliRoot + "/") || filePath === cliRoot;
+      violations.push(...sourceViolations(source, relative(ROOT, filePath), manifest.name, declaredRuntimeDependencies, isCli));
+      if (!isCli) {
+        violations.push(...cliGraphViolations(source, filePath, cliRoot));
+      }
     }
 
     for (const dependencyName of declaredRuntimeDependencies) {
@@ -71,6 +76,12 @@ describe("boundary analyzer regressions", () => {
     expect(sourceViolations(source, "fixture.ts", "test-package", new Set())).toEqual([]);
   });
 
+  it("rejects portable entrypoints importing CLI modules", () => {
+    expect(
+      cliGraphViolations('export * from "./cli/run-command.js"', "/repo/packages/core/src/index.ts", "/repo/packages/core/src/cli"),
+    ).toContainEqual(expect.stringContaining("portable entrypoint imports CLI module"));
+  });
+
   it.each([
     ["variable", "const process = { env: {} }; process.env.API_KEY", new Set<string>()],
     ["parameter", "function read(process: { env: object }) { return process.env }", new Set<string>()],
@@ -89,6 +100,18 @@ async function listTypeScriptFiles(directory: string): Promise<string[]> {
     else if (entry.isFile() && /\.(?:ts|tsx|mts|cts)$/.test(entry.name)) files.push(path);
   }
   return files;
+}
+
+function cliGraphViolations(source: string, filePath: string, cliRoot: string): string[] {
+  const violations: string[] = [];
+  for (const reference of collectModuleReferences(source, filePath)) {
+    if (!reference.specifier.startsWith(".")) continue;
+    const resolved = resolve(dirname(filePath), reference.specifier);
+    if (resolved === cliRoot || resolved.startsWith(cliRoot + "/")) {
+      violations.push(`${filePath}: portable entrypoint imports CLI module ${reference.specifier}`);
+    }
+  }
+  return violations;
 }
 
 function collectModuleReferences(source: string, filePath: string): ModuleReference[] {
@@ -127,12 +150,20 @@ function collectModuleReferences(source: string, filePath: string): ModuleRefere
   return references;
 }
 
-function sourceViolations(source: string, filePath: string, packageName: string, declaredDependencies: Set<string>): string[] {
+function sourceViolations(
+  source: string,
+  filePath: string,
+  packageName: string,
+  declaredDependencies: Set<string>,
+  allowNodeBuiltins = false,
+): string[] {
   const violations: string[] = [];
   for (const reference of collectModuleReferences(source, filePath)) {
     const dependencyName = packageNameFromSpecifier(reference.specifier);
     if (hasUnsupportedProtocol(reference.specifier)) {
       violations.push(`${filePath}: unsupported protocol import ${reference.specifier}`);
+    } else if (allowNodeBuiltins && isNodeBuiltin(reference.specifier)) {
+      // Node-only CLI entrypoint; node builtins are allowed here.
     } else if (isForbidden(reference.specifier)) {
       violations.push(`${filePath}: forbidden import ${reference.specifier}`);
     }

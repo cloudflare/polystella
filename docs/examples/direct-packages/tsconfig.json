@@ -3,9 +3,9 @@
   "compilerOptions": {
     "paths": {
       "@cloudflare/polystella-core": ["../../../packages/core/src/index.ts"],
-      "@cloudflare/polystella-adapters": ["../../../packages/adapters/src/index.ts"],
-      "@cloudflare/polystella-providers": ["../../../packages/providers/src/index.ts"],
-      "@cloudflare/polystella-providers/*": ["../../../packages/providers/src/*.ts"]
+      "@cloudflare/polystella-core/adapters": ["../../../packages/core/src/adapters/index.ts"],
+      "@cloudflare/polystella-core/providers": ["../../../packages/core/src/providers/index.ts"],
+      "@cloudflare/polystella-core/providers/*": ["../../../packages/core/src/providers/*.ts"]
     }
   },
   "include": ["index.ts"]

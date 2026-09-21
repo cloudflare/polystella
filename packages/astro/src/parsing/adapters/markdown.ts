@@ -3,7 +3,7 @@ import {
   resolveFrontmatterKeys,
   type MarkdownAdapterApplyOptions as AdapterApplyOptions,
   type MarkdownAdapterExtractOptions as AdapterExtractOptions,
-} from "@cloudflare/polystella-adapters";
+} from "@cloudflare/polystella-core/adapters";
 import type { Segment } from "@cloudflare/polystella-core";
 import type { Root, Yaml } from "mdast";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";

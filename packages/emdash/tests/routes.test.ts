@@ -1,5 +1,5 @@
 import type { ContentItem, KVAccess, PluginRoute, RouteContext, StorageCollection } from "emdash";
-import type { WorkersAIInput } from "@cloudflare/polystella-providers/workers-ai";
+import type { WorkersAIInput } from "@cloudflare/polystella-core/providers/workers-ai";
 import { describe, expect, it } from "vitest";
 
 import {

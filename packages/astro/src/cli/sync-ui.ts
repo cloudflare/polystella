@@ -1,1 +1,1 @@
-export * from "@cloudflare/polystella-cli/sync-ui";
+export * from "@cloudflare/polystella-core/cli/sync-ui";

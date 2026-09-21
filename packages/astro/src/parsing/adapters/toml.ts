@@ -1,4 +1,4 @@
-import { tomlAdapter as portableTomlAdapter, type TomlData } from "@cloudflare/polystella-adapters";
+import { tomlAdapter as portableTomlAdapter, type TomlData } from "@cloudflare/polystella-core/adapters";
 import { createStructuredAstroAdapter } from "../adapter.js";
 
 /**

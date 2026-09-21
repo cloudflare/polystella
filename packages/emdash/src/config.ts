@@ -1,6 +1,6 @@
 import type { Glossary } from "@cloudflare/polystella-core";
-import { assertSingleGlossarySource, loadGlossaries } from "@cloudflare/polystella-cli/glossary";
-import type { CatalogGlossaryConfig } from "@cloudflare/polystella-cli/config";
+import type { CatalogGlossaryConfig } from "@cloudflare/polystella-core/cli/config";
+import { assertSingleGlossarySource, loadGlossaries } from "@cloudflare/polystella-core/cli/glossary";
 
 interface LoadGlossaryDefaultsBase {
   locales: ReadonlyArray<string>;

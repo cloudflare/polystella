@@ -46,7 +46,7 @@ function packageFileExists(relPath: string): boolean {
 }
 
 function currentRepositoryPaths(text: string): string[] {
-  return [...text.matchAll(/`(packages\/(?:astro|core|adapters|providers)\/(?:src|tests)\/[^`]+)`/g)]
+  return [...text.matchAll(/`(packages\/(?:astro|core)\/(?:src|tests)\/[^`]+)`/g)]
     .map((match) => match[1])
     .filter((candidate): candidate is string => candidate !== undefined && !/[<>{}*]/.test(candidate));
 }
@@ -160,7 +160,7 @@ describe("doc-claim invariants", () => {
         }
         if (doc === "CONTRIBUTING.md" || doc === "llms.txt") {
           expect(text, `${doc} references the removed root source tree`).not.toMatch(
-            /`src\/(?:index\.ts|cli(?:\.ts|\/)|config\/options\.ts|parsing\/|translation\/|storage\/|runtime\/|react\/)/,
+            /`src\/(?:index\.ts|config\/options\.ts|parsing\/|translation\/|storage\/|runtime\/|react\/)/,
           );
         }
       }

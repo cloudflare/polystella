@@ -1,4 +1,4 @@
-import { remarkMarkdownParser } from "@cloudflare/polystella-adapters";
+import { remarkMarkdownParser } from "@cloudflare/polystella-core/adapters";
 import type { Segment } from "@cloudflare/polystella-core";
 import { describe, expect, it, vi } from "vitest";
 

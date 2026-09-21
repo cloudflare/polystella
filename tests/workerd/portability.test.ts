@@ -1,4 +1,4 @@
-import { jsonAdapter, markdownAdapter } from "@cloudflare/polystella-adapters";
+import { jsonAdapter, markdownAdapter } from "@cloudflare/polystella-core/adapters";
 import {
   buildPrompt,
   EMPTY_GLOSSARY,
@@ -9,7 +9,7 @@ import {
 } from "@cloudflare/polystella-core";
 import { buildTranslateFn } from "@cloudflare/polystella-core/catalog";
 import { extractTokens, translateCatalogEntries } from "@cloudflare/polystella-core/catalog/translate";
-import { createWorkersAIBindingTranslator, createWorkersAIHttpTranslator } from "@cloudflare/polystella-providers/workers-ai";
+import { createWorkersAIBindingTranslator, createWorkersAIHttpTranslator } from "@cloudflare/polystella-core/providers/workers-ai";
 import { SELF } from "cloudflare:test";
 import { afterEach, describe, expect, it, vi } from "vitest";
 

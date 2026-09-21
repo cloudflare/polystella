@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { CATALOG_CLI_USAGE, isCatalogCommand, runCatalogCommand } from "@cloudflare/polystella-cli/run-command";
+import { CATALOG_CLI_USAGE, isCatalogCommand, runCatalogCommand } from "@cloudflare/polystella-core/cli/run-command";
 
 const [command, ...rest] = process.argv.slice(2);
 

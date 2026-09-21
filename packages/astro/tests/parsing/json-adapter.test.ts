@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { AdapterExtractOptions } from "@cloudflare/polystella-adapters";
+import type { AdapterExtractOptions } from "@cloudflare/polystella-core/adapters";
 import { jsonAdapter } from "../../src/parsing/adapters/json.js";
 
 /**

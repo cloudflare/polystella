@@ -1,8 +1,8 @@
-import { jsonAdapter } from "@cloudflare/polystella-adapters";
+import { jsonAdapter } from "@cloudflare/polystella-core/adapters";
 import { buildPrompt, EMPTY_GLOSSARY } from "@cloudflare/polystella-core";
 import { buildTranslateFn } from "@cloudflare/polystella-core/catalog";
 import { extractTokens } from "@cloudflare/polystella-core/catalog/translate";
-import { createWorkersAIBindingTranslator } from "@cloudflare/polystella-providers";
+import { createWorkersAIBindingTranslator } from "@cloudflare/polystella-core/providers";
 
 export default {
   async fetch(): Promise<Response> {

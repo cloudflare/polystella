@@ -160,9 +160,9 @@ source/record -> adapter -> core -> provider -> core -> adapter -> output
 - Import translation contracts, glossaries, prompts, batching, and
   `PermanentProviderError` from `@cloudflare/polystella-core`.
 - Import portable format adapters from
-  `@cloudflare/polystella-adapters`.
+  `@cloudflare/polystella-core/adapters`.
 - Import Workers AI and Anthropic factories from
-  `@cloudflare/polystella-providers` or its provider subpaths.
+  `@cloudflare/polystella-core/providers` or its provider subpaths.
 
 These packages use standard Web APIs and run in Workers without
 `nodejs_compat`; enabling `nodejs_compat` is also supported. The Astro

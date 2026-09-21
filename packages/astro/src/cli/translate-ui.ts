@@ -1,1 +1,1 @@
-export * from "@cloudflare/polystella-cli/translate-ui";
+export * from "@cloudflare/polystella-core/cli/translate-ui";

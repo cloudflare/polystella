@@ -1,1 +1,1 @@
-export * from "@cloudflare/polystella-cli/drift";
+export * from "@cloudflare/polystella-core/cli/drift";

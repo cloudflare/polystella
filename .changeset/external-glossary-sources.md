@@ -1,5 +1,5 @@
 ---
-"@cloudflare/polystella-cli": minor
+"@cloudflare/polystella-core": minor
 "@cloudflare/polystella-astro": minor
 "@cloudflare/polystella-emdash": minor
 ---

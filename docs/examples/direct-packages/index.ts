@@ -1,6 +1,6 @@
-import { jsonAdapter } from "@cloudflare/polystella-adapters";
+import { jsonAdapter } from "@cloudflare/polystella-core/adapters";
 import { EMPTY_GLOSSARY, translateSegments, type Translator } from "@cloudflare/polystella-core";
-import { createWorkersAIBindingTranslator, type WorkersAIInput } from "@cloudflare/polystella-providers/workers-ai";
+import { createWorkersAIBindingTranslator, type WorkersAIInput } from "@cloudflare/polystella-core/providers/workers-ai";
 
 interface WorkersAIBinding {
   run(modelId: string, input: WorkersAIInput): Promise<unknown>;
