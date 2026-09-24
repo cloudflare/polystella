@@ -106,8 +106,8 @@ export interface TranslateCliArgs {
 export const TRANSLATE_USAGE = `polystella translate
 
 Run the translation pipeline outside an Astro build. Reads
-\`astro.config.mjs\` and \`polystella.config.mjs\` from the current
-working directory, then walks sources, translates, caches, and stages
+\`astro.config.{mjs,js,ts,mts}\` and \`polystella.config.mjs\` from the
+current working directory, then walks sources, translates, caches, and stages
 results under \`<root>/.astro/i18n-staging\` — exactly as \`astro
 build\` would.
 

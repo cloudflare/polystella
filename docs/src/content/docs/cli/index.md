@@ -46,6 +46,14 @@ Run `audit-mdx` while onboarding an MDX-heavy project or adding a
 new component recipe. It is warn-only and does not need provider or
 R2 credentials.
 
+## How the Astro config is loaded
+
+Every subcommand reads the locale set from the project's
+`astro.config.{mjs,js,ts,mts}`, loaded the same way Astro loads it:
+a plain Node import first, then — if that fails — through the Vite
+installed with the project's `astro`. Configs that import
+TypeScript-only packages therefore work without workarounds.
+
 ## Exit codes
 
 Across all subcommands:
