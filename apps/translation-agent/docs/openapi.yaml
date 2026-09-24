@@ -1,0 +1,489 @@
+openapi: 3.1.0
+info:
+  title: Translation Agent API
+  version: 1.1.0
+  description: >-
+    External API for translating text or JSON between supported locales
+    using Cloudflare Workers AI-backed models. Source language defaults
+    to en-US when omitted (backward compatible); pass `sourceLocale` to
+    translate from a non-English source.
+servers:
+  - url: http://localhost:8787
+    description: Local development
+paths:
+  /api:
+    get:
+      summary: Health check
+      operationId: getHealth
+      description: >-
+        Local development does not require auth by default. The deployed server is
+        typically protected by Cloudflare Access and may require either a
+        `cf-access-token` header or `CF-Access-Client-Id` plus
+        `CF-Access-Client-Secret`.
+      security:
+        - CfAccessToken: []
+        - CfAccessClientId: []
+          CfAccessClientSecret: []
+      responses:
+        '200':
+          description: API is available
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+              examples:
+                ok:
+                  value:
+                    status: ok
+                    message: Translation API is running
+                    version: 1.0.0
+  /api/translate:
+    post:
+      summary: Translate text or JSON
+      operationId: translateText
+      description: >-
+        Local development does not require auth by default. The deployed server is
+        protected by Cloudflare Access and expects either a `cf-access-token`
+        header or `CF-Access-Client-Id` plus `CF-Access-Client-Secret`.
+      security:
+        - CfAccessToken: []
+        - CfAccessClientId: []
+          CfAccessClientSecret: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TranslateRequest'
+            examples:
+              plainText:
+                value:
+                  text: Hello, world!
+                  targetLocale: es-ES,fr-FR
+                  model: kimi2_5
+              deployedWithAccessToken:
+                summary: Deployed request using cf-access-token
+                value:
+                  text: Hello, world!
+                  targetLocale: es-ES,fr-FR
+                  model: kimi2_5
+              jsonInput:
+                value:
+                  text: '{"title":"Hello","description":"Welcome to Cloudflare"}'
+                  targetLocale: de-DE
+                  model: qwen
+      responses:
+        '200':
+          description: Translation completed fully or partially
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/X-Request-Id'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TranslateResponse'
+              examples:
+                fullSuccess:
+                  value:
+                    success: true
+                    original: Hello, world!
+                    translations:
+                      es-ES: Hola, mundo!
+                      fr-FR: Bonjour, le monde!
+                    meta:
+                      es-ES:
+                        model: kimi2_5
+                      fr-FR:
+                        model: kimi2_5
+                fullSuccessWithFallback:
+                  summary: Per-locale model attribution when runtime fallback executes
+                  value:
+                    success: true
+                    original: Hello, world!
+                    translations:
+                      es-ES: Hola, mundo!
+                      fr-FR: Bonjour, le monde!
+                    meta:
+                      es-ES:
+                        model: kimi2_5
+                      fr-FR:
+                        model: qwen
+                partialSuccess:
+                  summary: Some locales had partial key failures
+                  value:
+                    success: false
+                    original: '{"welcome":"Hello"}'
+                    translations:
+                      pt-BR:
+                        welcome: Ola
+                    meta:
+                      pt-BR:
+                        model: kimi2_5
+                    partialLocales:
+                      - locale: pt-BR
+                        error: Some keys failed
+                mixedOutcome:
+                  summary: Successful, partial, and fully failed locales in one response
+                  value:
+                    success: false
+                    original: '{"title":"Hello","cta":"Start now"}'
+                    translations:
+                      es-ES:
+                        title: Hola
+                        cta: Comienza ahora
+                      pt-BR:
+                        title: Ola
+                    meta:
+                      es-ES:
+                        model: kimi2_5
+                      pt-BR:
+                        model: kimi2_5
+                      ja-JP:
+                        model: qwen
+                    partialLocales:
+                      - locale: pt-BR
+                        error: Some keys failed
+                    errors:
+                      - locale: ja-JP
+                        error: Failed for ja-JP
+        '400':
+          description: Invalid request or token limit exceeded
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/X-Request-Id'
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ValidationErrorResponse'
+                  - $ref: '#/components/schemas/TokenLimitErrorResponse'
+              examples:
+                invalidLocale:
+                  summary: >-
+                    Validation error. The `error.message` field is a
+                    JSON-stringified array of Zod issue objects, each with
+                    `code`, `path`, and `message` properties.
+                  value:
+                    success: false
+                    error:
+                      name: ZodError
+                      message: >-
+                        [ { "code": "custom", "path": [ "targetLocale" ],
+                        "message": "Invalid locale code(s). Valid locales are:
+                        es-ES, fr-FR, de-DE" } ]
+                tokenLimit:
+                  value:
+                    error: Token limit exceeded
+                    details: >-
+                      Input text contains 6000 tokens, which exceeds the maximum
+                      limit of 5000 tokens
+        '500':
+          description: Translation failed for all locales or another internal error occurred
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/X-Request-Id'
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/AllLocalesFailedResponse'
+                  - $ref: '#/components/schemas/InternalErrorResponse'
+              examples:
+                allLocalesFailed:
+                  value:
+                    error: Translation failed
+                    details:
+                      - locale: pt-BR
+                        error: Failed for pt-BR
+                internalError:
+                  value:
+                    error: Translation failed
+                    details: Unexpected internal error message
+        '504':
+          description: Request timeout
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/X-Request-Id'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InternalErrorResponse'
+              examples:
+                timeout:
+                  value:
+                    error: Translation failed
+                    details: Request timed out after 960000ms
+components:
+  securitySchemes:
+    CfAccessToken:
+      type: apiKey
+      in: header
+      name: cf-access-token
+      description: Cloudflare Access token for the protected deployed endpoint.
+    CfAccessClientId:
+      type: apiKey
+      in: header
+      name: CF-Access-Client-Id
+      description: Cloudflare Access service token client ID.
+    CfAccessClientSecret:
+      type: apiKey
+      in: header
+      name: CF-Access-Client-Secret
+      description: Cloudflare Access service token client secret.
+  headers:
+    X-Request-Id:
+      description: >-
+        Unique request identifier (UUID v4). Present on all /api/translate responses.
+        Use this value when reporting issues or correlating server-side logs.
+      schema:
+        type: string
+        format: uuid
+        example: 8f14e45f-ceea-467f-a8b8-4a0fbd2e9c9a
+  schemas:
+    HealthResponse:
+      type: object
+      required:
+        - status
+        - message
+        - version
+      properties:
+        status:
+          type: string
+          example: ok
+        message:
+          type: string
+          example: Translation API is running
+        version:
+          type: string
+          example: 1.0.0
+    TranslateRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - text
+        - targetLocale
+      properties:
+        text:
+          type: string
+          minLength: 1
+          description: Plain text or a JSON string to translate.
+        sourceLocale:
+          allOf:
+            - $ref: '#/components/schemas/LocaleCode'
+          default: en-US
+          description: >-
+            Optional BCP-47 source locale code. When omitted, the server
+            resolves it to "en-US" so existing integrations remain
+            backward compatible. Single value only — multi-source
+            translation is not supported. Must not equal any value in
+            `targetLocale` (rejected with HTTP 400).
+          example: ja-JP
+        targetLocale:
+          type: string
+          minLength: 1
+          description: >-
+            Comma-separated BCP-47 locale codes. Each value must be one of the
+            codes listed in the LocaleCode enum (e.g. "es-ES", "fr-FR,de-DE").
+            Invalid codes are rejected with HTTP 400.
+          example: es-ES,fr-FR
+        model:
+          allOf:
+            - $ref: '#/components/schemas/ModelType'
+          default: kimi2_5
+          description: >-
+            LLM model to use for translation. Defaults to kimi2_5 when omitted.
+    ModelType:
+      type: string
+      enum:
+        - llama
+        - gpt
+        - kimi2_5
+        - qwen
+        - glm
+    LocaleCode:
+      type: string
+      enum:
+        - en-US
+        - es-ES
+        - fr-FR
+        - de-DE
+        - it-IT
+        - pt-BR
+        - zh-CN
+        - ja-JP
+        - ko-KR
+        - zh-TW
+        - ar-EG
+        - bg-BG
+        - hr-HR
+        - cs-CZ
+        - da-DK
+        - nl-NL
+        - fa-IR
+        - fi-FI
+        - el-GR
+        - he-IL
+        - hi-IN
+        - hu-HU
+        - id-ID
+        - lv-LV
+        - lt-LT
+        - ms-MY
+        - nb-NO
+        - pl-PL
+        - ro-RO
+        - ru-RU
+        - sr-BA
+        - sk-SK
+        - sl-SI
+        - sv-SE
+        - tl-PH
+        - th-TH
+        - tr-TR
+        - uk-UA
+        - vi-VN
+    TranslationValue:
+      oneOf:
+        - type: string
+        - type: object
+          additionalProperties:
+            oneOf:
+              - type: string
+              - type: number
+              - type: boolean
+              - type: 'null'
+              - type: object
+                additionalProperties: true
+              - type: array
+                items: {}
+    LocaleError:
+      type: object
+      required:
+        - locale
+        - error
+      properties:
+        locale:
+          oneOf:
+            - $ref: '#/components/schemas/LocaleCode'
+            - type: string
+        error:
+          type: string
+    LocaleMeta:
+      type: object
+      required:
+        - model
+      properties:
+        model:
+          $ref: '#/components/schemas/ModelType'
+          description: >-
+            The LLM that actually executed for this locale's outcome. May
+            differ from the request's `model` when the server's runtime
+            fallback ran (eligible only when the client omits `model`).
+            Populated for success, partial_success, and failure outcomes.
+    TranslateResponse:
+      type: object
+      required:
+        - success
+        - original
+        - translations
+        - meta
+      properties:
+        success:
+          type: boolean
+          description: >-
+            True only when every requested locale translated fully without any
+            partial or complete failures. False when any locale has partial key
+            failures or failed entirely.
+        original:
+          type: string
+        translations:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/TranslationValue'
+        meta:
+          type: object
+          description: >-
+            Per-locale execution metadata. Each key is a locale code; each
+            value reports the model that produced (or last attempted) the
+            translation for that locale. Mirrors the locales present in
+            `translations`, `partialLocales`, and `errors`.
+          additionalProperties:
+            $ref: '#/components/schemas/LocaleMeta'
+        partialLocales:
+          type: array
+          description: >-
+            Present only when some locales had partial key failures (some keys
+            translated, others failed). Omitted entirely when there are no
+            partial failures.
+          items:
+            $ref: '#/components/schemas/LocaleError'
+        errors:
+          type: array
+          description: >-
+            Present only when some locales failed entirely. Omitted entirely
+            when there are no complete locale failures.
+          items:
+            $ref: '#/components/schemas/LocaleError'
+    ZodErrorObject:
+      type: object
+      description: >-
+        Zod validation error returned by the Hono zValidator middleware.
+      required:
+        - name
+        - message
+      properties:
+        name:
+          type: string
+          example: ZodError
+        message:
+          type: string
+          description: >-
+            A JSON-stringified array of Zod issue objects. Each issue has
+            `code`, `path` (array of field names), and `message` properties.
+            Parse this string as JSON to inspect individual validation errors.
+    ValidationErrorResponse:
+      type: object
+      required:
+        - success
+        - error
+      properties:
+        success:
+          type: boolean
+          enum: [false]
+        error:
+          $ref: '#/components/schemas/ZodErrorObject'
+    TokenLimitErrorResponse:
+      type: object
+      required:
+        - error
+        - details
+      properties:
+        error:
+          type: string
+          enum: [Token limit exceeded]
+        details:
+          type: string
+    AllLocalesFailedResponse:
+      type: object
+      required:
+        - error
+        - details
+      properties:
+        error:
+          type: string
+          enum: [Translation failed]
+        details:
+          type: array
+          items:
+            $ref: '#/components/schemas/LocaleError'
+    InternalErrorResponse:
+      type: object
+      required:
+        - error
+        - details
+      properties:
+        error:
+          type: string
+          enum: [Translation failed]
+        details:
+          type: string

@@ -1,0 +1,46 @@
+{
+  "name": "@cloudflare/polystella-translation-agent",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "pnpm build:api && pnpm build:ui",
+    "build:api": "wrangler deploy --dry-run --config api/wrangler.jsonc --outdir dist/api",
+    "build:ui": "vite build --config vite.config.ts",
+    "dev": "pnpm dev:api & pnpm dev:ui",
+    "dev:api": "wrangler dev --config api/wrangler.jsonc",
+    "dev:ui": "vite",
+    "evaluate": "tsx api/scripts/translation-evaluation/evaluate.ts",
+    "evaluate:all": "tsx api/scripts/translation-evaluation/evaluate-all.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc -p api/tsconfig.json --noEmit && tsc --noEmit"
+  },
+  "dependencies": {
+    "@cloudflare/kumo": "^1.9.0",
+    "@hono/zod-validator": "^0.7.5",
+    "@phosphor-icons/react": "^2.1.10",
+    "@tailwindcss/vite": "^4.0.6",
+    "braintrust": "^3.1.0",
+    "hono": "^4.6.14",
+    "js-tiktoken": "^1.0.21",
+    "naughty-words": "^1.2.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "tailwindcss": "^4.0.6",
+    "zod": "^4.1.13"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260826.1",
+    "@types/naughty-words": "^1.2.3",
+    "@types/node": "^25.0.2",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.5",
+    "@vitejs/plugin-react": "^4.3.4",
+    "tsx": "^4.21.0",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.1",
+    "vitest": "^2.1.8",
+    "wrangler": "^4.60.0"
+  }
+}

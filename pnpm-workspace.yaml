@@ -1,10 +1,12 @@
 packages:
   - "."
+  - "apps/*"
   - "packages/*"
   - "docs"
   - "playgrounds/*"
 
 allowBuilds:
+  braintrust: true
   esbuild: true
   sharp: true
   workerd: true
@@ -12,6 +14,7 @@ allowBuilds:
 overrides:
   "devalue@<5.9.1": 5.9.1
   "esbuild@>=0.27.3 <0.28.1": 0.28.2
+  "fast-uri@<3.1.6": 3.1.6
   "js-yaml@>=4.0.0 <4.3.2": 4.3.2
   "nanoid@<3.3.18": 3.3.18
   "postcss@<=8.5.22": 8.5.26
