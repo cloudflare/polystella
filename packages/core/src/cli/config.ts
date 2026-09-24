@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs";
+import { createRequire } from "node:module";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -64,18 +66,53 @@ export interface CatalogResolvedConfig {
   maxRetries: number;
 }
 
-export async function loadAstroI18n(cwd: string): Promise<AstroI18nConfig | undefined> {
-  const candidatePath = path.resolve(cwd, "astro.config.mjs");
-  let loaded: unknown;
-  try {
-    loaded = await import(pathToFileURL(candidatePath).href);
-  } catch (error) {
-    throw new Error(`failed to load ${candidatePath}: ${errorMessage(error)}`);
+const ASTRO_CONFIG_FILES = ["astro.config.mjs", "astro.config.js", "astro.config.ts", "astro.config.mts"];
+
+type RunnerImport = (moduleId: string, inlineConfig: Record<string, unknown>) => Promise<unknown>;
+
+/** Returns the Astro config's default export, found and loaded the way Astro does. */
+export async function loadAstroConfig(cwd: string): Promise<unknown> {
+  const configPath = ASTRO_CONFIG_FILES.map((file) => path.resolve(cwd, file)).find((file) => existsSync(file));
+  if (configPath === undefined) {
+    throw new Error(`no Astro config found in ${cwd} (looked for ${ASTRO_CONFIG_FILES.join(", ")})`);
   }
 
+  let loaded: unknown;
+  try {
+    loaded = await import(pathToFileURL(configPath).href);
+  } catch (nodeError) {
+    // Mirrors Astro's loadConfigWithVite: configs importing TypeScript-only packages load only through Vite.
+    loaded = await importWithAstroVite(cwd, configPath, nodeError);
+  }
   const module = asRecordOrUndefined(loaded);
-  const exported = module?.default ?? loaded;
-  const config = asRecordOrUndefined(exported);
+  return module?.default ?? loaded;
+}
+
+async function importWithAstroVite(cwd: string, configPath: string, nodeError: unknown): Promise<unknown> {
+  let runnerImport: RunnerImport;
+  try {
+    // Use the Vite copy Astro itself loads configs with; PolyStella doesn't depend on Vite directly.
+    const astroManifest = createRequire(path.join(cwd, "package.json")).resolve("astro/package.json");
+    const vite = asRecordOrUndefined(await import(pathToFileURL(createRequire(astroManifest).resolve("vite")).href));
+    if (typeof vite?.runnerImport !== "function") throw new Error("Astro's Vite does not export runnerImport");
+    runnerImport = vite.runnerImport as RunnerImport;
+  } catch (viteLookupError) {
+    throw new Error(
+      `failed to load ${configPath}: ${errorMessage(nodeError)}\n` +
+        `The Vite fallback is unavailable (${errorMessage(viteLookupError)}); install astro in this project to enable it.`,
+    );
+  }
+
+  try {
+    const result = await runnerImport(configPath, { root: cwd, logLevel: "error", resolve: { tsconfigPaths: true } });
+    return asRecordOrUndefined(result)?.module;
+  } catch (viteError) {
+    throw new Error(`failed to load ${configPath} with Node (${errorMessage(nodeError)}) or Vite (${errorMessage(viteError)})`);
+  }
+}
+
+export async function loadAstroI18n(cwd: string): Promise<AstroI18nConfig | undefined> {
+  const config = asRecordOrUndefined(await loadAstroConfig(cwd));
   const i18n = asRecordOrUndefined(config?.i18n);
   if (i18n === undefined) return undefined;
 

@@ -5,8 +5,9 @@
  * translation orchestrator.
  *
  * Two public functions:
- *   - `loadAstroI18n(cwd)` — returns the `i18n` object from
- *     `astro.config.mjs`, or `undefined` if absent.
+ *   - `loadAstroI18n(cwd)` — returns the raw `i18n` object from the
+ *     Astro config (loaded by core, with Astro's Vite fallback), or
+ *     `undefined` if absent. `resolveOptions` validates it.
  *   - `loadPolystellaConfig(cwd)` — default-exports from
  *     `polystella.config.mjs`, used as input to `resolveOptions`.
  *
@@ -18,17 +19,12 @@
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
+import { loadAstroConfig } from "@cloudflare/polystella-core/cli/config";
+
 import type { AstroI18nLike } from "../config/options.js";
 
 export async function loadAstroI18n(cwd: string): Promise<AstroI18nLike | undefined> {
-  const candidatePath = path.resolve(cwd, "astro.config.mjs");
-  let module: { default?: unknown };
-  try {
-    module = await import(pathToFileURL(candidatePath).href);
-  } catch (err) {
-    throw new Error(`failed to load ${candidatePath}: ${(err as Error).message}`);
-  }
-  const exported = module.default ?? module;
+  const exported = await loadAstroConfig(cwd);
   if (typeof exported !== "object" || exported === null) {
     return undefined;
   }
