@@ -1,0 +1,29 @@
+.changeset/vite-astro-config-fallback.md
+  s_03311b2a7d078c::t_81e20c60cc6ca4 1-6
+docs/src/content/docs/cli/index.md
+  s_03311b2a7d078c::t_fee1c1d7f71707 49-56
+packages/astro/src/cli.ts
+  s_03311b2a7d078c::t_8a9ae588b6ded0 109-110
+packages/astro/src/cli/i18n-config.ts
+  s_03311b2a7d078c::t_a6a853badb3450 8-10,22-23,27
+packages/astro/tests/cli/astro-config-loader.test.ts
+  s_03311b2a7d078c::t_79fbb7d8c312f5 1-51
+packages/core/src/cli/config.ts
+  s_03311b2a7d078c::t_ed7777e8220669 1-2,69-79,82-85,88-115
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "fbbf92bae447f6720edd72c4eeb2c3d61c40be86",
+  "prompts": {},
+  "sessions": {
+    "s_03311b2a7d078c": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f2d2f589affeMOYeFGuY2hNuCp",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Diogo Carneiro <dcarneiro@cloudflare.com>"
+    }
+  }
+}
