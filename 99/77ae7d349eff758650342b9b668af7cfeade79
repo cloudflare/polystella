@@ -1,0 +1,131 @@
+AGENTS.md
+  s_1c2fb3db43c7f1::t_83cd87437a4781 31,34,62
+apps/translation-agent/.prettierrc
+  s_5ac8df6d32ab8b::t_57cac93b770265 1-4
+apps/translation-agent/NOTICE
+  s_1c2fb3db43c7f1::t_bf34a0c41d2c78 1-20
+apps/translation-agent/README.md
+  s_5ac8df6d32ab8b::t_d8b45f6e425d22 1-38
+apps/translation-agent/api/locales/utils.ts
+  s_5ac8df6d32ab8b::t_ae6040d9fe9dad 1-2
+apps/translation-agent/api/scripts/translation-evaluation/batch-translate.ts
+  s_1c2fb3db43c7f1::t_4560fb18cf4b49 1-154
+apps/translation-agent/api/scripts/translation-evaluation/evaluate-all.ts
+  s_1c2fb3db43c7f1::t_04ffe27996f898 1-307
+apps/translation-agent/api/scripts/translation-evaluation/evaluate.ts
+  s_1c2fb3db43c7f1::t_799cf0ba67b18b 1-81
+apps/translation-agent/api/scripts/translation-evaluation/evaluator.ts
+  s_1c2fb3db43c7f1::t_6c433d3d30efff 1-205
+apps/translation-agent/api/scripts/translation-evaluation/scorers/comet-scorer.ts
+  s_1c2fb3db43c7f1::t_d4a55ce279473d 1-156
+apps/translation-agent/api/scripts/translation-evaluation/scorers/comet_score.py
+  s_1c2fb3db43c7f1::t_9a9fe86c829e28 1-134
+apps/translation-agent/api/scripts/translation-evaluation/scorers/requirements.txt
+  s_1c2fb3db43c7f1::t_928dd0b2b77232 1
+apps/translation-agent/api/scripts/translation-evaluation/types.ts
+  s_1c2fb3db43c7f1::t_ffd9d6936734f5 1-60
+apps/translation-agent/api/src/errors.ts
+  s_1c2fb3db43c7f1::t_f8cdb3b4321e87 1-26
+apps/translation-agent/api/src/guardrail/allowlist/de-DE.json
+  s_5ac8df6d32ab8b::t_0e8470e8f2f127 1
+apps/translation-agent/api/src/guardrail/allowlist/es-ES.json
+  s_5ac8df6d32ab8b::t_a1da4d2e9614d1 1
+apps/translation-agent/api/src/guardrail/allowlist/fr-FR.json
+  s_5ac8df6d32ab8b::t_6f573f74ddf1d6 1
+apps/translation-agent/api/src/guardrail/allowlist/global.json
+  s_5ac8df6d32ab8b::t_d868e8a319db4b 1
+apps/translation-agent/api/src/guardrail/allowlist/it-IT.json
+  s_5ac8df6d32ab8b::t_d220c5fe8f66b2 1
+apps/translation-agent/api/src/guardrail/allowlist/ja-JP.json
+  s_5ac8df6d32ab8b::t_d843795237dcbd 1
+apps/translation-agent/api/src/guardrail/allowlist/ko-KR.json
+  s_5ac8df6d32ab8b::t_a1b142772df014 1
+apps/translation-agent/api/src/guardrail/allowlist/pt-BR.json
+  s_5ac8df6d32ab8b::t_2047662478b307 1
+apps/translation-agent/api/src/guardrail/allowlist/zh-CN.json
+  s_5ac8df6d32ab8b::t_a9c347c8242456 1
+apps/translation-agent/api/src/guardrail/allowlist/zh-TW.json
+  s_5ac8df6d32ab8b::t_fe5f85c5e6113d 1
+apps/translation-agent/api/src/guardrail/index.test.ts
+  s_1c2fb3db43c7f1::t_5071d56af587ab 1-461
+apps/translation-agent/api/src/guardrail/judge.test.ts
+  s_1c2fb3db43c7f1::t_d519f3de83b288 1-309
+apps/translation-agent/api/src/guardrail/judge.ts
+  s_1c2fb3db43c7f1::t_d74545a8de76d2 1-279
+apps/translation-agent/api/src/llm-stream.test.ts
+  s_1c2fb3db43c7f1::t_449fc9db1a0d10 1-244
+apps/translation-agent/api/src/locales.ts
+  s_1c2fb3db43c7f1::t_55b20041e9cf2c 1-79
+apps/translation-agent/api/src/prompt-utils.test.ts
+  s_1c2fb3db43c7f1::t_0cec566eb2c439 1-319
+apps/translation-agent/api/src/prompt-utils.ts
+  s_1c2fb3db43c7f1::t_e5a56c9bca5dd9 1-447
+apps/translation-agent/api/src/terminology.ts
+  s_5ac8df6d32ab8b::t_c6404dc52629b5 1-2
+apps/translation-agent/api/src/utils.ts
+  s_1c2fb3db43c7f1::t_5b371380098d0d 1-32
+apps/translation-agent/api/src/validation-utils.test.ts
+  s_1c2fb3db43c7f1::t_2b0b4b845d2d2b 1-385
+apps/translation-agent/api/src/validation-utils.ts
+  s_1c2fb3db43c7f1::t_2d0c2ea44a1978 1-433
+apps/translation-agent/api/src/workers-ai-http.ts
+  s_1c2fb3db43c7f1::t_794a5ce32d7a02 1-85
+apps/translation-agent/api/tsconfig.json
+  s_1c2fb3db43c7f1::t_58636bac07f74e 1-15
+apps/translation-agent/tsconfig.json
+  s_1c2fb3db43c7f1::t_b45b449aacfa90 1-21
+apps/translation-agent/ui/App.tsx
+  s_1c2fb3db43c7f1::t_de1e78dc069cdf 1-267
+apps/translation-agent/ui/components/ErrorAlert.tsx
+  s_1c2fb3db43c7f1::t_4412fab65a504c 1-15
+apps/translation-agent/ui/components/Header.tsx
+  s_1c2fb3db43c7f1::t_12f77afa8f6ec9 1-55
+apps/translation-agent/ui/components/LocaleSelector.tsx
+  s_1c2fb3db43c7f1::t_3124f414c0e49f 1-132
+apps/translation-agent/ui/components/ModelSelector.tsx
+  s_1c2fb3db43c7f1::t_c1266e5cd9bd0e 1-32
+apps/translation-agent/ui/components/SourceLocaleSelector.tsx
+  s_1c2fb3db43c7f1::t_5895cc6109b433 1-50
+apps/translation-agent/ui/components/TextInput.tsx
+  s_1c2fb3db43c7f1::t_dbf272a5515074 1-60
+apps/translation-agent/ui/components/TranslationAccordionItem.tsx
+  s_1c2fb3db43c7f1::t_e8b883cd39039e 1-108
+apps/translation-agent/ui/components/TranslationResults.tsx
+  s_1c2fb3db43c7f1::t_4c8e0aa5e982dc 1-51
+apps/translation-agent/ui/constants.ts
+  s_1c2fb3db43c7f1::t_da28d44c4f32d0 1-67
+apps/translation-agent/ui/index.html
+  s_1c2fb3db43c7f1::t_b22eb07e570233 1-16
+apps/translation-agent/ui/index.ts
+  s_1c2fb3db43c7f1::t_bba861b103fc46 1-9
+apps/translation-agent/ui/main.tsx
+  s_1c2fb3db43c7f1::t_aec4d0c381f274 1-13
+apps/translation-agent/vite.config.ts
+  s_1c2fb3db43c7f1::t_0ad6e38790038d 1-32
+pnpm-lock.yaml
+  s_1c2fb3db43c7f1::t_5e085312312dd9 10,39,53-125,188,670-707,885-897,963-969,1075-1086,1099-1110,1123-1134,1147-1158,1171-1182,1195-1206,1219-1230,1243-1254,1267-1278,1291-1302,1315-1326,1339-1350,1363-1374,1387-1398,1411-1422,1435-1446,1459-1470,1483-1488,1501-1512,1525-1530,1543-1554,1567-1572,1585-1596,1609-1620,1633-1644,1657-1668,1714-1719,2029-2035,2052-2054,2228-2372,2377-2378,2383-2384,2389-2395,2399-2400,2404-2406,2409-2412,2414-2417,2471-2473,2480-2485,2492-2497,2504-2509,2516-2521,2528-2533,2541-2547,2555-2561,2569-2575,2583-2589,2602-2613,2620-2625,2632-2637,2642-2645,2649-2653,3002-3004,3014-3016,3023-3025,3031-3033,3065-3079,3086-3088,3092-3102,3114-3116,3120-3122,3126-3128,3132-3134,3138-3140,3181-3185,3298-3301,3305-3307,3330-3333,3338-3343,3353-3356,3374-3377,3397-3400,3419-3421,3425-3432,3568-3571,3652-3655,3705-3708,3736-3738,3752-3761,3795-3802,3831-3834,3880-3881,4205-4207,4355-4361,4469-4472,4602-4605,4614-4616,4654-4657,4663-4665,4849-4851,4855-4858,4919-4922,5045-5049,5061-5064,5069-5072,5212-5216,5252-5254,5258-5260,5388-5390,5436-5438,5447-5450,5467-5469,5478-5485,5490-5493,5532-5536,5558-5560,5625-5628,5705-5708,5730-5805,5857-5881,6028-6030,6554-6567,6582-6592,6604-6624,6872-6893,6924,6932,6955-6959,7179-7184,7191-7196,7203-7208,7215-7220,7227-7232,7239-7244,7251-7256,7263-7268,7275-7280,7287-7292,7299-7304,7311-7316,7323-7328,7335-7340,7347-7352,7359-7364,7371-7376,7383-7385,7392-7397,7404-7406,7413-7418,7425-7427,7434-7439,7446-7451,7458-7463,7470-7475,7491-7496,7521-7525,7843-7845,7870-7871,7947-7951,8030-8031,8036-8110,8174-8183,8187-8189,8193-8195,8199-8201,8205-8207,8211-8213,8217-8219,8223-8225,8229-8231,8235-8237,8241-8243,8247-8249,8253-8255,8271-8285,8294-8300,8675-8676,8687-8690,8697-8698,8703-8707,8738-8751,8764-8770,8780-8787,8796-8799,8804-8808,8814-8819,8827-8830,8833-8838,8904-8907,8925,9085-9086,9089-9090,9117-9120,9125-9168,9179-9180,9199-9206,9219-9220,9235-9236,9241-9250,9357-9358,9432-9433,9551-9555,9573-9574,9595-9649,9720-9725,9763-9764,9836,9903-9911,10230-10233,10348-10353,10578-10579,10864-10876,10890-10893,10898-10899,10908-10915,10932-10933,10936-10937,11128-11129,11132-11133,11190-11191,11328-11335,11344-11349,11360-11361,11364-11367,11638-11669,11738-11741,11744-11745,11785-11817,11935-11936,11984-11985,11990-11991,12002-12003,12011-12014,12017-12018,12053-12054,12069-12070,12156-12162,12184-12187,12192-12193,12215-12258,12278-12312,12446-12447,12470-12488,12499
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "9977ae7d349eff758650342b9b668af7cfeade79",
+  "prompts": {},
+  "sessions": {
+    "s_1c2fb3db43c7f1": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f3b7d9b26ffe1DZCttEmjY3ii2",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Diogo Carneiro <dcarneiro@cloudflare.com>"
+    },
+    "s_5ac8df6d32ab8b": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f3b39a2c1ffehUqDxPnuvuXrUU",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Diogo Carneiro <dcarneiro@cloudflare.com>"
+    }
+  }
+}
