@@ -1,0 +1,49 @@
+docs/src/content/docs/emdash/admin-ui.md
+  s_a48de48a3564bb::t_6349093e27a19d 24-31,80-82,91
+docs/src/content/docs/emdash/catalog-overrides.md
+  s_a48de48a3564bb::t_4b5d2426256fbf 36-43
+docs/src/content/docs/emdash/index.md
+  s_a48de48a3564bb::t_0078e48e7c4cf7 27,143
+packages/emdash/README.md
+  s_a48de48a3564bb::t_a05a893bd69bc7 105-108,114-115,138-139,181
+packages/emdash/src/admin.tsx
+  s_a48de48a3564bb::t_f08b92929193e6 4,20
+packages/emdash/src/admin/panels/ContentEditorPanel.tsx
+  s_a48de48a3564bb::t_768ceab64d6522 3,5-6,114,127,216-224,228
+packages/emdash/src/admin/plugin-page/tabs/CatalogTab/CatalogTab.tsx
+  s_a48de48a3564bb::t_c5a9e61416d577 7,130,135,166-185,257-263
+packages/emdash/src/contracts.ts
+  s_a48de48a3564bb::t_bb5e7a47303f73 19-20,40-41,133-139
+packages/emdash/src/index.ts
+  s_a48de48a3564bb::t_a22c852a0704a4 44,54
+packages/emdash/src/server/routes/routes.ts
+  s_a48de48a3564bb::t_a3950b4a756105 4,14,24,37,44,63,69,86,88-92,97,99-101,106,109,120,130,141-150,155-157,163,209,215,224,241,293,299-302,321-331,336-360,363,368-369,376,391,404,452,455,465-468,477,486,518,523
+packages/emdash/src/server/settings-storage.ts
+  s_a48de48a3564bb::t_e860cc423ef630 2,27-28,33-34,38-39,43-52,55,111-116,132,146,149,161-162,167-168,185,187,192-207,220-227,262,264,271-272
+packages/emdash/tests/admin.test.ts
+  s_a48de48a3564bb::t_7237edcc2d3adc 12,77-82
+packages/emdash/tests/index.test.ts
+  s_a48de48a3564bb::t_f6528d4d195835 43,57
+packages/emdash/tests/routes.test.ts
+  s_a48de48a3564bb::t_c4f06c1929c7ba 1,7,11,15,55-80,82,84-87,89,91-107,112,114-120,122,124-126,128,132,137-139,142,146-149,155-158,178-197,199,235,259,266-269,273,286-288,292,299,369-389,391,399,563,609,613,720,724-726,730,733-856,878,991-993
+pnpm-lock.yaml
+  s_a48de48a3564bb::t_26fb7194263010 227-228,242-243,440-445,476-481,485-491,501-503,796,811,815,824,831,837,843,849,855,892-893,898-899,907-908,913-914,916-917,919-920,922-923,925-926,928-929,2913-2914,4224-4228,5150-5152,5384-5390,5438-5443,5448-5457,5470-5471,5880-5901,5976,5979,5983-5986,6026,6031,6036-6037,6054,6061,6065,6067,6081,6086,6088,6090,6094-6096,6098-6101,6103-6104,6107,6112,6119,6121-6122,6653,6670-6671,7979,7983,7986-7993,7995,8039,8044-8045,9748-9751,10765,10767,10771-10772
+scripts/check-packages.mjs
+  s_a48de48a3564bb::t_74335301c63659 409
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "972315450eedb734ac9356256c68d4458c4c88f4",
+  "prompts": {},
+  "sessions": {
+    "s_a48de48a3564bb": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f2d33ddf7ffeTMd6pr1ptBdXu1",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Diogo Carneiro <dcarneiro@cloudflare.com>"
+    }
+  }
+}
