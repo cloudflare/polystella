@@ -41,7 +41,7 @@ export function polystellaEmdash(options: PolystellaEmdashOptions): PluginDescri
     adminEntry: ADMIN_ENTRY,
     adminPages: ADMIN_PAGES,
     options: serializeOptions(options),
-    capabilities: ["content:read"],
+    capabilities: ["content:read", "schema:read"],
     storage: STORAGE,
   };
 }
@@ -51,7 +51,7 @@ export function createPlugin(runtimeOptions: { serialized: string }): ResolvedPl
   return definePlugin({
     id: POLYSTELLA_PLUGIN_ID,
     version,
-    capabilities: ["content:read"],
+    capabilities: ["content:read", "schema:read"],
     storage: STORAGE,
     routes: createPluginRoutes(options),
     admin: { entry: ADMIN_ENTRY, pages: ADMIN_PAGES },

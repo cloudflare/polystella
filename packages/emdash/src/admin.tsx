@@ -1,7 +1,7 @@
 import type { ContentEditorPanelExtension } from "@emdash-cms/admin";
 
 import { Page } from "./admin/plugin-page/Page.js";
-import { ContentEditorPanel } from "./admin/panels/ContentEditorPanel.js";
+import { ContentEditorPanel, panelErrorMessage } from "./admin/panels/ContentEditorPanel.js";
 import { TranslationProgress } from "./admin/components/TranslationProgress/TranslationProgress.js";
 import {
   catalogOverrideChanged,
@@ -17,6 +17,7 @@ export {
   formatErrorDetails,
   groupCatalogEntries,
   isTranslationDebugTrace,
+  panelErrorMessage,
   sourceContainsTokens,
   storeTranslationDebug,
   takeTranslationDebug,

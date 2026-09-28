@@ -16,6 +16,8 @@ export interface CollectionSettingsResponse {
   defaultLocale: string;
   locales: string[];
   policies: Record<string, CollectionPolicy>;
+  /** Host revision of the stored policies; send it back on PUT. `null` when nothing is stored. */
+  revision: string | null;
 }
 
 export interface CollectionPolicyResponse {
@@ -35,6 +37,8 @@ export interface TranslationLocaleSettings {
 
 export interface TranslationSettingsResponse {
   defaultLocale: string;
+  /** Host revision of the stored settings; send it back on PUT. `null` when nothing is stored. */
+  revision: string | null;
   debugEnabled: boolean;
   allowedModels: string[];
   locales: TranslationLocaleSettings[];
@@ -124,6 +128,13 @@ export type CatalogGenerationResponse =
 
 export interface CatalogOverrideMutationResponse {
   key: string;
+}
+
+export interface CatalogClearSyncedResponse {
+  locale: string;
+  cleared: string[];
+  /** Keys that changed between listing and deleting; they were left untouched. */
+  skipped: string[];
 }
 
 export interface CatalogRuntimeMutationResponse {

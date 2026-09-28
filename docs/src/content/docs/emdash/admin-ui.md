@@ -21,10 +21,14 @@ supported type (`string`, `text`, Portable Text) are offered.
 
 No collection is enabled until an Administrator saves a valid policy.
 Missing or malformed stored policy fails closed — the collection is
-simply not translated. The server enforces the stored
-collection/field policy and saved value shapes, so revisit this tab
-after schema changes (EmDash does not expose authoritative schema
-metadata to plugin routes).
+simply not translated. At translation time the server also checks the
+live collection schema (`schema:read`): a stored field that was
+removed, changed type, or marked non-translatable is refused.
+
+Saving is conditional on the settings revision you loaded. If another
+Administrator saved in the meantime, the save is rejected; reload the
+tab and reapply your change. The Translation settings tab behaves the
+same way.
 
 ## Translation settings tab
 
@@ -73,7 +77,9 @@ The private route rereads selected values through its `content:read`
 capability, so the browser never supplies the values being
 translated. The panel updates the draft with EmDash's `_rev` token
 and reloads after success. Unsaved browser changes are not translated
-and are lost after confirmation.
+and are lost after confirmation. If another editor has taken over the
+entry's edit lock, the save is refused and the panel names the lock
+holder.
 
 Named percentage stages show when the panel is loading the latest
 saved entry, translating selected fields, and saving the patch.
@@ -82,14 +88,12 @@ Successful content traces survive the existing editor reload in
 browser session storage for one view, so an Administrator can inspect
 the trace after the panel reloads.
 
-## EmDash 0.36 limitations
+## EmDash limitations
 
 - Panels use the latest saved entry, not unsaved form state.
 - EmDash leaves an empty PolyStella section on collections disabled
   in plugin settings because panel visibility cannot be resolved
   asynchronously.
-- EmDash does not expose authoritative collection schema metadata to
-  plugin routes; the server enforces the stored policy.
 
 ## See also
 

@@ -1,11 +1,11 @@
 import {
   ApiResponseError,
-  apiFetch,
+  entryLockRefusal,
   fetchCollection,
-  parseApiResponse,
+  fetchContent,
+  updateContent,
   useCurrentUser,
   type ContentEditorPanelContext,
-  type ContentItem,
 } from "@emdash-cms/admin";
 import { Banner, Button, Checkbox } from "@cloudflare/kumo";
 import { useEffect, useState, type ReactNode } from "react";
@@ -32,11 +32,6 @@ import { TranslationDebugView } from "../components/TranslationDebugView/Transla
 import { TranslationProgress } from "../components/TranslationProgress/TranslationProgress.js";
 
 const ADMIN_ROLE = 50;
-
-interface SavedContentResponse {
-  item: ContentItem;
-  _rev?: string;
-}
 
 interface PanelError {
   message: string;
@@ -116,7 +111,7 @@ export function ContentEditorPanel({ collection, entry, locale }: ContentEditorP
     setError(null);
     setDebug(null);
     try {
-      const saved = await contentRequest<SavedContentResponse>(collection, entry.id, targetLocale);
+      const saved = await fetchContent(collection, entry.id, { locale: targetLocale });
       if (saved._rev === undefined) throw new Error("EmDash did not return a revision token; no fields were changed.");
       setTranslationProgress({ percent: 45, label: "Translating selected fields" });
       const result = await pluginRequest<TranslateContentResponse>("translate-content", {
@@ -129,7 +124,7 @@ export function ContentEditorPanel({ collection, entry, locale }: ContentEditorP
         return;
       }
       setTranslationProgress({ percent: 85, label: "Saving translated fields" });
-      await updateContent(collection, entry.id, targetLocale, result.patch, saved._rev);
+      await updateContent(collection, entry.id, { data: result.patch, _rev: saved._rev }, { locale: targetLocale });
       if (result.debug !== undefined && currentUser.data !== undefined && currentUser.data.role >= ADMIN_ROLE) {
         storeTranslationDebug(collection, entry.id, targetLocale, currentUser.data.id, result.debug);
       }
@@ -218,37 +213,17 @@ function fieldIsEligible(field: SchemaField, policy: CollectionPolicyResponse): 
   return policy.fields.includes(field.slug) && supportsTranslation(field) && isTranslatable(field);
 }
 
-async function contentRequest<T>(collection: string, id: string, locale: string): Promise<T> {
-  const response = await apiFetch(
-    `/_emdash/api/content/${encodeURIComponent(collection)}/${encodeURIComponent(id)}?locale=${encodeURIComponent(locale)}`,
-  );
-  return parseApiResponse<T>(response, "Could not load the latest saved entry");
-}
-
-async function updateContent(
-  collection: string,
-  id: string,
-  locale: string,
-  data: Record<string, unknown>,
-  revision: string,
-): Promise<void> {
-  const response = await apiFetch(
-    `/_emdash/api/content/${encodeURIComponent(collection)}/${encodeURIComponent(id)}?locale=${encodeURIComponent(locale)}`,
-    {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ data, _rev: revision }),
-    },
-  );
-  await parseApiResponse(response, "Could not update the saved entry");
+export function panelErrorMessage(value: unknown): string {
+  const lock = entryLockRefusal(value);
+  if (lock !== null) {
+    return `${lock.userName ?? "Another editor"} is editing this entry, so PolyStella didn't save the translation. Retry after they finish.`;
+  }
+  if (value instanceof ApiResponseError && value.status === 409) {
+    return "This entry changed while PolyStella was translating it. Retry the translation.";
+  }
+  return errorMessage(value);
 }
 
 function panelError(value: unknown): PanelError {
-  return {
-    message:
-      value instanceof ApiResponseError && value.status === 409
-        ? "This entry changed while PolyStella was translating it. Retry the translation."
-        : errorMessage(value),
-    details: formatErrorDetails(value),
-  };
+  return { message: panelErrorMessage(value), details: formatErrorDetails(value) };
 }

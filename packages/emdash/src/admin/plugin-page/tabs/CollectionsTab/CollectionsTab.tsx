@@ -58,7 +58,7 @@ export function CollectionsTab(): ReactNode {
     try {
       const value = await pluginRequest<CollectionSettingsResponse>("settings/collections", {
         method: "PUT",
-        body: JSON.stringify({ policies }),
+        body: JSON.stringify({ policies, revision: settings?.revision ?? null }),
       });
       setSettings(value);
       setPolicies(value.policies);

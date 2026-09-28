@@ -1,7 +1,7 @@
 import { resolveModelId, translateSegments, type Glossary, type Segment, type Translator } from "@cloudflare/polystella-core";
 import type { CatalogSource } from "@cloudflare/polystella-core/catalog";
 import { DEFAULT_UI_STRING_BATCH_SIZE, translateCatalogEntries } from "@cloudflare/polystella-core/catalog/translate";
-import { PluginRouteError, type KVAccess, type LogAccess, type PluginRoute, type StorageCollection } from "emdash";
+import { PluginRouteError, type LogAccess, type PluginRoute, type SettingsAccess, type StorageCollection } from "emdash";
 
 import {
   applyCatalogOverrides,
@@ -11,6 +11,7 @@ import {
   flattenEmdashCatalogs,
   listOverrides,
   overrideCharacterLimit,
+  parseOverride,
   serializeCatalog,
   usableOverrides,
   type CatalogOverride,
@@ -20,6 +21,7 @@ import {
   MAX_CATALOG_KEYS,
   MAX_CONTENT_FIELDS,
   MAX_SANDBOX_CHARACTERS,
+  type CatalogClearSyncedResponse,
   type CatalogEntryView,
   type CatalogExportResponse,
   type CatalogGenerationResponse,
@@ -32,15 +34,15 @@ import {
   type TranslationSandboxResponse,
 } from "../../contracts.js";
 import { invalidateRuntimeOverrides } from "../../runtime-cache.js";
-import { resolveGlossary, resolveInstructions } from "../../settings.js";
+import { resolveGlossary, resolveInstructions, runtimeOverrideSettingKey } from "../../settings.js";
 import type { PolystellaEmdashOptions } from "../options.js";
 import { targetLocales } from "../options.js";
 import {
   collectionPolicies,
   collectionSettings,
   readCollectionPolicies,
+  readRevision,
   runtimeLocaleEnabled,
-  runtimeLocaleKey,
   runtimeLocales,
   saveCollectionPolicies,
   saveTranslationSettings,
@@ -50,7 +52,6 @@ import {
   MAX_INSTRUCTION_CHARACTERS,
 } from "../settings-storage.js";
 import { ContentTranslationInputError, translateContentFields } from "../translate-content.js";
-import { findSourceContentItem } from "../source-content.js";
 import {
   catalogSegmentLabel,
   contentSegmentLabel,
@@ -59,28 +60,19 @@ import {
 } from "./debug-collector.js";
 import { throwTranslationFailure, translationFailureMessage } from "./failures.js";
 import { createTranslator, MAX_TOKENS, type PluginRouteDependencies } from "./provider.js";
-import {
-  readBoolean,
-  readLocale,
-  readNullableStringRecord,
-  readRecord,
-  readString,
-  readStringArray,
-  readText,
-  requireMethod,
-} from "./validators.js";
+import { readBoolean, readLocale, readNullableStringRecord, readRecord, readString, readStringArray, readText } from "./validators.js";
 
 export type { PluginRouteDependencies };
 
 const MAX_CATALOG_SOURCE_CHARACTERS = 30_000;
 const ADMIN_ROLE = 50;
+const TRANSLATABLE_FIELD_TYPES = new Set(["string", "text", "portableText"]);
 
 const defaultDependencies: PluginRouteDependencies = {
   async getEnv() {
     return (await import("virtual:emdash/env")).env ?? process.env;
   },
   now: () => new Date(),
-  findSourceContent: findSourceContentItem,
 };
 
 export function createPluginRoutes(
@@ -91,29 +83,30 @@ export function createPluginRoutes(
   return {
     "settings/collections": {
       permission: "plugins:manage",
+      methods: ["GET", "PUT"],
       async handler(ctx) {
-        if (ctx.request.method === "GET") return collectionSettings(options, ctx.kv);
-        requireMethod(ctx.request, "PUT");
-        const policies = readCollectionPolicies(readRecord(ctx.input, "request body").policies);
-        await saveCollectionPolicies(ctx.kv, policies);
-        return collectionSettings(options, ctx.kv);
+        if (ctx.request.method === "GET") return collectionSettings(options, ctx.settings);
+        const input = readRecord(ctx.input, "request body");
+        const revision = readRevision(input.revision);
+        await saveCollectionPolicies(ctx.settings, revision, readCollectionPolicies(input.policies));
+        return collectionSettings(options, ctx.settings);
       },
     },
     "settings/translation": {
       permission: "plugins:manage",
+      methods: ["GET", "PUT"],
       async handler(ctx) {
-        if (ctx.request.method === "GET") return translationSettingsView(options, ctx.kv);
-        requireMethod(ctx.request, "PUT");
-        await saveTranslationSettings(options, ctx.kv, readRecord(ctx.input, "request body"));
-        return translationSettingsView(options, ctx.kv);
+        if (ctx.request.method === "GET") return translationSettingsView(options, ctx.settings);
+        await saveTranslationSettings(options, ctx.settings, readRecord(ctx.input, "request body"));
+        return translationSettingsView(options, ctx.settings);
       },
     },
     policy: {
       permission: "content:edit_any",
+      methods: ["GET"],
       async handler(ctx) {
-        requireMethod(ctx.request, "GET");
         const collection = readString(readRecord(ctx.input, "query").collection, "collection");
-        const policies = await collectionPolicies(ctx.kv);
+        const policies = await collectionPolicies(ctx.settings);
         const policy = Object.hasOwn(policies, collection) ? policies[collection] : undefined;
         return {
           enabled: policy !== undefined,
@@ -124,17 +117,17 @@ export function createPluginRoutes(
     },
     "translate-content": {
       permission: "content:edit_any",
+      methods: ["POST"],
       async handler(ctx) {
         let translationStarted = false;
         let debug: TranslationDebugCollector | undefined;
         try {
-          requireMethod(ctx.request, "POST");
           const input = readRecord(ctx.input, "request body");
           const collection = readString(input.collection, "collection");
           const targetLocale = configuredTargetLocale(options, readLocale(input.targetLocale, "targetLocale"));
           const entryId = readString(input.entryId, "entryId");
           const selectedFields = [...new Set(readStringArray(input.fields, "fields", false))];
-          const policies = await collectionPolicies(ctx.kv);
+          const policies = await collectionPolicies(ctx.settings);
           const policy = Object.hasOwn(policies, collection) ? policies[collection] : undefined;
           if (policy === undefined) {
             throw PluginRouteError.forbidden("PolyStella is not enabled for this collection");
@@ -145,17 +138,29 @@ export function createPluginRoutes(
           if (selectedFields.some((field) => !policy.fields.includes(field))) {
             throw PluginRouteError.badRequest("fields must be enabled in PolyStella collection settings");
           }
+          if (ctx.schema === undefined) throw PluginRouteError.internal("schema access is unavailable");
+          const collectionSchema = await ctx.schema.getCollection(collection);
+          if (collectionSchema === null) throw PluginRouteError.notFound("collection not found");
+          const untranslatableField = selectedFields.find((slug) => {
+            const field = collectionSchema.fields.find((candidate) => candidate.slug === slug);
+            return field === undefined || !field.translatable || !TRANSLATABLE_FIELD_TYPES.has(field.type);
+          });
+          if (untranslatableField !== undefined) {
+            throw PluginRouteError.badRequest(`field "${untranslatableField}" is not a translatable text field in the collection schema`);
+          }
           if (ctx.content === undefined) throw PluginRouteError.internal("content access is unavailable");
           const item = await ctx.content.get(collection, entryId);
           if (item === null) throw PluginRouteError.notFound("content entry not found");
           if (item.locale !== targetLocale) throw PluginRouteError.badRequest("entry locale does not match targetLocale");
-          const sourceItem = (await dependencies.findSourceContent?.(collection, entryId, options.catalogs.defaultLocale)) ?? item;
+          const siblings = await ctx.content.getTranslations?.(collection, entryId);
+          const sourceId = siblings?.translations.find((sibling) => sibling.locale === options.catalogs.defaultLocale)?.id;
+          const sourceItem = (sourceId === undefined ? null : await ctx.content.get(collection, sourceId)) ?? item;
           const values = Object.fromEntries(
             selectedFields.flatMap((field) => (Object.hasOwn(sourceItem.data, field) ? [[field, sourceItem.data[field]]] : [])),
           );
           if (Object.keys(values).length === 0) throw PluginRouteError.badRequest("selected fields have no saved values");
 
-          const settings = await translationSettings(options, targetLocale, ctx.kv, ctx.log, dependencies);
+          const settings = await translationSettings(options, targetLocale, ctx.settings, ctx.log, dependencies);
           if (settings.debugEnabled && (ctx.user?.role ?? 0) >= ADMIN_ROLE) {
             debug = createTranslationDebugCollector({
               operation: "content",
@@ -201,13 +206,13 @@ export function createPluginRoutes(
     },
     catalog: {
       permission: "plugins:manage",
+      methods: ["GET"],
       async handler(ctx) {
-        requireMethod(ctx.request, "GET");
         const query = readRecord(ctx.input, "query");
         const locale = query.locale === undefined ? preferredCatalogLocale(options) : readString(query.locale, "locale");
         return catalogView(
           options,
-          ctx.kv,
+          ctx.settings,
           overrideStorage(ctx.storage),
           locale,
           inputOptions.catalogs.locales[inputOptions.catalogs.defaultLocale]?.dictionary,
@@ -216,8 +221,8 @@ export function createPluginRoutes(
     },
     "catalog/generate": {
       permission: "plugins:manage",
+      methods: ["POST"],
       async handler(ctx) {
-        requireMethod(ctx.request, "POST");
         const input = readRecord(ctx.input, "request body");
         const locale = configuredTargetLocale(options, readString(input.locale, "locale"));
         const keys = [...new Set(readStringArray(input.keys, "keys", false))];
@@ -233,7 +238,7 @@ export function createPluginRoutes(
         }
         let debug: TranslationDebugCollector | undefined;
         try {
-          const settings = await translationSettings(options, locale, ctx.kv, ctx.log, dependencies);
+          const settings = await translationSettings(options, locale, ctx.settings, ctx.log, dependencies);
           if (settings.debugEnabled) {
             debug = createTranslationDebugCollector({
               operation: "catalog",
@@ -285,12 +290,16 @@ export function createPluginRoutes(
     },
     "catalog/overrides": {
       permission: "plugins:manage",
+      methods: ["PUT"],
       async handler(ctx) {
-        requireMethod(ctx.request, "PUT");
         const input = readRecord(ctx.input, "request body");
         const locale = configuredTargetLocale(options, readString(input.locale, "locale"));
         const values = Object.entries(readNullableStringRecord(input.overrides, "overrides"));
         if (values.length !== 1) throw PluginRouteError.badRequest("overrides must contain exactly one key");
+        if (input.expected !== null && typeof input.expected !== "string") {
+          throw PluginRouteError.badRequest("expected must be the override value you last loaded, or null");
+        }
+        const expected = input.expected;
         const catalog = options.catalogs.locales[locale];
         const source = options.catalogs.locales[options.catalogs.defaultLocale]?.dictionary;
         if (catalog === undefined || source === undefined) throw PluginRouteError.internal("catalog configuration is unavailable");
@@ -309,29 +318,63 @@ export function createPluginRoutes(
             throw PluginRouteError.badRequest(`override cannot exceed ${maxCharacters} characters`);
           }
         }
-        if (value === null) await storage.delete(id);
-        else await storage.put(id, { locale, key, value, updatedAt: now, updatedBy } satisfies CatalogOverride);
+        const stored = await storage.getVersioned(id);
+        const current = stored === null ? undefined : parseOverride(stored.value);
+        // Unusable rows are hidden from the catalog view, so the editor saw them as "no override".
+        const visibleValue = current === undefined ? null : (usableOverrides(options, locale, [current])[0]?.value ?? null);
+        if (visibleValue !== expected) throw overrideConflict(key);
+        if (value !== null) {
+          const override = { locale, key, value, updatedAt: now, updatedBy } satisfies CatalogOverride;
+          if (!(await storage.compareAndSet(id, stored?.revision ?? null, override)).applied) throw overrideConflict(key);
+        } else if (stored !== null && !(await storage.compareAndDelete(id, stored.revision)).applied) {
+          throw overrideConflict(key);
+        }
         invalidateRuntimeOverrides(locale);
         return { key } satisfies CatalogOverrideMutationResponse;
       },
     },
+    "catalog/clear-synced": {
+      permission: "plugins:manage",
+      methods: ["POST"],
+      async handler(ctx) {
+        const locale = configuredTargetLocale(options, readString(readRecord(ctx.input, "request body").locale, "locale"));
+        const catalog = options.catalogs.locales[locale];
+        if (catalog === undefined) throw PluginRouteError.internal("catalog configuration is unavailable");
+        const storage = overrideStorage(ctx.storage);
+        const synced = (await listOverrides(storage, locale)).filter(
+          (override) => catalogOverrideState(catalog.dictionary, override) === "synced",
+        );
+        const cleared: string[] = [];
+        const skipped: string[] = [];
+        // ponytail: one read + one conditional delete per key; batch if catalogs grow past a few hundred synced keys.
+        for (const { key } of synced) {
+          const id = catalogOverrideId(locale, key);
+          const stored = await storage.getVersioned(id);
+          const stillSynced = stored !== null && catalogOverrideState(catalog.dictionary, parseOverride(stored.value)) === "synced";
+          const deleted = stillSynced && (await storage.compareAndDelete(id, stored.revision)).applied;
+          (deleted ? cleared : skipped).push(key);
+        }
+        if (cleared.length > 0) invalidateRuntimeOverrides(locale);
+        return { locale, cleared, skipped } satisfies CatalogClearSyncedResponse;
+      },
+    },
     "catalog/runtime": {
       permission: "plugins:manage",
+      methods: ["PUT"],
       async handler(ctx) {
-        requireMethod(ctx.request, "PUT");
         const input = readRecord(ctx.input, "request body");
         const locale = configuredTargetLocale(options, readString(input.locale, "locale"));
         const enabled = readBoolean(input.enabled, "enabled");
-        if (enabled) await ctx.kv.set(runtimeLocaleKey(locale), true);
-        else await ctx.kv.delete(runtimeLocaleKey(locale));
+        if (enabled) await ctx.settings.set(runtimeOverrideSettingKey(locale), true);
+        else await ctx.settings.delete(runtimeOverrideSettingKey(locale));
         invalidateRuntimeOverrides(locale);
         return { locale, enabled } satisfies CatalogRuntimeMutationResponse;
       },
     },
     "catalog/export": {
       permission: "plugins:manage",
+      methods: ["GET"],
       async handler(ctx) {
-        requireMethod(ctx.request, "GET");
         const locale = configuredTargetLocale(options, readString(readRecord(ctx.input, "query").locale, "locale"));
         const catalog = options.catalogs.locales[locale];
         if (catalog === undefined) throw PluginRouteError.internal("catalog configuration is unavailable");
@@ -345,11 +388,11 @@ export function createPluginRoutes(
     },
     "translation-sandbox": {
       permission: "plugins:manage",
+      methods: ["POST"],
       async handler(ctx) {
         let translationStarted = false;
         let debug: TranslationDebugCollector | undefined;
         try {
-          requireMethod(ctx.request, "POST");
           const input = readRecord(ctx.input, "request body");
           const text = readText(input.text, "text", MAX_SANDBOX_CHARACTERS);
           if (text.length === 0) throw PluginRouteError.badRequest("text must not be empty");
@@ -358,7 +401,7 @@ export function createPluginRoutes(
           if (!options.models.allowed.includes(model)) {
             throw PluginRouteError.badRequest("model must be allowed by deployment configuration");
           }
-          const settings = await translationSettings(options, targetLocale, ctx.kv, ctx.log, dependencies, model);
+          const settings = await translationSettings(options, targetLocale, ctx.settings, ctx.log, dependencies, model);
           if (settings.debugEnabled && (ctx.user?.role ?? 0) >= ADMIN_ROLE) {
             debug = createTranslationDebugCollector({
               operation: "sandbox",
@@ -406,10 +449,10 @@ export function createPluginRoutes(
     overrides: {
       public: true,
       cacheControl: "public, max-age=60, stale-while-revalidate=300",
+      methods: ["GET"],
       async handler(ctx) {
-        requireMethod(ctx.request, "GET");
         const locale = configuredTargetLocale(options, readString(readRecord(ctx.input, "query").locale, "locale"));
-        if (!(await runtimeLocaleEnabled(ctx.kv, locale))) {
+        if (!(await runtimeLocaleEnabled(ctx.settings, locale))) {
           return { enabled: false, overrides: {} } satisfies RuntimeOverridesResponse;
         }
         const overrides = usableOverrides(options, locale, await listOverrides(overrideStorage(ctx.storage), locale));
@@ -417,6 +460,10 @@ export function createPluginRoutes(
       },
     },
   };
+}
+
+function overrideConflict(key: string): PluginRouteError {
+  return PluginRouteError.conflict(`Override for "${key}" changed since you loaded it. Reload the catalog and try again.`);
 }
 
 function overrideStorage(storage: Record<string, StorageCollection | undefined>): StorageCollection {
@@ -427,7 +474,7 @@ function overrideStorage(storage: Record<string, StorageCollection | undefined>)
 
 async function catalogView(
   options: FlatPolystellaEmdashOptions,
-  kv: KVAccess,
+  settings: SettingsAccess,
   storage: StorageCollection,
   locale: string,
   source?: CatalogSource | undefined,
@@ -436,7 +483,7 @@ async function catalogView(
   const flatSource = options.catalogs.locales[options.catalogs.defaultLocale]?.dictionary;
   if (catalog === undefined || flatSource === undefined || source === undefined)
     throw PluginRouteError.internal("catalog configuration is unavailable");
-  const [storedOverrides, enabledLocales] = await Promise.all([listOverrides(storage, locale), runtimeLocales(options, kv)]);
+  const [storedOverrides, enabledLocales] = await Promise.all([listOverrides(storage, locale), runtimeLocales(options, settings)]);
   const overrides = usableOverrides(options, locale, storedOverrides);
   const overrideByKey = new Map(overrides.map((override) => [override.key, override]));
   const keys = [...new Set([...Object.keys(flatSource), ...Object.keys(catalog.dictionary), ...overrideByKey.keys()])].sort();
@@ -468,12 +515,12 @@ async function catalogView(
 async function translationSettings(
   options: PolystellaEmdashOptions,
   locale: string,
-  kv: KVAccess,
+  settings: SettingsAccess,
   log: LogAccess,
   dependencies: PluginRouteDependencies,
   modelOverride?: string | undefined,
 ): Promise<{ translator: Translator; glossary: Glossary; debugEnabled: boolean; promptInstruction?: string | undefined }> {
-  const [storedSettings, env] = await Promise.all([storedTranslationSettings(options, kv), dependencies.getEnv()]);
+  const [storedSettings, env] = await Promise.all([storedTranslationSettings(options, settings), dependencies.getEnv()]);
   const stored = storedSettings.locales[locale];
   if (stored === undefined) throw PluginRouteError.internal(`translation settings for ${locale} are unavailable`);
   const deploymentModel = resolveModelId(options.models.defaults, locale);

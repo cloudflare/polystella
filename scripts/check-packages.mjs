@@ -406,7 +406,7 @@ async function writeConsumer(consumerDirectory, packedPackages) {
           "@astrojs/node": "11.1.5",
           "@astrojs/react": "6.0.5",
           astro: "7.3.1",
-          emdash: "0.36.0",
+          emdash: "0.42.0",
           react: "^19.0.0",
           "react-dom": "^19.0.0",
         },

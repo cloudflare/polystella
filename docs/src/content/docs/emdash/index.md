@@ -24,7 +24,7 @@ pnpm add @cloudflare/polystella-emdash
 ```
 
 Peer dependencies you already have in an EmDash + Astro project:
-`emdash` `^0.36.0`, `@emdash-cms/admin` `^0.36.0`,
+`emdash` and `@emdash-cms/admin` `>=0.42.0 <1.0.0 || ^1.0.1-rc.0`,
 `@cloudflare/kumo` `^2.6.0`, `react`, and `astro` `^7.0.10`.
 
 ## Setup
@@ -140,16 +140,12 @@ tracks its load, provider, and save requests; catalog and sandbox
 translation show their provider stage and a 100% completion state.
 The routes do not stream batch-level progress.
 
-## EmDash 0.36 limitations
+## EmDash limitations
 
 - Panels use the latest saved entry, not unsaved form state.
 - EmDash leaves an empty PolyStella section on collections disabled
   in plugin settings because panel visibility cannot be resolved
   asynchronously.
-- EmDash does not expose authoritative collection schema metadata to
-  plugin routes. The server enforces the stored collection/field
-  policy and saved value shapes; administrators must revisit the
-  **Collections** tab after schema changes.
 
 ## See also
 

@@ -7,10 +7,6 @@ const MAX_LOCALE_LENGTH = 64;
 const EMDASH_LOCALE_PATTERN = /^[a-z]{2,3}(-[a-z0-9]{2,8})*$/i;
 const EMDASH_SLUG_PATTERN = /^[a-z][a-z0-9_]*$/;
 
-export function requireMethod(request: Request, expected: string): void {
-  if (request.method !== expected) throw new PluginRouteError("METHOD_NOT_ALLOWED", `${expected} required`, 405);
-}
-
 export function readRecord(value: unknown, label: string): Record<string, unknown> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) throw PluginRouteError.badRequest(`${label} must be an object`);
   return value as Record<string, unknown>;

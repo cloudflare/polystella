@@ -1,5 +1,5 @@
 import { resolveModelId } from "@cloudflare/polystella-core";
-import { PluginRouteError, type KVAccess } from "emdash";
+import { PluginRouteError, type SettingsAccess } from "emdash";
 
 import {
   MAX_COLLECTION_POLICY_FIELDS,
@@ -24,26 +24,35 @@ import {
   readText,
 } from "./routes/validators.js";
 
-const COLLECTION_POLICIES_KEY = "settings:collectionPolicies";
-const TRANSLATION_SETTINGS_KEY = "settings:translation";
+const COLLECTION_POLICIES_KEY = "collectionPolicies";
+const TRANSLATION_SETTINGS_KEY = "translation";
 const MAX_COLLECTIONS = 100;
 export const MAX_GLOSSARY_CHARACTERS = 10_000;
 export const MAX_INSTRUCTION_CHARACTERS = 10_000;
 
-export async function collectionSettings(options: PolystellaEmdashOptions, kv: KVAccess): Promise<CollectionSettingsResponse> {
+export async function collectionSettings(options: PolystellaEmdashOptions, settings: SettingsAccess): Promise<CollectionSettingsResponse> {
+  const stored = await settings.getVersioned<unknown>(COLLECTION_POLICIES_KEY);
   return {
     defaultLocale: options.catalogs.defaultLocale,
     locales: Object.keys(options.catalogs.locales).sort(),
-    policies: await collectionPolicies(kv),
+    policies: parseCollectionPolicies(stored?.value),
+    revision: stored?.revision ?? null,
   };
 }
 
-export async function saveCollectionPolicies(kv: KVAccess, policies: Record<string, CollectionPolicy>): Promise<void> {
-  await kv.set(COLLECTION_POLICIES_KEY, policies);
+export async function saveCollectionPolicies(
+  settings: SettingsAccess,
+  expectedRevision: string | null,
+  policies: Record<string, CollectionPolicy>,
+): Promise<void> {
+  await compareAndSetSetting(settings, COLLECTION_POLICIES_KEY, expectedRevision, policies);
 }
 
-export async function collectionPolicies(kv: KVAccess): Promise<Record<string, CollectionPolicy>> {
-  const stored = await kv.get<unknown>(COLLECTION_POLICIES_KEY);
+export async function collectionPolicies(settings: SettingsAccess): Promise<Record<string, CollectionPolicy>> {
+  return parseCollectionPolicies(await settings.get<unknown>(COLLECTION_POLICIES_KEY));
+}
+
+function parseCollectionPolicies(stored: unknown): Record<string, CollectionPolicy> {
   if (!isRecord(stored)) return {};
   const policies: Record<string, CollectionPolicy> = {};
   for (const [collection, value] of Object.entries(stored)) {
@@ -99,8 +108,12 @@ export function readCollectionPolicies(value: unknown): Record<string, Collectio
   return policies;
 }
 
-export async function translationSettingsView(options: PolystellaEmdashOptions, kv: KVAccess): Promise<TranslationSettingsResponse> {
-  const stored = await storedTranslationSettings(options, kv);
+export async function translationSettingsView(
+  options: PolystellaEmdashOptions,
+  settings: SettingsAccess,
+): Promise<TranslationSettingsResponse> {
+  const versioned = await settings.getVersioned<unknown>(TRANSLATION_SETTINGS_KEY);
+  const stored = parseTranslationSettings(options, versioned?.value);
   const locales = targetLocales(options).map((locale) => {
     const settings = stored.locales[locale];
     if (settings === undefined) throw PluginRouteError.internal(`translation settings for ${locale} are unavailable`);
@@ -116,6 +129,7 @@ export async function translationSettingsView(options: PolystellaEmdashOptions, 
   });
   return {
     defaultLocale: options.catalogs.defaultLocale,
+    revision: versioned?.revision ?? null,
     debugEnabled: stored.debugEnabled,
     allowedModels: [...options.models.allowed],
     locales,
@@ -129,9 +143,10 @@ export async function translationSettingsView(options: PolystellaEmdashOptions, 
 
 export async function saveTranslationSettings(
   options: PolystellaEmdashOptions,
-  kv: KVAccess,
+  settings: SettingsAccess,
   input: Record<string, unknown>,
 ): Promise<void> {
+  const expectedRevision = readRevision(input.revision);
   const debugEnabled = input.debugEnabled === undefined ? false : readBoolean(input.debugEnabled, "debugEnabled");
   const localeInput = readRecord(input.locales, "locales");
   const configuredLocales = targetLocales(options);
@@ -143,14 +158,14 @@ export async function saveTranslationSettings(
   }
 
   const values = configuredLocales.map((locale) => {
-    const settings = readRecord(localeInput[locale], `locales.${locale}`);
-    const rawModel = settings.model;
+    const localeSettings = readRecord(localeInput[locale], `locales.${locale}`);
+    const rawModel = localeSettings.model;
     const model = rawModel === null ? null : readString(rawModel, `locales.${locale}.model`);
     if (model !== null && !options.models.allowed.includes(model)) {
       throw PluginRouteError.badRequest(`locales.${locale}.model must be allowed by deployment configuration`);
     }
-    const glossaryMode = readCustomizationMode(settings.glossaryMode, `locales.${locale}.glossaryMode`);
-    const glossaryText = readText(settings.glossaryText, `locales.${locale}.glossaryText`, MAX_GLOSSARY_CHARACTERS);
+    const glossaryMode = readCustomizationMode(localeSettings.glossaryMode, `locales.${locale}.glossaryMode`);
+    const glossaryText = readText(localeSettings.glossaryText, `locales.${locale}.glossaryText`, MAX_GLOSSARY_CHARACTERS);
     if (
       JSON.stringify(resolveGlossary(options.glossaryDefaults?.[locale], glossaryMode, glossaryText.trim())).length >
       MAX_GLOSSARY_CHARACTERS
@@ -167,11 +182,27 @@ export async function saveTranslationSettings(
     throw PluginRouteError.badRequest(`effective translation instructions cannot exceed ${MAX_INSTRUCTION_CHARACTERS} characters`);
   }
 
-  await kv.set(TRANSLATION_SETTINGS_KEY, {
+  await compareAndSetSetting(settings, TRANSLATION_SETTINGS_KEY, expectedRevision, {
     debugEnabled,
-    locales: Object.fromEntries(values.map(({ locale, ...settings }) => [locale, settings])),
+    locales: Object.fromEntries(values.map(({ locale, ...localeSettings }) => [locale, localeSettings])),
     instructions: { mode: instructionMode, text: instructionText },
   } satisfies StoredTranslationSettings);
+}
+
+/** Revisions are opaque host tokens; `null` means "I saw no stored value". */
+export function readRevision(value: unknown): string | null {
+  if (value === null) return null;
+  if (typeof value !== "string" || value.length === 0 || value.length > 128) {
+    throw PluginRouteError.badRequest("revision must be null or a non-empty string of at most 128 characters");
+  }
+  return value;
+}
+
+async function compareAndSetSetting(settings: SettingsAccess, key: string, expectedRevision: string | null, value: unknown): Promise<void> {
+  const result = await settings.compareAndSet(key, expectedRevision, value);
+  if (!result.applied) {
+    throw PluginRouteError.conflict("Settings changed since you loaded them. Reload and apply your changes again.");
+  }
 }
 
 export interface StoredLocaleSettings {
@@ -186,8 +217,14 @@ export interface StoredTranslationSettings {
   instructions: { mode: CustomizationMode; text: string };
 }
 
-export async function storedTranslationSettings(options: PolystellaEmdashOptions, kv: KVAccess): Promise<StoredTranslationSettings> {
-  const stored = await kv.get<unknown>(TRANSLATION_SETTINGS_KEY);
+export async function storedTranslationSettings(
+  options: PolystellaEmdashOptions,
+  settings: SettingsAccess,
+): Promise<StoredTranslationSettings> {
+  return parseTranslationSettings(options, await settings.get<unknown>(TRANSLATION_SETTINGS_KEY));
+}
+
+function parseTranslationSettings(options: PolystellaEmdashOptions, stored: unknown): StoredTranslationSettings {
   const storedRoot = isRecord(stored) ? stored : {};
   const storedLocales = isRecord(storedRoot.locales) ? storedRoot.locales : {};
   const storedInstructions = isRecord(storedRoot.instructions) ? storedRoot.instructions : {};
@@ -222,19 +259,15 @@ export async function storedTranslationSettings(options: PolystellaEmdashOptions
   };
 }
 
-export async function runtimeLocales(options: PolystellaEmdashOptions, kv: KVAccess): Promise<string[]> {
+export async function runtimeLocales(options: PolystellaEmdashOptions, settings: SettingsAccess): Promise<string[]> {
   const configured = targetLocales(options);
-  const states = await Promise.all(configured.map(async (locale) => ({ locale, enabled: await runtimeLocaleEnabled(kv, locale) })));
+  const states = await Promise.all(configured.map(async (locale) => ({ locale, enabled: await runtimeLocaleEnabled(settings, locale) })));
   return states
     .filter(({ enabled }) => enabled)
     .map(({ locale }) => locale)
     .sort();
 }
 
-export async function runtimeLocaleEnabled(kv: KVAccess, locale: string): Promise<boolean> {
-  return (await kv.get<unknown>(runtimeLocaleKey(locale))) === true;
-}
-
-export function runtimeLocaleKey(locale: string): string {
-  return `settings:${runtimeOverrideSettingKey(locale)}`;
+export async function runtimeLocaleEnabled(settings: SettingsAccess, locale: string): Promise<boolean> {
+  return (await settings.get<unknown>(runtimeOverrideSettingKey(locale))) === true;
 }

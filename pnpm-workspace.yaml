@@ -21,3 +21,12 @@ overrides:
 
 minimumReleaseAgeExclude:
   - astro@7.2.9
+  - "@emdash-cms/admin@0.42.0"
+  - "@emdash-cms/auth@0.42.0"
+  - "@emdash-cms/blocks@0.42.0"
+  - "@emdash-cms/gutenberg-to-portable-text@0.42.0"
+  - "@emdash-cms/plugin-types@0.5.0"
+  - "@emdash-cms/registry-client@0.7.0"
+  - "@emdash-cms/registry-lexicons@0.7.0"
+  - "@emdash-cms/registry-verification@0.3.3"
+  - emdash@0.42.0

@@ -1,15 +1,18 @@
-import type { ContentItem, KVAccess, PluginRoute, RouteContext, StorageCollection } from "emdash";
+import type { FieldSchemaInfo, KVAccess, PluginRoute, RouteContext, SettingsAccess, StorageCollection } from "emdash";
 import type { WorkersAIInput } from "@cloudflare/polystella-core/providers/workers-ai";
 import { describe, expect, it } from "vitest";
 
 import {
   MAX_SANDBOX_CHARACTERS,
+  type CatalogClearSyncedResponse,
   type CatalogExportResponse,
   type CatalogGenerationResponse,
   type CatalogViewResponse,
+  type CollectionSettingsResponse,
   type RuntimeOverridesResponse,
   type TranslateContentResponse,
   type TranslationSandboxResponse,
+  type TranslationSettingsResponse,
 } from "../src/contracts.js";
 import { createPluginRoutes, type PluginRouteDependencies } from "../src/server/routes/routes.js";
 import type { CatalogOverride, PolystellaEmdashOptions } from "../src/index.js";
@@ -49,45 +52,99 @@ function dependencies(): PluginRouteDependencies {
   };
 }
 
-function createKv(): KVAccess {
-  const values = new Map<string, unknown>();
+// Revisioned in-memory rows shared by the KV, settings, and storage fakes.
+function createRows() {
+  const rows = new Map<string, { value: unknown; revision: string }>();
+  let clock = 0;
+  const write = (key: string, value: unknown): string => {
+    const revision = String(++clock);
+    rows.set(key, { value, revision });
+    return revision;
+  };
   return {
-    get: async <T>(key: string) => (values.has(key) ? (values.get(key) as T) : null),
-    set: async (key, value) => {
-      values.set(key, value);
+    rows,
+    write,
+    getVersioned: async <T>(key: string) => {
+      const row = rows.get(key);
+      return row === undefined ? null : { value: row.value as T, revision: row.revision };
     },
-    delete: async (key) => values.delete(key),
-    list: async (prefix = "") => [...values].filter(([key]) => key.startsWith(prefix)).map(([key, value]) => ({ key, value })),
+    compareAndSet: async (key: string, expectedRevision: string | null, value: unknown) =>
+      (rows.get(key)?.revision ?? null) === expectedRevision
+        ? { applied: true as const, revision: write(key, value) }
+        : { applied: false as const },
+    compareAndDelete: async (key: string, expectedRevision: string) => ({
+      applied: rows.get(key)?.revision === expectedRevision && rows.delete(key),
+    }),
+  };
+}
+
+function createKv(): KVAccess {
+  const { rows, write, getVersioned, compareAndSet, compareAndDelete } = createRows();
+  return {
+    get: async <T>(key: string) => (rows.has(key) ? (rows.get(key)?.value as T) : null),
+    getVersioned,
+    compareAndSet,
+    compareAndDelete,
+    set: async (key, value) => {
+      write(key, value);
+    },
+    delete: async (key) => rows.delete(key),
+    list: async (prefix = "") => [...rows].filter(([key]) => key.startsWith(prefix)).map(([key, row]) => ({ key, value: row.value })),
+  };
+}
+
+// Mirrors EmDash: `ctx.settings.<key>` and `ctx.kv["settings:<key>"]` are the same row.
+function settingsFor(kv: KVAccess): SettingsAccess {
+  const key = (name: string) => `settings:${name}`;
+  return {
+    get: (name) => kv.get(key(name)),
+    getVersioned: (name) => kv.getVersioned(key(name)),
+    compareAndSet: (name, revision, value) => kv.compareAndSet(key(name), revision, value),
+    compareAndDelete: (name, revision) => kv.compareAndDelete(key(name), revision),
+    set: (name, value) => kv.set(key(name), value),
+    delete: (name) => kv.delete(key(name)),
+    list: async (prefix = "") =>
+      (await kv.list(key(prefix))).map((entry) => ({ key: entry.key.slice("settings:".length), value: entry.value })),
   };
 }
 
 function createStorage(): StorageCollection {
-  const values = new Map<string, unknown>();
+  const { rows, write, getVersioned, compareAndSet, compareAndDelete } = createRows();
   return {
-    get: async (id) => values.get(id) ?? null,
-    put: async (id, data) => {
-      values.set(id, data);
+    get: async (id) => rows.get(id)?.value ?? null,
+    getVersioned,
+    compareAndSet,
+    compareAndDelete,
+    updateIf: async () => {
+      throw new Error("updateIf is not used by PolyStella");
     },
-    delete: async (id) => values.delete(id),
-    exists: async (id) => values.has(id),
-    getMany: async (ids) => new Map(ids.flatMap((id) => (values.has(id) ? [[id, values.get(id)]] : []))),
+    put: async (id, data) => {
+      write(id, data);
+    },
+    delete: async (id) => rows.delete(id),
+    exists: async (id) => rows.has(id),
+    getMany: async (ids) => new Map(ids.flatMap((id) => (rows.has(id) ? [[id, rows.get(id)?.value]] : []))),
     putMany: async (items) => {
-      for (const item of items) values.set(item.id, item.data);
+      for (const item of items) write(item.id, item.data);
     },
     deleteMany: async (ids) => {
       let count = 0;
-      for (const id of ids) if (values.delete(id)) count++;
+      for (const id of ids) if (rows.delete(id)) count++;
       return count;
     },
     query: async (query = {}) => {
       const locale = query.where?.locale;
-      const items = [...values]
-        .filter(([, value]) => locale === undefined || (isRecord(value) && value.locale === locale))
-        .map(([id, data]) => ({ id, data }));
+      const items = [...rows]
+        .filter(([, row]) => locale === undefined || (isRecord(row.value) && row.value.locale === locale))
+        .map(([id, row]) => ({ id, data: row.value }));
       return { items, hasMore: false };
     },
-    count: async () => values.size,
+    count: async () => rows.size,
   };
+}
+
+function schemaField(slug: string, type: FieldSchemaInfo["type"], translatable = true): FieldSchemaInfo {
+  return { slug, label: slug, type, required: false, unique: false, searchable: false, indexed: false, translatable, sortOrder: 0 };
 }
 
 function context(input: unknown, method: string, kv: KVAccess, storage: StorageCollection): RouteContext {
@@ -95,6 +152,10 @@ function context(input: unknown, method: string, kv: KVAccess, storage: StorageC
     plugin: { id: "polystella", version: "0.0.0" },
     storage: { catalog_overrides: storage },
     content: {
+      getTranslations: async (_collection, id) => ({
+        translationGroup: id,
+        translations: [{ id, locale: "fr-FR", slug: "hello", status: "draft", updatedAt: "2026-09-03T00:00:00.000Z" }],
+      }),
       get: async (_collection, id) =>
         id === "entry-1"
           ? {
@@ -114,7 +175,28 @@ function context(input: unknown, method: string, kv: KVAccess, storage: StorageC
           : null,
       list: async () => ({ items: [], hasMore: false }),
     },
+    schema: {
+      listCollections: async () => [],
+      getCollection: async (slug) =>
+        slug === "posts"
+          ? {
+              slug,
+              label: "Posts",
+              labelSingular: "Post",
+              description: null,
+              supports: [],
+              hasSeo: false,
+              titleField: "title",
+              dateField: null,
+              urlPattern: null,
+              routable: true,
+              hidden: false,
+              fields: [schemaField("title", "string"), schemaField("body", "portableText"), schemaField("sku", "string", false)],
+            }
+          : null,
+    },
     kv,
+    settings: settingsFor(kv),
     log: {
       debug: () => undefined,
       info: () => undefined,
@@ -146,31 +228,11 @@ async function enablePosts(kv: KVAccess): Promise<void> {
   });
 }
 
-function sourceItem(title: string): ContentItem {
-  return {
-    id: "entry-source",
-    type: "posts",
-    slug: "hello",
-    status: "published",
-    data: { title },
-    authorId: null,
-    primaryBylineId: null,
-    createdAt: "2026-09-03T00:00:00.000Z",
-    updatedAt: "2026-09-03T00:00:00.000Z",
-    publishedAt: null,
-    scheduledAt: null,
-    liveRevisionId: null,
-    draftRevisionId: null,
-    version: 1,
-    locale: "en-US",
-    translationGroup: "group-1",
-  };
-}
-
 async function enableDebug(routes: Record<string, PluginRoute>, kv: KVAccess, storage: StorageCollection): Promise<void> {
   await route(routes, "settings/translation").handler(
     context(
       {
+        revision: null,
         debugEnabled: true,
         locales: {
           "fr-FR": { model: null, glossaryMode: "default", glossaryText: "" },
@@ -194,18 +256,21 @@ describe("EmDash plugin routes", () => {
       defaultLocale: "en-US",
       locales: ["en-US", "fr-FR"],
       policies: {},
+      revision: null,
     });
     await expect(route(routes, "policy").handler(context({ collection: "posts" }, "GET", kv, storage))).resolves.toEqual({
       enabled: false,
       sourceLocale: null,
       fields: [],
     });
-    await expect(
-      route(routes, "settings/collections").handler(context({ policies: { posts: { fields: ["title", "body"] } } }, "PUT", kv, storage)),
-    ).resolves.toEqual({
+    const saved = (await route(routes, "settings/collections").handler(
+      context({ revision: null, policies: { posts: { fields: ["title", "body"] } } }, "PUT", kv, storage),
+    )) as CollectionSettingsResponse;
+    expect(saved).toEqual({
       defaultLocale: "en-US",
       locales: ["en-US", "fr-FR"],
       policies: { posts: { fields: ["body", "title"] } },
+      revision: expect.any(String),
     });
     await expect(route(routes, "policy").handler(context({ collection: "posts" }, "GET", kv, storage))).resolves.toEqual({
       enabled: true,
@@ -218,17 +283,20 @@ describe("EmDash plugin routes", () => {
       fields: [],
     });
     await expect(
-      route(routes, "settings/collections").handler(context({ policies: { posts: { fields: [] } } }, "PUT", kv, storage)),
+      route(routes, "settings/collections").handler(
+        context({ revision: saved.revision, policies: { posts: { fields: [] } } }, "PUT", kv, storage),
+      ),
     ).rejects.toMatchObject({ status: 400 });
     await expect(
       route(routes, "settings/collections").handler(
-        context({ policies: { posts: { sourceLocale: "fr-FR", fields: ["title"] } } }, "PUT", kv, storage),
+        context({ revision: saved.revision, policies: { posts: { sourceLocale: "fr-FR", fields: ["title"] } } }, "PUT", kv, storage),
       ),
     ).rejects.toMatchObject({ status: 400 });
     await expect(
       route(routes, "settings/collections").handler(
         context(
           {
+            revision: saved.revision,
             policies: {
               posts: { fields: Array.from({ length: 101 }, (_, index) => `field_${index}`) },
             },
@@ -286,7 +354,6 @@ describe("EmDash plugin routes", () => {
     const translatedTexts: string[] = [];
     const routes = createPluginRoutes(options(), {
       ...dependencies(),
-      findSourceContent: async () => sourceItem("Fresh source title"),
       getEnv: async () => ({
         AI: {
           run: async (_model: string, input: WorkersAIInput) => {
@@ -299,10 +366,29 @@ describe("EmDash plugin routes", () => {
     const kv = createKv();
     const storage = createStorage();
     await enablePosts(kv);
+    const routeContext = context(
+      { collection: "posts", entryId: "entry-1", targetLocale: "fr-FR", fields: ["title"] },
+      "POST",
+      kv,
+      storage,
+    );
+    const content = routeContext.content;
+    if (content === undefined) throw new Error("missing content access");
+    const getTarget = content.get.bind(content);
+    content.getTranslations = async () => ({
+      translationGroup: "group-1",
+      translations: [
+        { id: "entry-1", locale: "fr-FR", slug: "hello", status: "draft", updatedAt: "2026-09-03T00:00:00.000Z" },
+        { id: "entry-source", locale: "en-US", slug: "hello", status: "draft", updatedAt: "2026-09-03T00:00:00.000Z" },
+      ],
+    });
+    content.get = async (collection, id) => {
+      const target = await getTarget(collection, "entry-1");
+      if (id !== "entry-source" || target === null) return getTarget(collection, id);
+      return { ...target, id, locale: "en-US", data: { title: "Fresh source title" } };
+    };
 
-    const translated = (await route(routes, "translate-content").handler(
-      context({ collection: "posts", entryId: "entry-1", targetLocale: "fr-FR", fields: ["title"] }, "POST", kv, storage),
-    )) as TranslateContentResponse;
+    const translated = (await route(routes, "translate-content").handler(routeContext)) as TranslateContentResponse;
 
     expect(translated.patch).toEqual({ title: "Titre traduit" });
     expect(translatedTexts.join("")).toContain("Fresh source title");
@@ -310,10 +396,7 @@ describe("EmDash plugin routes", () => {
   });
 
   it("falls back to the draft's saved values when no source sibling exists", async () => {
-    const routes = createPluginRoutes(options(), {
-      ...dependencies(),
-      findSourceContent: async () => null,
-    });
+    const routes = createPluginRoutes(options(), dependencies());
     const kv = createKv();
     const storage = createStorage();
     await enablePosts(kv);
@@ -477,6 +560,7 @@ describe("EmDash plugin routes", () => {
       settingsRoute.handler(
         context(
           {
+            revision: null,
             debugEnabled: true,
             locales: {
               "fr-FR": { model: "model-a", glossaryMode: "append", glossaryText: "Admin glossary" },
@@ -522,9 +606,11 @@ describe("EmDash plugin routes", () => {
       },
     });
 
+    const current = (await settingsRoute.handler(context({}, "GET", kv, storage))) as TranslationSettingsResponse;
     await settingsRoute.handler(
       context(
         {
+          revision: current.revision,
           debugEnabled: true,
           locales: {
             "fr-FR": { model: null, glossaryMode: "replace", glossaryText: "Replacement glossary" },
@@ -631,17 +717,143 @@ describe("EmDash plugin routes", () => {
 
     await expect(
       route(routes, "catalog/overrides").handler(
-        context({ locale: "fr-FR", overrides: { greeting: "Salut", another: "Autre" } }, "PUT", kv, storage),
+        context({ locale: "fr-FR", overrides: { greeting: "Salut", another: "Autre" }, expected: null }, "PUT", kv, storage),
       ),
     ).rejects.toMatchObject({ status: 400 });
     await expect(
-      route(routes, "catalog/overrides").handler(context({ locale: "fr-FR", overrides: { greeting: "Salut" } }, "PUT", kv, storage)),
+      route(routes, "catalog/overrides").handler(
+        context({ locale: "fr-FR", overrides: { greeting: "Salut" }, expected: null }, "PUT", kv, storage),
+      ),
     ).resolves.toEqual({ key: "greeting" });
     await expect(
       route(routes, "catalog/overrides").handler(
-        context({ locale: "fr-FR", overrides: { greeting: "x".repeat(20_001) } }, "PUT", kv, storage),
+        context({ locale: "fr-FR", overrides: { greeting: "x".repeat(20_001) }, expected: "Salut" }, "PUT", kv, storage),
       ),
     ).rejects.toMatchObject({ status: 400 });
+    await expect(
+      route(routes, "catalog/overrides").handler(context({ locale: "fr-FR", overrides: { greeting: "Coucou" } }, "PUT", kv, storage)),
+    ).rejects.toMatchObject({ status: 400 });
+  });
+
+  it("rejects stale settings writes instead of overwriting them", async () => {
+    const routes = createPluginRoutes(options(), dependencies());
+    const kv = createKv();
+    const storage = createStorage();
+    const collectionsRoute = route(routes, "settings/collections");
+    const put = (revision: unknown, fields: string[]) =>
+      collectionsRoute.handler(context({ revision, policies: { posts: { fields } } }, "PUT", kv, storage));
+
+    await expect(put(undefined, ["title"])).rejects.toMatchObject({ status: 400 });
+    const first = (await put(null, ["title"])) as CollectionSettingsResponse;
+    await expect(put(null, ["body"])).rejects.toMatchObject({ status: 409, code: "CONFLICT" });
+    await put(first.revision, ["body"]);
+    await expect(put(first.revision, ["title"])).rejects.toMatchObject({ status: 409 });
+    await expect(collectionsRoute.handler(context({}, "GET", kv, storage))).resolves.toMatchObject({
+      policies: { posts: { fields: ["body"] } },
+    });
+
+    const translationRoute = route(routes, "settings/translation");
+    const translationInput = {
+      debugEnabled: false,
+      locales: { "fr-FR": { model: null, glossaryMode: "default", glossaryText: "" } },
+      instructions: { mode: "default", text: "" },
+    };
+    await translationRoute.handler(context({ ...translationInput, revision: null }, "PUT", kv, storage));
+    await expect(translationRoute.handler(context({ ...translationInput, revision: null }, "PUT", kv, storage))).rejects.toMatchObject({
+      status: 409,
+    });
+  });
+
+  it("writes and clears overrides only when they still match what the editor loaded", async () => {
+    const routes = createPluginRoutes(options(), dependencies());
+    const kv = createKv();
+    const storage = createStorage();
+    const put = (value: string | null, expected: string | null) =>
+      route(routes, "catalog/overrides").handler(
+        context({ locale: "fr-FR", overrides: { greeting: value }, expected }, "PUT", kv, storage),
+      );
+
+    await put("Salut", null);
+    await expect(put("Coucou", null)).rejects.toMatchObject({ status: 409, code: "CONFLICT" });
+    await expect(put(null, "Bonjour")).rejects.toMatchObject({ status: 409 });
+    await put("Coucou", "Salut");
+    await put(null, "Coucou");
+    await expect(storage.get('["fr-FR","greeting"]')).resolves.toBeNull();
+    await expect(put(null, null)).resolves.toEqual({ key: "greeting" });
+  });
+
+  it("bulk-clears synced overrides and keeps ones that changed mid-clear", async () => {
+    const configured = options();
+    configured.catalogs.locales["en-US"] = { dictionary: { greeting: "Hello", bye: "Bye", ok: "OK" }, filePath: "src/i18n/en-US.json" };
+    configured.catalogs.locales["fr-FR"] = {
+      dictionary: { greeting: "Bonjour", bye: "Au revoir", ok: "OK" },
+      filePath: "src/i18n/fr-FR.json",
+    };
+    const routes = createPluginRoutes(configured, dependencies());
+    const kv = createKv();
+    const storage = createStorage();
+    const save = (key: string, value: string) =>
+      route(routes, "catalog/overrides").handler(
+        context({ locale: "fr-FR", overrides: { [key]: value }, expected: null }, "PUT", kv, storage),
+      );
+    await save("greeting", "Bonjour");
+    await save("bye", "Au revoir");
+    await save("ok", "D'accord");
+    const getVersioned = storage.getVersioned.bind(storage);
+    storage.getVersioned = async (id) => {
+      if (id === '["fr-FR","bye"]')
+        await storage.put(id, { locale: "fr-FR", key: "bye", value: "Salut", updatedAt: "2026-09-24T00:00:00.000Z", updatedBy: "user-2" });
+      return getVersioned(id);
+    };
+
+    const result = (await route(routes, "catalog/clear-synced").handler(
+      context({ locale: "fr-FR" }, "POST", kv, storage),
+    )) as CatalogClearSyncedResponse;
+
+    expect(result).toEqual({ locale: "fr-FR", cleared: ["greeting"], skipped: ["bye"] });
+    await expect(storage.get('["fr-FR","greeting"]')).resolves.toBeNull();
+    await expect(storage.get('["fr-FR","bye"]')).resolves.toMatchObject({ value: "Salut" });
+    await expect(storage.get('["fr-FR","ok"]')).resolves.toMatchObject({ value: "D'accord" });
+  });
+
+  it("refuses fields the live schema does not mark as translatable text", async () => {
+    const routes = createPluginRoutes(options(), dependencies());
+    const kv = createKv();
+    const storage = createStorage();
+    await kv.set("settings:collectionPolicies", { posts: { fields: ["title", "sku", "gone"] } });
+    const translate = (fields: string[]) =>
+      route(routes, "translate-content").handler(
+        context({ collection: "posts", entryId: "entry-1", targetLocale: "fr-FR", fields }, "POST", kv, storage),
+      );
+
+    await expect(translate(["sku"])).rejects.toMatchObject({ status: 400, message: expect.stringContaining('"sku"') });
+    await expect(translate(["gone"])).rejects.toMatchObject({ status: 400, message: expect.stringContaining('"gone"') });
+    const withoutSchema = context(
+      { collection: "posts", entryId: "entry-1", targetLocale: "fr-FR", fields: ["title"] },
+      "POST",
+      kv,
+      storage,
+    );
+    delete withoutSchema.schema;
+    await expect(route(routes, "translate-content").handler(withoutSchema)).rejects.toMatchObject({ status: 500 });
+  });
+
+  it("declares HTTP methods on every route", () => {
+    const routes = createPluginRoutes(options(), dependencies());
+    expect(Object.fromEntries(Object.entries(routes).map(([name, value]) => [name, value.methods]))).toEqual({
+      "settings/collections": ["GET", "PUT"],
+      "settings/translation": ["GET", "PUT"],
+      policy: ["GET"],
+      "translate-content": ["POST"],
+      catalog: ["GET"],
+      "catalog/generate": ["POST"],
+      "catalog/overrides": ["PUT"],
+      "catalog/clear-synced": ["POST"],
+      "catalog/runtime": ["PUT"],
+      "catalog/export": ["GET"],
+      "translation-sandbox": ["POST"],
+      overrides: ["GET"],
+    });
   });
 
   it("normalizes nested catalogs for admin routes and preserves nested exports", async () => {
@@ -663,7 +875,7 @@ describe("EmDash plugin routes", () => {
     expect(view.entries).toEqual([{ key: "nav.greeting", source: "Hello", deployed: "Bonjour", override: null, state: null }]);
 
     await route(routes, "catalog/overrides").handler(
-      context({ locale: "fr-FR", overrides: { "nav.greeting": "Salut" } }, "PUT", kv, storage),
+      context({ locale: "fr-FR", overrides: { "nav.greeting": "Salut" }, expected: null }, "PUT", kv, storage),
     );
     const exported = (await route(routes, "catalog/export").handler(
       context({ locale: "fr-FR" }, "GET", kv, storage),
@@ -776,7 +988,9 @@ describe("EmDash plugin routes", () => {
       overrides: {},
     } satisfies RuntimeOverridesResponse);
 
-    await route(routes, "catalog/overrides").handler(context({ locale: "fr-FR", overrides: { greeting: "Salut" } }, "PUT", kv, storage));
+    await route(routes, "catalog/overrides").handler(
+      context({ locale: "fr-FR", overrides: { greeting: "Salut" }, expected: null }, "PUT", kv, storage),
+    );
     await expect(
       route(routes, "catalog/runtime").handler(context({ locale: "fr-FR", enabled: true }, "PUT", kv, storage)),
     ).resolves.toEqual({ locale: "fr-FR", enabled: true });

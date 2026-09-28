@@ -4,6 +4,7 @@ import { useEffect, useState, type ReactNode } from "react";
 
 import {
   MAX_CATALOG_KEYS,
+  type CatalogClearSyncedResponse,
   type CatalogExportResponse,
   type CatalogGenerationResponse,
   type CatalogEntryView,
@@ -126,11 +127,12 @@ export function CatalogTab(): ReactNode {
     setWorking(true);
     setError(null);
     try {
+      const loadedOverrides = new Map(catalog.entries.map((entry) => [entry.key, entry.override]));
       for (const key of [...touched]) {
         const value = enabledOverrides.has(key) ? (drafts.get(key) ?? "") : null;
         await pluginRequest<CatalogOverrideMutationResponse>("catalog/overrides", {
           method: "PUT",
-          body: JSON.stringify({ locale: catalog.locale, overrides: { [key]: value } }),
+          body: JSON.stringify({ locale: catalog.locale, overrides: { [key]: value }, expected: loadedOverrides.get(key) ?? null }),
         });
         setCatalog((current) =>
           current === null
@@ -157,6 +159,26 @@ export function CatalogTab(): ReactNode {
     } catch (cause) {
       setError(errorMessage(cause));
     } finally {
+      setWorking(false);
+    }
+  }
+
+  async function clearSynced(): Promise<void> {
+    if (catalog === null) return;
+    if (!window.confirm(`Delete every ${catalog.locale} override that already matches the deployed catalog?`)) return;
+    setWorking(true);
+    setError(null);
+    try {
+      const result = await pluginRequest<CatalogClearSyncedResponse>("catalog/clear-synced", {
+        method: "POST",
+        body: JSON.stringify({ locale: catalog.locale }),
+      });
+      await loadCatalog(result.locale);
+      if (result.skipped.length > 0) {
+        setError(`These overrides changed while clearing and were kept: ${result.skipped.join(", ")}`);
+      }
+    } catch (cause) {
+      setError(errorMessage(cause));
       setWorking(false);
     }
   }
@@ -231,6 +253,13 @@ export function CatalogTab(): ReactNode {
       </Button>
       <Button variant="secondary" disabled={working || touched.size > 0} onClick={() => void exportJson()}>
         Export JSON
+      </Button>
+      <Button
+        variant="secondary"
+        disabled={working || touched.size > 0 || !catalog?.entries.some((entry) => entry.state === "synced")}
+        onClick={() => void clearSynced()}
+      >
+        Clear synced overrides
       </Button>
       <small style={mutedStyle}>
         {selected.length}/{MAX_CATALOG_KEYS} keys selected
