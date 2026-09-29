@@ -1,0 +1,27 @@
+apps/LOCAL_TESTING.md
+  s_24f69b9f56221c::t_fc481008c070d3 1-263
+apps/server/README.md
+  s_24f69b9f56221c::t_1538b787e724a6 4-5,12-13,15,18-20,25-41,45,54-55,69
+apps/server/scripts/load-glossaries.ts
+  s_24f69b9f56221c::t_219cde035bd33a 1-63
+apps/server/src/prompt-utils.ts
+  s_24f69b9f56221c::t_8e3cceadebb9af 1-4,107,215-220,260,287-295,297-305,316-319,364-367
+pnpm-lock.yaml
+  s_24f69b9f56221c::t_5a86c384a9a444 10,17,121-123,3900-3901,5588-5589,8945,9856,12095,12124
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "6b98a34c7062148745c67e315ca8062d461fedbc",
+  "prompts": {},
+  "sessions": {
+    "s_24f69b9f56221c": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f17edc99fffe8Ziv53dopatfx5",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Diogo Carneiro <dcarneiro@cloudflare.com>"
+    }
+  }
+}
