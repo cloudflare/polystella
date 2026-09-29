@@ -46,6 +46,7 @@ i18n-r2-report.json
 apps/translation-agent/evaluation-results*.json
 apps/translation-agent/token-usage-data.json
 apps/translation-agent/api/scripts/translation-evaluation/locales/
+apps/translation-agent/generated-glossaries/
 
 # Local planning notes
 plans/

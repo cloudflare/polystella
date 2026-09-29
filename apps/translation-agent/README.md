@@ -33,6 +33,4 @@ pnpm --filter @cloudflare/polystella-translation-agent dev:ui
 The API runs at `http://localhost:8787`; Vite serves the UI at
 `http://localhost:5173` and proxies `/api` to the local Worker.
 
-The compatibility contract is recorded in `docs/openapi.yaml`. Migration scope
-and sequencing live in the repository root
-`TRANSLATION_AGENT_MIGRATION.md`.
+The compatibility contract is recorded in `docs/openapi.yaml`.
