@@ -1,0 +1,34 @@
+{
+  "name": "polystella-server",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "pnpm glossaries && wrangler deploy --dry-run --outdir dist",
+    "dev": "pnpm glossaries && wrangler dev",
+    "evaluate": "tsx scripts/translation-evaluation/evaluate.ts",
+    "evaluate:all": "tsx scripts/translation-evaluation/evaluate-all.ts",
+    "glossaries": "tsx scripts/load-glossaries.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "pnpm glossaries --if-missing && tsc --noEmit"
+  },
+  "dependencies": {
+    "@hono/zod-validator": "^0.7.5",
+    "braintrust": "^3.1.0",
+    "hono": "^4.6.14",
+    "js-tiktoken": "^1.0.21",
+    "naughty-words": "^1.2.0",
+    "zod": "^4.1.13"
+  },
+  "devDependencies": {
+    "@cloudflare/polystella-core": "workspace:*",
+    "@cloudflare/workers-types": "^5.20260826.1",
+    "@types/naughty-words": "^1.2.3",
+    "@types/node": "^25.0.2",
+    "tsx": "^4.21.0",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8",
+    "wrangler": "^4.60.0"
+  }
+}

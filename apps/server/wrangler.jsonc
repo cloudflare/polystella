@@ -1,0 +1,22 @@
+{
+  "name": "polystella-translation-agent-api-local",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-12-12",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "preview_urls": false,
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  },
+  "vars": {
+    "GUARDRAIL_MODE": "off",
+    "BRAINTRUST_LOG_GUARDRAIL_MATCHES": "false"
+  },
+  "ai": {
+    "binding": "AI"
+  },
+  "limits": {
+    "cpu_ms": 300000
+  }
+}

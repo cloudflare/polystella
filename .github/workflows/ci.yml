@@ -34,13 +34,15 @@ jobs:
         run: pnpm audit:prod
       - name: Test reusable packages under Node
         run: pnpm test:packages
+      - name: Test private apps
+        run: pnpm test:apps
       - name: Test Astro package under Node
         run: pnpm test:node
       - name: Test reusable packages under workerd
         run: pnpm test:workerd
       - name: Check package boundaries
         run: pnpm test:boundaries
-      - name: Typecheck all public packages
+      - name: Typecheck workspace
         run: pnpm typecheck
 
   format:
@@ -99,6 +101,8 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Build all public packages in dependency order
         run: pnpm build
+      - name: Build private apps without deployment
+        run: pnpm build:apps
       - name: Check packed packages in a clean consumer
         run: pnpm check:packages
       - name: Verify dist tree
