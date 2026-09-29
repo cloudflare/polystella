@@ -66,6 +66,5 @@ pnpm dev:apps
 
 The API runs at `http://localhost:8787`. `pnpm dev:apps` also starts the
 console at `http://localhost:5173`, which proxies `/api` to the local Worker.
-See [`../LOCAL_TESTING.md`](../LOCAL_TESTING.md) for an end-to-end walkthrough.
 
 The compatibility contract is recorded in `docs/openapi.yaml`.
