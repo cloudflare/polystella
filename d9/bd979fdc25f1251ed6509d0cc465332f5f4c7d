@@ -1,0 +1,23 @@
+apps/server/.prettierrc
+  s_24f69b9f56221c::t_785b57af37114a 1-4
+apps/server/README.md
+  s_24f69b9f56221c::t_5b70068c3867b9 1,3-4,6-8,12-13,15-16,21-22,27-40,44-48,51-52
+pnpm-lock.yaml
+  s_24f69b9f56221c::t_a392696c9e258b 53,63,76-115,902,915,930,934,943,950,956,962,968,974,980,8310,8315,8756,8764,12259,12268
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "d9bd979fdc25f1251ed6509d0cc465332f5f4c7d",
+  "prompts": {},
+  "sessions": {
+    "s_24f69b9f56221c": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f17edc99fffe8Ziv53dopatfx5",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Diogo Carneiro <dcarneiro@cloudflare.com>"
+    }
+  }
+}
