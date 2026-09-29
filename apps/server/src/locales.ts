@@ -51,6 +51,9 @@ export const VALID_LOCALES = [
 
 export type ValidLocale = (typeof VALID_LOCALES)[number];
 
+/** Glossary used for locales that have no glossary of their own. */
+export const DEFAULT_GLOSSARY_KEY = 'default';
+
 /**
  *  A strict subset of `VALID_LOCALES` — aligned with Stratus-consumed
  * locales where LDNOOBW wordlist data is available and per-locale behavior

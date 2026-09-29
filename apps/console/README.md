@@ -6,7 +6,7 @@ administrative console.
 
 It calls the [server app](../server/) only through `/api/translate` and has no
 workspace dependency on it. See the server README for migration state and how
-paths map from the GitLab repository.
+paths map from the old repo.
 
 ## Commands
 

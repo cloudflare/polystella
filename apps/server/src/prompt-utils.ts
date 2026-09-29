@@ -1,6 +1,7 @@
-import { TERMINOLOGY_MAP } from './terminology';
-import { DO_NOT_TRANSLATE_TERMS } from '../locales/utils';
-import { readFileSync } from 'node:fs';
+import type { Glossary } from '@cloudflare/polystella-core';
+
+import { GLOSSARIES } from './glossaries';
+import { DEFAULT_GLOSSARY_KEY } from './locales';
 
 type UserInputParams = {
   text: string;
@@ -103,7 +104,7 @@ export interface PromptBuildMeta {
   hasTerminology: boolean;
   /** Number of terminology entries injected */
   terminologyEntryCount: number;
-  /** Which style guide file was loaded, or null if none */
+  /** Which glossary supplied the style guide (`glossary:<key>`), or null if none */
   styleGuideSource: string | null;
 }
 
@@ -211,8 +212,12 @@ const selectRelevantTerminology = (
   return selected;
 };
 
-const selectRelevantDoNotTranslateTerms = (searchCorpus: string): string[] => {
-  return DO_NOT_TRANSLATE_TERMS.filter((term) =>
+const selectRelevantDoNotTranslateTerms = (
+  searchCorpus: string,
+  targetLocale: string
+): string[] => {
+  const glossary = GLOSSARIES[targetLocale] ?? GLOSSARIES[DEFAULT_GLOSSARY_KEY];
+  return (glossary?.doNotTranslate ?? []).filter((term) =>
     containsTerm(searchCorpus, term)
   );
 };
@@ -252,7 +257,7 @@ const getTerminologyPromptSection = (
     return { section: '', hasTerminology: false, entryCount: 0 };
   }
 
-  const terminology = TERMINOLOGY_MAP[targetLocale] || {};
+  const terminology = GLOSSARIES[targetLocale]?.preferredTranslations ?? {};
   const selectedTerminology = selectRelevantTerminology(
     searchCorpus,
     terminology
@@ -279,35 +284,25 @@ interface StyleGuideResult {
   source: string | null;
 }
 
+const renderStyleGuide = ({ styleRules, notes }: Glossary): string => {
+  const sections = styleRules.map(({ category, instruction, example }) =>
+    example === undefined
+      ? `### ${category}\n${instruction}`
+      : `### ${category}\n${instruction}\n\nExample: ${example}`
+  );
+  if (notes.trim()) sections.push(notes.trim());
+  return sections.join('\n\n');
+};
+
 const getStyleGuidePromptSection = (targetLocale: string): StyleGuideResult => {
-  const styleGuidePath = `/bundle/locales/language-guide-new/${targetLocale}.md`;
-  const defaultStyleGuidePath = `/bundle/locales/language-guide-new/default.md`;
+  for (const key of [targetLocale, DEFAULT_GLOSSARY_KEY]) {
+    const glossary = GLOSSARIES[key];
+    const styleGuideContent = glossary ? renderStyleGuide(glossary) : '';
+    if (!styleGuideContent) continue;
 
-  const paths = [styleGuidePath, defaultStyleGuidePath];
-  let styleGuideContent: string | null = null;
-  let loadedPath: string | null = null;
-
-  for (const path of paths) {
-    try {
-      styleGuideContent = readFileSync(path, 'utf-8');
-      loadedPath = path;
-      break;
-    } catch {
-      continue;
-    }
-  }
-
-  if (!styleGuideContent) {
-    return { section: '', source: null };
-  }
-
-  const source = loadedPath?.includes(targetLocale)
-    ? `${targetLocale}.md`
-    : 'default.md';
-
-  return {
-    source,
-    section: `\n\nLANGUAGE STYLE GUIDE:
+    return {
+      source: `glossary:${key}`,
+      section: `\n\nLANGUAGE STYLE GUIDE:
         You MUST follow this comprehensive style guide for ${targetLocale}:
         
         ${styleGuideContent}
@@ -318,7 +313,10 @@ const getStyleGuidePromptSection = (targetLocale: string): StyleGuideResult => {
         - Punctuation rules specific to ${targetLocale}
         - Formatting and typography standards
         - Technical localization guidelines`
-  };
+    };
+  }
+
+  return { section: '', source: null };
 };
 
 /**
@@ -363,7 +361,10 @@ export const buildSystemContext = ({
   // words). The boundary regex `[a-z0-9]` works for Latin-script source
   // corpora; CJK/Arabic edge cases are documented and addressed only if
   // Support reports issues.
-  const doNotTranslateTerms = selectRelevantDoNotTranslateTerms(searchCorpus);
+  const doNotTranslateTerms = selectRelevantDoNotTranslateTerms(
+    searchCorpus,
+    targetLocale
+  );
   const styleGuide = getStyleGuidePromptSection(targetLocale);
   const guardrailRetrySection = getGuardrailRetrySection(retryContext);
 

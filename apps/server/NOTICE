@@ -1,4 +1,4 @@
-cf-translation-agent
+Translation Agent
 
 This product includes software developed by third parties. The following
 attributions are required by the licenses of those dependencies.
@@ -7,7 +7,7 @@ attributions are required by the licenses of those dependencies.
 List of Dirty, Naughty, Obscene, and Otherwise Bad Words (LDNOOBW)
 ================================================================================
 
-Used in: api/src/guardrail/ (content guardrail wordlist data)
+Used in: src/guardrail/ (content guardrail wordlist data)
 Package: https://www.npmjs.com/package/naughty-words
 Source:  https://github.com/LDNOOBW/List-of-Dirty-Naughty-Obscene-and-Otherwise-Bad-Words
 

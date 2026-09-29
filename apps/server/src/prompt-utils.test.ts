@@ -1,38 +1,68 @@
+import type { Glossary } from '@cloudflare/polystella-core';
 import { afterEach, beforeEach, describe, it, expect } from 'vitest';
+import { GLOSSARIES } from './glossaries';
 import {
   buildSystemContext,
   buildUserInput,
   GUARDRAIL_RETRY_REINFORCEMENT
 } from './prompt-utils';
-import { TERMINOLOGY_MAP } from './terminology';
-import { DO_NOT_TRANSLATE_TERMS } from '../locales/utils';
+
+const DO_NOT_TRANSLATE = [
+  'Cache',
+  'Cloudflare',
+  'Workers',
+  'WordPress',
+  'Pro',
+  'Magic WAN',
+  'WAF'
+];
+
+const ZH_TW_TERMINOLOGY = {
+  Cloudflare: 'Synthetic Cloudflare',
+  'API endpoints': 'Synthetic API endpoints',
+  'DDoS attack': 'Synthetic DDoS attack',
+  DNS: 'Synthetic DNS',
+  Firewall: 'Synthetic Firewall',
+  'Load Balancing': 'Synthetic Load Balancing',
+  'SSL/TLS': 'Synthetic SSL/TLS',
+  'data center;Data center': 'Synthetic data center',
+  'Cloudflare Registrar': 'Synthetic registrar'
+};
+
+function glossary(overrides: Partial<Glossary>): Glossary {
+  return {
+    version: '',
+    doNotTranslate: [],
+    preferredTranslations: {},
+    styleRules: [],
+    notes: '',
+    ...overrides
+  };
+}
 
 beforeEach(() => {
-  TERMINOLOGY_MAP['zh-TW'] = {
-    Cloudflare: 'Synthetic Cloudflare',
-    'API endpoints': 'Synthetic API endpoints',
-    'DDoS attack': 'Synthetic DDoS attack',
-    DNS: 'Synthetic DNS',
-    Firewall: 'Synthetic Firewall',
-    'Load Balancing': 'Synthetic Load Balancing',
-    'SSL/TLS': 'Synthetic SSL/TLS',
-    'data center;Data center': 'Synthetic data center',
-    'Cloudflare Registrar': 'Synthetic registrar'
-  };
-  DO_NOT_TRANSLATE_TERMS.push(
-    'Cache',
-    'Cloudflare',
-    'Workers',
-    'WordPress',
-    'Pro',
-    'Magic WAN',
-    'WAF'
-  );
+  GLOSSARIES['zh-TW'] = glossary({
+    doNotTranslate: DO_NOT_TRANSLATE,
+    preferredTranslations: ZH_TW_TERMINOLOGY,
+    styleRules: [
+      { category: 'tone', instruction: 'Synthetic zh-TW tone rule.' }
+    ]
+  });
+  GLOSSARIES.default = glossary({
+    doNotTranslate: DO_NOT_TRANSLATE,
+    styleRules: [
+      {
+        category: 'punctuation',
+        instruction: 'Synthetic default punctuation rule.',
+        example: 'Synthetic example.'
+      }
+    ],
+    notes: 'Synthetic default notes.'
+  });
 });
 
 afterEach(() => {
-  delete TERMINOLOGY_MAP['zh-TW'];
-  DO_NOT_TRANSLATE_TERMS.length = 0;
+  for (const key of Object.keys(GLOSSARIES)) delete GLOSSARIES[key];
 });
 
 function getTerminologySection(prompt: string): string {
@@ -67,7 +97,7 @@ describe('buildSystemContext terminology selection', () => {
     expect(meta.hasTerminology).toBe(true);
     expect(meta.terminologyEntryCount).toBeGreaterThan(0);
     expect(meta.terminologyEntryCount).toBeLessThan(
-      Object.keys(TERMINOLOGY_MAP['zh-TW']).length
+      Object.keys(ZH_TW_TERMINOLOGY).length
     );
     expect(terminologySection).toContain('"Firewall":');
     expect(terminologySection).toContain('"DDoS attack":');
@@ -315,5 +345,64 @@ describe('buildSystemContext sourceLocale handling', () => {
         .find((line) => line.includes('- Product names in source:')) ?? '';
     expect(doNotTranslateLine).toContain('"Cloudflare"');
     expect(doNotTranslateLine).toContain('"Workers"');
+  });
+});
+
+describe('buildSystemContext glossary style guide', () => {
+  const sourceText = 'Hello world';
+
+  it('renders the target locale style rules', () => {
+    const { prompt, meta } = buildSystemContext({
+      sourceLocale: 'en-US',
+      targetLocale: 'zh-TW',
+      sourceText
+    });
+
+    expect(meta.styleGuideSource).toBe('glossary:zh-TW');
+    expect(prompt).toContain('LANGUAGE STYLE GUIDE:');
+    expect(prompt).toContain('### tone\nSynthetic zh-TW tone rule.');
+    expect(prompt).not.toContain('Synthetic default punctuation rule.');
+  });
+
+  it('falls back to the default glossary for style rules, examples, and notes', () => {
+    const { prompt, meta } = buildSystemContext({
+      sourceLocale: 'en-US',
+      targetLocale: 'fr-FR',
+      sourceText
+    });
+
+    expect(meta.styleGuideSource).toBe('glossary:default');
+    expect(prompt).toContain(
+      '### punctuation\nSynthetic default punctuation rule.\n\nExample: Synthetic example.'
+    );
+    expect(prompt).toContain('Synthetic default notes.');
+  });
+
+  it('falls back to the default glossary when the locale glossary has no style rules', () => {
+    GLOSSARIES['fr-FR'] = glossary({ preferredTranslations: { DNS: 'DNS' } });
+    const { meta } = buildSystemContext({
+      sourceLocale: 'en-US',
+      targetLocale: 'fr-FR',
+      sourceText
+    });
+
+    expect(meta.styleGuideSource).toBe('glossary:default');
+  });
+
+  it('omits the style guide when no glossaries are loaded', () => {
+    for (const key of Object.keys(GLOSSARIES)) delete GLOSSARIES[key];
+    const { prompt, meta } = buildSystemContext({
+      sourceLocale: 'en-US',
+      targetLocale: 'zh-TW',
+      sourceText: 'Cloudflare Firewall'
+    });
+
+    expect(meta).toEqual({
+      hasTerminology: false,
+      terminologyEntryCount: 0,
+      styleGuideSource: null
+    });
+    expect(prompt).not.toContain('LANGUAGE STYLE GUIDE:');
+    expect(prompt).not.toContain('- Product names in source:');
   });
 });
