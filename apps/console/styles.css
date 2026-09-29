@@ -3,7 +3,7 @@
 @import 'tailwindcss';
 
 @source "./**/*.{js,jsx,ts,tsx}";
-@source "../node_modules/@cloudflare/kumo/dist/**/*.{js,jsx,ts,tsx}";
+@source "./node_modules/@cloudflare/kumo/dist/**/*.{js,jsx,ts,tsx}";
 
 @custom-variant dark (&:where(.dark-mode, .dark-mode *));
 

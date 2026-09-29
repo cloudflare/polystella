@@ -43,10 +43,10 @@ coverage/
 # Test artefacts
 i18n-r2-report.json
 .astro-staging/
-apps/translation-agent/evaluation-results*.json
-apps/translation-agent/token-usage-data.json
-apps/translation-agent/api/scripts/translation-evaluation/locales/
-apps/translation-agent/generated-glossaries/
+apps/server/evaluation-results*.json
+apps/server/token-usage-data.json
+apps/server/scripts/translation-evaluation/locales/
+apps/server/generated-glossaries/
 
 # Local planning notes
 plans/

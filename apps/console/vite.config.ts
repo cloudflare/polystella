@@ -1,9 +1,8 @@
-import { defineConfig } from 'vitest/config';
+import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 
 export default defineConfig({
-  root: 'ui',
   plugins: [tailwindcss(), react()],
   build: {
     outDir: 'dist',
@@ -18,15 +17,5 @@ export default defineConfig({
         rewrite: (path) => path.replace(/^\/api/, '')
       }
     }
-  },
-  test: {
-    globals: true,
-    environment: 'node',
-    include: [
-      '../api/**/*.test.ts',
-      '../api/**/*.spec.ts',
-      '**/*.test.ts',
-      '**/*.spec.ts'
-    ]
   }
 });
