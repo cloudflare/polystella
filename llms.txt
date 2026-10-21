@@ -2,7 +2,7 @@
 
 > AI-driven content localization for Astro: build-time translation of Markdown/MDX/TOML/JSON/YAML into additional locales, cached in Cloudflare R2, with locale-prefixed routing.
 
-PolyStella is an Astro integration plus four published packages (core, EmDash, Astro, and a compatibility shim). Translations happen at build time, are content-addressed (source bytes + glossary + model), cached in R2, and rendered as static bytes — no runtime AI calls. The Astro package includes the integration and a `polystella` CLI with verb-style subcommands (`translate`, `check-ui`, `sync-ui`, `translate-ui`).
+PolyStella is an Astro integration plus three published packages (core, EmDash, and Astro). Translations happen at build time, are content-addressed (source bytes + glossary + model), cached in R2, and rendered as static bytes — no runtime AI calls. The Astro package includes the integration and a `polystella` CLI with verb-style subcommands (`translate`, `check-ui`, `sync-ui`, `translate-ui`).
 
 Direct flow: `source/record -> adapter -> core -> provider -> core -> adapter -> output`. Core's root, catalog, adapters, and providers entrypoints use standard Web APIs and work without `nodejs_compat`; consumers may enable it. Low-level APIs live in their owning core subpaths and have no Astro compatibility shims.
 

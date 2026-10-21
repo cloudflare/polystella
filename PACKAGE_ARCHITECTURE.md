@@ -7,31 +7,26 @@ pipeline behavior and hard correctness contracts, use
 
 ## Package Graph
 
-PolyStella publishes four packages. The canonical Astro package and its
-compatibility package form one fixed version group. Core and EmDash are
-versioned independently. Arrows mean "depends on."
+PolyStella publishes three packages, each versioned independently. Arrows mean
+"depends on."
 
 ```mermaid
 flowchart TD
-  compat["@cloudflare/polystella<br/>compatibility only"] --> astro["@cloudflare/polystella-astro<br/>canonical Astro package"]
+  astro["@cloudflare/polystella-astro<br/>Astro integration"]
   astro --> core["@cloudflare/polystella-core<br/>translation, catalogs, adapters, providers, CLI"]
   emdash["@cloudflare/polystella-emdash<br/>native EmDash plugin"] --> core
 ```
 
 Dependencies point toward reusable code. Core never imports Astro or
-EmDash. The compatibility package contains no implementation and points only to
-the canonical Astro package.
+EmDash. Published dependencies between packages use compatible caret ranges.
+The legacy `@cloudflare/polystella` package is retired and deprecated on npm in
+favor of `@cloudflare/polystella-astro`.
 
-Published dependencies on independently versioned packages use compatible
-caret ranges. The compatibility package pins the exact Astro version because
-it forwards that package's API and CLI unchanged.
-
-| Directory                                        | Published package               | Responsibility                                                                                                                                                        |
-| :----------------------------------------------- | :------------------------------ | :-------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [`packages/core/`](./packages/core/)             | `@cloudflare/polystella-core`   | Translation contracts, catalogs, prompts, batching, retries, response parsing, portable format adapters, AI provider transports, and shared Node.js catalog commands. |
-| [`packages/emdash/`](./packages/emdash/)         | `@cloudflare/polystella-emdash` | Native EmDash translation, administrator policy, admin UI, overrides, and Astro runtime.                                                                              |
-| [`packages/astro/`](./packages/astro/)           | `@cloudflare/polystella-astro`  | Canonical Astro integration, host policy, storage, routing, runtime APIs, and CLI.                                                                                    |
-| [`packages/polystella/`](./packages/polystella/) | `@cloudflare/polystella`        | Temporary compatibility forwarding to `@cloudflare/polystella-astro`.                                                                                                 |
+| Directory                                | Published package               | Responsibility                                                                                                                                                        |
+| :--------------------------------------- | :------------------------------ | :-------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`packages/core/`](./packages/core/)     | `@cloudflare/polystella-core`   | Translation contracts, catalogs, prompts, batching, retries, response parsing, portable format adapters, AI provider transports, and shared Node.js catalog commands. |
+| [`packages/emdash/`](./packages/emdash/) | `@cloudflare/polystella-emdash` | Native EmDash translation, administrator policy, admin UI, overrides, and Astro runtime.                                                                              |
+| [`packages/astro/`](./packages/astro/)   | `@cloudflare/polystella-astro`  | Canonical Astro integration, host policy, storage, routing, runtime APIs, and CLI.                                                                                    |
 
 ## Core Subpaths
 
@@ -195,23 +190,6 @@ Its public export map is declared in
 `polystella` executable is emitted from `src/cli.ts`. The `./client` export is
 types-only and comes from [`packages/astro/client.d.ts`](./packages/astro/client.d.ts).
 
-### Compatibility Package
-
-[`@cloudflare/polystella`](./packages/polystella/) is not an implementation
-layer. It exists so projects using the old package name can migrate without an
-immediate import rewrite.
-
-- Every source entry re-exports the matching `@cloudflare/polystella-astro`
-  entry.
-- `client.d.ts` references the canonical client declarations.
-- Its CLI launches the canonical package's CLI.
-- It must not gain independent behavior or restore low-level exports moved to
-  core subpaths.
-
-When adding an Astro public export, update the canonical manifest, add the
-matching forwarding file and export in `packages/polystella/`, update the
-public export reference, and run `pnpm check:packages`.
-
 ## Astro Build Flow
 
 The integration and standalone CLI share
@@ -282,11 +260,9 @@ Before opening a package-affecting change:
    higher layer.
 2. Export it only if downstream consumers need it; package manifests are the
    public API source of truth.
-3. Mirror new Astro exports in the compatibility package while that package is
-   supported.
-4. Add or update the smallest boundary or behavior test that protects the
+3. Add or update the smallest boundary or behavior test that protects the
    contract.
-5. Add a Changesets entry and run `pnpm test`, `pnpm typecheck`, and
+4. Add a Changesets entry and run `pnpm test`, `pnpm typecheck`, and
    `pnpm check:packages`.
 
 ## Deeper Design References
