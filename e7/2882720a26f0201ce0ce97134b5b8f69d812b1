@@ -1,0 +1,21 @@
+.changeset/empty-playground-cli.md
+  s_6a87e713fd4e41::t_0ac4827f7aaf3a 1-2
+playgrounds/mdx-jsx/package.json
+  s_6a87e713fd4e41::t_38d6f097f19c01 11-12
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "e72882720a26f0201ce0ce97134b5b8f69d812b1",
+  "prompts": {},
+  "sessions": {
+    "s_6a87e713fd4e41": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_ea2036c38ffed06tVcaFeBn4ZB",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Diogo Carneiro <dcarneiro@cloudflare.com>"
+    }
+  }
+}
