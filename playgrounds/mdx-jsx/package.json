@@ -8,8 +8,8 @@
     "dev": "astro dev",
     "build": "astro build",
     "preview": "astro preview",
-    "audit-mdx": "polystella audit-mdx",
-    "translate:dry-run": "polystella translate --dry-run --report ./i18n-r2-report.json",
+    "audit-mdx": "node ./node_modules/@cloudflare/polystella-astro/dist/cli.js audit-mdx",
+    "translate:dry-run": "node ./node_modules/@cloudflare/polystella-astro/dist/cli.js translate --dry-run --report ./i18n-r2-report.json",
     "translate:local": "node ./scripts/translate-local.mjs",
     "translate:workers-ai": "node ./scripts/translate-workers-ai.mjs"
   },
