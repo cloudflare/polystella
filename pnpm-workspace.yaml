@@ -10,14 +10,18 @@ allowBuilds:
   workerd: true
 
 overrides:
-  "devalue@<5.9.1": 5.9.1
+  "devalue@<5.9.3": 5.9.3
   "esbuild@>=0.27.3 <0.28.1": 0.28.2
   "js-yaml@>=4.0.0 <4.3.2": 4.3.2
   "nanoid@<3.3.18": 3.3.18
   "postcss@<=8.5.22": 8.5.26
-  "sharp@<0.35.4": 0.35.4
-  "smol-toml@<=1.7.0": 1.7.1
+  "sharp@<0.35.5": 0.35.5
+  "smol-toml@<=1.8.0": 1.9.1
+  "source-map-js@<1.2.2": 1.2.2
   "svgo@>=4.0.0 <4.0.2": 4.1.0
+  "undici@>=8.0.0 <8.10.2": 8.10.2
+  "vite@>=8.0.0 <=8.1.5": 8.1.6
+  "http-cache-semantics@<=4.2.0": 4.3.0
 
 minimumReleaseAgeExclude:
   - astro@7.2.9
