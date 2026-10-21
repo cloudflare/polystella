@@ -1,0 +1,53 @@
+.changeset/README.md
+  s_6a87e713fd4e41::t_f97c9f91756556 16-18,32
+.changeset/clean-stars-extract.md
+  s_6a87e713fd4e41::t_5320b6087bf68e 6
+.changeset/config.json
+  s_6a87e713fd4e41::t_f6d2bd4c47a67a 10
+.changeset/retire-compat-package.md
+  s_6a87e713fd4e41::t_ad5e60b0230524 1-5
+.gitignore
+  s_6a87e713fd4e41::t_f60f38ea298c60 53-55
+AGENTS.md
+  s_6a87e713fd4e41::t_d71abe3f49d38a 33-35,106
+ARCHITECTURE.md
+  s_6a87e713fd4e41::t_7c7de3ac51f86d 781-783
+CONTRIBUTING.md
+  s_6a87e713fd4e41::t_d7a5fd04f5b0b7 13,48-49
+PACKAGE_ARCHITECTURE.md
+  s_6a87e713fd4e41::t_24cfea27fd9a8e 10-11,15,21-23,25-29,263,265
+README.md
+  s_6a87e713fd4e41::t_8056697eb5edfa 7,9-13,18,26-27
+docs/src/content/docs/getting-started/install.md
+  s_6a87e713fd4e41::t_0b442b4a8a0e5f 29-30
+docs/src/content/docs/reference/exports.md
+  s_6a87e713fd4e41::t_61e6c1af66ba65 3,7,155
+llms-full.txt
+  s_6a87e713fd4e41::t_9099651461024d 49-51,122,221-222,226,232-234,236-240,474,476,1281-1283
+llms.txt
+  s_6a87e713fd4e41::t_21532f032c1556 5
+package.json
+  s_6a87e713fd4e41::t_76e6ace8f6eb3f 15,20
+packages/astro/README.md
+  s_6a87e713fd4e41::t_3f83d2f91e9785 28-29
+pnpm-lock.yaml
+  s_6a87e713fd4e41::t_12b327470a7008 755,770,774,783,790,796,802,808,814
+scripts/check-packages.mjs
+  s_6a87e713fd4e41::t_65f5fba795b359 5,175,201,220,267,305,466
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "55b64a8633fd4757d9b915ec76ef5232b23c570d",
+  "prompts": {},
+  "sessions": {
+    "s_6a87e713fd4e41": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_ea2036c38ffed06tVcaFeBn4ZB",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Diogo Carneiro <dcarneiro@cloudflare.com>"
+    }
+  }
+}
