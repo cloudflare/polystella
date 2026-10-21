@@ -50,3 +50,6 @@ plans/
 # Cloudflare Workers / Wrangler local state
 .wrangler/
 .dev.vars
+
+# Local apps (not part of the workspace)
+apps/

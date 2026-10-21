@@ -129,10 +129,6 @@ jobs:
           test -f packages/emdash/dist/config.js
           test -f packages/emdash/dist/config.d.ts
           test -f packages/emdash/client.d.ts
-          test -f packages/polystella/dist/cli.js
-          test -x packages/polystella/dist/cli.js
-          test -f packages/polystella/dist/index.js
-          test -f packages/polystella/dist/index.d.ts
       - name: Smoke-test the CLI bundle under bare Node
         # No tsx, no Vite — exactly the environment a downstream
         # consumer's standalone `polystella <subcommand>` invocation
@@ -141,4 +137,3 @@ jobs:
         run: |
           node packages/astro/dist/cli.js --version
           node packages/emdash/dist/cli.js --help
-          node packages/polystella/dist/cli.js --version

@@ -1,5 +1,4 @@
 ---
-"@cloudflare/polystella": patch
 "@cloudflare/polystella-astro": patch
 "@cloudflare/polystella-core": patch
 ---

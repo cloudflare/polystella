@@ -4,20 +4,18 @@
 
 PolyStella is an [Astro](https://astro.build) integration that translates content into additional locales at build time using AI, caches translations in Cloudflare R2, and injects locale-prefixed routes for the translated pages.
 
-The repository publishes four packages. The canonical Astro package and its
-compatibility package share a version; the others are versioned independently:
+The repository publishes three independently versioned packages:
 
-| Package                         | Directory              | Role                                                                                                                                                            | Internal dependencies |
-| ------------------------------- | ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------- |
-| `@cloudflare/polystella-core`   | `packages/core/`       | Platform-neutral catalogs, prompts, batching, retries, and contracts, plus portable adapters, provider transports, and shared catalog CLI commands as subpaths. | None                  |
-| `@cloudflare/polystella-emdash` | `packages/emdash/`     | Native EmDash translation, admin UI, overrides, and Astro runtime.                                                                                              | Core                  |
-| `@cloudflare/polystella-astro`  | `packages/astro/`      | Canonical Astro integration, CLI, R2, routing, and host policy.                                                                                                 | Core                  |
-| `@cloudflare/polystella`        | `packages/polystella/` | Temporary compatibility forwarding to the Astro package.                                                                                                        | Astro                 |
+| Package                         | Directory          | Role                                                                                                                                                            | Internal dependencies |
+| ------------------------------- | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------- |
+| `@cloudflare/polystella-core`   | `packages/core/`   | Platform-neutral catalogs, prompts, batching, retries, and contracts, plus portable adapters, provider transports, and shared catalog CLI commands as subpaths. | None                  |
+| `@cloudflare/polystella-emdash` | `packages/emdash/` | Native EmDash translation, admin UI, overrides, and Astro runtime.                                                                                              | Core                  |
+| `@cloudflare/polystella-astro`  | `packages/astro/`  | Canonical Astro integration, CLI, R2, routing, and host policy.                                                                                                 | Core                  |
 
 Dependencies point toward reusable code:
 
 ```text
-@cloudflare/polystella --> @cloudflare/polystella-astro --> @cloudflare/polystella-core
+@cloudflare/polystella-astro --> @cloudflare/polystella-core
 
 @cloudflare/polystella-emdash --> @cloudflare/polystella-core
 ```
@@ -25,8 +23,8 @@ Dependencies point toward reusable code:
 Core's root, catalog, adapters, and providers entrypoints are portable and use
 standard Web APIs; only its `/cli` subpath is Node.js-only. The
 Astro and EmDash packages compose them and own host-specific behavior. The
-generic package contains forwarding files only; new Astro projects should use
-`@cloudflare/polystella-astro`.
+legacy `@cloudflare/polystella` package is retired; use
+`@cloudflare/polystella-astro` instead.
 
 Contributors should start with
 [`PACKAGE_ARCHITECTURE.md`](./PACKAGE_ARCHITECTURE.md) for package boundaries,

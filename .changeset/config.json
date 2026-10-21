@@ -7,7 +7,7 @@
     }
   ],
   "commit": false,
-  "fixed": [["@cloudflare/polystella", "@cloudflare/polystella-astro"]],
+  "fixed": [],
   "linked": [],
   "access": "public",
   "privatePackages": false,
