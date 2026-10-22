@@ -1,13 +1,10 @@
 ---
 title: Public exports
-description: "Every export path across the four public packages, with ownership and import examples."
+description: "Every export path across the three public packages, with ownership and import examples."
 aiGenerated: true
 ---
 
-PolyStella ships forty-five public import paths across four packages.
-The canonical Astro package, `@cloudflare/polystella-astro`, is also
-available through the `@cloudflare/polystella` compatibility package; both expose
-the same API.
+PolyStella ships thirty-three public import paths across three packages.
 
 | Owner  | Path                                               | Purpose                                                                                                   | Example                                                                                             |
 | ------ | -------------------------------------------------- | --------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
@@ -44,18 +41,6 @@ the same API.
 | Astro  | `@cloudflare/polystella-astro/recipes`             | MDX recipe helpers and built-in recipes.                                                                  | `import { defineMdxRecipe } from "@cloudflare/polystella-astro/recipes";`                           |
 | Astro  | `@cloudflare/polystella-astro/recipes/starlight`   | Conservative Starlight MDX recipe.                                                                        | `import { starlightRecipe } from "@cloudflare/polystella-astro/recipes/starlight";`                 |
 | Astro  | `@cloudflare/polystella-astro/client`              | Types only. Reference from `src/env.d.ts` for virtual-module types. No runtime import.                    | `/// <reference types="@cloudflare/polystella-astro/client" />`                                     |
-| Astro  | `@cloudflare/polystella`                           | Compatibility package; equivalent to `@cloudflare/polystella-astro`.                                      | `import polystella from "@cloudflare/polystella";`                                                  |
-| Astro  | `@cloudflare/polystella/content`                   | Compatibility content-config entrypoint.                                                                  | `import { polystellaCollections } from "@cloudflare/polystella/content";`                           |
-| Astro  | `@cloudflare/polystella/runtime`                   | Compatibility runtime entrypoint.                                                                         | `import { localizedHref } from "@cloudflare/polystella/runtime";`                                   |
-| Astro  | `@cloudflare/polystella/runtime/middleware`        | Compatibility direct middleware entrypoint.                                                               | `import { polystellaMiddleware } from "@cloudflare/polystella/runtime/middleware";`                 |
-| Astro  | `@cloudflare/polystella/i18n`                      | Compatibility UI-string entrypoint.                                                                       | `import { getDictionary } from "@cloudflare/polystella/i18n";`                                      |
-| Astro  | `@cloudflare/polystella/catalog`                   | Compatibility pure catalog entrypoint.                                                                    | `import { buildTranslateFn } from "@cloudflare/polystella/catalog";`                                |
-| Astro  | `@cloudflare/polystella/catalog/middleware`        | Compatibility catalog-only middleware entrypoint.                                                         | `import { catalogMiddleware } from "@cloudflare/polystella/catalog/middleware";`                    |
-| Astro  | `@cloudflare/polystella/catalog/astro`             | Compatibility catalog-only Astro integration entrypoint.                                                  | `import catalogAstro from "@cloudflare/polystella/catalog/astro";`                                  |
-| Astro  | `@cloudflare/polystella/react`                     | Compatibility React hooks entrypoint.                                                                     | `import { useTranslations } from "@cloudflare/polystella/react";`                                   |
-| Astro  | `@cloudflare/polystella/recipes`                   | Compatibility MDX recipe entrypoint.                                                                      | `import { defineMdxRecipe } from "@cloudflare/polystella/recipes";`                                 |
-| Astro  | `@cloudflare/polystella/recipes/starlight`         | Compatibility Starlight recipe entrypoint.                                                                | `import { starlightRecipe } from "@cloudflare/polystella/recipes/starlight";`                       |
-| Astro  | `@cloudflare/polystella/client`                    | Compatibility virtual-module types entrypoint.                                                            | `/// <reference types="@cloudflare/polystella/client" />`                                           |
 
 ## Direct package flow
 
@@ -167,7 +152,7 @@ Anything not in the table above is implementation detail and may move
 between minor versions. Each package's `package.json` `exports` field is
 the source of truth.
 
-Low-level names formerly exported from `@cloudflare/polystella` moved to
+Low-level names formerly exported from the retired `@cloudflare/polystella` package moved to
 their owners: `Segment`, `Glossary`, `Translator`,
 `PermanentProviderError`, prompt helpers, and batching are in
 `@cloudflare/polystella-core`; portable parsing and application helpers

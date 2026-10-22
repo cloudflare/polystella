@@ -2,7 +2,7 @@
 // @ts-check
 
 import { existsSync } from "node:fs";
-import { cp, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -43,37 +43,6 @@ const packages = [
       "tsconfig.json",
       "types-internal",
     ],
-    requiredFiles: [
-      "CHANGELOG.md",
-      "LICENSE",
-      "README.md",
-      "client.d.ts",
-      "dist/cli.js",
-      "dist/index.d.ts",
-      "dist/index.js",
-      "src/index.ts",
-    ],
-    executable: "dist/cli.js",
-  },
-  {
-    directory: path.join(repositoryRoot, "packages", "polystella"),
-    name: "@cloudflare/polystella",
-    exports: [
-      ".",
-      "./runtime",
-      "./runtime/middleware",
-      "./content",
-      "./i18n",
-      "./catalog",
-      "./catalog/middleware",
-      "./catalog/astro",
-      "./react",
-      "./recipes",
-      "./recipes/starlight",
-      "./client",
-    ],
-    internalDependencies: ["@cloudflare/polystella-astro"],
-    allowedTopLevel: ["CHANGELOG.md", "LICENSE", "README.md", "client.d.ts", "dist", "package.json", "src"],
     requiredFiles: [
       "CHANGELOG.md",
       "LICENSE",
@@ -177,12 +146,6 @@ const lowerPackageEntries = [
   "@cloudflare/polystella-emdash/config",
 ];
 const nodeSafeAstroEntries = [
-  "@cloudflare/polystella",
-  "@cloudflare/polystella/catalog",
-  "@cloudflare/polystella/catalog/middleware",
-  "@cloudflare/polystella/catalog/astro",
-  "@cloudflare/polystella/recipes",
-  "@cloudflare/polystella/recipes/starlight",
   "@cloudflare/polystella-astro",
   "@cloudflare/polystella-astro/catalog",
   "@cloudflare/polystella-astro/catalog/middleware",
@@ -206,11 +169,10 @@ async function main() {
   temporaryRoot = await mkdtemp(path.join(tmpdir(), "polystella-packages-"));
   const packDirectory = path.join(temporaryRoot, "tarballs");
   const consumerDirectory = path.join(temporaryRoot, "consumer");
-  const aliasConsumerDirectory = path.join(temporaryRoot, "alias-consumer");
   try {
     const rootManifest = JSON.parse(await readFile(path.join(repositoryRoot, "package.json"), "utf8"));
     assertEqual("workspace root private", rootManifest.private, true);
-    for (const { name } of packages.filter(({ name }) => name !== "@cloudflare/polystella")) {
+    for (const { name } of packages) {
       assertEqual(`workspace root dependency ${name}`, rootManifest.devDependencies?.[name], "workspace:*");
     }
     await runCommand(pnpm, ["build"], { cwd: repositoryRoot, timeoutMs: 300_000 });
@@ -236,10 +198,8 @@ async function main() {
     }
 
     const astroPackage = packedPackages.get("@cloudflare/polystella-astro");
-    const compatibilityPackage = packedPackages.get("@cloudflare/polystella");
-    if (astroPackage === undefined || compatibilityPackage === undefined) throw new Error("missing fixed-group package");
+    if (astroPackage === undefined) throw new Error("missing Astro package");
     const astroVersion = astroPackage.manifest.version;
-    assertEqual("Astro and compatibility package versions", compatibilityPackage.manifest.version, astroVersion);
     for (const packageInfo of packages) {
       const packed = packedPackages.get(packageInfo.name);
       if (packed === undefined) throw new Error(`missing packed package ${packageInfo.name}`);
@@ -254,18 +214,15 @@ async function main() {
       for (const dependency of packageInfo.internalDependencies) {
         const dependencyPackage = packedPackages.get(dependency);
         if (dependencyPackage === undefined) throw new Error(`missing packed dependency ${dependency}`);
-        const prefix = packageInfo.name === "@cloudflare/polystella" ? "" : "^";
         assertEqual(
           `${packageInfo.name} dependency ${dependency}`,
           packed.manifest.dependencies?.[dependency],
-          `${prefix}${dependencyPackage.manifest.version}`,
+          `^${dependencyPackage.manifest.version}`,
         );
       }
     }
 
     await writeConsumer(consumerDirectory, packedPackages);
-    await cp(consumerDirectory, aliasConsumerDirectory, { recursive: true });
-    await writeAliasConsumer(aliasConsumerDirectory, packedPackages);
     await runCommand(pnpm, ["install", "--ignore-scripts"], { cwd: consumerDirectory, timeoutMs: 300_000 });
     await assertTarballInstall(consumerDirectory, packedPackages);
 
@@ -276,12 +233,6 @@ async function main() {
       { cwd: consumerDirectory },
     );
     assertEqual("canonical CLI version", cli.stdout.trim(), astroVersion);
-    const aliasCli = await runCommand(
-      process.execPath,
-      [path.join("node_modules", "@cloudflare", "polystella", "dist", "cli.js"), "--version"],
-      { cwd: consumerDirectory },
-    );
-    assertEqual("alias CLI version", aliasCli.stdout.trim(), astroVersion);
     const emdashCli = await runCommand(
       process.execPath,
       [path.join("node_modules", "@cloudflare", "polystella-emdash", "dist", "cli.js"), "--help"],
@@ -312,79 +263,12 @@ async function main() {
       timeoutMs: 180_000,
     });
 
-    await runCommand(pnpm, ["install", "--ignore-scripts"], { cwd: aliasConsumerDirectory, timeoutMs: 300_000 });
-    await runCommand(process.execPath, ["check-imports.mjs"], { cwd: aliasConsumerDirectory });
-    const aliasOnlyCli = await runCommand(
-      process.execPath,
-      [path.join("node_modules", "@cloudflare", "polystella", "dist", "cli.js"), "--version"],
-      { cwd: aliasConsumerDirectory },
-    );
-    assertEqual("alias-only CLI version", aliasOnlyCli.stdout.trim(), astroVersion);
-    await runCommand(pnpm, ["exec", "astro", "build"], {
-      cwd: aliasConsumerDirectory,
-      env: { ...process.env, CI: "true" },
-      timeoutMs: 180_000,
-    });
-    await runCommand(pnpm, ["exec", "tsc", "--noEmit"], { cwd: aliasConsumerDirectory, timeoutMs: 180_000 });
-
     console.log(
-      `check:packages passed: ${packages.length} tarballs, Astro ${astroVersion}, ${lowerPackageEntries.length + nodeSafeAstroEntries.length} runtime imports, full/alias/EmDash Astro checks, and all CLIs`,
+      `check:packages passed: ${packages.length} tarballs, Astro ${astroVersion}, ${lowerPackageEntries.length + nodeSafeAstroEntries.length} runtime imports, full/EmDash Astro checks, and all CLIs`,
     );
   } finally {
     await cleanup();
   }
-}
-
-async function writeAliasConsumer(consumerDirectory, packedPackages) {
-  const aliasPackage = packedPackages.get("@cloudflare/polystella");
-  if (aliasPackage === undefined) throw new Error("missing packed alias package");
-  await writeFile(
-    path.join(consumerDirectory, "package.json"),
-    `${JSON.stringify(
-      {
-        private: true,
-        type: "module",
-        dependencies: {
-          "@cloudflare/polystella": `file:${aliasPackage.tarballPath}`,
-          astro: "7.3.1",
-          react: "^19.0.0",
-        },
-        devDependencies: { "@types/react": "^19.0.0", typescript: "^6.0.3" },
-      },
-      null,
-      2,
-    )}\n`,
-  );
-  await writeFile(
-    path.join(consumerDirectory, "pnpm-workspace.yaml"),
-    `overrides:\n${packages
-      .filter(({ name }) => name !== "@cloudflare/polystella")
-      .map(({ name }) => {
-        const packed = packedPackages.get(name);
-        if (packed === undefined) throw new Error(`missing packed package ${name}`);
-        return `  ${JSON.stringify(name)}: ${JSON.stringify(`file:${packed.tarballPath}`)}`;
-      })
-      .join("\n")}\n`,
-  );
-  await writeFile(
-    path.join(consumerDirectory, "check-imports.mjs"),
-    `${nodeSafeAstroEntries
-      .filter((specifier) => specifier === "@cloudflare/polystella" || specifier.startsWith("@cloudflare/polystella/"))
-      .map(
-        (specifier) =>
-          `if (Object.keys(await import(${JSON.stringify(specifier)})).length === 0) throw new Error(${JSON.stringify(`${specifier} has no exports`)});`,
-      )
-      .join("\n")}\n`,
-  );
-  for (const relativePath of ["astro.config.mjs", "src/env.d.ts", "src/content.config.ts", "src/pages/index.astro"]) {
-    const file = path.join(consumerDirectory, relativePath);
-    await writeFile(file, (await readFile(file, "utf8")).replaceAll("@cloudflare/polystella-astro", "@cloudflare/polystella"));
-  }
-  await writeFile(
-    path.join(consumerDirectory, "src", "entrypoints.ts"),
-    `import polystella from "@cloudflare/polystella";\nimport catalogAstro from "@cloudflare/polystella/catalog/astro";\nimport { polystellaCollections } from "@cloudflare/polystella/content";\nimport { getTranslations } from "@cloudflare/polystella/i18n";\nimport { useTranslations } from "@cloudflare/polystella/react";\nimport { localizedHref } from "@cloudflare/polystella/runtime";\nimport { polystellaMiddleware } from "@cloudflare/polystella/runtime/middleware";\n\nexport const typedEntrypoints = [polystella, catalogAstro, polystellaCollections, getTranslations, useTranslations, localizedHref, polystellaMiddleware];\n`,
-  );
-  await rm(path.join(consumerDirectory, "src", "catalog-entrypoints.ts"));
 }
 
 async function writeConsumer(consumerDirectory, packedPackages) {
@@ -418,10 +302,7 @@ async function writeConsumer(consumerDirectory, packedPackages) {
   );
   await writeFile(
     path.join(consumerDirectory, "pnpm-workspace.yaml"),
-    `overrides:\n${packages
-      .filter(({ name }) => name !== "@cloudflare/polystella")
-      .map(({ name }) => `  ${JSON.stringify(name)}: ${JSON.stringify(tarballDependencies[name])}`)
-      .join("\n")}\n`,
+    `overrides:\n${packages.map(({ name }) => `  ${JSON.stringify(name)}: ${JSON.stringify(tarballDependencies[name])}`).join("\n")}\n`,
   );
   await writeFile(
     path.join(consumerDirectory, "check-imports.mjs"),
@@ -582,8 +463,7 @@ function assertSourceManifest(packageInfo, manifest) {
     [...packageInfo.internalDependencies].sort(),
   );
   for (const dependency of packageInfo.internalDependencies) {
-    const workspaceRange = packageInfo.name === "@cloudflare/polystella" ? "workspace:*" : "workspace:^";
-    assertEqual(`${packageInfo.name} source dependency ${dependency}`, manifest.dependencies?.[dependency], workspaceRange);
+    assertEqual(`${packageInfo.name} source dependency ${dependency}`, manifest.dependencies?.[dependency], "workspace:^");
   }
 }
 

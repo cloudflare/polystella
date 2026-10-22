@@ -1,6 +1,6 @@
 {
   "name": "@cloudflare/polystella-core",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "type": "module",
   "description": "Platform-neutral translation primitives, portable format adapters, AI provider transports, and shared catalog CLI commands for PolyStella.",
   "license": "MIT",
@@ -113,7 +113,7 @@
     "remark-mdx": "^3.1.1",
     "remark-parse": "^11.0.0",
     "s3mini": "^0.9.4",
-    "smol-toml": "^1.7.1",
+    "smol-toml": "^1.9.1",
     "unified": "^11.0.5",
     "yaml": "^2.8.3"
   },

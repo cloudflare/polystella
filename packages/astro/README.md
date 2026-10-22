@@ -23,13 +23,10 @@ This package composes PolyStella's reusable packages and owns all host policy:
 ```text
 @cloudflare/polystella-astro
   └──> @cloudflare/polystella-core
-
-@cloudflare/polystella --> @cloudflare/polystella-astro
 ```
 
-[`@cloudflare/polystella`](https://www.npmjs.com/package/@cloudflare/polystella)
-is a temporary compatibility package that forwards to this package. New Astro
-projects should import `@cloudflare/polystella-astro` directly.
+The legacy [`@cloudflare/polystella`](https://www.npmjs.com/package/@cloudflare/polystella)
+package is retired and deprecated. Import `@cloudflare/polystella-astro` instead.
 
 ## Key Files
 

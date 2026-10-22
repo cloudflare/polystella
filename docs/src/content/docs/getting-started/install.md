@@ -26,8 +26,8 @@ Install from npm:
 pnpm add @cloudflare/polystella-astro
 ```
 
-`@cloudflare/polystella` forwards to `@cloudflare/polystella-astro`, so
-both names expose the same API while existing projects migrate.
+`@cloudflare/polystella` is retired and deprecated on npm. Existing projects
+should replace it with `@cloudflare/polystella-astro` and rewrite imports.
 
 ## After install
 
