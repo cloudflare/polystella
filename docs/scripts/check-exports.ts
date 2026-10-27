@@ -10,7 +10,6 @@ const PACKAGE_MANIFESTS = [
   { owner: "Core", directory: "core" },
   { owner: "EmDash", directory: "emdash" },
   { owner: "Astro", directory: "astro" },
-  { owner: "Astro", directory: "polystella" },
 ] as const;
 const EXPORTS_PAGE = path.join(DOCS_ROOT, "src", "content", "docs", "reference", "exports.md");
 
