@@ -9,6 +9,7 @@ import {
   groupCatalogEntries,
   isTranslationDebugTrace,
   pages,
+  panelErrorMessage,
   sourceContainsTokens,
   TranslationProgress,
   storeTranslationDebug,
@@ -70,6 +71,15 @@ describe("EmDash admin entry", () => {
   it("formats request failures for the error details disclosure", () => {
     expect(formatErrorDetails(new ApiResponseError(500, "INTERNAL_ERROR", "Plugin route error", { operation: "content" }))).toBe(
       'HTTP status: 500\nCode: INTERNAL_ERROR\nMessage: Plugin route error\nDetails: {\n  "operation": "content"\n}',
+    );
+  });
+
+  it("tells editors apart a lock takeover from a stale revision", () => {
+    const lock = { userId: "user-2", userName: "Ada", acquiredAt: "2026-09-24T00:00:00Z", expiresAt: "2026-09-24T00:05:00Z" };
+    expect(panelErrorMessage(new ApiResponseError(409, "ENTRY_LOCKED", "Entry is locked", lock))).toContain("Ada is editing this entry");
+    expect(panelErrorMessage(new ApiResponseError(409, "CONFLICT", "Revision mismatch"))).toContain("changed while PolyStella");
+    expect(panelErrorMessage(new ApiResponseError(409, "CONFLICT", "Translation already exists"), "fr")).toContain(
+      "A fr translation already exists",
     );
   });
 

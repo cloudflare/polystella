@@ -40,7 +40,7 @@ describe("polystellaEmdash", () => {
       entrypoint: "@cloudflare/polystella-emdash",
       adminEntry: "@cloudflare/polystella-emdash/admin",
       adminPages: [{ path: "/", label: "PolyStella" }],
-      capabilities: ["content:read"],
+      capabilities: ["content:read", "schema:read"],
       storage: { catalog_overrides: { indexes: ["locale"] } },
     });
     expect(plugin.id).toBe(descriptor.id);
@@ -54,6 +54,7 @@ describe("polystellaEmdash", () => {
       "catalog",
       "catalog/generate",
       "catalog/overrides",
+      "catalog/clear-synced",
       "catalog/runtime",
       "catalog/export",
       "translation-sandbox",

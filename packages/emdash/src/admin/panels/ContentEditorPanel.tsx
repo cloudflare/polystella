@@ -1,13 +1,16 @@
 import {
   ApiResponseError,
-  apiFetch,
+  createContent,
+  entryLockRefusal,
   fetchCollection,
-  parseApiResponse,
+  fetchContent,
+  fetchTranslations,
+  updateContent,
   useCurrentUser,
+  useNavigate,
   type ContentEditorPanelContext,
-  type ContentItem,
 } from "@emdash-cms/admin";
-import { Banner, Button, Checkbox } from "@cloudflare/kumo";
+import { Banner, Button, Checkbox, Select } from "@cloudflare/kumo";
 import { useEffect, useState, type ReactNode } from "react";
 
 import {
@@ -33,11 +36,6 @@ import { TranslationProgress } from "../components/TranslationProgress/Translati
 
 const ADMIN_ROLE = 50;
 
-interface SavedContentResponse {
-  item: ContentItem;
-  _rev?: string;
-}
-
 interface PanelError {
   message: string;
   details: string;
@@ -55,6 +53,9 @@ export function ContentEditorPanel({ collection, entry, locale }: ContentEditorP
   const [translating, setTranslating] = useState(false);
   const [translationProgress, setTranslationProgress] = useState<TranslationProgressState | null>(null);
   const [debug, setDebug] = useState<TranslationDebugTrace | null>(null);
+  const [existingLocales, setExistingLocales] = useState<string[]>([]);
+  const [createLocale, setCreateLocale] = useState("");
+  const navigate = useNavigate();
 
   useEffect(() => {
     if (targetLocale === undefined || targetLocale === null || targetLocale.length === 0 || currentUser.data === undefined) return;
@@ -76,9 +77,13 @@ export function ContentEditorPanel({ collection, entry, locale }: ContentEditorP
     Promise.all([
       pluginRequest<CollectionPolicyResponse>(`policy?collection=${encodeURIComponent(collection)}`),
       fetchCollection(collection, true),
+      fetchTranslations(collection, entry.id),
     ])
-      .then(([nextPolicy, nextSchema]) => {
+      .then(([nextPolicy, nextSchema, translations]) => {
         if (!active) return;
+        const existing = translations.translations.map((translation) => translation.locale.toLowerCase());
+        setExistingLocales(existing);
+        setCreateLocale(missingLocales(nextPolicy, existing)[0] ?? "");
         setPolicy(nextPolicy);
         setSchema(nextSchema);
         setSelected(
@@ -94,7 +99,7 @@ export function ContentEditorPanel({ collection, entry, locale }: ContentEditorP
     return () => {
       active = false;
     };
-  }, [collection, loadAttempt]);
+  }, [collection, entry.id, loadAttempt]);
 
   const eligibleFields = policy === null || schema === null ? [] : schema.fields.filter((field) => fieldIsEligible(field, policy));
 
@@ -116,7 +121,7 @@ export function ContentEditorPanel({ collection, entry, locale }: ContentEditorP
     setError(null);
     setDebug(null);
     try {
-      const saved = await contentRequest<SavedContentResponse>(collection, entry.id, targetLocale);
+      const saved = await fetchContent(collection, entry.id, { locale: targetLocale });
       if (saved._rev === undefined) throw new Error("EmDash did not return a revision token; no fields were changed.");
       setTranslationProgress({ percent: 45, label: "Translating selected fields" });
       const result = await pluginRequest<TranslateContentResponse>("translate-content", {
@@ -129,13 +134,52 @@ export function ContentEditorPanel({ collection, entry, locale }: ContentEditorP
         return;
       }
       setTranslationProgress({ percent: 85, label: "Saving translated fields" });
-      await updateContent(collection, entry.id, targetLocale, result.patch, saved._rev);
+      await updateContent(collection, entry.id, { data: result.patch, _rev: saved._rev }, { locale: targetLocale });
       if (result.debug !== undefined && currentUser.data !== undefined && currentUser.data.role >= ADMIN_ROLE) {
         storeTranslationDebug(collection, entry.id, targetLocale, currentUser.data.id, result.debug);
       }
       window.location.reload();
     } catch (cause) {
       setError(panelError(cause));
+    } finally {
+      setTranslating(false);
+      setTranslationProgress(null);
+    }
+  }
+
+  async function createTranslation(): Promise<void> {
+    if (createLocale.length === 0) return;
+    setTranslating(true);
+    setTranslationProgress({ percent: 15, label: "Loading the latest saved entry" });
+    setError(null);
+    setDebug(null);
+    try {
+      const source = await fetchContent(collection, entry.id, { locale: entry.locale ?? undefined });
+      setTranslationProgress({ percent: 45, label: `Translating selected fields into ${createLocale}` });
+      const result = await pluginRequest<TranslateContentResponse>("translate-content", {
+        method: "POST",
+        body: JSON.stringify({ collection, entryId: entry.id, targetLocale: createLocale, fields: selected }),
+      });
+      if (result.debug !== undefined) setDebug(result.debug);
+      if (result.patch === null) {
+        setError(panelError(new Error(result.error)));
+        return;
+      }
+      setTranslationProgress({ percent: 85, label: `Creating the ${createLocale} draft` });
+      // Same payload as EmDash's own "Create translation" button, with the selected fields translated.
+      const created = await createContent(collection, {
+        data: { ...source.data, ...result.patch },
+        slug: source.slug,
+        locale: createLocale,
+        translationOf: entry.id,
+      });
+      const createdLocale = created.locale ?? createLocale;
+      if (result.debug !== undefined && currentUser.data !== undefined && currentUser.data.role >= ADMIN_ROLE) {
+        storeTranslationDebug(collection, created.id, createdLocale, currentUser.data.id, result.debug);
+      }
+      await navigate({ to: "/content/$collection/$id", params: { collection, id: created.id }, search: { locale: createdLocale } });
+    } catch (cause) {
+      setError(panelError(cause, createLocale));
     } finally {
       setTranslating(false);
       setTranslationProgress(null);
@@ -150,17 +194,63 @@ export function ContentEditorPanel({ collection, entry, locale }: ContentEditorP
       <PanelErrorMessage error={error} onDismiss={() => setHidden(true)} onRetry={() => setLoadAttempt((current) => current + 1)} />
     );
   }
-  if (!policy.enabled || targetLocale === policy.sourceLocale) return null;
+  // EmDash always renders the section header, so explain an empty panel instead of hiding it.
+  if (!policy.enabled) {
+    const isAdmin = currentUser.data !== undefined && currentUser.data.role >= ADMIN_ROLE;
+    return (
+      <div style={stackStyle}>
+        <small style={mutedStyle}>
+          PolyStella isn't enabled for this collection.{" "}
+          {isAdmin ? "Enable it and choose its fields in the PolyStella Collections tab." : "Ask an administrator to enable it."}
+        </small>
+        {isAdmin ? (
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() => void navigate({ to: "/plugins/$pluginId/$", params: { pluginId: "polystella", _splat: "" } })}
+          >
+            Open PolyStella settings
+          </Button>
+        ) : null}
+      </div>
+    );
+  }
+  const isSourceEntry = targetLocale?.toLowerCase() === policy.sourceLocale?.toLowerCase();
+  const creatableLocales = missingLocales(policy, existingLocales);
+  if (isSourceEntry && creatableLocales.length === 0) {
+    return <small style={mutedStyle}>Every configured locale already has an entry. Open one from Translations to update it.</small>;
+  }
+  const run = isSourceEntry ? createTranslation : translate;
 
   return (
     <div style={stackStyle}>
-      {error === null ? null : <PanelErrorMessage error={error} onDismiss={() => setError(null)} onRetry={() => void translate()} />}
+      {error === null ? null : <PanelErrorMessage error={error} onDismiss={() => setError(null)} onRetry={() => void run()} />}
       {debug === null || currentUser.data === undefined || currentUser.data.role < ADMIN_ROLE ? null : (
         <TranslationDebugView trace={debug} onDismiss={() => setDebug(null)} />
       )}
-      <p style={mutedStyle}>
-        Translate the latest saved {policy.sourceLocale} values into this {targetLocale} draft.
-      </p>
+      {isSourceEntry ? (
+        <>
+          <p style={mutedStyle}>Create a translated draft from the latest saved {policy.sourceLocale} values.</p>
+          <Select
+            label="New locale"
+            value={createLocale}
+            disabled={translating}
+            onValueChange={(value) => {
+              if (typeof value === "string") setCreateLocale(value);
+            }}
+          >
+            {creatableLocales.map((locale) => (
+              <Select.Option key={locale} value={locale}>
+                {locale}
+              </Select.Option>
+            ))}
+          </Select>
+        </>
+      ) : (
+        <p style={mutedStyle}>
+          Translate the latest saved {policy.sourceLocale} values into this {targetLocale} draft.
+        </p>
+      )}
       {eligibleFields.map((field) => (
         <Checkbox
           key={field.slug}
@@ -178,9 +268,9 @@ export function ContentEditorPanel({ collection, entry, locale }: ContentEditorP
         variant="primary"
         loading={translating}
         disabled={selected.length === 0 || currentUser.data === undefined}
-        onClick={() => void translate()}
+        onClick={() => void run()}
       >
-        Translate with PolyStella
+        {isSourceEntry ? `Create ${createLocale} draft` : "Translate with PolyStella"}
       </Button>
     </div>
   );
@@ -218,37 +308,26 @@ function fieldIsEligible(field: SchemaField, policy: CollectionPolicyResponse): 
   return policy.fields.includes(field.slug) && supportsTranslation(field) && isTranslatable(field);
 }
 
-async function contentRequest<T>(collection: string, id: string, locale: string): Promise<T> {
-  const response = await apiFetch(
-    `/_emdash/api/content/${encodeURIComponent(collection)}/${encodeURIComponent(id)}?locale=${encodeURIComponent(locale)}`,
-  );
-  return parseApiResponse<T>(response, "Could not load the latest saved entry");
+function missingLocales(policy: CollectionPolicyResponse, existingLocales: readonly string[]): string[] {
+  return policy.targetLocales
+    .filter(({ locale, code }) => !existingLocales.includes(locale.toLowerCase()) && !existingLocales.includes(code.toLowerCase()))
+    .map(({ locale }) => locale);
 }
 
-async function updateContent(
-  collection: string,
-  id: string,
-  locale: string,
-  data: Record<string, unknown>,
-  revision: string,
-): Promise<void> {
-  const response = await apiFetch(
-    `/_emdash/api/content/${encodeURIComponent(collection)}/${encodeURIComponent(id)}?locale=${encodeURIComponent(locale)}`,
-    {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ data, _rev: revision }),
-    },
-  );
-  await parseApiResponse(response, "Could not update the saved entry");
+export function panelErrorMessage(value: unknown, createdLocale?: string | undefined): string {
+  if (createdLocale !== undefined && value instanceof ApiResponseError && value.code === "CONFLICT") {
+    return `A ${createdLocale} translation already exists. Open it from Translations instead.`;
+  }
+  const lock = entryLockRefusal(value);
+  if (lock !== null) {
+    return `${lock.userName ?? "Another editor"} is editing this entry, so PolyStella didn't save the translation. Retry after they finish.`;
+  }
+  if (value instanceof ApiResponseError && value.status === 409) {
+    return "This entry changed while PolyStella was translating it. Retry the translation.";
+  }
+  return errorMessage(value);
 }
 
-function panelError(value: unknown): PanelError {
-  return {
-    message:
-      value instanceof ApiResponseError && value.status === 409
-        ? "This entry changed while PolyStella was translating it. Retry the translation."
-        : errorMessage(value),
-    details: formatErrorDetails(value),
-  };
+function panelError(value: unknown, createdLocale?: string | undefined): PanelError {
+  return { message: panelErrorMessage(value, createdLocale), details: formatErrorDetails(value) };
 }

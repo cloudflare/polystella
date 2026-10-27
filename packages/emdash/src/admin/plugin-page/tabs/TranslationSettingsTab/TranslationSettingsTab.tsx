@@ -46,6 +46,7 @@ export function TranslationSettingsTab(): ReactNode {
       const value = await pluginRequest<TranslationSettingsResponse>("settings/translation", {
         method: "PUT",
         body: JSON.stringify({
+          revision: settings.revision,
           debugEnabled: settings.debugEnabled,
           locales: Object.fromEntries(
             settings.locales.map((locale) => [

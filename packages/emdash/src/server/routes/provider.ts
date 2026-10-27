@@ -5,7 +5,7 @@ import {
   type WorkersAIBindingRun,
   type WorkersAIInput,
 } from "@cloudflare/polystella-core/providers/workers-ai";
-import { PluginRouteError, type ContentItem, type LogAccess } from "emdash";
+import { PluginRouteError, type LogAccess } from "emdash";
 
 import type { PolystellaEmdashOptions } from "../options.js";
 
@@ -15,7 +15,8 @@ export interface PluginRouteDependencies {
   getEnv(): Promise<Record<string, unknown> | undefined>;
   now(): Date;
   fetchImpl?: typeof fetch | undefined;
-  findSourceContent?(collection: string, targetId: string, sourceLocale: string): Promise<ContentItem | null>;
+  /** Astro locale code → content locale path. Defaults to EmDash's i18n config. */
+  localeAliases?: (() => Record<string, string>) | undefined;
 }
 
 export function createTranslator(

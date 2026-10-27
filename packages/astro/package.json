@@ -98,7 +98,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "build": "tsc -p tsconfig.build.json && node -e \"require('node:fs').chmodSync('dist/cli.js', 0o755)\""
+    "build": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\" && tsc -p tsconfig.build.json && node -e \"require('node:fs').chmodSync('dist/cli.js', 0o755)\""
   },
   "dependencies": {
     "@cloudflare/polystella-core": "workspace:^",
@@ -114,8 +114,8 @@
     "@types/mdast": "^4.0.4",
     "@types/picomatch": "^4.0.0",
     "@types/react": "^19.2.14",
-    "astro": "^7.2.9",
-    "react": "^19.2.6",
+    "astro": "^7.4.2",
+    "react": "^19.3.1",
     "typescript": "^6.0.3",
     "vitest": "^4.1.9"
   },

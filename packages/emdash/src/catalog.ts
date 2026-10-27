@@ -137,7 +137,7 @@ export function overrideCharacterLimit(source: Record<string, string>, catalog: 
   return Math.min(MAX_OVERRIDE_CHARACTERS, Math.floor(MAX_TOTAL_OVERRIDE_CHARACTERS / Math.max(1, keyCount)));
 }
 
-function parseOverride(value: unknown): CatalogOverride {
+export function parseOverride(value: unknown): CatalogOverride {
   const record = readStoredRecord(value, "catalog override");
   return {
     locale: readStoredString(record.locale, "catalog override locale"),

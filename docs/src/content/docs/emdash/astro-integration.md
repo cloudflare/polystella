@@ -31,6 +31,9 @@ Astro's i18n locale set must exactly match `catalogs.locales`, and
 `i18n.defaultLocale` must match `catalogs.defaultLocale`. The
 integration reads `i18n.routing` to build locale-prefixed hrefs, so
 `lhref` honors `prefixDefaultLocale` and custom locale paths.
+For custom locale paths such as `{ path: "fr", codes: ["fr-FR"] }`,
+catalogs use the codes. EmDash 1.3 stores new content under the path,
+and the editor panel matches the two through EmDash's locale aliases.
 
 ## Runtime locals
 

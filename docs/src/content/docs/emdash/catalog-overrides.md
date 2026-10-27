@@ -33,6 +33,14 @@ Each entry in the catalog view is one of:
 | `synced`  | An override exists and matches the deployed value.                |
 | `missing` | An override exists for a key absent from the deployed dictionary. |
 
+**Clear synced overrides** deletes every `synced` override for the
+selected locale in one step, typically after a deploy has absorbed
+them. Any override edited while the clear runs is kept and reported.
+
+Saves are conditional: if another Administrator changed the same
+override after you loaded the catalog, the save is rejected with a
+conflict instead of overwriting their value. Reload and reapply.
+
 ## Runtime enablement
 
 Runtime overrides are disabled per locale until an Administrator
