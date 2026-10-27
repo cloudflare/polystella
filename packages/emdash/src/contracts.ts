@@ -23,6 +23,8 @@ export interface CollectionSettingsResponse {
 export interface CollectionPolicyResponse {
   enabled: boolean;
   sourceLocale: string | null;
+  /** `locale` is how EmDash stores new content (Astro path); older rows may use the catalog `code`. */
+  targetLocales: Array<{ locale: string; code: string }>;
   fields: string[];
 }
 

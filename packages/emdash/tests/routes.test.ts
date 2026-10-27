@@ -261,6 +261,7 @@ describe("EmDash plugin routes", () => {
     await expect(route(routes, "policy").handler(context({ collection: "posts" }, "GET", kv, storage))).resolves.toEqual({
       enabled: false,
       sourceLocale: null,
+      targetLocales: [],
       fields: [],
     });
     const saved = (await route(routes, "settings/collections").handler(
@@ -275,11 +276,13 @@ describe("EmDash plugin routes", () => {
     await expect(route(routes, "policy").handler(context({ collection: "posts" }, "GET", kv, storage))).resolves.toEqual({
       enabled: true,
       sourceLocale: "en-US",
+      targetLocales: [{ locale: "fr-FR", code: "fr-FR" }],
       fields: ["body", "title"],
     });
     await expect(route(routes, "policy").handler(context({ collection: "toString" }, "GET", kv, storage))).resolves.toEqual({
       enabled: false,
       sourceLocale: null,
+      targetLocales: [],
       fields: [],
     });
     await expect(
@@ -317,6 +320,7 @@ describe("EmDash plugin routes", () => {
     await expect(route(routes, "policy").handler(context({ collection: "posts" }, "GET", kv, createStorage()))).resolves.toEqual({
       enabled: false,
       sourceLocale: null,
+      targetLocales: [],
       fields: [],
     });
   });
@@ -329,6 +333,7 @@ describe("EmDash plugin routes", () => {
     await expect(route(routes, "policy").handler(context({ collection: "posts" }, "GET", kv, createStorage()))).resolves.toEqual({
       enabled: true,
       sourceLocale: "en-US",
+      targetLocales: [{ locale: "fr-FR", code: "fr-FR" }],
       fields: ["title"],
     });
   });
@@ -393,6 +398,77 @@ describe("EmDash plugin routes", () => {
     expect(translated.patch).toEqual({ title: "Titre traduit" });
     expect(translatedTexts.join("")).toContain("Fresh source title");
     expect(translatedTexts.join("")).not.toContain("Hello");
+  });
+
+  it("matches path-stamped content to catalog locale codes", async () => {
+    const translatedTexts: string[] = [];
+    const routes = createPluginRoutes(options(), {
+      ...dependencies(),
+      localeAliases: () => ({ "en-US": "en", "fr-FR": "fr" }),
+      getEnv: async () => ({
+        AI: {
+          run: async (_model: string, input: WorkersAIInput) => {
+            translatedTexts.push(input.messages.map((message) => message.content).join("\n"));
+            return { response: "@@field:0@@\nTitre traduit" };
+          },
+        },
+      }),
+    });
+    const kv = createKv();
+    const storage = createStorage();
+    await enablePosts(kv);
+    await expect(route(routes, "policy").handler(context({ collection: "posts" }, "GET", kv, storage))).resolves.toMatchObject({
+      sourceLocale: "en",
+      targetLocales: [{ locale: "fr", code: "fr-FR" }],
+    });
+    const routeContext = context({ collection: "posts", entryId: "entry-1", targetLocale: "fr", fields: ["title"] }, "POST", kv, storage);
+    const content = routeContext.content;
+    if (content === undefined) throw new Error("missing content access");
+    const getTarget = content.get.bind(content);
+    content.getTranslations = async () => ({
+      translationGroup: "group-1",
+      translations: [
+        { id: "entry-1", locale: "fr", slug: "hello", status: "draft", updatedAt: "2026-09-03T00:00:00.000Z" },
+        { id: "entry-source", locale: "en", slug: "hello", status: "draft", updatedAt: "2026-09-03T00:00:00.000Z" },
+      ],
+    });
+    content.get = async (collection, id) => {
+      const target = await getTarget(collection, "entry-1");
+      if (target === null) return null;
+      return id === "entry-source" ? { ...target, id, locale: "en", data: { title: "Source title" } } : { ...target, locale: "fr" };
+    };
+
+    const translated = (await route(routes, "translate-content").handler(routeContext)) as TranslateContentResponse;
+
+    expect(translated.patch).toEqual({ title: "Titre traduit" });
+    expect(translatedTexts.join("")).toContain("Source title");
+  });
+
+  it("translates a source-locale entry directly so a missing locale can be created", async () => {
+    const routes = createPluginRoutes(options(), dependencies());
+    const kv = createKv();
+    const storage = createStorage();
+    await enablePosts(kv);
+    const routeContext = context(
+      { collection: "posts", entryId: "entry-1", targetLocale: "fr-FR", fields: ["title"] },
+      "POST",
+      kv,
+      storage,
+    );
+    const content = routeContext.content;
+    if (content === undefined) throw new Error("missing content access");
+    const getTarget = content.get.bind(content);
+    content.getTranslations = async () => {
+      throw new Error("source entries must not look up siblings");
+    };
+    content.get = async (collection, id) => {
+      const item = await getTarget(collection, id);
+      return item === null ? null : { ...item, locale: "en-US" };
+    };
+
+    const translated = (await route(routes, "translate-content").handler(routeContext)) as TranslateContentResponse;
+
+    expect(translated.patch).toEqual({ title: "Bonjour" });
   });
 
   it("falls back to the draft's saved values when no source sibling exists", async () => {

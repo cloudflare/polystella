@@ -81,6 +81,15 @@ and are lost after confirmation. If another editor has taken over the
 entry's edit lock, the save is refused and the panel names the lock
 holder.
 
+On a source-locale entry, the panel creates a missing translation
+instead. Pick a locale that has no entry yet and the fields to
+translate, then select **Create &lt;locale&gt; draft**. The panel creates the draft
+as you, the same way EmDash's own **Create translation** button does:
+it copies the source entry and slug, replaces the selected fields
+with their translations, and opens the new draft. Locales that
+already have an entry aren't offered, and if someone creates one in
+the meantime, the panel reports it instead of creating a duplicate.
+
 Named percentage stages show when the panel is loading the latest
 saved entry, translating selected fields, and saving the patch.
 
@@ -91,9 +100,10 @@ the trace after the panel reloads.
 ## EmDash limitations
 
 - Panels use the latest saved entry, not unsaved form state.
-- EmDash leaves an empty PolyStella section on collections disabled
-  in plugin settings because panel visibility cannot be resolved
-  asynchronously.
+- EmDash shows the PolyStella section on every collection because
+  panel visibility cannot be resolved asynchronously. On collections
+  not enabled in plugin settings, the panel says so and links
+  Administrators to the Collections tab.
 
 ## See also
 

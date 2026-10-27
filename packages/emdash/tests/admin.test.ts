@@ -78,6 +78,9 @@ describe("EmDash admin entry", () => {
     const lock = { userId: "user-2", userName: "Ada", acquiredAt: "2026-09-24T00:00:00Z", expiresAt: "2026-09-24T00:05:00Z" };
     expect(panelErrorMessage(new ApiResponseError(409, "ENTRY_LOCKED", "Entry is locked", lock))).toContain("Ada is editing this entry");
     expect(panelErrorMessage(new ApiResponseError(409, "CONFLICT", "Revision mismatch"))).toContain("changed while PolyStella");
+    expect(panelErrorMessage(new ApiResponseError(409, "CONFLICT", "Translation already exists"), "fr")).toContain(
+      "A fr translation already exists",
+    );
   });
 
   it("validates restored browser debug traces", () => {

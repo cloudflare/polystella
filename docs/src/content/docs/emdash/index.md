@@ -24,7 +24,7 @@ pnpm add @cloudflare/polystella-emdash
 ```
 
 Peer dependencies you already have in an EmDash + Astro project:
-`emdash` and `@emdash-cms/admin` `>=0.42.0 <1.0.0 || ^1.0.1-rc.0`,
+`emdash` and `@emdash-cms/admin` `^1.3.1`,
 `@cloudflare/kumo` `^2.6.0`, `react`, and `astro` `^7.0.10`.
 
 ## Setup

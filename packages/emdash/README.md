@@ -114,6 +114,12 @@ and reloads after success. Unsaved browser changes are not translated and are
 lost after confirmation. A save refused by another editor's edit lock names the
 lock holder.
 
+On a source-locale entry, the panel instead creates a missing locale: it
+translates the selected fields, creates the draft as the signed-in user through
+EmDash's content API (copying the source entry and slug, like EmDash's
+**Create translation** button), and opens it. Locales that already have an
+entry are not offered.
+
 Content translation displays named percentage stages while loading the saved
 entry, translating fields, and saving the patch.
 
@@ -181,5 +187,7 @@ const t = await Astro.locals.buildCatalogTranslator(locale);
 ## EmDash Limitations
 
 - Panels use the latest saved entry, not unsaved form state.
-- EmDash leaves an empty PolyStella section on collections disabled in plugin
-  settings because panel visibility cannot be resolved asynchronously.
+- EmDash shows the PolyStella section on every collection because panel
+  visibility cannot be resolved asynchronously. On collections not enabled in
+  plugin settings, the panel says so and links Administrators to the
+  Collections tab.

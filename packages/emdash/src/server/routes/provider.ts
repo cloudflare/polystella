@@ -15,6 +15,8 @@ export interface PluginRouteDependencies {
   getEnv(): Promise<Record<string, unknown> | undefined>;
   now(): Date;
   fetchImpl?: typeof fetch | undefined;
+  /** Astro locale code → content locale path. Defaults to EmDash's i18n config. */
+  localeAliases?: (() => Record<string, string>) | undefined;
 }
 
 export function createTranslator(

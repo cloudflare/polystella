@@ -1,7 +1,7 @@
 import { resolveModelId, translateSegments, type Glossary, type Segment, type Translator } from "@cloudflare/polystella-core";
 import type { CatalogSource } from "@cloudflare/polystella-core/catalog";
 import { DEFAULT_UI_STRING_BATCH_SIZE, translateCatalogEntries } from "@cloudflare/polystella-core/catalog/translate";
-import { PluginRouteError, type LogAccess, type PluginRoute, type SettingsAccess, type StorageCollection } from "emdash";
+import { getI18nConfig, PluginRouteError, type LogAccess, type PluginRoute, type SettingsAccess, type StorageCollection } from "emdash";
 
 import {
   applyCatalogOverrides,
@@ -110,7 +110,9 @@ export function createPluginRoutes(
         const policy = Object.hasOwn(policies, collection) ? policies[collection] : undefined;
         return {
           enabled: policy !== undefined,
-          sourceLocale: policy !== undefined ? options.catalogs.defaultLocale : null,
+          sourceLocale: policy !== undefined ? contentLocale(options.catalogs.defaultLocale, dependencies) : null,
+          targetLocales:
+            policy === undefined ? [] : targetLocales(options).map((code) => ({ locale: contentLocale(code, dependencies), code })),
           fields: policy === undefined ? [] : [...policy.fields],
         } satisfies CollectionPolicyResponse;
       },
@@ -124,7 +126,10 @@ export function createPluginRoutes(
         try {
           const input = readRecord(ctx.input, "request body");
           const collection = readString(input.collection, "collection");
-          const targetLocale = configuredTargetLocale(options, readLocale(input.targetLocale, "targetLocale"));
+          const targetLocale = configuredTargetLocale(
+            options,
+            catalogLocale(options, readLocale(input.targetLocale, "targetLocale"), dependencies),
+          );
           const entryId = readString(input.entryId, "entryId");
           const selectedFields = [...new Set(readStringArray(input.fields, "fields", false))];
           const policies = await collectionPolicies(ctx.settings);
@@ -151,10 +156,19 @@ export function createPluginRoutes(
           if (ctx.content === undefined) throw PluginRouteError.internal("content access is unavailable");
           const item = await ctx.content.get(collection, entryId);
           if (item === null) throw PluginRouteError.notFound("content entry not found");
-          if (item.locale !== targetLocale) throw PluginRouteError.badRequest("entry locale does not match targetLocale");
-          const siblings = await ctx.content.getTranslations?.(collection, entryId);
-          const sourceId = siblings?.translations.find((sibling) => sibling.locale === options.catalogs.defaultLocale)?.id;
-          const sourceItem = (sourceId === undefined ? null : await ctx.content.get(collection, sourceId)) ?? item;
+          // A source-locale entry is translated directly so the panel can create a missing locale.
+          const isSourceEntry = sameContentLocale(item.locale, options.catalogs.defaultLocale, dependencies);
+          if (!isSourceEntry && !sameContentLocale(item.locale, targetLocale, dependencies)) {
+            throw PluginRouteError.badRequest("entry locale must match targetLocale or the source locale");
+          }
+          let sourceItem = item;
+          if (!isSourceEntry) {
+            const siblings = await ctx.content.getTranslations?.(collection, entryId);
+            const sourceId = siblings?.translations.find((sibling) =>
+              sameContentLocale(sibling.locale, options.catalogs.defaultLocale, dependencies),
+            )?.id;
+            sourceItem = (sourceId === undefined ? null : await ctx.content.get(collection, sourceId)) ?? item;
+          }
           const values = Object.fromEntries(
             selectedFields.flatMap((field) => (Object.hasOwn(sourceItem.data, field) ? [[field, sourceItem.data[field]]] : [])),
           );
@@ -560,4 +574,21 @@ function configuredTargetLocale(options: PolystellaEmdashOptions, locale: string
   const configured = configuredLocale(options, locale);
   if (configured === options.catalogs.defaultLocale) throw PluginRouteError.badRequest("locale must be a translation target");
   return configured;
+}
+
+// EmDash 1.3 stamps new content with the Astro locale path ("fr"); catalogs use codes ("fr-FR").
+function contentLocale(locale: string, dependencies: PluginRouteDependencies): string {
+  const aliases = dependencies.localeAliases?.() ?? getI18nConfig()?.localeAliases ?? {};
+  const lower = locale.toLowerCase();
+  return Object.entries(aliases).find(([code]) => code.toLowerCase() === lower)?.[1] ?? locale;
+}
+
+function sameContentLocale(left: string | null, right: string, dependencies: PluginRouteDependencies): boolean {
+  return left !== null && contentLocale(left, dependencies).toLowerCase() === contentLocale(right, dependencies).toLowerCase();
+}
+
+// ponytail: first matching code wins when one Astro path lists several catalog codes.
+function catalogLocale(options: PolystellaEmdashOptions, locale: string, dependencies: PluginRouteDependencies): string {
+  if (Object.hasOwn(options.catalogs.locales, locale)) return locale;
+  return Object.keys(options.catalogs.locales).find((candidate) => sameContentLocale(candidate, locale, dependencies)) ?? locale;
 }
