@@ -587,6 +587,20 @@ describe("validateMessageTranslation", () => {
     expect(issue?.problems).toEqual(["an apostrophe hides {{company}}; write '' before it"]);
   });
 
+  it("reports literal braces the source does not have", () => {
+    const source = "See all {{count, plural, one {# role} other {# roles}}}";
+    expect(validateMessageTranslation("k", source, "Alle {{count, plural, one {# Rolle} other {# Rollen}}}} sehen", "de")).toEqual({
+      key: "k",
+      missing: [],
+      spurious: [],
+      problems: ["stray } in the text; remove it, or quote it as '}'"],
+    });
+    expect(validateMessageTranslation("k", "Use {braces} here", "Utilisez {braces} ici", "fr")).toBeNull();
+    expect(validateMessageTranslation("k", "Hi {{name}}", "{Hola {{name}}", "es")?.problems).toEqual([
+      "stray { in the text; remove it, or quote it as '{'",
+    ]);
+  });
+
   it("falls back to token preservation when the source is not a valid message", () => {
     expect(validateMessageTranslation("k", "Hi {{user.name}} {{x}}", "Olá", "pt")).toEqual({ key: "k", missing: ["x"], spurious: [] });
   });

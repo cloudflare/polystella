@@ -162,16 +162,19 @@ describe("runCheckUi", () => {
           team: "the {{company}} team",
           files: "{{n, plural, one {# file} other {# files}}}",
           broken: "Hi {{name",
+          all: "See all {{n, plural, one {# file} other {# files}}}",
         }),
         "src/content/i18n/fr.json": JSON.stringify({
           team: "l'{{company}}",
           files: "{{n, plural, one {# fichier} other {# fichiers}}}",
           broken: "Salut",
+          all: "Voir {{n, plural, one {# fichier} other {# fichiers}}}}",
         }),
         "src/content/i18n/pl.json": JSON.stringify({
           team: "zespół {{company}}",
           files: "{{n, plural, one {# plik} other {# pliki}}}",
           broken: "Cześć",
+          all: "Wszystkie {{n, plural, one {# plik} few {# pliki} many {# plików} other {# pliku}}}",
         }),
       },
     });
@@ -183,6 +186,7 @@ describe("runCheckUi", () => {
     expect(errOutput).toContain('en.json "broken": invalid message: unclosed {{ at offset 3');
     expect(errOutput).toContain(`fr.json "team": missing {{company}}; an apostrophe hides {{company}}; write '' before it`);
     expect(errOutput).toContain('pl.json "files": {{n}} plural is missing few, many for pl');
+    expect(errOutput).toContain(`fr.json "all": stray } in the text; remove it, or quote it as '}'`);
     expect(errOutput).not.toContain("drift detected");
     expect(log).not.toHaveBeenCalled();
   });

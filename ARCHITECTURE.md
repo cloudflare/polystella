@@ -704,7 +704,9 @@ R2 keys and file names keep the locale code.
 
 **Translation validation.** Validated post-translation by
 `validateMessageTranslation`: the output must parse, keep placeholder
-names and types, keep select keys and `=N` branches, and use exactly
+names and types, keep select keys and `=N` branches, add no literal
+braces the source lacks (`}}}}` parses as a placeholder plus a visible
+`}`), and use exactly
 the target locale's plural categories (`#` is not required in every
 branch). Sources that are not valid messages fall back to the legacy
 `{{\w+}}` set comparison (`validateTokenPreservation`, still used for

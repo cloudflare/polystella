@@ -1,4 +1,4 @@
-import { isPluralElement, isSelectElement, type MessageFormatElement } from "@formatjs/icu-messageformat-parser";
+import { isLiteralElement, isPluralElement, isSelectElement, type MessageFormatElement } from "@formatjs/icu-messageformat-parser";
 import pRetry from "p-retry";
 
 import { packGroupsIntoBatches } from "../batch.js";
@@ -77,7 +77,7 @@ export function validateMessageTranslation(
   const translationKinds = argumentKinds(translationAst);
   const missing = [...sourceKinds.keys()].filter((name) => !translationKinds.has(name)).sort();
   const spurious = [...translationKinds.keys()].filter((name) => !sourceKinds.has(name)).sort();
-  const problems = [...swallowedPlaceholderProblems(translation, translationAst)];
+  const problems = [...swallowedPlaceholderProblems(translation, translationAst), ...strayBraceProblems(translationAst, sourceAst)];
   for (const [name, kinds] of sourceKinds) {
     const translated = translationKinds.get(name);
     if (translated === undefined) continue;
@@ -115,6 +115,25 @@ function swallowedPlaceholderProblems(template: string, ast: readonly MessageFor
   return [...extractTokens(template)]
     .filter((name) => !parsedNames.has(name))
     .map((name) => `an apostrophe hides {{${name}}}; write '' before it`);
+}
+
+// A doubled `}}}}` parses as a placeholder plus a literal `}` and would render visibly.
+function strayBraceProblems(translation: readonly MessageFormatElement[], source: readonly MessageFormatElement[]): string[] {
+  const sourceBraces = literalBraceCounts(source);
+  const translationBraces = literalBraceCounts(translation);
+  return (["{", "}"] as const)
+    .filter((brace) => translationBraces[brace] > sourceBraces[brace])
+    .map((brace) => `stray ${brace} in the text; remove it, or quote it as '${brace}'`);
+}
+
+function literalBraceCounts(ast: readonly MessageFormatElement[]): Record<"{" | "}", number> {
+  const counts = { "{": 0, "}": 0 };
+  walk(ast, (node) => {
+    if (!isLiteralElement(node)) return;
+    // Placeholders hidden by an apostrophe are reported by swallowedPlaceholderProblems.
+    for (const char of node.value.replace(TOKEN_RE, "")) if (char === "{" || char === "}") counts[char]++;
+  });
+  return counts;
 }
 
 function describeKinds(kinds: ReadonlySet<string>): string {
