@@ -709,12 +709,19 @@ the target locale's plural categories (`#` is not required in every
 branch). Sources that are not valid messages fall back to the legacy
 `{{\w+}}` set comparison (`validateTokenPreservation`, still used for
 EmDash content fields). The prompt gets an ICU rule listing the target
-categories only for batches that contain plural/select. Validator
+categories only for batches that contain plural/select. Required
+categories are those some count from 0 to 1000 selects, plus `other`,
+so `many` in fr/es/it (exact millions) and decimal-only categories are
+optional. Branches the target never selects (a `one` kept from English
+in Japanese) are cut from the model output before validation. Validator
 lives _outside_ `translateBatch` (in
 `packages/core/src/catalog/translate.ts`) because `translateBatch` doesn't expose
 a post-parse hook. The orchestrator runs its own per-request-batch
 retry wrapper with `maxRetries: 0` passed to `translateBatch` so the
-retry loop is single-layer. A token-invalid translation after all
+retry loop is single-layer. Valid translations are kept across
+attempts; a retry resends only the failed segments, with a
+`CORRECTIONS` block (via `promptInstruction`) quoting each previous
+answer and the validator's problem. A token-invalid translation after all
 retries leaves the key empty and reports it — a broken `{{year}}`
 placeholder breaks the page at runtime, so "obviously untranslated" is
 safer than "subtly broken".

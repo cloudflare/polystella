@@ -246,7 +246,7 @@ export async function runTranslateUi(args: TranslateUiArgs, deps: TranslateUiDep
         );
       }
       if (result.tokenFailures.length > 0) {
-        deps.warn(`[polystella]   ${progress} — ${job.locale}: token-preservation failed for ${result.tokenFailures.length} key(s):`);
+        deps.warn(`[polystella]   ${progress} — ${job.locale}: message validation failed for ${result.tokenFailures.length} key(s):`);
         for (const failure of result.tokenFailures) {
           deps.warn(`      - ${formatTokenValidationIssue(failure)}`);
         }

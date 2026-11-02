@@ -6,6 +6,7 @@ import {
   formatLocaleTagIssues,
   parseLocaleTags,
   pluralCategories,
+  requiredPluralCategories,
   resolveLocaleTag,
   supportedLocaleTag,
 } from "../src/catalog/index.js";
@@ -51,5 +52,14 @@ describe("locale tags", () => {
     expect(pluralCategories("ar")).toEqual(["zero", "one", "two", "few", "many", "other"]);
     expect(pluralCategories("ja")).toEqual(["other"]);
     expect(pluralCategories("en", "ordinal")).toEqual(["one", "two", "few", "other"]);
+  });
+
+  it("requires only categories counts up to 1000 select, plus other", () => {
+    expect(requiredPluralCategories("fr")).toEqual(["one", "other"]);
+    expect(requiredPluralCategories("es")).toEqual(["one", "other"]);
+    expect(requiredPluralCategories("cs")).toEqual(["one", "few", "other"]);
+    expect(requiredPluralCategories("pl")).toEqual(["one", "few", "many", "other"]);
+    expect(requiredPluralCategories("ar")).toEqual(["zero", "one", "two", "few", "many", "other"]);
+    expect(requiredPluralCategories("en", "ordinal")).toEqual(["one", "two", "few", "other"]);
   });
 });

@@ -21,6 +21,7 @@ export {
   formatLocaleTagIssues,
   parseLocaleTags,
   pluralCategories,
+  requiredPluralCategories,
   resolveLocaleTag,
   supportedLocaleTag,
   type LocaleTagIssue,

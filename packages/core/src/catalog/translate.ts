@@ -7,8 +7,8 @@ import { assertUniqueSegmentIds, type Segment } from "../segment.js";
 import { translateBatch, type TranslateBatchAttemptEvent, type TranslateBatchRetryEvent } from "../translate-batch.js";
 import { isPermanentProviderError, type Translator } from "../translator.js";
 
-import { pluralCategories } from "./locale-tags.js";
-import { argumentKinds, MessageSyntaxError, parseMessage, walk } from "./message.js";
+import { pluralCategories, requiredPluralCategories } from "./locale-tags.js";
+import { argumentKinds, MessageSyntaxError, parseMessage, removePluralBranches, walk } from "./message.js";
 
 const TOKEN_RE = /\{\{(\w+)\}\}/g;
 
@@ -163,7 +163,8 @@ function branchProblems(
       const invalid = [...keys].filter((key) => !key.startsWith("=") && !categories.includes(key));
       if (invalid.length > 0)
         problems.push(`{{${name}}} ${type} branch ${invalid.join(", ")} is never used in ${tag} (use ${categories.join(", ")})`);
-      const lacking = requireAllCategories ? categories.filter((category) => !keys.has(category)) : [];
+      const required = requiredPluralCategories(tag, type === "plural" ? "cardinal" : "ordinal");
+      const lacking = requireAllCategories ? required.filter((category) => !keys.has(category)) : [];
       if (lacking.length > 0) problems.push(`{{${name}}} ${type} is missing ${lacking.join(", ")} for ${tag}`);
       const exactLost = [...sourceKeys].filter((key) => key.startsWith("=") && !keys.has(key));
       if (exactLost.length > 0) problems.push(`{{${name}}} ${type} lost exact branch ${exactLost.join(", ")}`);
@@ -195,15 +196,30 @@ export function withMessageRules(glossary: Glossary, sources: readonly string[],
       instruction: [
         "Some strings are ICU messages such as `{{count, plural, one {...} other {...}}}`. Keep the double outer braces, the placeholder name, the keyword (plural, select, selectordinal) and the single braces around each branch; translate only the text inside the branches.",
         "`#` inside a plural branch stands for the number. Keep select keys and exact `=N` branches as written.",
-        `For plural, write exactly these branches for ${targetTag}: ${pluralCategories(targetTag).join(", ")}.`,
-        ...(ordinal
-          ? [`For selectordinal, write exactly these branches for ${targetTag}: ${pluralCategories(targetTag, "ordinal").join(", ")}.`]
-          : []),
+        categoryInstruction("plural", targetTag, "cardinal"),
+        ...(ordinal ? [categoryInstruction("selectordinal", targetTag, "ordinal")] : []),
       ].join(" "),
       example: "{{count, plural, =0 {No roles} one {# role} other {# roles}}}",
     });
   }
   return { ...base, styleRules };
+}
+
+function categoryInstruction(keyword: string, tag: string, type: Intl.PluralRuleType): string {
+  const required = requiredPluralCategories(tag, type);
+  const optional = pluralCategories(tag, type).filter((category) => !required.includes(category));
+  const optionalText = optional.length === 0 ? "" : ` You may also add: ${optional.join(", ")}.`;
+  return `For ${keyword}, write these branches for ${tag}: ${required.join(", ")}; do not write any other category.${optionalText}`;
+}
+
+/** Drops plural/selectordinal branches `targetTag` never selects (e.g. `one` kept from an English source in Japanese). */
+export function removeUnusedPluralBranches(translation: string, targetTag: string): string {
+  const cardinal = pluralCategories(targetTag);
+  const ordinal = pluralCategories(targetTag, "ordinal");
+  return removePluralBranches(
+    translation,
+    (type, key) => !key.startsWith("=") && !(type === "cardinal" ? cardinal : ordinal).includes(key),
+  );
 }
 
 export interface CatalogTranslationEntry {
@@ -380,17 +396,38 @@ class TokenValidationError extends Error {
     readonly translations: Map<string, string>,
     readonly issues: TokenValidationIssue[],
   ) {
-    super(
-      `[polystella] token-preservation validation failed for ${issues.length} key(s): ${issues.map(formatTokenValidationIssue).join("; ")}`,
-    );
+    super(`[polystella] message validation failed for ${issues.length} key(s): ${issues.map(formatTokenValidationIssue).join("; ")}`);
     this.name = "TokenValidationError";
   }
 }
 
-/** One-line description of a failed key, e.g. `roles (missing: [count], spurious: []; plural is missing few for pl)`. */
-export function formatTokenValidationIssue({ key, missing, spurious, problems }: TokenValidationIssue): string {
-  const details = [`missing: [${missing.join(", ")}], spurious: [${spurious.join(", ")}]`, ...(problems ?? [])];
-  return `${key} (${details.join("; ")})`;
+/** Readable problems for an issue: lost placeholders, placeholders the source lacks, then structure problems. */
+export function describeTokenValidationIssue({ missing, spurious, problems }: TokenValidationIssue): string[] {
+  return [
+    ...missing.map((name) => `missing {{${name}}}`),
+    ...spurious.map((name) => `{{${name}}} is not in the source`),
+    ...(problems ?? []),
+  ];
+}
+
+/** One-line description of a failed key, e.g. `roles: {{count}} plural is missing few for pl`. */
+export function formatTokenValidationIssue(issue: TokenValidationIssue): string {
+  return `${issue.key}: ${describeTokenValidationIssue(issue).join("; ")}`;
+}
+
+interface TranslationCorrection {
+  id: string;
+  translation: string;
+  problems: string[];
+}
+
+function formatCorrections(corrections: readonly TranslationCorrection[]): string | undefined {
+  if (corrections.length === 0) return undefined;
+  const lines = ["CORRECTIONS (your previous answer for these segments was invalid; return a corrected translation for each):"];
+  for (const { id, translation, problems } of corrections) {
+    lines.push(`- Segment ${id}`, `  Previous answer: ${translation}`, `  Problem: ${problems.join("; ")}`);
+  }
+  return lines.join("\n");
 }
 
 class RetriableTypeError extends Error {
@@ -403,32 +440,54 @@ class RetriableTypeError extends Error {
 async function translateUiBatchWithRetries(opts: TranslateUiBatchOptions): Promise<TranslateUiBatchResult> {
   const maxRetries = opts.maxRetries ?? 0;
   const totalAttempts = Math.max(1, maxRetries + 1);
+  // Valid translations are kept across attempts; retries resend only the failed segments, with corrections.
+  const accepted = new Map<string, string>();
+  let pending = opts.segments;
+  let corrections: TranslationCorrection[] = [];
 
   try {
     const translations = await pRetry(
       async () => {
         try {
+          const correctionText = formatCorrections(corrections);
           const result = await translateBatch({
             translator: opts.translator,
-            segments: opts.segments,
+            segments: pending,
             glossary: opts.glossary,
             sourceLocale: opts.sourceLocale,
             targetLocale: opts.targetLocale,
             maxRetries: 0,
+            ...(correctionText === undefined ? {} : { promptInstruction: correctionText }),
             ...(opts.onBatchAttempt === undefined ? {} : { onBatchAttempt: opts.onBatchAttempt }),
             ...(opts.context === undefined ? {} : { context: opts.context }),
             ...(opts.signal === undefined ? {} : { signal: opts.signal }),
           });
-          const issues = opts.segments.flatMap((segment) => {
-            const translation = result.get(segment.id);
-            if (translation === undefined) return [];
+          const issues: TokenValidationIssue[] = [];
+          const failed: TranslationCorrection[] = [];
+          for (const segment of pending) {
+            const raw = result.get(segment.id);
+            if (raw === undefined) continue;
+            const translation = removeUnusedPluralBranches(raw, opts.targetLocale);
             const key = opts.keysById.get(segment.id);
             if (key === undefined) throw new Error(`[polystella] missing catalog key for internal segment id "${segment.id}"`);
             const issue = validateMessageTranslation(key, segment.text, translation, opts.targetLocale);
-            return issue === null ? [] : [issue];
-          });
-          if (issues.length > 0) throw new TokenValidationError(result, issues);
-          return result;
+            if (issue === null) {
+              accepted.set(segment.id, translation);
+            } else {
+              issues.push(issue);
+              failed.push({ id: segment.id, translation, problems: describeTokenValidationIssue(issue) });
+            }
+          }
+          if (issues.length > 0) {
+            const failedIds = new Set(failed.map(({ id }) => id));
+            pending = pending.filter(({ id }) => failedIds.has(id));
+            corrections = failed;
+            throw new TokenValidationError(
+              new Map([...accepted, ...failed.map(({ id, translation }): [string, string] => [id, translation])]),
+              issues,
+            );
+          }
+          return accepted;
         } catch (error) {
           throw error instanceof TypeError && !isPermanentProviderError(error) ? new RetriableTypeError(error) : error;
         }

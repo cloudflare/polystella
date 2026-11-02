@@ -9,6 +9,7 @@ export interface LocaleTagIssue {
 
 const CLDR_CATEGORY_ORDER = ["zero", "one", "two", "few", "many", "other"];
 const supportedTagCache = new Map<string, string | undefined>();
+const requiredCategoryCache = new Map<string, string[]>();
 
 /** The BCP 47 tag for a site locale code: its `localeTags` entry, or the code itself. */
 export function resolveLocaleTag(locale: string, localeTags?: LocaleTags | undefined): string {
@@ -75,6 +76,22 @@ export function parseLocaleTags(value: unknown, label: string): LocaleTags | und
     tags[locale] = tag;
   }
   return tags;
+}
+
+/**
+ * Categories a translation must write: those some count from 0 to 1000 selects, plus `other`.
+ * Excludes `many` in fr/es/it (exact millions only) and decimal-only categories (`many` in cs).
+ */
+export function requiredPluralCategories(tag: string, type: Intl.PluralRuleType = "cardinal"): string[] {
+  const key = `${type}\u0000${tag}`;
+  const cached = requiredCategoryCache.get(key);
+  if (cached !== undefined) return cached;
+  const rules = new Intl.PluralRules(supportedLocaleTag(tag), { type });
+  const selected = new Set(["other"]);
+  for (let count = 0; count <= 1000; count++) selected.add(rules.select(count));
+  const required = CLDR_CATEGORY_ORDER.filter((category) => selected.has(category));
+  requiredCategoryCache.set(key, required);
+  return required;
 }
 
 /** Plural categories `tag` uses, in CLDR order (zero, one, two, few, many, other). */

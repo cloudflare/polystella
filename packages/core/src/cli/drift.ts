@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 
 import { detectCatalogFormat, flattenCatalog, resolveLocaleTag, type CatalogFormat, type LocaleTags } from "../catalog/index.js";
-import { validateMessage, validateMessageTranslation } from "../catalog/translate.js";
+import { describeTokenValidationIssue, validateMessage, validateMessageTranslation } from "../catalog/translate.js";
 
 export interface DriftIssue {
   locale: string;
@@ -108,14 +108,7 @@ export function checkCatalogMessages(input: CheckCatalogMessagesInput): MessageI
         problems = validateMessage(value, tag);
       } else {
         const issue = validateMessageTranslation(key, source, value, tag);
-        problems =
-          issue === null
-            ? []
-            : [
-                ...issue.missing.map((name) => `missing {{${name}}}`),
-                ...issue.spurious.map((name) => `{{${name}}} is not in the source`),
-                ...(issue.problems ?? []),
-              ];
+        problems = issue === null ? [] : describeTokenValidationIssue(issue);
       }
       if (problems.length > 0) issues.push({ locale, key, problems });
     }

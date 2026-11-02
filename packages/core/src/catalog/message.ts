@@ -93,6 +93,41 @@ export function formatMessage(template: string, values: MessageValues = {}, loca
   }
 }
 
+/**
+ * Removes plural/selectordinal branches `remove` selects, cutting them from the original text so the
+ * rest of the string is untouched. Invalid templates are returned unchanged.
+ */
+export function removePluralBranches(template: string, remove: (type: "cardinal" | "ordinal", key: string) => boolean): string {
+  let message: ParsedMessage;
+  try {
+    message = parsed(template);
+  } catch {
+    return template;
+  }
+  const cuts: Array<[number, number]> = [];
+  walk(message.ast, (node) => {
+    if (!isPluralElement(node)) return;
+    for (const [key, option] of Object.entries(node.options)) {
+      if (option.location === undefined || !remove(node.pluralType ?? "cardinal", key)) continue;
+      const bodyStart = message.starts[option.location.start.offset];
+      const bodyEnd = message.ends[option.location.end.offset - 1];
+      if (bodyStart === undefined || bodyEnd === undefined) continue;
+      let start = bodyStart;
+      while (start > 0 && /\s/.test(template[start - 1] ?? "")) start--;
+      if (template.slice(start - key.length, start) !== key) continue;
+      start -= key.length;
+      while (start > 0 && /\s/.test(template[start - 1] ?? "")) start--;
+      cuts.push([start, bodyEnd]);
+    }
+  });
+  const outermost = cuts.filter(
+    ([start, end]) => !cuts.some(([outerStart, outerEnd]) => outerStart <= start && end <= outerEnd && outerEnd - outerStart > end - start),
+  );
+  let result = template;
+  for (const [start, end] of outermost.sort((left, right) => right[0] - left[0])) result = result.slice(0, start) + result.slice(end);
+  return result;
+}
+
 /** True when `template` contains no braces or apostrophes, so formatting cannot change it. */
 export function isPlainText(template: string): boolean {
   return !/[{}']/.test(template);

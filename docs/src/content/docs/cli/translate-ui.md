@@ -39,10 +39,12 @@ polystella translate-ui [flags]
    Batches for a locale run sequentially.
 4. Validate every translation against its source
    [message](/concepts/catalog-messages/): it must parse, keep the
-   placeholders, select keys and `=N` branches, and use exactly the
-   target language's plural categories, which the prompt lists. A
-   mismatch retries the batch with the same prompt (sampling variance
-   usually recovers).
+   placeholders, select keys and `=N` branches, and write the target
+   language's plural categories, which the prompt lists. Categories only
+   exact millions select (`many` in French, Spanish, Italian) are
+   optional, and branches the language never uses (`one` in Japanese)
+   are removed automatically. A mismatch retries only the failed keys,
+   and the retry prompt quotes each previous answer and what was wrong.
 5. If a key still fails after retries, leave it empty. The next
    `check-ui` run will surface it as drift; the operator either
    fixes it by hand or re-runs `translate-ui` after editing the
