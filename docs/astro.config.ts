@@ -25,6 +25,7 @@ const nimbusConfig = defineNimbusConfig({
           "concepts/r2-cache",
           "concepts/glossaries",
           "concepts/overrides",
+          "concepts/catalog-messages",
           "concepts/mode-boundary",
           "concepts/runtime-bridge",
           "concepts/ai-marker",

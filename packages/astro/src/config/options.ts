@@ -1,3 +1,4 @@
+import { checkLocaleTags, formatLocaleTagIssues } from "@cloudflare/polystella-core/catalog";
 import { z } from "astro/zod";
 
 /**
@@ -366,6 +367,13 @@ export const polystellaOptionsSchema = z
       .default([])
       .describe("Internal URL paths the link rewriter leaves unprefixed. Picomatch globs match against the path portion."),
 
+    localeTags: z
+      .record(z.string(), z.string().min(1))
+      .default({})
+      .describe(
+        "Site locale code → BCP 47 tag for codes Intl would misread (e.g. `{ jp: 'ja', 'es-la': 'es-419' }`). Drives plural rules, number/date formatting and the language named in translation prompts. Unmapped codes are used as-is.",
+      ),
+
     /**
      * Source pages to inject locale-prefixed shims for. Each entry
      * is `string` or `{ source, imports }` where `imports` are extra
@@ -570,7 +578,12 @@ export function resolveOptions(raw: unknown, astroI18n: AstroI18nLike | undefine
 
   const i18nIssues = validateAstroI18n(astroI18n);
 
-  if (optionIssues.length > 0 || overlapIssues.length > 0 || i18nIssues.length > 0) {
+  const localeTagIssues =
+    parsed.success && astroI18n !== undefined && i18nIssues.length === 0
+      ? checkLocaleTags(astroI18n.locales as string[], parsed.data.localeTags)
+      : [];
+
+  if (optionIssues.length > 0 || overlapIssues.length > 0 || i18nIssues.length > 0 || localeTagIssues.length > 0) {
     const sections: string[] = [];
     if (optionIssues.length > 0) {
       sections.push(`Invalid PolyStella options:\n${optionIssues.join("\n")}`);
@@ -582,6 +595,12 @@ export function resolveOptions(raw: unknown, astroI18n: AstroI18nLike | undefine
     }
     if (i18nIssues.length > 0) {
       sections.push(`Invalid Astro \`i18n\` config (PolyStella derives locales from it):\n${i18nIssues.join("\n")}`);
+    }
+    if (localeTagIssues.length > 0) {
+      const lines = formatLocaleTagIssues(localeTagIssues)
+        .split("\n")
+        .map((line) => `  • ${line}`);
+      sections.push(`Invalid \`localeTags\` (each locale must resolve to a BCP 47 tag Intl recognises):\n${lines.join("\n")}`);
     }
     throw new Error(
       `[polystella] configuration error:\n${sections.join(

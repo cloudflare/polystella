@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   buildTranslateFn,
+  createPassthroughTranslateFn,
   detectCatalogFormat,
   flattenCatalog,
   formatNestedLocaleFile,
@@ -53,6 +54,67 @@ describe("catalog runtime", () => {
 
     expect(buildTranslateFn(dictionary)("constructor")).toBe("constructor");
     expect(interpolate("Hello {{name}}", params)).toBe("Hello {{name}}");
+  });
+
+  it("formats plurals with the locale's rules, and fallback strings with the fallback locale's rules", () => {
+    const translate = buildTranslateFn(
+      { files: "{{n, plural, one {# plik} few {# pliki} many {# plików} other {# pliku}}}" },
+      { files: "{{n, plural, one {# file} other {# files}}}", visits: "{{n, plural, one {# visit} other {# visits}}}" },
+      { locale: "pl", fallbackLocale: "en" },
+    );
+
+    expect(translate("files", { n: 5 })).toBe("5 plików");
+    expect(translate("visits", { n: 1000 })).toBe("1,000 visits");
+    expect(translate.locale).toBe("pl");
+  });
+
+  it("falls back to the default-locale string when the visitor string is broken, then to the key", () => {
+    const translate = buildTranslateFn(
+      { roles: "{{n, plural, one {# rol}}}", both: "{{broken" },
+      { roles: "{{n, plural, one {# role} other {# roles}}}", both: "{{also broken" },
+      { locale: "es", fallbackLocale: "en" },
+    );
+
+    expect(translate("roles", { n: 2 })).toBe("2 roles");
+    expect(translate.raw("roles")).toBe("{{n, plural, one {# role} other {# roles}}}");
+    expect(translate("both")).toBe("both");
+    expect(translate.raw("both")).toBe("both");
+  });
+
+  it("always formats, so '' renders as an apostrophe even without params", () => {
+    const translate = buildTranslateFn({ company: "l''équipe {{name}}", plain: "Don't" }, undefined, { locale: "fr" });
+
+    expect(translate("company")).toBe("l'équipe {{name}}");
+    expect(translate("plain")).toBe("Don't");
+    expect(translate.raw("company")).toBe("l''équipe {{name}}");
+  });
+
+  it("uses the fallback locale's tag when the visitor tag is unknown", () => {
+    const translate = buildTranslateFn({ n: "{{n, number}}" }, undefined, { locale: "english", fallbackLocale: "de" });
+
+    expect(translate.locale).toBe("de");
+    expect(translate("n", { n: 1234.5 })).toBe("1.234,5");
+  });
+
+  it("maps site locale codes through localeTags", async () => {
+    const getDictionary = (locale: string) =>
+      ({
+        en: { items: "{{n, plural, one {# item} other {# items}}}" },
+        jp: { items: "{{n, plural, other {# 件}}}" },
+      })[locale];
+    const translate = await resolveTranslations("jp", { defaultLocale: "en", getDictionary, localeTags: { jp: "ja" } });
+
+    expect(translate.locale).toBe("ja");
+    expect(translate("items", { n: 1 })).toBe("1 件");
+  });
+
+  it("creates a passthrough translator with a locale", () => {
+    const translate = createPassthroughTranslateFn("pt-br");
+
+    expect(translate("nav.home", { n: 1 })).toBe("nav.home");
+    expect(translate.raw("nav.home")).toBe("nav.home");
+    expect(translate.locale).toBe("pt-BR");
+    expect(createPassthroughTranslateFn().locale).toBe("und");
   });
 });
 

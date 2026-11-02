@@ -84,6 +84,13 @@ Optional. Shared code-defined translation instructions, joined into
 a single prompt. Administrators can use them unchanged, append to
 them, or replace them.
 
+## `localeTags`
+
+Optional. Catalog locale → BCP 47 tag, for locale codes `Intl` would
+misread (`{ jp: "ja" }`). Tags drive plural rules, number formatting,
+override validation and the language named in translation prompts.
+See [Catalog messages](/concepts/catalog-messages/#locale-tags).
+
 ## Collections are not a config option
 
 Enabled collections and their translatable fields are
@@ -105,6 +112,8 @@ replace. Configure collection and field policy in the
   locale and appear in `models.allowed`.
 - Every `glossaryDefaults` key must match a configured catalog
   locale.
+- Every `localeTags` key must match a configured catalog locale, and
+  every locale must resolve to a tag `Intl` recognises.
 - Provider env/binding names must be valid environment binding
   names; `endpoint` must be a valid URL; `maxTokens` must be a
   positive integer.

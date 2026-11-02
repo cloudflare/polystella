@@ -42,6 +42,7 @@ For prose context on individual options, see the
 | `yaml.keys` | record (string → array of string) | `{}` | Optional | Per-glob → dotted key-paths to translate. |
 | `yaml.urls` | record (string → array of string) | `{}` | Optional | Per-glob → dotted key-paths of URL fields that should be locale-prefixed. |
 | `noPrefixUrls` | array of string | `[]` | Optional | Internal URL paths the link rewriter leaves unprefixed. Picomatch globs match against the path portion. |
+| `localeTags` | record (string → string) | `{}` | Optional | Site locale code → BCP 47 tag for codes Intl would misread (e.g. `{ jp: 'ja', 'es-la': 'es-419' }`). Drives plural rules, number/date formatting and the language named in translation prompts. Unmapped codes are used as-is. |
 | `routes` | array of string \| object | `[]` | Optional | Source pages to inject locale-prefixed shims for. Each entry is a `string` or `{ source, imports }`; `imports` are extra modules (typically CSS) threaded into the shim's frontmatter. |
 | `routesImports` | array of string | `[]` | Optional | Imports threaded into every shim's frontmatter, in addition to per-route `imports`. Typically a single global stylesheet. |
 | `noTranslateBehavior` | enum: `404` \| `fallback` | `"fallback"` | Optional | Per-entry `noTranslate: true` policy. `fallback` returns source content tagged as default-locale; `404` drops the entry. |

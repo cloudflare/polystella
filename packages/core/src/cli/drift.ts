@@ -1,7 +1,8 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
-import { detectCatalogFormat, flattenCatalog, type CatalogFormat } from "../catalog/index.js";
+import { detectCatalogFormat, flattenCatalog, resolveLocaleTag, type CatalogFormat, type LocaleTags } from "../catalog/index.js";
+import { describeTokenValidationIssue, validateMessage, validateMessageTranslation } from "../catalog/translate.js";
 
 export interface DriftIssue {
   locale: string;
@@ -79,14 +80,60 @@ export function formatDriftIssues(issues: ReadonlyArray<DriftIssue>): string {
   return lines.join("\n");
 }
 
+export interface MessageIssue {
+  locale: string;
+  key: string;
+  problems: string[];
+}
+
+export interface CheckCatalogMessagesInput extends DriftCheckInput {
+  localeTags?: LocaleTags | undefined;
+}
+
+/**
+ * Message-syntax problems per string. The default locale is checked on its own (syntax, plural
+ * branches its language never uses); other locales are checked against the default-locale string.
+ */
+export function checkCatalogMessages(input: CheckCatalogMessagesInput): MessageIssue[] {
+  const defaultDict = input.dictionaries[input.defaultLocale] ?? {};
+  const issues: MessageIssue[] = [];
+  const locales = [input.defaultLocale, ...input.locales.filter((locale) => locale !== input.defaultLocale)];
+  for (const locale of locales) {
+    const tag = resolveLocaleTag(locale, input.localeTags);
+    for (const [key, value] of Object.entries(input.dictionaries[locale] ?? {})) {
+      if (value.length === 0) continue;
+      const source = defaultDict[key];
+      let problems: string[];
+      if (locale === input.defaultLocale || source === undefined || source.length === 0) {
+        problems = validateMessage(value, tag);
+      } else {
+        const issue = validateMessageTranslation(key, source, value, tag);
+        problems = issue === null ? [] : describeTokenValidationIssue(issue);
+      }
+      if (problems.length > 0) issues.push({ locale, key, problems });
+    }
+  }
+  return issues;
+}
+
+export function formatMessageIssues(issues: ReadonlyArray<MessageIssue>): string {
+  return issues.map(({ locale, key, problems }) => `  • ${locale}.json "${key}": ${problems.join("; ")}`).join("\n");
+}
+
 export interface LoadAndCheckDriftOptions {
   rootDir: string;
   baseDir: string;
   locales: ReadonlyArray<string>;
   defaultLocale: string;
+  localeTags?: LocaleTags | undefined;
 }
 
-export async function loadAndCheckDrift(options: LoadAndCheckDriftOptions): Promise<DriftCheckResult> {
+/** `ok` covers key drift only; `messageIssues` lists invalid or mismatched messages separately. */
+export interface LoadAndCheckDriftResult extends DriftCheckResult {
+  messageIssues: MessageIssue[];
+}
+
+export async function loadAndCheckDrift(options: LoadAndCheckDriftOptions): Promise<LoadAndCheckDriftResult> {
   const dictionaries: Record<string, Record<string, string>> = {};
   const formats = new Map<string, CatalogFormat>();
   for (const locale of options.locales) {
@@ -128,11 +175,8 @@ export async function loadAndCheckDrift(options: LoadAndCheckDriftOptions): Prom
       );
     }
   }
-  return checkI18nDrift({
-    defaultLocale: options.defaultLocale,
-    locales: options.locales,
-    dictionaries,
-  });
+  const input = { defaultLocale: options.defaultLocale, locales: options.locales, dictionaries };
+  return { ...checkI18nDrift(input), messageIssues: checkCatalogMessages({ ...input, localeTags: options.localeTags }) };
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {

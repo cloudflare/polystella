@@ -39,7 +39,7 @@ function safeTranslationFailure(message: string): boolean {
     /^\[polystella\] Workers AI request failed: \d{3}(?: [A-Za-z ]+)?$/.test(message) ||
     message.startsWith("[polystella] unexpected Workers AI response shape ") ||
     message.startsWith("[polystella] unexpected Workers AI binding response shape ") ||
-    message.startsWith("[polystella] token-preservation validation failed for ") ||
+    message.startsWith("[polystella] message validation failed for ") ||
     message.startsWith("[polystella-emdash] missing translation for internal segment ") ||
     message.startsWith("[polystella-emdash] missing translation for sandbox text") ||
     message.startsWith("[polystella-emdash] translation changed placeholder tokens in field ")

@@ -14,7 +14,7 @@
 
 import { glob as astroGlob } from "astro/loaders";
 import { getEntry } from "astro:content";
-import { defaultLocale } from "polystella:runtime-config";
+import { defaultLocale, localeTags } from "polystella:runtime-config";
 
 import { buildI18nLoader, i18nSchema as i18nSchemaCore, type I18nLoaderOptions } from "./loader.js";
 import { resolveTranslations, type TranslateFn } from "./translate.js";
@@ -57,6 +57,7 @@ export async function getTranslations(locale: string | undefined): Promise<Trans
   return resolveTranslations(locale, {
     defaultLocale,
     getI18nEntry,
+    localeTags,
   });
 }
 
@@ -89,9 +90,14 @@ export async function getDictionary(locale: string | undefined, prefix?: string)
 
 export {
   buildTranslateFn,
+  createPassthroughTranslateFn,
+  formatMessage,
   interpolate,
+  MessageSyntaxError,
   resolveTranslations,
   type InterpolateParams,
+  type LocaleTags,
+  type MessageValues,
   type TranslateFn,
   type GetI18nEntry,
   type UseTranslationsDeps,

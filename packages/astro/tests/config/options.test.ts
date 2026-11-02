@@ -159,6 +159,22 @@ describe("resolveOptions — option-surface", () => {
     expect(resolved.fallback).toBe("default-locale");
   });
 
+  it("defaults `localeTags` to {} and accepts a map for declared locales", () => {
+    expect(resolveOptions({}, HAPPY_I18N).localeTags).toEqual({});
+    const i18n: AstroI18nLike = { defaultLocale: "en", locales: ["en", "jp", "es-la"] };
+    expect(resolveOptions({ localeTags: { jp: "ja", "es-la": "es-419" } }, i18n).localeTags).toEqual({ jp: "ja", "es-la": "es-419" });
+  });
+
+  it("rejects locales whose tag Intl does not recognise, malformed tags and undeclared keys", () => {
+    const i18n: AstroI18nLike = { defaultLocale: "en", locales: ["en", "jp"] };
+    expect(() => resolveOptions({}, i18n)).toThrow(/Invalid `localeTags`[\s\S]*locale "jp" uses tag "jp"/);
+    expect(() => resolveOptions({ localeTags: { jp: "ja_JP" } }, i18n)).toThrow(/"ja_JP", which is not a valid BCP 47 tag/);
+    expect(() => resolveOptions({ localeTags: { jp: "ja", fr: "fr" } }, i18n)).toThrow(
+      /localeTags key "fr" is not one of the configured locales/,
+    );
+    expect(() => resolveOptions({ localeTags: { jp: "" } }, i18n)).toThrow(/localeTags\.jp/);
+  });
+
   it("defaults `noTranslateBehavior` to fallback", () => {
     const resolved = resolveOptions({}, HAPPY_I18N);
     expect(resolved.noTranslateBehavior).toBe("fallback");

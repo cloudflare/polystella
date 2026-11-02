@@ -3,9 +3,10 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { EMPTY_GLOSSARY } from "../index.js";
-import { detectCatalogFormat, flattenCatalog } from "../catalog/index.js";
+import { detectCatalogFormat, flattenCatalog, resolveLocaleTag } from "../catalog/index.js";
 import {
   DEFAULT_UI_STRING_BATCH_SIZE,
+  formatTokenValidationIssue,
   selectEmptyKeys,
   translateUiStringsForLocale,
   type TokenValidationIssue,
@@ -213,8 +214,8 @@ export async function runTranslateUi(args: TranslateUiArgs, deps: TranslateUiDep
         glossary: glossaries.get(job.locale) ?? EMPTY_GLOSSARY,
         sourceDict,
         localeDict: job.localeDict,
-        sourceLocale: resolved.defaultLocale,
-        targetLocale: job.locale,
+        sourceLocale: resolveLocaleTag(resolved.defaultLocale, resolved.localeTags),
+        targetLocale: resolveLocaleTag(job.locale, resolved.localeTags),
         ...(resolved.prompt.context === undefined ? {} : { context: resolved.prompt.context }),
         maxRetries: resolved.maxRetries,
         inputTokenBudget: provider.batchInputTokenBudget,
@@ -245,9 +246,9 @@ export async function runTranslateUi(args: TranslateUiArgs, deps: TranslateUiDep
         );
       }
       if (result.tokenFailures.length > 0) {
-        deps.warn(`[polystella]   ${progress} — ${job.locale}: token-preservation failed for ${result.tokenFailures.length} key(s):`);
+        deps.warn(`[polystella]   ${progress} — ${job.locale}: message validation failed for ${result.tokenFailures.length} key(s):`);
         for (const failure of result.tokenFailures) {
-          deps.warn(`      - ${failure.key}: missing=[${failure.missing.join(", ")}], spurious=[${failure.spurious.join(", ")}]`);
+          deps.warn(`      - ${formatTokenValidationIssue(failure)}`);
         }
         deps.warn(`[polystella]   ${progress} — ${job.locale}: these keys were left empty; fix manually then re-run.`);
       }

@@ -52,6 +52,9 @@ declare module "polystella:runtime-config" {
    * (standalone / auto) or defer to Starlight's (starlight).
    */
   export const mode: "auto" | "standalone" | "starlight";
+
+  /** Site locale code → BCP 47 tag used for plural rules and number/date formatting. */
+  export const localeTags: Readonly<Record<string, string>>;
 }
 
 declare module "polystella:catalog" {
@@ -66,6 +69,9 @@ declare module "polystella:catalog" {
 
   /** Whether missing visitor-locale keys fall back to the default catalog. */
   export const fallbackToDefault: boolean;
+
+  /** Site locale code → BCP 47 tag used for plural rules and number/date formatting. */
+  export const localeTags: Readonly<Record<string, string>>;
 
   /** Load a flat string dictionary for a locale from the catalog integration. */
   export function getDictionary(locale: string): Promise<import("@cloudflare/polystella-astro/catalog").CatalogDictionary | undefined>;

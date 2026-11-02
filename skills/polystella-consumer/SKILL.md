@@ -183,6 +183,25 @@ Workflow:
 3. Spot-check translations; hand-edit any keys where you want exact wording. The AI step only fills _empty_ values, so a hand-written value stays untouched on subsequent runs.
 4. Commit. The pre-commit hook should run `polystella check-ui` automatically when `src/content/i18n/` is staged.
 
+Strings are ICU messages with double outer braces. Every placeholder
+opens with `{{` and closes with `}}`; branch bodies use single braces:
+
+```json
+{
+  "jobs.count": "{{count, plural, =0 {No roles} one {# role} other {# roles}}}",
+  "jobs.showing": "Showing {{visible}} of {{total, plural, one {# role} other {# roles}}}",
+  "jobs.team": "l''équipe {{company}}"
+}
+```
+
+`t("jobs.count", { count: 3 })` picks the branch with the locale's plural
+rules, so do not hand-roll `interpolateLabel` or `.replace("{{x}}")`
+helpers. Write `''` for an apostrophe directly before `{{`, `}` or a
+plural `#`. For islands, pass the locale: `useTranslations(dict, locale)`.
+Locale codes that are not BCP 47 tags (`jp`, `es-la`) need
+`localeTags: { jp: "ja", "es-la": "es-419" }` in `polystella.config.mjs`;
+the build fails until every code resolves to a tag `Intl` knows.
+
 Wire the pre-commit hook (`.githooks/pre-commit`):
 
 ```sh
@@ -340,7 +359,7 @@ After every translation pass, `astro build` (and `polystella translate`) writes 
 4. **`pnpm i18n:sync` alone is not enough** — Sync only reconciles keys; it leaves new keys as `""` placeholders. The build's drift check fails on `""` in a non-default locale when the source value is non-empty. Run `pnpm i18n:translate` (or hand-edit) to fill placeholders before committing.
 5. **CSS missing on translated routes** — Translated pages render via shims; Astro's per-route stylesheet injection doesn't follow CSS through child `<SourcePage />` components. List your global CSS in `routesImports` (or per-route via the object form) so shims emit the import directly.
 6. **`prettier --write` collapses sync writer's blank lines** — The UI-string sync writer preserves blank-line section breaks between key groups. `prettier --write` collapses them. The pre-commit hook should use `prettier --check` (not `--write`).
-7. **`{{token}}` placeholders dropped by AI** — Validated post-translation; if a token is missing or renamed after all retries, the key is left empty for manual fix-up. Hand-edit the locale JSON in that case.
+7. **Placeholders or plural branches broken by AI** — Validated post-translation (names, select keys, `=N` branches, the target's plural categories); after all retries the key is left empty for manual fix-up. `check-ui` flags the same problems in hand edits, including `l'{{company}}` (write `l''{{company}}`).
 8. **Override files don't get cache-invalidated** — Edits to overrides aren't reflected in the cache (overrides aren't cached). The override is read fresh every build.
 9. **MDX vs MD** — `.mdx` uses MDX syntax rules (imports/exports, JSX, expressions); `.md` stays plain Markdown. If your `.md` files use Markdown-only constructs, don't accidentally rename them to `.mdx`.
 10. **R2 credentials in repo** — Never commit credentials. Use `.env` (gitignored) + `dotenv/config` at the top of `polystella.config.mjs`. Workers Builds inject credentials via env vars; local development reads from `.env`.

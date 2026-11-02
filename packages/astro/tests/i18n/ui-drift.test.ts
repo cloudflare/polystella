@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
-import { checkI18nDrift, formatDriftIssues, loadAndCheckDrift } from "../../src/i18n/drift.js";
+import { checkCatalogMessages, checkI18nDrift, formatDriftIssues, formatMessageIssues, loadAndCheckDrift } from "../../src/i18n/drift.js";
 
 /**
  * Tests for the drift-detection helpers — both the pure
@@ -401,5 +401,38 @@ describe("loadAndCheckDrift — disk", () => {
         defaultLocale: "en-US",
       }),
     ).rejects.toThrow(/format mismatch/);
+  });
+});
+
+describe("checkCatalogMessages", () => {
+  it("checks the default locale alone and other locales against it, skipping empty values", () => {
+    const issues = checkCatalogMessages({
+      defaultLocale: "en",
+      locales: ["en", "pl", "jp"],
+      localeTags: { jp: "ja" },
+      dictionaries: {
+        en: { files: "{{n, plural, one {# file} few {# files} other {# files}}}", hi: "Hi {{name}}", empty: "Soon" },
+        pl: { files: "{{n, plural, one {# plik} few {# pliki} many {# plików} other {# pliku}}}", hi: "Cześć", empty: "" },
+        jp: { files: "{{n, plural, other {# 件}}}", hi: "{{name}}さん", empty: "" },
+      },
+    });
+
+    expect(issues).toEqual([
+      { locale: "en", key: "files", problems: ["{{n}} plural branch few is never used in en (use one, other)"] },
+      { locale: "pl", key: "hi", problems: ["missing {{name}}"] },
+    ]);
+    expect(formatMessageIssues(issues)).toContain('  • pl.json "hi": missing {{name}}');
+  });
+
+  it("is returned by loadAndCheckDrift while ok stays keys-only", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "polystella-drift-messages-"));
+    await writeFile(path.join(dir, "en.json"), JSON.stringify({ a: "{{n, plural, one {x}}}" }), "utf8");
+
+    const result = await loadAndCheckDrift({ rootDir: dir, baseDir: ".", locales: ["en"], defaultLocale: "en" });
+
+    expect(result.ok).toBe(true);
+    expect(result.messageIssues).toEqual([
+      { locale: "en", key: "a", problems: ["invalid message: plural/select needs an `other` branch at offset 20"] },
+    ]);
   });
 });

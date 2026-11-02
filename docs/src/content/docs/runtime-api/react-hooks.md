@@ -37,7 +37,7 @@ const navDict = await getDictionary(Astro.currentLocale, "nav");
 import { useTranslations, useLocalizedHref } from "@cloudflare/polystella-astro/react";
 
 export function NavMenu({ locale, dict }: { locale: string | undefined; dict: Record<string, string> }) {
-  const t = useTranslations(dict);
+  const t = useTranslations(dict, locale);
   const link = useLocalizedHref(locale);
   return (
     <nav>

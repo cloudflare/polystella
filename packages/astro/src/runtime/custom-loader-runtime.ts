@@ -17,6 +17,7 @@ import path from "node:path";
 import type { Loader } from "astro/loaders";
 import { parsePath, readAtPath, writeAtPath, type PathSegment } from "@cloudflare/polystella-core/adapters";
 import { EMPTY_GLOSSARY, type Glossary, type Segment, type Translator } from "@cloudflare/polystella-core";
+import { resolveLocaleTag, type LocaleTags } from "@cloudflare/polystella-core/catalog";
 
 import type { CapturedEntry, PolystellaCustomLoaderMarker } from "../content/custom-loader.js";
 import { runWithConcurrency } from "../source/pool.js";
@@ -48,6 +49,8 @@ export interface CustomLoaderTranslateRecord {
  */
 export interface PolystellaRuntimeBridge {
   defaultLocale: string;
+  /** Site locale code → BCP 47 tag for translation prompts. */
+  localeTags?: LocaleTags | undefined;
   /** Polystella version, baked into R2 metadata. */
   polystellaVersion: string;
   /** Prompt context, if configured. */
@@ -268,7 +271,8 @@ async function translateEntry(input: TranslateEntryInput): Promise<TranslateEntr
     r2: bridge.r2,
     translator,
     glossary,
-    sourceLocale: bridge.defaultLocale,
+    sourceLocale: resolveLocaleTag(bridge.defaultLocale, bridge.localeTags),
+    targetLanguageTag: resolveLocaleTag(locale, bridge.localeTags),
     ...(bridge.context !== undefined ? { context: bridge.context } : {}),
     metadata,
     events,

@@ -46,6 +46,21 @@ Intentional blanks are supported: if the source value is `""`, the
 locale value being `""` is accepted as deliberate (probably a key
 that doesn't apply to that locale).
 
+## Message checks
+
+`check-ui` also validates every string as a
+[catalog message](/concepts/catalog-messages/):
+
+- invalid syntax, with the offset of the problem;
+- an apostrophe that hides a placeholder (`l'{{company}}`; write `l''{{company}}`);
+- a translation whose placeholders, types, select keys or `=N` branches
+  differ from the default-locale string;
+- plural branches the locale never uses, and, in translations, missing ones.
+
+The default-locale file is checked on its own, for syntax and unused
+plural branches. Locale codes are mapped through `localeTags` from
+`polystella.config.mjs` when that file exists.
+
 ## Pre-commit hook
 
 A typical pre-commit hook runs `polystella check-ui` when files
@@ -65,4 +80,4 @@ Suggested fix:
 
 - `0` — no drift; every non-default locale's key set matches the
   default.
-- `1` — drift detected, or a config error.
+- `1` — drift or message problems detected, or a config error.

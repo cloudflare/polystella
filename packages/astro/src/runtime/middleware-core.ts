@@ -5,7 +5,7 @@
  * against production deps.
  */
 
-import { buildTranslateFn, type TranslateFn } from "../i18n/translate.js";
+import { buildTranslateFn, createPassthroughTranslateFn, resolveLocaleTag, type LocaleTags, type TranslateFn } from "../i18n/translate.js";
 import { resolveLocalizedCollection } from "./get-localized-collection.js";
 import {
   normaliseGetLocalizedEntryArgs,
@@ -47,6 +47,8 @@ export interface MiddlewareDeps {
   fallback?: LocalizedFallbackPolicy;
   /** Cross-locale miss policy for sources with `noTranslate: true`. Defaults to `"fallback"`. */
   noTranslateBehavior?: NoTranslatePolicy;
+  /** Site locale code → BCP 47 tag used for plural rules and number/date formatting. */
+  localeTags?: LocaleTags | undefined;
 }
 
 /** Locale-bound `localizedHref` closure for middleware + React hook. */
@@ -63,30 +65,33 @@ export function buildLocalizedHref(
 }
 
 /**
- * Resolve a translator. Fallback chain: visitor locale →
- * default → literal-key passthrough. Errors silently passthrough
- * so one bad dictionary doesn't break unrelated pages.
+ * Resolve a translator. Per key: visitor locale → default locale →
+ * literal key. Errors silently passthrough so one bad dictionary
+ * doesn't break unrelated pages.
  */
 export async function buildTranslator(
   locale: string | undefined,
-  deps: Pick<MiddlewareDeps, "defaultLocale" | "getEntry">,
+  deps: Pick<MiddlewareDeps, "defaultLocale" | "getEntry" | "localeTags">,
 ): Promise<TranslateFn> {
-  const passthrough: TranslateFn = (key: string) => key;
+  const requestedLocale = locale && locale.length > 0 ? locale : deps.defaultLocale;
+  const localeTag = resolveLocaleTag(requestedLocale, deps.localeTags);
+  const defaultLocaleTag = resolveLocaleTag(deps.defaultLocale, deps.localeTags);
   // Astro stores entry IDs lowercased — lowercase both sides so
   // `en-US` resolves to entry id `en-us`.
   const defaultLocaleId = deps.defaultLocale.toLowerCase();
-  const effectiveLocale = locale && locale.length > 0 ? locale.toLowerCase() : defaultLocaleId;
+  const effectiveLocale = requestedLocale.toLowerCase();
   try {
     const entry = await deps.getEntry("i18n", effectiveLocale);
-    if (entry?.data) return buildTranslateFn(entry.data as Record<string, string>);
-    if (effectiveLocale !== defaultLocaleId) {
-      const fallback = await deps.getEntry("i18n", defaultLocaleId);
-      if (fallback?.data) return buildTranslateFn(fallback.data as Record<string, string>);
+    const fallback = effectiveLocale === defaultLocaleId ? undefined : await deps.getEntry("i18n", defaultLocaleId);
+    const primary = entry?.data as Record<string, string> | undefined;
+    const fallbackDict = fallback?.data as Record<string, string> | undefined;
+    if (primary !== undefined || fallbackDict !== undefined) {
+      return buildTranslateFn(primary ?? {}, fallbackDict, { locale: localeTag, fallbackLocale: defaultLocaleTag });
     }
   } catch {
     // Eaten on purpose — passthrough below.
   }
-  return passthrough;
+  return createPassthroughTranslateFn(localeTag);
 }
 
 /**

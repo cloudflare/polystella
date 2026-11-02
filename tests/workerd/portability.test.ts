@@ -7,7 +7,7 @@ import {
   translateBatch,
   type Segment,
 } from "@cloudflare/polystella-core";
-import { buildTranslateFn } from "@cloudflare/polystella-core/catalog";
+import { buildTranslateFn, formatMessage } from "@cloudflare/polystella-core/catalog";
 import { extractTokens, translateCatalogEntries } from "@cloudflare/polystella-core/catalog/translate";
 import { createWorkersAIBindingTranslator, createWorkersAIHttpTranslator } from "@cloudflare/polystella-core/providers/workers-ai";
 import { SELF } from "cloudflare:test";
@@ -21,6 +21,13 @@ describe("core in workerd", () => {
 
     expect(translate("greeting", { name: "Diogo" })).toBe("Ola, Diogo");
     expect(extractTokens("Ola, {{name}}")).toEqual(new Set(["name"]));
+  });
+
+  it("formats ICU plurals and numbers without nodejs_compat", () => {
+    const files = "{{n, plural, one {# plik} few {# pliki} many {# plików} other {# pliku}}}";
+
+    expect(formatMessage(files, { n: 5 }, "pl")).toBe("5 plików");
+    expect(formatMessage("{{pct, number, ::percent}}", { pct: 0.5 }, "en")).toBe("50%");
   });
 
   it("translates selected catalog entries", async () => {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { resolveCatalogConfig } from "../../src/cli/config.js";
+import { resolveCatalogConfig, resolveLocaleTagsConfig } from "../../src/cli/config.js";
 
 const i18n = { defaultLocale: "en-US", locales: ["en-US", "pt-BR"] };
 
@@ -53,6 +53,23 @@ describe("resolveCatalogConfig", () => {
       prompt: { context: "Use product terminology." },
       provider: { kind: "anthropic", model: "claude-test", maxTokens: 2048, batchInputTokenBudget: 1000 },
     });
+  });
+
+  it("validates localeTags against every locale, including the default", () => {
+    const tagged = { defaultLocale: "en", locales: ["en", "jp", "es-la"] };
+    expect(resolveCatalogConfig({ localeTags: { jp: "ja", "es-la": "es-419" } }, tagged).localeTags).toEqual({
+      jp: "ja",
+      "es-la": "es-419",
+    });
+    expect(() => resolveCatalogConfig({}, tagged)).toThrow(/locale "jp" uses tag "jp"/);
+    expect(() => resolveCatalogConfig({ localeTags: { jp: "ja", fr: "fr" } }, tagged)).toThrow(/localeTags key "fr"/);
+    expect(() => resolveCatalogConfig({ localeTags: { jp: 1 } }, tagged)).toThrow(/localeTags.jp must be a non-empty string/);
+  });
+
+  it("reads localeTags without validating credentials", () => {
+    const tagged = { defaultLocale: "en", locales: ["en", "jp"] };
+    expect(resolveLocaleTagsConfig({ localeTags: { jp: "ja" }, provider: { kind: "workers-ai" } }, tagged)).toEqual({ jp: "ja" });
+    expect(resolveLocaleTagsConfig(undefined, i18n)).toBeUndefined();
   });
 
   it("rejects invalid relevant options", () => {

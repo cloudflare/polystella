@@ -153,6 +153,65 @@ describe("runCheckUi", () => {
     expect(err.mock.calls.some((c) => c[0].includes("must include defaultLocale"))).toBe(true);
   });
 
+  it("returns 1 for invalid messages, swallowed placeholders and plural mismatches", async () => {
+    const cwd = await tmpProjectWithAstroConfig({
+      defaultLocale: "en",
+      locales: ["en", "fr", "pl"],
+      files: {
+        "src/content/i18n/en.json": JSON.stringify({
+          team: "the {{company}} team",
+          files: "{{n, plural, one {# file} other {# files}}}",
+          broken: "Hi {{name",
+          all: "See all {{n, plural, one {# file} other {# files}}}",
+        }),
+        "src/content/i18n/fr.json": JSON.stringify({
+          team: "l'{{company}}",
+          files: "{{n, plural, one {# fichier} other {# fichiers}}}",
+          broken: "Salut",
+          all: "Voir {{n, plural, one {# fichier} other {# fichiers}}}}",
+        }),
+        "src/content/i18n/pl.json": JSON.stringify({
+          team: "zespół {{company}}",
+          files: "{{n, plural, one {# plik} other {# pliki}}}",
+          broken: "Cześć",
+          all: "Wszystkie {{n, plural, one {# plik} few {# pliki} many {# plików} other {# pliku}}}",
+        }),
+      },
+    });
+    const log = vi.fn();
+    const err = vi.fn();
+    const code = await runCheckUi({ help: false }, { cwd, log, err });
+    expect(code).toBe(1);
+    const errOutput = err.mock.calls.map((c) => c[0]).join("\n");
+    expect(errOutput).toContain('en.json "broken": invalid message: unclosed {{ at offset 3');
+    expect(errOutput).toContain(`fr.json "team": missing {{company}}; an apostrophe hides {{company}}; write '' before it`);
+    expect(errOutput).toContain('pl.json "files": {{n}} plural is missing few, many for pl');
+    expect(errOutput).toContain(`fr.json "all": stray } in the text; remove it, or quote it as '}'`);
+    expect(errOutput).not.toContain("drift detected");
+    expect(log).not.toHaveBeenCalled();
+  });
+
+  it("maps locale codes through localeTags from polystella.config.mjs", async () => {
+    const files = {
+      "src/content/i18n/en.json": JSON.stringify({ items: "{{n, plural, one {# item} other {# items}}}" }),
+      "src/content/i18n/jp.json": JSON.stringify({ items: "{{n, plural, other {# 件}}}" }),
+    };
+    const unmapped = await tmpProjectWithAstroConfig({ defaultLocale: "en", locales: ["en", "jp"], files });
+    const unmappedErr = vi.fn();
+    expect(await runCheckUi({ help: false }, { cwd: unmapped, log: vi.fn(), err: unmappedErr })).toBe(1);
+    expect(unmappedErr.mock.calls.map((c) => c[0]).join("\n")).toContain('locale "jp" uses tag "jp"');
+    expect(unmappedErr.mock.calls[0]?.[0]).toMatch(/^\[polystella\] invalid locale tags/);
+
+    const mapped = await tmpProjectWithAstroConfig({
+      defaultLocale: "en",
+      locales: ["en", "jp"],
+      files: { ...files, "polystella.config.mjs": `export default { localeTags: { jp: "ja" } };\n` },
+    });
+    const err = vi.fn();
+    expect(await runCheckUi({ help: false }, { cwd: mapped, log: vi.fn(), err })).toBe(0);
+    expect(err).not.toHaveBeenCalled();
+  });
+
   it("respects --base override", async () => {
     const cwd = await tmpProjectWithAstroConfig({
       defaultLocale: "en-US",

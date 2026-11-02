@@ -1,7 +1,9 @@
 import path from "node:path";
 
-import { loadAstroI18n } from "./config.js";
-import { formatDriftIssues, loadAndCheckDrift } from "./drift.js";
+import type { LocaleTags } from "../catalog/locale-tags.js";
+
+import { loadAstroI18n, loadOptionalPolystellaConfig, resolveLocaleTagsConfig } from "./config.js";
+import { formatDriftIssues, formatMessageIssues, loadAndCheckDrift } from "./drift.js";
 
 const DEFAULT_CATALOG_BASE = "./src/content/i18n";
 
@@ -13,7 +15,10 @@ export interface CheckUiArgs {
 export const CHECK_UI_USAGE = `polystella check-ui
 
 Verify every non-default locale's UI-string JSON has the same key set as
-the default locale. Runs offline — suitable for a pre-commit hook.
+the default locale, and that every string is a valid message whose
+placeholders, plural and select branches match the default locale.
+Runs offline — suitable for a pre-commit hook. Reads localeTags from
+polystella.config.mjs when present.
 
 Usage:
   polystella check-ui [flags]
@@ -24,8 +29,8 @@ Flags:
   --help         Print this message.
 
 Exit codes:
-  0  no drift detected; every locale matches the default.
-  1  drift detected, or config error (missing astro.config.mjs etc).
+  0  no drift or message problems; every locale matches the default.
+  1  drift or message problems detected, or config error (missing astro.config.mjs etc).
 `;
 
 export interface CheckUiDeps {
@@ -70,16 +75,36 @@ export async function runCheckUi(args: CheckUiArgs, deps: CheckUiDeps): Promise<
     return 1;
   }
 
+  let localeTags: LocaleTags | undefined;
+  try {
+    localeTags = resolveLocaleTagsConfig(await loadOptionalPolystellaConfig(deps.cwd), i18n);
+  } catch (error) {
+    const message = errorMessage(error);
+    deps.err(message.startsWith("[polystella]") ? message : `[polystella] ${message}`);
+    return 1;
+  }
+
   const baseDir = args.base ?? DEFAULT_CATALOG_BASE;
   const result = await loadAndCheckDrift({
     rootDir: deps.cwd,
     baseDir,
     locales: i18n.locales,
     defaultLocale: i18n.defaultLocale,
+    localeTags,
   });
-  if (result.ok) {
+  if (result.ok && result.messageIssues.length === 0) {
     deps.log(`[polystella] UI-strings drift check passed (${i18n.locales.length} locales, base: ${path.normalize(baseDir)}).`);
     return 0;
+  }
+
+  if (result.messageIssues.length > 0) {
+    deps.err("[polystella] invalid UI-string messages:");
+    deps.err(formatMessageIssues(result.messageIssues));
+    deps.err("");
+    deps.err("Placeholders are {{name}}; plurals are {{count, plural, one {# item} other {# items}}}.");
+    deps.err("Write '' for an apostrophe directly before {{, } or # inside a plural.");
+    if (result.ok) return 1;
+    deps.err("");
   }
 
   deps.err("[polystella] UI-strings drift detected:");

@@ -17,6 +17,8 @@ export interface PolystellaRuntimeConfig {
     locales: Record<string, RuntimeCatalog>;
   };
   fallbackToDefault: boolean;
+  /** Catalog locale → BCP 47 tag used for plural rules and number/date formatting. */
+  localeTags?: Record<string, string> | undefined;
   localePaths?: Record<string, string> | undefined;
   prefixDefaultLocale?: boolean | undefined;
 }
@@ -82,6 +84,7 @@ export function createPolystellaRuntime(config: PolystellaRuntimeConfig, depende
       defaultLocale: config.catalogs.defaultLocale,
       getDictionary: getCatalogDictionary,
       fallbackToDefault: config.fallbackToDefault,
+      localeTags: config.localeTags,
     });
   }
 

@@ -811,6 +811,63 @@ describe("EmDash plugin routes", () => {
     ).rejects.toMatchObject({ status: 400 });
   });
 
+  it("rejects overrides that are not valid messages for the source string", async () => {
+    const configured = options();
+    configured.catalogs.locales["en-US"] = {
+      dictionary: { greeting: "Hello", roles: "{{n, plural, one {# role} other {# roles}}}", team: "the {{company}} team" },
+      filePath: "src/i18n/en-US.json",
+    };
+    const routes = createPluginRoutes(configured, dependencies());
+    const kv = createKv();
+    const storage = createStorage();
+    const put = (key: string, value: string) =>
+      route(routes, "catalog/overrides").handler(
+        context({ locale: "fr-FR", overrides: { [key]: value }, expected: null }, "PUT", kv, storage),
+      );
+
+    await expect(put("roles", "{{n, plural, one {# poste}}}")).rejects.toMatchObject({
+      status: 400,
+      message: expect.stringContaining("needs an `other` branch"),
+    });
+    await expect(put("roles", "{{n, plural, one {# poste} two {# postes} other {# postes}}}")).rejects.toMatchObject({
+      status: 400,
+      message: expect.stringContaining("plural branch two is never used in fr-FR"),
+    });
+    await expect(put("team", "l'{{company}}")).rejects.toMatchObject({
+      status: 400,
+      message: expect.stringContaining("an apostrophe hides {{company}}"),
+    });
+    await expect(put("roles", "{{n, plural, one {# poste} many {# postes} other {# postes}}}")).resolves.toEqual({ key: "roles" });
+    await expect(put("team", "l''équipe {{company}}")).resolves.toEqual({ key: "team" });
+  });
+
+  it("names mapped language tags in catalog generation prompts", async () => {
+    const configured = options();
+    configured.catalogs.locales = {
+      "en-US": { dictionary: { greeting: "Hello" }, filePath: "src/i18n/en-US.json" },
+      "es-la": { dictionary: { greeting: "Hola" }, filePath: "src/i18n/es-la.json" },
+    };
+    configured.models = { allowed: ["model-a"], defaults: "model-a" };
+    configured.glossaryDefaults = undefined;
+    configured.localeTags = { "es-la": "es-419" };
+    const systems: string[] = [];
+    const routes = createPluginRoutes(configured, {
+      ...dependencies(),
+      getEnv: async () => ({
+        AI: {
+          run: async (_model: string, input: WorkersAIInput) => {
+            systems.push(input.messages[0]?.content ?? "");
+            return { response: "@@catalog:0@@\nHola" };
+          },
+        },
+      }),
+    });
+
+    await route(routes, "catalog/generate").handler(context({ locale: "es-la", keys: ["greeting"] }, "POST", createKv(), createStorage()));
+
+    expect(systems[0]).toContain("to Latin American Spanish (es-419)");
+  });
+
   it("rejects stale settings writes instead of overwriting them", async () => {
     const routes = createPluginRoutes(options(), dependencies());
     const kv = createKv();

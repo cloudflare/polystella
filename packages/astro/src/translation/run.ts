@@ -6,6 +6,7 @@ import { pathToFileURL } from "node:url";
 import picomatch from "picomatch";
 import type { MarkdownAdapterExtractOptions as AdapterExtractOptions } from "@cloudflare/polystella-core/adapters";
 import { EMPTY_GLOSSARY, type Glossary, type Logger, type Translator } from "@cloudflare/polystella-core";
+import { resolveLocaleTag } from "@cloudflare/polystella-core/catalog";
 
 import type { PolyStellaResolvedOptions } from "../config/options.js";
 import { EMPTY_GLOSSARY_HASH, glossarySourceLabel, hashGlossary, loadGlossaries } from "../glossary/glossary.js";
@@ -851,7 +852,8 @@ export async function runTranslationPass(opts: RunTranslationOptions): Promise<R
           r2,
           translator,
           glossary,
-          sourceLocale: resolved.defaultLocale,
+          sourceLocale: resolveLocaleTag(resolved.defaultLocale, resolved.localeTags),
+          targetLanguageTag: resolveLocaleTag(locale, resolved.localeTags),
           ...(resolved.prompt.context !== undefined ? { context: resolved.prompt.context } : {}),
           metadata: buildCacheMetadata({
             sourcePath: source.relativePath,
