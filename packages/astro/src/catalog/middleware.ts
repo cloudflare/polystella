@@ -1,7 +1,14 @@
 import "./locals.js";
 
 import { resolveLocalizedHref, type LocalizedHrefDeps } from "../runtime/localized-href.js";
-import { resolveTranslations, type GetCatalogDictionary, type TranslateFn } from "./runtime.js";
+import {
+  createPassthroughTranslateFn,
+  resolveLocaleTag,
+  resolveTranslations,
+  type GetCatalogDictionary,
+  type LocaleTags,
+  type TranslateFn,
+} from "./runtime.js";
 
 type MinimalContext = {
   currentLocale: string | undefined;
@@ -19,6 +26,8 @@ export interface CatalogMiddlewareOptions {
   noPrefixUrls?: ReadonlyArray<string> | undefined;
   /** Default: true. Missing visitor-locale keys fall back to the default catalog. */
   fallbackToDefault?: boolean | undefined;
+  /** Site locale code → BCP 47 tag used for plural rules and number/date formatting. */
+  localeTags?: LocaleTags | undefined;
 }
 
 export function buildCatalogHref(locale: string | undefined, options: CatalogMiddlewareOptions): (href: string) => string {
@@ -35,9 +44,10 @@ export async function buildCatalogTranslator(locale: string | undefined, options
       defaultLocale: options.defaultLocale,
       getDictionary: options.getDictionary,
       fallbackToDefault: options.fallbackToDefault,
+      localeTags: options.localeTags,
     });
   } catch {
-    return (key) => key;
+    return createPassthroughTranslateFn(resolveLocaleTag(locale || options.defaultLocale, options.localeTags));
   }
 }
 

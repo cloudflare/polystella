@@ -94,6 +94,27 @@ describe("buildLocalizedHref — locale-bound closure", () => {
 });
 
 describe("buildTranslator — locale fallback chain", () => {
+  it("falls back per key to the default dictionary and formats with each dictionary's locale tag", async () => {
+    const t = await buildTranslator("jp", {
+      defaultLocale: "en",
+      localeTags: { jp: "ja" },
+      getEntry: makeGetEntry({
+        "i18n:en": { items: "{{n, plural, one {# item} other {# items}}}", only: "{{n, number}} left" },
+        "i18n:jp": { items: "{{n, plural, other {# 件}}}" },
+      }),
+    });
+    expect(t("items", { n: 1 })).toBe("1 件");
+    expect(t("only", { n: 1000 })).toBe("1,000 left");
+    expect(t.locale).toBe("ja");
+  });
+
+  it("returns a passthrough tagged with the visitor's locale when nothing loads", async () => {
+    const t = await buildTranslator("jp", { defaultLocale: "en", localeTags: { jp: "ja" }, getEntry: makeGetEntry({}) });
+    expect(t("nav.home")).toBe("nav.home");
+    expect(t.raw("nav.home")).toBe("nav.home");
+    expect(t.locale).toBe("ja");
+  });
+
   it("returns the visitor-locale dictionary when present", async () => {
     const t = await buildTranslator("pt-BR", {
       defaultLocale: "en-US",

@@ -21,7 +21,10 @@ groups without one fall back to the key. A search box filters groups
 by title, group key, or any entry key. Source cells containing
 `{{variables}}` placeholders show a question-mark icon before the text;
 hovering or clicking it explains that overrides should retain those
-placeholders.
+placeholders. Saving an override that is not a valid
+[catalog message](/concepts/catalog-messages/) for its source string
+(lost placeholder, wrong plural branches, broken syntax) fails with a
+400 that names the problem.
 
 ## Override states
 

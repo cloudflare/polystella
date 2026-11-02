@@ -1,5 +1,12 @@
 import type { Glossary, ModelSpec } from "@cloudflare/polystella-core";
-import { flattenCatalog, type CatalogSource } from "@cloudflare/polystella-core/catalog";
+import {
+  checkLocaleTags,
+  flattenCatalog,
+  formatLocaleTagIssues,
+  resolveLocaleTag,
+  type CatalogSource,
+  type LocaleTags,
+} from "@cloudflare/polystella-core/catalog";
 
 import { USE_CODE_DEFAULT_MODEL } from "../contracts.js";
 
@@ -36,6 +43,8 @@ export interface PolystellaEmdashOptions {
   };
   glossaryDefaults?: Readonly<Record<string, Glossary>> | undefined;
   rules?: readonly string[] | undefined;
+  /** Catalog locale → BCP 47 tag for codes `Intl` would misread (`jp` → `ja`). Unmapped locales are used as-is. */
+  localeTags?: LocaleTags | undefined;
 }
 
 export interface SerializedPolystellaEmdashOptions {
@@ -44,7 +53,7 @@ export interface SerializedPolystellaEmdashOptions {
 
 export function validatePolystellaEmdashOptions(value: unknown): asserts value is PolystellaEmdashOptions {
   const options = readRecord(value, "options");
-  rejectUnknownKeys(options, ["provider", "catalogs", "models", "glossaryDefaults", "rules"], "options");
+  rejectUnknownKeys(options, ["provider", "catalogs", "models", "glossaryDefaults", "rules", "localeTags"], "options");
   validateProvider(options.provider);
 
   const catalogs = readRecord(options.catalogs, "options.catalogs");
@@ -96,6 +105,16 @@ export function validatePolystellaEmdashOptions(value: unknown): asserts value i
   }
 
   if (options.rules !== undefined) readStringArray(options.rules, "options.rules", true);
+
+  if (options.localeTags !== undefined) {
+    const localeTags = readRecord(options.localeTags, "options.localeTags");
+    for (const [locale, tag] of Object.entries(localeTags)) {
+      if (!configuredLocales.has(locale)) fail(`options.localeTags.${locale} must match a configured catalog locale`);
+      readString(tag, `options.localeTags.${locale}`);
+    }
+  }
+  const tagIssues = checkLocaleTags([...configuredLocales], options.localeTags as LocaleTags | undefined);
+  if (tagIssues.length > 0) fail(`options.localeTags is invalid:\n${formatLocaleTagIssues(tagIssues)}`);
 }
 
 export function serializeOptions(options: PolystellaEmdashOptions): SerializedPolystellaEmdashOptions {
@@ -147,6 +166,7 @@ export function serializeOptions(options: PolystellaEmdashOptions): SerializedPo
           ),
         }),
     ...(options.rules === undefined ? {} : { rules: [...options.rules] }),
+    ...(options.localeTags === undefined ? {} : { localeTags: { ...options.localeTags } }),
   };
   return { serialized: JSON.stringify(normalized) };
 }
@@ -161,6 +181,10 @@ export function deserializeOptions(runtimeOptions: unknown): PolystellaEmdashOpt
   }
   validatePolystellaEmdashOptions(options);
   return options;
+}
+
+export function localeTag(options: Pick<PolystellaEmdashOptions, "localeTags">, locale: string): string {
+  return resolveLocaleTag(locale, options.localeTags);
 }
 
 export function targetLocales(options: PolystellaEmdashOptions): string[] {

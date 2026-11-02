@@ -648,7 +648,12 @@ Three CLI subcommands maintain the invariant:
   modes: missing keys, extra keys, and **empty-placeholder values**
   (a key shared with the source dict but with `""` in the locale
   where the source value is non-empty). The build's own drift check
-  at `astro:config:setup` uses the same predicate.
+  at `astro:config:setup` uses the same predicate. It also reports
+  **message issues** (`checkCatalogMessages` in
+  `packages/core/src/cli/drift.ts`): invalid syntax, apostrophes that
+  hide a placeholder, and translations whose placeholders or branches
+  differ from the default-locale string. `check-ui` exits 1 on them;
+  Astro builds only warn, because the runtime falls back safely.
 - **`sync-ui`** (`packages/core/src/cli/sync-ui.ts` +
   `packages/core/src/cli/sync.ts`) —
   mechanical key reconciliation. Adds missing keys as empty strings,
@@ -670,9 +675,42 @@ immediately before). The output then mirrors that layout for every
 locale. Without this, every sync run would churn diffs by reordering
 keys alphabetically.
 
-**`{{token}}` preservation.** Validated post-translation by
-extracting `{{\w+}}` tokens from both source and translation and
-comparing the sets. Validator lives _outside_ `translateBatch` (in
+<a id="catalog-messages"></a>
+
+**Message syntax.** Catalog strings are ICU MessageFormat written with
+double outer braces: every placeholder opens with `{{` and closes with
+`}}`, branch bodies use single braces, nested placeholders use `{{ }}`
+again (`{{count, plural, =0 {No roles} one {# role} other {# roles}}}`).
+`packages/core/src/catalog/message.ts` converts that dialect to strict
+ICU and hands it to `intl-messageformat`. Literal braces in text travel
+through the parser as private-use sentinels, not `'{'` quotes, because
+a quote followed by an apostrophe (`{'s`) reads as an escaped quote.
+Apostrophes follow ICU: `''` directly before `{{`, `}` or a plural `#`.
+
+Runtime contract (`buildTranslateFn` in
+`packages/core/src/catalog/index.ts`): `t` always formats; missing or
+unusable values stay visible as source text; a string that does not
+parse falls back to the default locale's string (formatted with the
+default locale's rules), then to the key. `t.raw(key)` returns the
+template from the same chain and `t.locale` the resolved tag.
+
+**Locale tags.** `localeTags` maps site locale codes to BCP 47 tags on
+every config surface. Unmapped codes are used as-is. Startup fails when
+a tag is malformed or `Intl.PluralRules.supportedLocalesOf` does not
+know it (`jp`, `cz`). Valid-but-wrong codes (`se` = Northern Sami, `kr` =
+Kanuri) cannot be detected. Tags feed plural rules, number/date
+formatting, validator categories and the language named in prompts;
+R2 keys and file names keep the locale code.
+
+**Translation validation.** Validated post-translation by
+`validateMessageTranslation`: the output must parse, keep placeholder
+names and types, keep select keys and `=N` branches, and use exactly
+the target locale's plural categories (`#` is not required in every
+branch). Sources that are not valid messages fall back to the legacy
+`{{\w+}}` set comparison (`validateTokenPreservation`, still used for
+EmDash content fields). The prompt gets an ICU rule listing the target
+categories only for batches that contain plural/select. Validator
+lives _outside_ `translateBatch` (in
 `packages/core/src/catalog/translate.ts`) because `translateBatch` doesn't expose
 a post-parse hook. The orchestrator runs its own per-request-batch
 retry wrapper with `maxRetries: 0` passed to `translateBatch` so the

@@ -1,6 +1,12 @@
 import { resolveModelId, translateSegments, type Glossary, type Segment, type Translator } from "@cloudflare/polystella-core";
 import type { CatalogSource } from "@cloudflare/polystella-core/catalog";
-import { DEFAULT_UI_STRING_BATCH_SIZE, translateCatalogEntries } from "@cloudflare/polystella-core/catalog/translate";
+import {
+  DEFAULT_UI_STRING_BATCH_SIZE,
+  formatTokenValidationIssue,
+  translateCatalogEntries,
+  validateMessage,
+  validateMessageTranslation,
+} from "@cloudflare/polystella-core/catalog/translate";
 import { getI18nConfig, PluginRouteError, type LogAccess, type PluginRoute, type SettingsAccess, type StorageCollection } from "emdash";
 
 import {
@@ -36,7 +42,7 @@ import {
 import { invalidateRuntimeOverrides } from "../../runtime-cache.js";
 import { resolveGlossary, resolveInstructions, runtimeOverrideSettingKey } from "../../settings.js";
 import type { PolystellaEmdashOptions } from "../options.js";
-import { targetLocales } from "../options.js";
+import { localeTag, targetLocales } from "../options.js";
 import {
   collectionPolicies,
   collectionSettings,
@@ -192,8 +198,8 @@ export function createPluginRoutes(
             values,
             translator: settings.translator,
             glossary: settings.glossary,
-            sourceLocale: options.catalogs.defaultLocale,
-            targetLocale,
+            sourceLocale: localeTag(options, options.catalogs.defaultLocale),
+            targetLocale: localeTag(options, targetLocale),
             ...(settings.promptInstruction === undefined ? {} : { promptInstruction: settings.promptInstruction }),
             ...(debug === undefined
               ? {}
@@ -269,16 +275,17 @@ export function createPluginRoutes(
             entries,
             translator: settings.translator,
             glossary: settings.glossary,
-            sourceLocale: options.catalogs.defaultLocale,
-            targetLocale: locale,
+            sourceLocale: localeTag(options, options.catalogs.defaultLocale),
+            targetLocale: localeTag(options, locale),
             maxRetries: 2,
             ...(settings.promptInstruction === undefined ? {} : { context: settings.promptInstruction }),
             ...(debug === undefined ? {} : { onBatchAttempt: debug.record, onRetry: ({ error }) => debug?.markLastAttemptError(error) }),
             signal: ctx.request.signal,
           });
           if (debug !== undefined) {
-            for (const { key, missing, spurious } of result.tokenFailures) {
-              const message = `${key}: missing [${missing.join(", ")}], spurious [${spurious.join(", ")}]`;
+            for (const failure of result.tokenFailures) {
+              const { key } = failure;
+              const message = formatTokenValidationIssue(failure);
               const segmentIndex = entries.findIndex((entry) => entry.key === key);
               debug.markValidationIssue(message, segmentIndex === -1 ? [] : [`catalog:${segmentIndex}`]);
             }
@@ -331,6 +338,8 @@ export function createPluginRoutes(
           if (value.length > maxCharacters) {
             throw PluginRouteError.badRequest(`override cannot exceed ${maxCharacters} characters`);
           }
+          const problem = overrideMessageProblem(key, source[key], value, localeTag(options, locale));
+          if (problem !== undefined) throw PluginRouteError.badRequest(`override is not a valid message: ${problem}`);
         }
         const stored = await storage.getVersioned(id);
         const current = stored === null ? undefined : parseOverride(stored.value);
@@ -434,8 +443,8 @@ export function createPluginRoutes(
             translator: settings.translator,
             segments: [segment],
             glossary: settings.glossary,
-            sourceLocale: options.catalogs.defaultLocale,
-            targetLocale,
+            sourceLocale: localeTag(options, options.catalogs.defaultLocale),
+            targetLocale: localeTag(options, targetLocale),
             ...(settings.promptInstruction === undefined ? {} : { promptInstruction: settings.promptInstruction }),
             ...(debug === undefined ? {} : { onBatchAttempt: debug.record }),
             signal: ctx.request.signal,
@@ -474,6 +483,15 @@ export function createPluginRoutes(
       },
     },
   };
+}
+
+function overrideMessageProblem(key: string, source: string | undefined, value: string, tag: string): string | undefined {
+  if (source === undefined || source.length === 0) {
+    const problems = validateMessage(value, tag);
+    return problems.length === 0 ? undefined : problems.join("; ");
+  }
+  const issue = validateMessageTranslation(key, source, value, tag);
+  return issue === null ? undefined : formatTokenValidationIssue(issue);
 }
 
 function overrideConflict(key: string): PluginRouteError {

@@ -15,7 +15,7 @@
  */
 
 import { getCollection, getEntry } from "astro:content";
-import { defaultLocale, fallback, locales, mode, noPrefixUrls, noTranslateBehavior } from "polystella:runtime-config";
+import { defaultLocale, fallback, localeTags, locales, mode, noPrefixUrls, noTranslateBehavior } from "polystella:runtime-config";
 
 import type { SourceEntryShape } from "./get-localized-entry.js";
 import { createMiddleware, type MiddlewareDeps, type PolystellaMiddleware } from "./middleware-core.js";
@@ -53,6 +53,7 @@ export function polystellaMiddleware(): PolystellaMiddleware {
     mode,
     fallback,
     noTranslateBehavior,
+    localeTags,
     getEntry: widenedGetEntry,
     getCollection: widenedGetCollection,
   } satisfies MiddlewareDeps);

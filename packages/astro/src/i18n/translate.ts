@@ -12,17 +12,28 @@
  *   3. The key itself, returned as a string. Last-resort fallback so
  *      a page never crashes on a missing key.
  *
- * Interpolation uses `{{name}}` placeholders. Unknown placeholders
- * pass through unchanged so authoring typos surface in the rendered
- * page rather than silently rendering empty.
+ * Strings are messages: `{{name}}` placeholders plus ICU plural,
+ * select and number/date formats. Missing values stay visible as
+ * source text so authoring typos surface in the rendered page.
  *
  * The pure helpers are exported so tests can pin behaviour without
  * going through Astro's content layer.
  */
 
-import { buildTranslateFn, type TranslateFn } from "@cloudflare/polystella-core/catalog";
+import { buildTranslateFn, resolveLocaleTag, type LocaleTags, type TranslateFn } from "@cloudflare/polystella-core/catalog";
 
-export { buildTranslateFn, interpolate, type InterpolateParams, type TranslateFn } from "@cloudflare/polystella-core/catalog";
+export {
+  buildTranslateFn,
+  createPassthroughTranslateFn,
+  formatMessage,
+  interpolate,
+  MessageSyntaxError,
+  resolveLocaleTag,
+  type InterpolateParams,
+  type LocaleTags,
+  type MessageValues,
+  type TranslateFn,
+} from "@cloudflare/polystella-core/catalog";
 
 /**
  * Astro-content shape we need at page-render time. Structural so
@@ -33,6 +44,8 @@ export type GetI18nEntry = (locale: string) => Promise<{ data: Record<string, st
 export interface UseTranslationsDeps {
   defaultLocale: string;
   getI18nEntry: GetI18nEntry;
+  /** Site locale code → BCP 47 tag used for plural rules and number/date formatting. */
+  localeTags?: LocaleTags | undefined;
 }
 
 /**
@@ -53,5 +66,8 @@ export async function resolveTranslations(locale: string | undefined, deps: UseT
     fallback = fallbackEntry?.data;
   }
 
-  return buildTranslateFn(primary, fallback);
+  return buildTranslateFn(primary, fallback, {
+    locale: resolveLocaleTag(effectiveLocale, deps.localeTags),
+    fallbackLocale: resolveLocaleTag(deps.defaultLocale, deps.localeTags),
+  });
 }

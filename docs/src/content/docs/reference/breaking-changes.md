@@ -12,6 +12,23 @@ the breaking entries.
 
 ## Unreleased (v0.x)
 
+### Catalog strings are ICU messages
+
+UI-string catalogs now use ICU MessageFormat with double outer braces
+(see [Catalog messages](/concepts/catalog-messages/)). Plain strings and
+`{{name}}` placeholders keep working. Three things change:
+
+- `TranslateFn` is an interface with required `raw(key)` and `locale`
+  members. Replace hand-written `(key) => key` translators with
+  `createPassthroughTranslateFn()` from `@cloudflare/polystella-core/catalog`.
+- `{{user.name}}` and `{{first-name}}` are invalid messages; rename the
+  placeholders. `t()` falls back to the default-locale string for them.
+- A single apostrophe directly before `{{` quotes the placeholder away.
+  Write `''` instead (`l''{{company}}`); `check-ui` reports the old form.
+
+Every locale must resolve to a BCP 47 tag `Intl` recognises. Map codes
+such as `jp` with `localeTags: { jp: "ja" }`.
+
 ### Low-level packages merged into core
 
 The `@cloudflare/polystella-adapters`, `@cloudflare/polystella-providers`,

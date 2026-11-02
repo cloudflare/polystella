@@ -6,7 +6,7 @@ import type { Glossary, Translator } from "@cloudflare/polystella-core";
 
 import { resolveOptions, type PolyStellaOptions, type PolyStellaResolvedOptions } from "./config/options.js";
 import { EMPTY_GLOSSARY_HASH, hashGlossary, loadGlossaries } from "./glossary/glossary.js";
-import { formatDriftIssues, loadAndCheckDrift } from "./i18n/drift.js";
+import { formatDriftIssues, formatMessageIssues, loadAndCheckDrift } from "./i18n/drift.js";
 import { setRuntimeBridge, type CustomLoaderTranslateRecord, type PolystellaRuntimeBridge } from "./runtime/custom-loader-runtime.js";
 import { computeBuildReportTotals, emitBuildReport, type BuildReport } from "./storage/report.js";
 import { DEFAULT_STAGING_DIR } from "./storage/paths.js";
@@ -126,6 +126,7 @@ export default function polystella(options: PolyStellaOptions): AstroIntegration
           `export const noTranslateBehavior = ${JSON.stringify(resolved.noTranslateBehavior)};`,
           `export const noPrefixUrls = ${JSON.stringify(resolved.noPrefixUrls)};`,
           `export const mode = ${JSON.stringify(resolved.mode)};`,
+          `export const localeTags = ${JSON.stringify(resolved.localeTags)};`,
           "",
         ].join("\n");
         updateConfig({
@@ -243,6 +244,7 @@ export default function polystella(options: PolyStellaOptions): AstroIntegration
           baseDir: "./src/content/i18n",
           locales: allLocalesIncludingDefault,
           defaultLocale: resolved.defaultLocale,
+          localeTags: resolved.localeTags,
         });
         if (!driftResult.ok) {
           throw new Error(
@@ -251,6 +253,11 @@ export default function polystella(options: PolyStellaOptions): AstroIntegration
             }.json):\n${formatDriftIssues(
               driftResult.issues,
             )}\n\nFix the listed locales and rebuild. To opt out of drift detection entirely, remove the default-locale JSON file (the integration silently skips drift checks until that file exists).`,
+          );
+        }
+        if (driftResult.messageIssues.length > 0) {
+          logger.warn(
+            `invalid UI-string messages (pages fall back to the default-locale string, then the key):\n${formatMessageIssues(driftResult.messageIssues)}`,
           );
         }
 
@@ -402,6 +409,7 @@ async function publishRuntimeBridge(opts: {
 
   const bridge: PolystellaRuntimeBridge = {
     defaultLocale: resolved.defaultLocale,
+    localeTags: resolved.localeTags,
     polystellaVersion: POLYSTELLA_VERSION,
     ...(resolved.prompt?.context !== undefined ? { context: resolved.prompt.context } : {}),
     r2,

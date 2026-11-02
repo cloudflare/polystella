@@ -14,20 +14,22 @@ have to thread `Astro.currentLocale` everywhere.
 const { t, lhref, getLocalizedEntry, getLocalizedCollection } = Astro.locals;
 ```
 
-### `t(key: string, params?: Record<string, string | number>): string`
+### `t(key: string, params?: Record<string, string | number | boolean | Date>): string`
 
 Look up a UI string. Returns the translation in the request's
 locale; falls back to the default locale if the key isn't in this
-locale's dictionary, then to the key itself.
+locale's dictionary (or its string is not a valid message), then to
+the key itself.
 
 ```astro
 <a href={lhref("/about")}>{t("nav.about")}</a>
 <p>{t("welcome.greeting", { name: user.name })}</p>
 ```
 
-The `{{name}}` placeholder interpolation is built in. Token-name
-preservation is validated post-translation; see
-[CLI → translate-ui](/cli/translate-ui/).
+Strings are messages: `{{name}}` placeholders plus ICU plural,
+select and number/date formats, see
+[Catalog messages](/concepts/catalog-messages/). `t.raw(key)` returns
+the unformatted template and `t.locale` the BCP 47 tag in use.
 
 ### `lhref(href: string): string`
 

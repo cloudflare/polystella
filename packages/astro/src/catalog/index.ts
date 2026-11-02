@@ -1,11 +1,17 @@
 export { DEFAULT_CATALOG_BASE, DEFAULT_CATALOG_PATTERN } from "./constants.js";
 export {
   buildTranslateFn,
+  createPassthroughTranslateFn,
+  formatMessage,
   interpolate,
+  MessageSyntaxError,
+  resolveLocaleTag,
   resolveTranslations,
   type CatalogDictionary,
   type GetCatalogDictionary,
   type InterpolateParams,
+  type LocaleTags,
+  type MessageValues,
   type MaybePromise,
   type ResolveCatalogTranslationsDeps,
   type TranslateFn,
@@ -14,13 +20,18 @@ export { CATALOG_GROUP_TITLE_KEY, detectCatalogFormat, flattenCatalog, type Cata
 export {
   checkI18nDrift,
   checkI18nDrift as checkCatalogDrift,
+  checkCatalogMessages,
   formatDriftIssues,
+  formatMessageIssues,
   loadAndCheckDrift,
   loadAndCheckDrift as loadAndCheckCatalogDrift,
+  type CheckCatalogMessagesInput,
   type DriftCheckInput,
   type DriftCheckResult,
   type DriftIssue,
   type LoadAndCheckDriftOptions,
+  type LoadAndCheckDriftResult,
+  type MessageIssue,
 } from "../i18n/drift.js";
 export {
   applySyncToDisk,

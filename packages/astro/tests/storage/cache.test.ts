@@ -957,6 +957,32 @@ describe("translateOrLoadFromCache — batching wire-through", () => {
   });
 });
 
+describe("translateOrLoadFromCache — language tags", () => {
+  it("names the mapped target language in the prompt while R2 keys keep the locale code", async () => {
+    const systemPrompts: string[] = [];
+    const r2 = makeInMemoryR2();
+    const echo = makeStubTranslator();
+    const translator: Translator = {
+      modelId: echo.modelId,
+      translate: (systemPrompt, userPrompt) => {
+        systemPrompts.push(systemPrompt);
+        return echo.translate(systemPrompt, userPrompt);
+      },
+    };
+    await translateOrLoadFromCache(
+      makeOptions({
+        r2: r2.client,
+        translator,
+        locale: "es-la",
+        key: "i18n/es-la/publications/sample.md#abc123.md",
+        targetLanguageTag: "es-419",
+      }),
+    );
+    expect(systemPrompts[0]).toContain("to Latin American Spanish (es-419)");
+    expect([...r2.store.keys()]).toEqual(["i18n/es-la/publications/sample.md#abc123.md"]);
+  });
+});
+
 describe("buildCacheMetadata", () => {
   it("emits the documented kebab-case key set with all values stringified", () => {
     const meta = buildCacheMetadata({

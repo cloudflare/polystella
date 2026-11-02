@@ -62,22 +62,22 @@ No lint step yet.
 
 Task → entry-point file(s) → key contract → deep-dive link.
 
-| Task                                                   | Entry point                                                                                           | Contract                                                                                                              | See                                                                                                                                                 |
-| :----------------------------------------------------- | :---------------------------------------------------------------------------------------------------- | :-------------------------------------------------------------------------------------------------------------------- | :-------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Add a file-format adapter                              | `packages/core/src/adapters/<name>.ts`; wrap/register in `packages/astro/src/parsing/`                | `FileAdapter` in `packages/core/src/adapters/adapter.ts`                                                              | [#adapter-contract](./ARCHITECTURE.md#adapter-contract); recipe in [contributor SKILL](./skills/polystella-contributor/SKILL.md#add-adapter)        |
-| Add a shared catalog CLI subcommand                    | Handler in `packages/core/src/cli/<name>.ts`; register in `packages/core/src/cli/run-command.ts`      | Argv parser + `run<Name>(args, deps)`                                                                                 | Recipe in [contributor SKILL](./skills/polystella-contributor/SKILL.md#add-cli-subcommand)                                                          |
-| Add a translation provider                             | Factory in `packages/core/src/providers/`; map config in `packages/astro/src/translation/provider.ts` | `Translator` in `packages/core/src/translator.ts`                                                                     | [#translator-contract](./ARCHITECTURE.md#translator-contract); recipe in [contributor SKILL](./skills/polystella-contributor/SKILL.md#add-provider) |
-| Change cache key formula                               | `packages/astro/src/storage/hash.ts`                                                                  | **Invariant 1** — cache-wide invalidation                                                                             | [#cache-key](./ARCHITECTURE.md#cache-key)                                                                                                           |
-| Edit translation batching                              | `packages/core/src/{batch,translate-segments}.ts`                                                     | **Invariant 2** — `flat(groups) === segments`                                                                         | [#translation-batching](./ARCHITECTURE.md#translation-batching)                                                                                     |
-| Modify cache/storage behaviour                         | `packages/astro/src/storage/{cache,r2,prune,local-cache,report}.ts`                                   | Apply-before-PUT (**Invariant 3**); index isolation (**Invariant 4**)                                                 | [#cache-write-order](./ARCHITECTURE.md#cache-write-order), [#local-staging-index](./ARCHITECTURE.md#local-staging-index)                            |
-| Modify runtime APIs (entry/collection/href/middleware) | `packages/astro/src/runtime/*`                                                                        | Bridge timing (**Invariant 5**); per-locale closures                                                                  | [#runtime-bridge](./ARCHITECTURE.md#runtime-bridge)                                                                                                 |
-| Modify routing shims                                   | `packages/astro/src/routing/{shim,expand-routes,walk-pages}.ts`                                       | Stale shims nuked per build; CSS via `routesImports`                                                                  | [#routing-shims](./ARCHITECTURE.md#routing-shims)                                                                                                   |
-| Edit UI-string handling                                | `packages/core/src/catalog/translate.ts`, `packages/core/src/cli/{drift,sync,translate-ui}.ts`        | Three drift modes; layout-aware writer; `{{token}}` preservation                                                      | [#ui-strings](./ARCHITECTURE.md#ui-strings)                                                                                                         |
-| Edit catalog-only adoption                             | `packages/core/src/catalog/index.ts`, `packages/astro/src/catalog/*`                                  | Pure imports; middleware binds only `t` + `lhref`                                                                     | [#ui-strings](./ARCHITECTURE.md#ui-strings); [consumer SKILL](./skills/polystella-consumer/SKILL.md#catalog-only-adoption)                          |
-| Modify the EmDash plugin                               | `packages/emdash/src/*`                                                                               | Provider/locale/model bounds stay server-owned; collection policy is administrator-owned; Git catalogs stay canonical | [#package-boundaries](./ARCHITECTURE.md#package-boundaries)                                                                                         |
-| Edit content-collection wiring                         | `packages/astro/src/content/*`                                                                        | Sibling collections; custom-loader wrapper; bridge timing                                                             | [#runtime-bridge](./ARCHITECTURE.md#runtime-bridge)                                                                                                 |
-| Debug a translation that's wrong                       | Start: `pnpm translate --dry-run` to inspect planned R2 keys; `LOG_LEVEL=debug` for batch detail      | —                                                                                                                     | Recipe in [contributor SKILL](./skills/polystella-contributor/SKILL.md#debug-translation)                                                           |
-| Tune cold-cache build performance                      | `r2.bulkListOnStart`, `concurrency`, `batchInputTokenBudget` knobs                                    | —                                                                                                                     | [#bulk-prelist](./ARCHITECTURE.md#bulk-prelist), [#translation-batching](./ARCHITECTURE.md#translation-batching)                                    |
+| Task                                                   | Entry point                                                                                                          | Contract                                                                                                              | See                                                                                                                                                 |
+| :----------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------- | :-------------------------------------------------------------------------------------------------------------------- | :-------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Add a file-format adapter                              | `packages/core/src/adapters/<name>.ts`; wrap/register in `packages/astro/src/parsing/`                               | `FileAdapter` in `packages/core/src/adapters/adapter.ts`                                                              | [#adapter-contract](./ARCHITECTURE.md#adapter-contract); recipe in [contributor SKILL](./skills/polystella-contributor/SKILL.md#add-adapter)        |
+| Add a shared catalog CLI subcommand                    | Handler in `packages/core/src/cli/<name>.ts`; register in `packages/core/src/cli/run-command.ts`                     | Argv parser + `run<Name>(args, deps)`                                                                                 | Recipe in [contributor SKILL](./skills/polystella-contributor/SKILL.md#add-cli-subcommand)                                                          |
+| Add a translation provider                             | Factory in `packages/core/src/providers/`; map config in `packages/astro/src/translation/provider.ts`                | `Translator` in `packages/core/src/translator.ts`                                                                     | [#translator-contract](./ARCHITECTURE.md#translator-contract); recipe in [contributor SKILL](./skills/polystella-contributor/SKILL.md#add-provider) |
+| Change cache key formula                               | `packages/astro/src/storage/hash.ts`                                                                                 | **Invariant 1** — cache-wide invalidation                                                                             | [#cache-key](./ARCHITECTURE.md#cache-key)                                                                                                           |
+| Edit translation batching                              | `packages/core/src/{batch,translate-segments}.ts`                                                                    | **Invariant 2** — `flat(groups) === segments`                                                                         | [#translation-batching](./ARCHITECTURE.md#translation-batching)                                                                                     |
+| Modify cache/storage behaviour                         | `packages/astro/src/storage/{cache,r2,prune,local-cache,report}.ts`                                                  | Apply-before-PUT (**Invariant 3**); index isolation (**Invariant 4**)                                                 | [#cache-write-order](./ARCHITECTURE.md#cache-write-order), [#local-staging-index](./ARCHITECTURE.md#local-staging-index)                            |
+| Modify runtime APIs (entry/collection/href/middleware) | `packages/astro/src/runtime/*`                                                                                       | Bridge timing (**Invariant 5**); per-locale closures                                                                  | [#runtime-bridge](./ARCHITECTURE.md#runtime-bridge)                                                                                                 |
+| Modify routing shims                                   | `packages/astro/src/routing/{shim,expand-routes,walk-pages}.ts`                                                      | Stale shims nuked per build; CSS via `routesImports`                                                                  | [#routing-shims](./ARCHITECTURE.md#routing-shims)                                                                                                   |
+| Edit UI-string handling                                | `packages/core/src/catalog/{message,locale-tags,translate}.ts`, `packages/core/src/cli/{drift,sync,translate-ui}.ts` | Three drift modes; layout-aware writer; ICU message validation; `localeTags`                                          | [#ui-strings](./ARCHITECTURE.md#ui-strings), [#catalog-messages](./ARCHITECTURE.md#catalog-messages)                                                |
+| Edit catalog-only adoption                             | `packages/core/src/catalog/index.ts`, `packages/astro/src/catalog/*`                                                 | Pure imports; middleware binds only `t` + `lhref`                                                                     | [#ui-strings](./ARCHITECTURE.md#ui-strings); [consumer SKILL](./skills/polystella-consumer/SKILL.md#catalog-only-adoption)                          |
+| Modify the EmDash plugin                               | `packages/emdash/src/*`                                                                                              | Provider/locale/model bounds stay server-owned; collection policy is administrator-owned; Git catalogs stay canonical | [#package-boundaries](./ARCHITECTURE.md#package-boundaries)                                                                                         |
+| Edit content-collection wiring                         | `packages/astro/src/content/*`                                                                                       | Sibling collections; custom-loader wrapper; bridge timing                                                             | [#runtime-bridge](./ARCHITECTURE.md#runtime-bridge)                                                                                                 |
+| Debug a translation that's wrong                       | Start: `pnpm translate --dry-run` to inspect planned R2 keys; `LOG_LEVEL=debug` for batch detail                     | —                                                                                                                     | Recipe in [contributor SKILL](./skills/polystella-contributor/SKILL.md#debug-translation)                                                           |
+| Tune cold-cache build performance                      | `r2.bulkListOnStart`, `concurrency`, `batchInputTokenBudget` knobs                                                   | —                                                                                                                     | [#bulk-prelist](./ARCHITECTURE.md#bulk-prelist), [#translation-batching](./ARCHITECTURE.md#translation-batching)                                    |
 
 If your task isn't on this list, the answer is in `packages/astro/src/<area>/`
 matching one of the subsystem sections in
@@ -1148,7 +1148,12 @@ Three CLI subcommands maintain the invariant:
   modes: missing keys, extra keys, and **empty-placeholder values**
   (a key shared with the source dict but with `""` in the locale
   where the source value is non-empty). The build's own drift check
-  at `astro:config:setup` uses the same predicate.
+  at `astro:config:setup` uses the same predicate. It also reports
+  **message issues** (`checkCatalogMessages` in
+  `packages/core/src/cli/drift.ts`): invalid syntax, apostrophes that
+  hide a placeholder, and translations whose placeholders or branches
+  differ from the default-locale string. `check-ui` exits 1 on them;
+  Astro builds only warn, because the runtime falls back safely.
 - **`sync-ui`** (`packages/core/src/cli/sync-ui.ts` +
   `packages/core/src/cli/sync.ts`) —
   mechanical key reconciliation. Adds missing keys as empty strings,
@@ -1170,9 +1175,42 @@ immediately before). The output then mirrors that layout for every
 locale. Without this, every sync run would churn diffs by reordering
 keys alphabetically.
 
-**`{{token}}` preservation.** Validated post-translation by
-extracting `{{\w+}}` tokens from both source and translation and
-comparing the sets. Validator lives _outside_ `translateBatch` (in
+<a id="catalog-messages"></a>
+
+**Message syntax.** Catalog strings are ICU MessageFormat written with
+double outer braces: every placeholder opens with `{{` and closes with
+`}}`, branch bodies use single braces, nested placeholders use `{{ }}`
+again (`{{count, plural, =0 {No roles} one {# role} other {# roles}}}`).
+`packages/core/src/catalog/message.ts` converts that dialect to strict
+ICU and hands it to `intl-messageformat`. Literal braces in text travel
+through the parser as private-use sentinels, not `'{'` quotes, because
+a quote followed by an apostrophe (`{'s`) reads as an escaped quote.
+Apostrophes follow ICU: `''` directly before `{{`, `}` or a plural `#`.
+
+Runtime contract (`buildTranslateFn` in
+`packages/core/src/catalog/index.ts`): `t` always formats; missing or
+unusable values stay visible as source text; a string that does not
+parse falls back to the default locale's string (formatted with the
+default locale's rules), then to the key. `t.raw(key)` returns the
+template from the same chain and `t.locale` the resolved tag.
+
+**Locale tags.** `localeTags` maps site locale codes to BCP 47 tags on
+every config surface. Unmapped codes are used as-is. Startup fails when
+a tag is malformed or `Intl.PluralRules.supportedLocalesOf` does not
+know it (`jp`, `cz`). Valid-but-wrong codes (`se` = Northern Sami, `kr` =
+Kanuri) cannot be detected. Tags feed plural rules, number/date
+formatting, validator categories and the language named in prompts;
+R2 keys and file names keep the locale code.
+
+**Translation validation.** Validated post-translation by
+`validateMessageTranslation`: the output must parse, keep placeholder
+names and types, keep select keys and `=N` branches, and use exactly
+the target locale's plural categories (`#` is not required in every
+branch). Sources that are not valid messages fall back to the legacy
+`{{\w+}}` set comparison (`validateTokenPreservation`, still used for
+EmDash content fields). The prompt gets an ICU rule listing the target
+categories only for batches that contain plural/select. Validator
+lives _outside_ `translateBatch` (in
 `packages/core/src/catalog/translate.ts`) because `translateBatch` doesn't expose
 a post-parse hook. The orchestrator runs its own per-request-batch
 retry wrapper with `maxRetries: 0` passed to `translateBatch` so the
@@ -1475,6 +1513,25 @@ Workflow:
 3. Spot-check translations; hand-edit any keys where you want exact wording. The AI step only fills _empty_ values, so a hand-written value stays untouched on subsequent runs.
 4. Commit. The pre-commit hook should run `polystella check-ui` automatically when `src/content/i18n/` is staged.
 
+Strings are ICU messages with double outer braces. Every placeholder
+opens with `{{` and closes with `}}`; branch bodies use single braces:
+
+```json
+{
+  "jobs.count": "{{count, plural, =0 {No roles} one {# role} other {# roles}}}",
+  "jobs.showing": "Showing {{visible}} of {{total, plural, one {# role} other {# roles}}}",
+  "jobs.team": "l''équipe {{company}}"
+}
+```
+
+`t("jobs.count", { count: 3 })` picks the branch with the locale's plural
+rules, so do not hand-roll `interpolateLabel` or `.replace("{{x}}")`
+helpers. Write `''` for an apostrophe directly before `{{`, `}` or a
+plural `#`. For islands, pass the locale: `useTranslations(dict, locale)`.
+Locale codes that are not BCP 47 tags (`jp`, `es-la`) need
+`localeTags: { jp: "ja", "es-la": "es-419" }` in `polystella.config.mjs`;
+the build fails until every code resolves to a tag `Intl` knows.
+
 Wire the pre-commit hook (`.githooks/pre-commit`):
 
 ```sh
@@ -1632,7 +1689,7 @@ After every translation pass, `astro build` (and `polystella translate`) writes 
 4. **`pnpm i18n:sync` alone is not enough** — Sync only reconciles keys; it leaves new keys as `""` placeholders. The build's drift check fails on `""` in a non-default locale when the source value is non-empty. Run `pnpm i18n:translate` (or hand-edit) to fill placeholders before committing.
 5. **CSS missing on translated routes** — Translated pages render via shims; Astro's per-route stylesheet injection doesn't follow CSS through child `<SourcePage />` components. List your global CSS in `routesImports` (or per-route via the object form) so shims emit the import directly.
 6. **`prettier --write` collapses sync writer's blank lines** — The UI-string sync writer preserves blank-line section breaks between key groups. `prettier --write` collapses them. The pre-commit hook should use `prettier --check` (not `--write`).
-7. **`{{token}}` placeholders dropped by AI** — Validated post-translation; if a token is missing or renamed after all retries, the key is left empty for manual fix-up. Hand-edit the locale JSON in that case.
+7. **Placeholders or plural branches broken by AI** — Validated post-translation (names, select keys, `=N` branches, the target's plural categories); after all retries the key is left empty for manual fix-up. `check-ui` flags the same problems in hand edits, including `l'{{company}}` (write `l''{{company}}`).
 8. **Override files don't get cache-invalidated** — Edits to overrides aren't reflected in the cache (overrides aren't cached). The override is read fresh every build.
 9. **MDX vs MD** — `.mdx` uses MDX syntax rules (imports/exports, JSX, expressions); `.md` stays plain Markdown. If your `.md` files use Markdown-only constructs, don't accidentally rename them to `.mdx`.
 10. **R2 credentials in repo** — Never commit credentials. Use `.env` (gitignored) + `dotenv/config` at the top of `polystella.config.mjs`. Workers Builds inject credentials via env vars; local development reads from `.env`.

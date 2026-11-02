@@ -3,6 +3,7 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
+import { assertLocaleTags, parseLocaleTags, type LocaleTags } from "../catalog/locale-tags.js";
 import type { ModelSpec } from "../index.js";
 
 import { validateGlossary } from "./glossary.js";
@@ -64,6 +65,8 @@ export interface CatalogResolvedConfig {
   prompt: { context?: string | undefined };
   concurrency: number;
   maxRetries: number;
+  /** Site locale code → BCP 47 tag, covering the default locale too. */
+  localeTags?: LocaleTags | undefined;
 }
 
 const ASTRO_CONFIG_FILES = ["astro.config.mjs", "astro.config.js", "astro.config.ts", "astro.config.mts"];
@@ -136,6 +139,18 @@ export async function loadPolystellaConfig(cwd: string): Promise<unknown> {
   }
 }
 
+/** Like `loadPolystellaConfig`, but `undefined` when `polystella.config.mjs` does not exist. */
+export async function loadOptionalPolystellaConfig(cwd: string): Promise<unknown> {
+  return existsSync(path.resolve(cwd, "polystella.config.mjs")) ? loadPolystellaConfig(cwd) : undefined;
+}
+
+/** Validated `localeTags` from a raw config; reads nothing else, so offline checks need no credentials. */
+export function resolveLocaleTagsConfig(raw: unknown, i18n: AstroI18nConfig): LocaleTags | undefined {
+  const localeTags = parseLocaleTags(asRecordOrUndefined(raw)?.localeTags, "polystella");
+  assertLocaleTags(i18n.locales, localeTags, "polystella");
+  return localeTags;
+}
+
 /** Resolve only options used by translate-ui; unrelated integration options are ignored. */
 export function resolveCatalogConfig(raw: unknown, i18n: AstroI18nConfig): CatalogResolvedConfig {
   const duplicates = i18n.locales.filter((locale, index) => i18n.locales.indexOf(locale) !== index);
@@ -147,6 +162,7 @@ export function resolveCatalogConfig(raw: unknown, i18n: AstroI18nConfig): Catal
     );
   }
   const config = requireRecord(raw, "<root>");
+  const localeTags = resolveLocaleTagsConfig(config, i18n);
   return {
     defaultLocale: i18n.defaultLocale,
     locales: i18n.locales.filter((locale) => locale !== i18n.defaultLocale),
@@ -155,6 +171,7 @@ export function resolveCatalogConfig(raw: unknown, i18n: AstroI18nConfig): Catal
     prompt: parsePrompt(config.prompt),
     concurrency: parseInteger(config.concurrency, "concurrency", 4, 1),
     maxRetries: parseInteger(config.maxRetries, "maxRetries", 2, 0),
+    ...(localeTags === undefined ? {} : { localeTags }),
   };
 }
 

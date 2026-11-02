@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { createPlugin, polystellaEmdash, validatePolystellaEmdashOptions, type PolystellaEmdashOptions } from "../src/index.js";
+import { deserializeOptions } from "../src/server/options.js";
 
 function validOptions(): PolystellaEmdashOptions {
   return {
@@ -150,6 +151,32 @@ describe("polystellaEmdash", () => {
     expect(serialized).toContain("CLOUDFLARE_WORKERS_AI_TOKEN");
     expect(serialized).not.toContain("fake-token");
     expect(JSON.stringify(descriptor)).not.toContain('apiToken":"secret');
+  });
+
+  it("validates localeTags and round-trips them through serialized runtime options", () => {
+    const configured: PolystellaEmdashOptions = {
+      ...validOptions(),
+      catalogs: {
+        defaultLocale: "en-US",
+        locales: {
+          "en-US": { dictionary: { greeting: "Hello" }, filePath: "src/i18n/en-US.json" },
+          jp: { dictionary: { greeting: "Hello" }, filePath: "src/i18n/jp.json" },
+        },
+      },
+      models: { allowed: ["model-a"], defaults: "model-a" },
+      glossaryDefaults: undefined,
+    };
+
+    expect(() => validatePolystellaEmdashOptions(configured)).toThrow('locale "jp" uses tag "jp"');
+    expect(() => validatePolystellaEmdashOptions({ ...configured, localeTags: { jp: "ja", fr: "fr" } })).toThrow(
+      "options.localeTags.fr must match a configured catalog locale",
+    );
+    expect(() => validatePolystellaEmdashOptions({ ...configured, localeTags: { jp: "" } })).toThrow("options.localeTags.jp");
+
+    const descriptor = polystellaEmdash({ ...configured, localeTags: { jp: "ja" } });
+    const runtimeOptions = descriptor.options;
+    if (runtimeOptions === undefined) throw new Error("descriptor options are missing");
+    expect(deserializeOptions(runtimeOptions).localeTags).toEqual({ jp: "ja" });
   });
 
   it("rejects unknown provider properties instead of serializing them", () => {

@@ -123,7 +123,7 @@ export interface CatalogViewResponse {
 export type CatalogGenerationResponse =
   | {
       translations: Record<string, string>;
-      tokenFailures: Array<{ key: string; missing: string[]; spurious: string[] }>;
+      tokenFailures: Array<{ key: string; missing: string[]; spurious: string[]; problems?: string[] | undefined }>;
       debug?: TranslationDebugTrace | undefined;
     }
   | { translations: null; tokenFailures: []; error: string; debug: TranslationDebugTrace };

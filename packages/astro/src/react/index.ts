@@ -18,19 +18,23 @@
  */
 
 import { useMemo } from "react";
-import { defaultLocale, locales, noPrefixUrls } from "polystella:runtime-config";
+import { defaultLocale, localeTags, locales, noPrefixUrls } from "polystella:runtime-config";
 
-import { buildTranslateFn, interpolate } from "../i18n/translate.js";
-import type { InterpolateParams, TranslateFn } from "../i18n/translate.js";
+import { buildTranslateFn, formatMessage, interpolate, resolveLocaleTag } from "../i18n/translate.js";
+import type { InterpolateParams, MessageValues, TranslateFn } from "../i18n/translate.js";
 import { resolveLocalizedHref } from "../runtime/localized-href.js";
 
 /**
  * React hook returning a `t(key, params?)` bound to the supplied
- * dictionary. Memoised on dictionary identity so re-renders that
- * pass the same object don't rebuild the lookup function.
+ * dictionary. Pass the dictionary's locale so plurals and numbers
+ * follow its rules (mapped through `localeTags`; default: the
+ * default locale). Memoised on dictionary identity and locale.
  */
-export function useTranslations(dictionary: Record<string, string>): TranslateFn {
-  return useMemo(() => buildTranslateFn(dictionary), [dictionary]);
+export function useTranslations(dictionary: Record<string, string>, locale?: string | undefined): TranslateFn {
+  return useMemo(
+    () => buildTranslateFn(dictionary, undefined, { locale: resolveLocaleTag(locale || defaultLocale, localeTags) }),
+    [dictionary, locale],
+  );
 }
 
 /**
@@ -57,4 +61,4 @@ export function useLocalizedHref(locale: string | undefined): (href: string) => 
   );
 }
 
-export { interpolate, type InterpolateParams, type TranslateFn };
+export { formatMessage, interpolate, type InterpolateParams, type MessageValues, type TranslateFn };

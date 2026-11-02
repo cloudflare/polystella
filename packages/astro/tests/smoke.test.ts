@@ -217,6 +217,7 @@ describe("smoke: polystella(options) integration end-to-end", () => {
     expect(source).toContain('export const locales = ["en-US","pt-BR"]');
     // Mode default is "auto" — surfaced verbatim for the runtime.
     expect(source).toContain('export const mode = "auto"');
+    expect(source).toContain("export const localeTags = {}");
   });
 
   it("auto-registers the middleware by default", async () => {

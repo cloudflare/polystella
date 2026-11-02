@@ -15,6 +15,7 @@
     "/cli/translate",
     "/cli/translate-ui",
     "/concepts/ai-marker",
+    "/concepts/catalog-messages",
     "/concepts/glossaries",
     "/concepts/how-it-works",
     "/concepts/mode-boundary",

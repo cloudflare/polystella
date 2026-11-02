@@ -6,7 +6,10 @@ import {
   selectEmptyKeys,
   translateCatalogEntries,
   translateUiStringsForLocale,
+  validateMessage,
+  validateMessageTranslation,
   validateTokenPreservation,
+  withMessageRules,
   withTokenPreservationRule,
 } from "../src/catalog/translate.js";
 
@@ -510,5 +513,109 @@ describe("translateCatalogEntries", () => {
     });
 
     expect(result.translations.get(key)).toBe("Enviar e-mail");
+  });
+});
+
+describe("validateMessageTranslation", () => {
+  const roles = "{{count, plural, =0 {No roles} one {# role} other {# roles}}}";
+
+  it("accepts translations with the target locale's plural categories", () => {
+    expect(
+      validateMessageTranslation("k", roles, "{{count, plural, =0 {Brak} one {# rola} few {# role} many {# ról} other {# roli}}}", "pl"),
+    ).toBeNull();
+    expect(validateMessageTranslation("k", roles, "{{count, plural, =0 {なし} other {# 件}}}", "ja")).toBeNull();
+    expect(validateMessageTranslation("k", "Hi {{name}}", "Olá {{ name }}", "pt-BR")).toBeNull();
+  });
+
+  it("does not require # in every branch", () => {
+    const ar = "{{count, plural, =0 {لا} zero {لا} one {وظيفة} two {وظيفتان} few {# وظائف} many {# وظيفة} other {# وظيفة}}}";
+    expect(validateMessageTranslation("k", roles, ar, "ar")).toBeNull();
+  });
+
+  it("reports missing plural categories, invalid categories and lost =N branches", () => {
+    const issue = validateMessageTranslation("k", roles, "{{count, plural, one {# rola} two {# role} other {# roli}}}", "pl");
+    expect(issue?.problems).toEqual([
+      "{{count}} plural branch two is never used in pl (use one, few, many, other)",
+      "{{count}} plural is missing few, many for pl",
+      "{{count}} plural lost exact branch =0",
+    ]);
+  });
+
+  it("reports changed select keys, changed types and renamed placeholders", () => {
+    const owner = "{{gender, select, female {Her} male {His} other {Their}}}";
+    expect(validateMessageTranslation("k", owner, "{{gender, select, mujer {Su} other {Su}}}", "es")?.problems).toEqual([
+      "{{gender}} select branches must match the source (female, male, other)",
+    ]);
+    expect(validateMessageTranslation("k", "{{n, number}} left", "{{n, plural, other {#}}} restantes", "es")?.problems).toContain(
+      "{{n}} changed from number to plural",
+    );
+    expect(validateMessageTranslation("k", "Hi {{name}}", "Olá {{nome}}", "pt")).toEqual({
+      key: "k",
+      missing: ["name"],
+      spurious: ["nome"],
+    });
+  });
+
+  it("reports invalid translations and apostrophes that hide a placeholder", () => {
+    expect(validateMessageTranslation("k", roles, "{{count, plural, one {# x}}}", "en")?.problems).toEqual([
+      "invalid message: plural/select needs an `other` branch at offset 26",
+    ]);
+    const issue = validateMessageTranslation("k", "the {{company}} team", "l'{{company}}", "fr");
+    expect(issue?.missing).toEqual(["company"]);
+    expect(issue?.problems).toEqual(["an apostrophe hides {{company}}; write '' before it"]);
+  });
+
+  it("falls back to token preservation when the source is not a valid message", () => {
+    expect(validateMessageTranslation("k", "Hi {{user.name}} {{x}}", "Olá", "pt")).toEqual({ key: "k", missing: ["x"], spurious: [] });
+  });
+});
+
+describe("validateMessage", () => {
+  it("checks syntax and plural branches the locale never uses, but not missing ones", () => {
+    expect(validateMessage("{{n, plural, one {# item} other {# items}}}", "en")).toEqual([]);
+    expect(validateMessage("{{n, plural, one {# item} few {# items} other {# items}}}", "en")).toEqual([
+      "{{n}} plural branch few is never used in en (use one, other)",
+    ]);
+    expect(validateMessage("{{n", "en")).toEqual(["invalid message: unclosed {{ at offset 0"]);
+  });
+});
+
+describe("withMessageRules", () => {
+  it("adds the apostrophe rule for placeholders and the ICU rule only for branching messages", () => {
+    const plain = withMessageRules(EMPTY_GLOSSARY, ["Hello"], "pl");
+    expect(plain.styleRules.map((rule) => rule.category)).toEqual(["placeholders"]);
+
+    const token = withMessageRules(EMPTY_GLOSSARY, ["Hi {{name}}"], "pl");
+    expect(token.styleRules.map((rule) => rule.category)).toEqual(["placeholders", "apostrophes"]);
+
+    const plural = withMessageRules(
+      EMPTY_GLOSSARY,
+      ["{{n, plural, one {# a} other {# b}}}", "{{n, selectordinal, one {#st} other {#th}}}"],
+      "pl",
+    );
+    const icu = plural.styleRules.find((rule) => rule.category === "icu-messages");
+    expect(icu?.instruction).toContain("For plural, write exactly these branches for pl: one, few, many, other.");
+    expect(icu?.instruction).toContain("For selectordinal, write exactly these branches for pl: other.");
+  });
+
+  it("puts the target's categories in the prompt and retries a plural mismatch", async () => {
+    const translator = makeStubTranslator([
+      markerResponse([[0, "{{n, plural, one {# plik} other {# pliki}}}"]]),
+      markerResponse([[0, "{{n, plural, one {# plik} few {# pliki} many {# plików} other {# pliku}}}"]]),
+    ]);
+    const result = await translateCatalogEntries({
+      translator,
+      glossary: EMPTY_GLOSSARY,
+      entries: [{ key: "files", source: "{{n, plural, one {# file} other {# files}}}" }],
+      sourceLocale: "en",
+      targetLocale: "pl",
+      maxRetries: 1,
+    });
+
+    const systemPrompt = vi.mocked(translator.translate).mock.calls[0]?.[0];
+    expect(systemPrompt).toContain("one, few, many, other");
+    expect(translator.calls).toBe(2);
+    expect(result.translations.get("files")).toBe("{{n, plural, one {# plik} few {# pliki} many {# plików} other {# pliku}}}");
+    expect(result.tokenFailures).toEqual([]);
   });
 });

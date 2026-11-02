@@ -60,7 +60,10 @@ export interface TranslateOrLoadOptions {
   r2: R2Client | null;
   translator: Translator;
   glossary: Glossary;
+  /** BCP 47 tag of the source language; prompt-only. */
   sourceLocale: string;
+  /** BCP 47 tag of the target language for the prompt. Default: `locale`. R2 keys always use `locale`. */
+  targetLanguageTag?: string | undefined;
   context?: string;
   /** From `buildCacheMetadata` — kept caller-built for hook/test parity. */
   metadata: Record<string, string>;
@@ -155,6 +158,7 @@ export async function translateOrLoadFromCache(opts: TranslateOrLoadOptions): Pr
     translator,
     glossary,
     sourceLocale,
+    targetLanguageTag,
     context,
     metadata,
     events,
@@ -233,7 +237,7 @@ export async function translateOrLoadFromCache(opts: TranslateOrLoadOptions): Pr
         ...(sourcePath !== undefined ? { sourcePath } : {}),
         glossary,
         sourceLocale,
-        targetLocale: locale,
+        targetLocale: targetLanguageTag ?? locale,
         context,
         ...(maxRetries !== undefined ? { maxRetries } : {}),
         ...(onRetry !== undefined ? { onRetry } : {}),
