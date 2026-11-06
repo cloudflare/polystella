@@ -27,6 +27,8 @@ const version = packageManifest.version;
 
 const STORAGE = {
   catalog_overrides: { indexes: ["locale"] },
+  batch_jobs: { indexes: ["createdAt"] },
+  batch_results: { indexes: ["jobId", "outcome"] },
 } satisfies PluginStorageConfig;
 
 const ADMIN_PAGES = [{ path: "/", label: "PolyStella" }];

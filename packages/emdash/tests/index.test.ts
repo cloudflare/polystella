@@ -42,7 +42,11 @@ describe("polystellaEmdash", () => {
       adminEntry: "@cloudflare/polystella-emdash/admin",
       adminPages: [{ path: "/", label: "PolyStella" }],
       capabilities: ["content:read", "schema:read"],
-      storage: { catalog_overrides: { indexes: ["locale"] } },
+      storage: {
+        catalog_overrides: { indexes: ["locale"] },
+        batch_jobs: { indexes: ["createdAt"] },
+        batch_results: { indexes: ["jobId", "outcome"] },
+      },
     });
     expect(plugin.id).toBe(descriptor.id);
     expect(plugin.version).toBe(descriptor.version);
@@ -59,6 +63,12 @@ describe("polystellaEmdash", () => {
       "catalog/runtime",
       "catalog/export",
       "translation-sandbox",
+      "batch/jobs",
+      "batch/start",
+      "batch/cancel",
+      "batch/retry",
+      "batch/translate",
+      "batch/record",
       "overrides",
     ]);
     expect(plugin.admin.entry).toBe(descriptor.adminEntry);
@@ -103,6 +113,7 @@ describe("polystellaEmdash", () => {
 
   it.each([
     ["binding", { ...validOptions(), provider: { kind: "workers-ai-binding", binding: "not-valid!" } }],
+    ["batch queue binding", { ...validOptions(), batchQueueBinding: "not-valid!" }],
     ["removed collections option", { ...validOptions(), collections: {} }],
     [
       "reserved UI model",
@@ -134,6 +145,12 @@ describe("polystellaEmdash", () => {
     ],
   ])("rejects invalid %s configuration", (_name, options) => {
     expect(() => validatePolystellaEmdashOptions(options)).toThrow("[polystella-emdash]");
+  });
+
+  it("keeps the batch queue binding through serialization", () => {
+    const runtimeOptions = polystellaEmdash({ ...validOptions(), batchQueueBinding: "POLYSTELLA_BATCH" }).options;
+    if (runtimeOptions === undefined) throw new Error("descriptor options are missing");
+    expect(deserializeOptions(runtimeOptions).batchQueueBinding).toBe("POLYSTELLA_BATCH");
   });
 
   it("supports runtime HTTP credential names without serializing credential values", () => {

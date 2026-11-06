@@ -1,11 +1,8 @@
 import {
   ApiResponseError,
-  createContent,
   entryLockRefusal,
   fetchCollection,
-  fetchContent,
   fetchTranslations,
-  updateContent,
   useCurrentUser,
   useNavigate,
   type ContentEditorPanelContext,
@@ -13,12 +10,8 @@ import {
 import { Banner, Button, Checkbox, Select } from "@cloudflare/kumo";
 import { useEffect, useState, type ReactNode } from "react";
 
-import {
-  MAX_CONTENT_FIELDS,
-  type CollectionPolicyResponse,
-  type TranslateContentResponse,
-  type TranslationDebugTrace,
-} from "../../contracts.js";
+import { MAX_CONTENT_FIELDS, type CollectionPolicyResponse, type TranslationDebugTrace } from "../../contracts.js";
+import { createTranslatedEntry, translateExistingEntry } from "../content-translation.js";
 import {
   errorMessage,
   formatErrorDetails,
@@ -121,20 +114,21 @@ export function ContentEditorPanel({ collection, entry, locale }: ContentEditorP
     setError(null);
     setDebug(null);
     try {
-      const saved = await fetchContent(collection, entry.id, { locale: targetLocale });
-      if (saved._rev === undefined) throw new Error("EmDash did not return a revision token; no fields were changed.");
-      setTranslationProgress({ percent: 45, label: "Translating selected fields" });
-      const result = await pluginRequest<TranslateContentResponse>("translate-content", {
-        method: "POST",
-        body: JSON.stringify({ collection, entryId: entry.id, targetLocale, fields: selected }),
+      const result = await translateExistingEntry({
+        collection,
+        entryId: entry.id,
+        locale: targetLocale,
+        fields: selected,
+        onTranslating: () => setTranslationProgress({ percent: 45, label: "Translating selected fields" }),
+        onTranslated: (trace) => {
+          if (trace !== undefined) setDebug(trace);
+          setTranslationProgress({ percent: 85, label: "Saving translated fields" });
+        },
       });
-      if (result.debug !== undefined) setDebug(result.debug);
-      if (result.patch === null) {
+      if (result.entry === null) {
         setError(panelError(new Error(result.error)));
         return;
       }
-      setTranslationProgress({ percent: 85, label: "Saving translated fields" });
-      await updateContent(collection, entry.id, { data: result.patch, _rev: saved._rev }, { locale: targetLocale });
       if (result.debug !== undefined && currentUser.data !== undefined && currentUser.data.role >= ADMIN_ROLE) {
         storeTranslationDebug(collection, entry.id, targetLocale, currentUser.data.id, result.debug);
       }
@@ -154,25 +148,23 @@ export function ContentEditorPanel({ collection, entry, locale }: ContentEditorP
     setError(null);
     setDebug(null);
     try {
-      const source = await fetchContent(collection, entry.id, { locale: entry.locale ?? undefined });
-      setTranslationProgress({ percent: 45, label: `Translating selected fields into ${createLocale}` });
-      const result = await pluginRequest<TranslateContentResponse>("translate-content", {
-        method: "POST",
-        body: JSON.stringify({ collection, entryId: entry.id, targetLocale: createLocale, fields: selected }),
+      const result = await createTranslatedEntry({
+        collection,
+        sourceEntryId: entry.id,
+        sourceLocale: entry.locale ?? undefined,
+        locale: createLocale,
+        fields: selected,
+        onTranslating: () => setTranslationProgress({ percent: 45, label: `Translating selected fields into ${createLocale}` }),
+        onTranslated: (trace) => {
+          if (trace !== undefined) setDebug(trace);
+          setTranslationProgress({ percent: 85, label: `Creating the ${createLocale} draft` });
+        },
       });
-      if (result.debug !== undefined) setDebug(result.debug);
-      if (result.patch === null) {
+      if (result.entry === null) {
         setError(panelError(new Error(result.error)));
         return;
       }
-      setTranslationProgress({ percent: 85, label: `Creating the ${createLocale} draft` });
-      // Same payload as EmDash's own "Create translation" button, with the selected fields translated.
-      const created = await createContent(collection, {
-        data: { ...source.data, ...result.patch },
-        slug: source.slug,
-        locale: createLocale,
-        translationOf: entry.id,
-      });
+      const created = result.entry;
       const createdLocale = created.locale ?? createLocale;
       if (result.debug !== undefined && currentUser.data !== undefined && currentUser.data.role >= ADMIN_ROLE) {
         storeTranslationDebug(collection, created.id, createdLocale, currentUser.data.id, result.debug);

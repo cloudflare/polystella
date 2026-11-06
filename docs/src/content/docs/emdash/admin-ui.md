@@ -1,15 +1,15 @@
 ---
 title: EmDash admin UI
-description: The Kumo React panels — Catalog, Collections, Translation settings, Translation sandbox — and the content-editor translation panel.
+description: The Kumo React panels — Catalog, Collections, Batch translation, Translation settings, Translation sandbox — and the content-editor translation panel.
 aiGenerated: true
 sidebar:
   label: Admin UI
 ---
 
-The native admin registers one **PolyStella** page with four tabs —
-**Catalog**, **Collections**, **Translation settings**, and
-**Translation sandbox** — rendered with EmDash's Kumo design system.
-No generated plugin settings page is registered.
+The native admin registers one **PolyStella** page with five tabs —
+**Catalog**, **Collections**, **Batch translation**, **Translation
+settings**, and **Translation sandbox** — rendered with EmDash's Kumo
+design system. No generated plugin settings page is registered.
 
 ## Collections tab
 
@@ -29,6 +29,36 @@ Saving is conditional on the settings revision you loaded. If another
 Administrator saved in the meantime, the save is rejected; reload the
 tab and reapply your change. The Translation settings tab behaves the
 same way.
+
+## Batch translation tab
+
+Translates many entries of one enabled collection at once, using the
+same route and saves as the content-editor panel. Choose:
+
+- **Entries** — the whole collection, or entries you tick in a
+  searchable list of source-locale entries.
+- **Target locales** — any of the configured non-default locales.
+- **Update existing translations** — off by default. When off, only
+  missing locales are created and existing translations are skipped.
+  When on, the collection's enabled fields are retranslated into
+  existing translations and saved with EmDash's `_rev` token, so an
+  entry edited during the run is skipped instead of overwritten.
+
+New translations are created as drafts. The run happens in the
+browser, three translations at a time: keep the tab open until it
+finishes. **Stop** lets in-flight translations finish and starts no
+new ones. Each entry and locale gets a result row (created, updated,
+skipped, or failed), and **Retry failed** reruns only the failed rows.
+Debug traces are not collected for batch runs.
+
+When the deployment sets
+[`batchQueueBinding`](/emdash/configuration/#batchqueuebinding), a
+**Run in** choice adds **Server queue**. The job is queued on
+Cloudflare Queues and keeps running after you close the tab. Server
+jobs only create missing translations; existing ones are skipped.
+The tab lists the last ten jobs with their progress, the first
+failures, **Cancel** (queued entries finish without translating), and
+**Retry failed**. It refreshes every five seconds while a job runs.
 
 ## Translation settings tab
 
