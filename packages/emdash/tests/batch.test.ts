@@ -14,7 +14,7 @@ vi.mock("@emdash-cms/admin", async (importOriginal) => ({ ...(await importOrigin
 const { findExistingTranslation, planBatchJobs, runBatchJob, runBatchJobs } =
   await import("../src/admin/plugin-page/tabs/BatchTab/helpers.js");
 
-const job = { item: { id: "post-1", title: "Hello" }, target: { locale: "fr", code: "fr-FR" } };
+const job = { item: { id: "post-1", title: "Hello", slug: "hello" }, target: { locale: "fr", code: "fr-FR" } };
 const options = { collection: "posts", sourceLocale: "en", fields: ["title"], updateExisting: false };
 
 beforeEach(() => {
@@ -25,8 +25,8 @@ beforeEach(() => {
 describe("batch translation", () => {
   it("plans one job per entry and locale", () => {
     const items = [
-      { id: "a", title: "A" },
-      { id: "b", title: "B" },
+      { id: "a", title: "A", slug: "a" },
+      { id: "b", title: "B", slug: null },
     ];
     const targets = [
       { locale: "fr", code: "fr-FR" },

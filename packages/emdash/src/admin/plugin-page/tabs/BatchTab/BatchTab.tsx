@@ -1,6 +1,6 @@
 import { fetchCollection, fetchCollections, fetchContentList } from "@emdash-cms/admin";
 import { Button, Checkbox, Input, LayerCard, Select, Switch, Table } from "@cloudflare/kumo";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 
 import {
   MAX_CONTENT_FIELDS,
@@ -9,7 +9,7 @@ import {
   type CollectionPolicyResponse,
   type CollectionSettingsResponse,
 } from "../../../../contracts.js";
-import { errorMessage, isTranslatable, pluginRequest, supportsTranslation } from "../../../utils.js";
+import { COLLECTIONS_SAVED_EVENT, errorMessage, isTranslatable, pluginRequest, supportsTranslation } from "../../../utils.js";
 import { cardStyle, mutedStyle, rowStyle, sectionStyle, stackStyle } from "../../../styles.js";
 import { ErrorMessage } from "../../../components/ErrorMessage/ErrorMessage.js";
 import { TranslationProgress } from "../../../components/TranslationProgress/TranslationProgress.js";
@@ -28,6 +28,11 @@ import {
 const CONCURRENCY = 3;
 const PAGE_SIZE = 50;
 const JOB_POLL_MS = 5000;
+const localeGridStyle: CSSProperties = {
+  display: "grid",
+  gap: "8px 16px",
+  gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))",
+};
 
 type Scope = "all" | "selected";
 type Runner = "browser" | "queue";
@@ -65,6 +70,7 @@ export function BatchTab(): ReactNode {
   const [runner, setRunner] = useState<Runner>("browser");
   const [serverJobs, setServerJobs] = useState<BatchJobsResponse | null>(null);
   const [jobsRefresh, setJobsRefresh] = useState(0);
+  const [policiesVersion, setPoliciesVersion] = useState(0);
   const stopRequested = useRef(false);
 
   useEffect(() => {
@@ -89,13 +95,19 @@ export function BatchTab(): ReactNode {
   }, [jobsActive]);
 
   useEffect(() => {
+    const reload = () => setPoliciesVersion((current) => current + 1);
+    window.addEventListener(COLLECTIONS_SAVED_EVENT, reload);
+    return () => window.removeEventListener(COLLECTIONS_SAVED_EVENT, reload);
+  }, []);
+
+  useEffect(() => {
     let active = true;
     Promise.all([fetchCollections(), pluginRequest<CollectionSettingsResponse>("settings/collections")])
       .then(([projectCollections, settings]) => {
         if (!active) return;
         const enabled = projectCollections.filter((item) => Object.hasOwn(settings.policies, item.slug));
         setCollections(enabled.map((item) => ({ slug: item.slug, label: item.label })));
-        setCollection(enabled[0]?.slug ?? "");
+        setCollection((current) => (enabled.some((item) => item.slug === current) ? current : (enabled[0]?.slug ?? "")));
       })
       .catch((cause: unknown) => {
         if (active) setError(errorMessage(cause));
@@ -103,16 +115,21 @@ export function BatchTab(): ReactNode {
     return () => {
       active = false;
     };
-  }, []);
+  }, [policiesVersion]);
 
   useEffect(() => {
-    if (collection.length === 0) return;
-    let active = true;
     setLoaded(null);
+    setLocales([]);
     setPage(null);
     setSelected(new Map());
     setResults([]);
     setTotal(0);
+  }, [collection]);
+
+  // Reloads on policy saves too, keeping the selection and any run in progress.
+  useEffect(() => {
+    if (collection.length === 0) return;
+    let active = true;
     Promise.all([
       pluginRequest<CollectionPolicyResponse>(`policy?collection=${encodeURIComponent(collection)}`),
       fetchCollection(collection, true),
@@ -123,8 +140,9 @@ export function BatchTab(): ReactNode {
           .filter((field) => policy.fields.includes(field.slug) && supportsTranslation(field) && isTranslatable(field))
           .map((field) => field.slug)
           .slice(0, MAX_CONTENT_FIELDS);
+        const available = policy.targetLocales.map(({ locale }) => locale);
         setLoaded({ policy, fields });
-        setLocales(policy.targetLocales.map(({ locale }) => locale));
+        setLocales((current) => (current.length === 0 ? available : current.filter((locale) => available.includes(locale))));
       })
       .catch((cause: unknown) => {
         if (active) setError(errorMessage(cause));
@@ -132,7 +150,7 @@ export function BatchTab(): ReactNode {
     return () => {
       active = false;
     };
-  }, [collection]);
+  }, [collection, policiesVersion]);
 
   useEffect(() => {
     if (loaded === null || scope !== "selected") return;
@@ -324,9 +342,12 @@ export function BatchTab(): ReactNode {
                   disabled={running}
                   onValueChange={setLocales}
                 >
-                  {policy.targetLocales.map(({ locale, code }) => (
-                    <Checkbox.Item key={locale} value={locale} label={locale === code ? locale : `${locale} (${code})`} />
-                  ))}
+                  {/* Kumo always stacks group items in one column; this grid packs them into rows instead. */}
+                  <div style={localeGridStyle}>
+                    {policy.targetLocales.map(({ locale, code }) => (
+                      <Checkbox.Item key={locale} value={locale} label={locale === code ? locale : `${locale} (${code})`} />
+                    ))}
+                  </div>
                 </Checkbox.Group>
                 {runner === "browser" ? (
                   <Switch
@@ -375,6 +396,7 @@ export function BatchTab(): ReactNode {
                     }
                   />
                   <Table.Head>Entry</Table.Head>
+                  <Table.Head>Slug</Table.Head>
                 </Table.Row>
               </Table.Header>
               <Table.Body>
@@ -394,6 +416,7 @@ export function BatchTab(): ReactNode {
                       }
                     />
                     <Table.Cell>{item.title}</Table.Cell>
+                    <Table.Cell>{item.slug === null ? <span style={mutedStyle}>No slug</span> : <code>{item.slug}</code>}</Table.Cell>
                   </Table.Row>
                 ))}
               </Table.Body>
@@ -482,7 +505,10 @@ async function loadItems(collection: string, locale: string | null, search: stri
     ...(query.length === 0 ? {} : { search: query }),
     ...(cursor === undefined ? {} : { cursor }),
   });
-  return { items: result.items.map((item) => ({ id: item.id, title: entryTitle(item) })), nextCursor: result.nextCursor };
+  return {
+    items: result.items.map((item) => ({ id: item.id, title: entryTitle(item), slug: item.slug })),
+    nextCursor: result.nextCursor,
+  };
 }
 
 async function loadAllItems(collection: string, locale: string | null): Promise<BatchItem[]> {

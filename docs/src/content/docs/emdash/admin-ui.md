@@ -35,8 +35,9 @@ same way.
 Translates many entries of one enabled collection at once, using the
 same route and saves as the content-editor panel. Choose:
 
-- **Entries** — the whole collection, or entries you tick in a
-  searchable list of source-locale entries.
+- **Entries** — the whole collection, or entries you tick in a list
+  of source-locale entries that shows each slug and searches by
+  title or slug.
 - **Target locales** — any of the configured non-default locales.
 - **Update existing translations** — off by default. When off, only
   missing locales are created and existing translations are skipped.

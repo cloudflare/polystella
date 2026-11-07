@@ -9,6 +9,7 @@ export type BatchTargetLocale = CollectionPolicyResponse["targetLocales"][number
 export interface BatchItem {
   id: string;
   title: string;
+  slug: string | null;
 }
 
 export interface BatchJob {
