@@ -2,12 +2,13 @@ import { Tabs } from "@cloudflare/kumo";
 import { useState, type ReactNode } from "react";
 
 import { pageStyle, tabLabelStyle, titleStyle } from "../styles.js";
+import { BatchTab } from "./tabs/BatchTab/BatchTab.js";
 import { CatalogTab } from "./tabs/CatalogTab/CatalogTab.js";
 import { CollectionsTab } from "./tabs/CollectionsTab/CollectionsTab.js";
 import { SandboxTab } from "./tabs/SandboxTab/SandboxTab.js";
 import { TranslationSettingsTab } from "./tabs/TranslationSettingsTab/TranslationSettingsTab.js";
 
-type AdminTab = "catalog" | "collections" | "translation" | "sandbox";
+type AdminTab = "catalog" | "collections" | "batch" | "translation" | "sandbox";
 
 export function Page(): ReactNode {
   const [activeTab, setActiveTab] = useState<AdminTab>("catalog");
@@ -19,12 +20,15 @@ export function Page(): ReactNode {
         tabs={[
           { value: "catalog", label: <span style={tabLabelStyle}>Catalog</span> },
           { value: "collections", label: <span style={tabLabelStyle}>Collections</span> },
+          { value: "batch", label: <span style={tabLabelStyle}>Batch translation</span> },
           { value: "translation", label: <span style={tabLabelStyle}>Translation settings</span> },
           { value: "sandbox", label: <span style={tabLabelStyle}>Sandbox</span> },
         ]}
         value={activeTab}
         onValueChange={(value) => {
-          if (value === "catalog" || value === "collections" || value === "translation" || value === "sandbox") setActiveTab(value);
+          if (value === "catalog" || value === "collections" || value === "batch" || value === "translation" || value === "sandbox") {
+            setActiveTab(value);
+          }
         }}
       />
       <div hidden={activeTab !== "catalog"}>
@@ -32,6 +36,9 @@ export function Page(): ReactNode {
       </div>
       <div hidden={activeTab !== "collections"}>
         <CollectionsTab />
+      </div>
+      <div hidden={activeTab !== "batch"}>
+        <BatchTab />
       </div>
       <div hidden={activeTab !== "translation"}>
         <TranslationSettingsTab />

@@ -7,7 +7,17 @@ import {
   validateMessage,
   validateMessageTranslation,
 } from "@cloudflare/polystella-core/catalog/translate";
-import { getI18nConfig, PluginRouteError, type LogAccess, type PluginRoute, type SettingsAccess, type StorageCollection } from "emdash";
+import {
+  getI18nConfig,
+  PluginRouteError,
+  type CollectionSchemaInfo,
+  type LogAccess,
+  type PluginContentItem,
+  type PluginRoute,
+  type RouteContext,
+  type SettingsAccess,
+  type StorageCollection,
+} from "emdash";
 
 import {
   applyCatalogOverrides,
@@ -27,6 +37,11 @@ import {
   MAX_CATALOG_KEYS,
   MAX_CONTENT_FIELDS,
   MAX_SANDBOX_CHARACTERS,
+  MAX_BATCH_FAILURES_SHOWN,
+  MAX_BATCH_TRANSLATIONS,
+  type BatchJobOutcome,
+  type BatchJobsResponse,
+  type BatchJobView,
   type CatalogClearSyncedResponse,
   type CatalogEntryView,
   type CatalogExportResponse,
@@ -34,12 +49,27 @@ import {
   type CatalogOverrideMutationResponse,
   type CatalogRuntimeMutationResponse,
   type CatalogViewResponse,
+  type CollectionPolicy,
   type CollectionPolicyResponse,
   type RuntimeOverridesResponse,
   type TranslateContentResponse,
   type TranslationSandboxResponse,
 } from "../../contracts.js";
 import { invalidateRuntimeOverrides } from "../../runtime-cache.js";
+import {
+  batchQueue,
+  batchResultId,
+  enqueueBatchMessages,
+  MAX_BATCH_MESSAGE_CHARACTERS,
+  parseStoredJob,
+  parseStoredResult,
+  readBatchJob,
+  readBatchMessage,
+  recordBatchResult,
+  type BatchMessage,
+  type BatchTranslateResponse,
+  type StoredBatchJob,
+} from "../batch.js";
 import { resolveGlossary, resolveInstructions, runtimeOverrideSettingKey } from "../../settings.js";
 import type { PolystellaEmdashOptions } from "../options.js";
 import { localeTag, targetLocales } from "../options.js";
@@ -71,6 +101,7 @@ import { readBoolean, readLocale, readNullableStringRecord, readRecord, readStri
 export type { PluginRouteDependencies };
 
 const MAX_CATALOG_SOURCE_CHARACTERS = 30_000;
+const RECENT_BATCH_JOBS = 10;
 const ADMIN_ROLE = 50;
 const TRANSLATABLE_FIELD_TYPES = new Set(["string", "text", "portableText"]);
 
@@ -138,47 +169,19 @@ export function createPluginRoutes(
           );
           const entryId = readString(input.entryId, "entryId");
           const selectedFields = [...new Set(readStringArray(input.fields, "fields", false))];
-          const policies = await collectionPolicies(ctx.settings);
-          const policy = Object.hasOwn(policies, collection) ? policies[collection] : undefined;
-          if (policy === undefined) {
-            throw PluginRouteError.forbidden("PolyStella is not enabled for this collection");
-          }
+          const policy = await enabledCollectionPolicy(ctx.settings, collection);
           if (selectedFields.length > MAX_CONTENT_FIELDS) {
             throw PluginRouteError.badRequest(`fields cannot contain more than ${MAX_CONTENT_FIELDS} values`);
           }
           if (selectedFields.some((field) => !policy.fields.includes(field))) {
             throw PluginRouteError.badRequest("fields must be enabled in PolyStella collection settings");
           }
-          if (ctx.schema === undefined) throw PluginRouteError.internal("schema access is unavailable");
-          const collectionSchema = await ctx.schema.getCollection(collection);
-          if (collectionSchema === null) throw PluginRouteError.notFound("collection not found");
-          const untranslatableField = selectedFields.find((slug) => {
-            const field = collectionSchema.fields.find((candidate) => candidate.slug === slug);
-            return field === undefined || !field.translatable || !TRANSLATABLE_FIELD_TYPES.has(field.type);
-          });
+          const schema = await collectionSchema(ctx, collection);
+          const untranslatableField = selectedFields.find((slug) => !isTranslatableField(schema, slug));
           if (untranslatableField !== undefined) {
             throw PluginRouteError.badRequest(`field "${untranslatableField}" is not a translatable text field in the collection schema`);
           }
-          if (ctx.content === undefined) throw PluginRouteError.internal("content access is unavailable");
-          const item = await ctx.content.get(collection, entryId);
-          if (item === null) throw PluginRouteError.notFound("content entry not found");
-          // A source-locale entry is translated directly so the panel can create a missing locale.
-          const isSourceEntry = sameContentLocale(item.locale, options.catalogs.defaultLocale, dependencies);
-          if (!isSourceEntry && !sameContentLocale(item.locale, targetLocale, dependencies)) {
-            throw PluginRouteError.badRequest("entry locale must match targetLocale or the source locale");
-          }
-          let sourceItem = item;
-          if (!isSourceEntry) {
-            const siblings = await ctx.content.getTranslations?.(collection, entryId);
-            const sourceId = siblings?.translations.find((sibling) =>
-              sameContentLocale(sibling.locale, options.catalogs.defaultLocale, dependencies),
-            )?.id;
-            sourceItem = (sourceId === undefined ? null : await ctx.content.get(collection, sourceId)) ?? item;
-          }
-          const values = Object.fromEntries(
-            selectedFields.flatMap((field) => (Object.hasOwn(sourceItem.data, field) ? [[field, sourceItem.data[field]]] : [])),
-          );
-          if (Object.keys(values).length === 0) throw PluginRouteError.badRequest("selected fields have no saved values");
+          const { values } = await loadTranslationSource(ctx, options, dependencies, collection, entryId, targetLocale, selectedFields);
 
           const settings = await translationSettings(options, targetLocale, ctx.settings, ctx.log, dependencies);
           if (settings.debugEnabled && (ctx.user?.role ?? 0) >= ADMIN_ROLE) {
@@ -469,6 +472,180 @@ export function createPluginRoutes(
         }
       },
     },
+    "batch/jobs": {
+      permission: "plugins:manage",
+      methods: ["GET"],
+      async handler(ctx) {
+        const { jobs, results } = batchStorage(ctx.storage);
+        const page = await jobs.query({ orderBy: { createdAt: "desc" }, limit: RECENT_BATCH_JOBS });
+        const views = await Promise.all(
+          page.items.flatMap(({ id, data }) => {
+            const job = parseStoredJob(data);
+            return job === null ? [] : [batchJobView(results, id, job)];
+          }),
+        );
+        return { queueEnabled: options.batchQueueBinding !== undefined, jobs: views } satisfies BatchJobsResponse;
+      },
+    },
+    "batch/start": {
+      permission: "plugins:manage",
+      methods: ["POST"],
+      async handler(ctx) {
+        const input = readRecord(ctx.input, "request body");
+        const collection = readString(input.collection, "collection");
+        const locales = [
+          ...new Set(
+            readStringArray(input.locales, "locales", false).map((locale) =>
+              configuredTargetLocale(options, catalogLocale(options, readLocale(locale, "locales"), dependencies)),
+            ),
+          ),
+        ];
+        const selectedIds = input.entryIds === undefined ? undefined : [...new Set(readStringArray(input.entryIds, "entryIds", false))];
+        await enabledCollectionPolicy(ctx.settings, collection);
+        const queue = batchQueue(options.batchQueueBinding, await dependencies.getEnv());
+        const maxEntries = Math.floor(MAX_BATCH_TRANSLATIONS / locales.length);
+        const entryIds =
+          selectedIds ??
+          (await listSourceEntryIds(ctx, collection, contentLocale(options.catalogs.defaultLocale, dependencies), maxEntries));
+        if (entryIds.length === 0) throw PluginRouteError.badRequest("the collection has no source entries to translate");
+        if (entryIds.length > maxEntries) throw tooManyBatchTranslations();
+
+        const { jobs, results } = batchStorage(ctx.storage);
+        const jobId = crypto.randomUUID();
+        const job: StoredBatchJob = {
+          collection,
+          locales,
+          total: entryIds.length * locales.length,
+          status: "running",
+          createdAt: dependencies.now().toISOString(),
+          createdBy: ctx.user?.id ?? null,
+        };
+        await jobs.put(jobId, job);
+        await enqueueBatchMessages(
+          queue,
+          entryIds.flatMap((entryId) => locales.map((locale) => ({ jobId, entryId, locale }))),
+        );
+        return batchJobView(results, jobId, job);
+      },
+    },
+    "batch/cancel": {
+      permission: "plugins:manage",
+      methods: ["POST"],
+      async handler(ctx) {
+        const jobId = readString(readRecord(ctx.input, "request body").jobId, "jobId");
+        const { jobs, results } = batchStorage(ctx.storage);
+        const job = await updateBatchJobStatus(jobs, jobId, "cancelled");
+        return batchJobView(results, jobId, job);
+      },
+    },
+    "batch/retry": {
+      permission: "plugins:manage",
+      methods: ["POST"],
+      async handler(ctx) {
+        const jobId = readString(readRecord(ctx.input, "request body").jobId, "jobId");
+        const { jobs, results } = batchStorage(ctx.storage);
+        const queue = batchQueue(options.batchQueueBinding, await dependencies.getEnv());
+        const failed: BatchMessage[] = [];
+        let cursor: string | undefined;
+        do {
+          const page = await results.query({
+            where: { jobId, outcome: "failed" },
+            limit: 100,
+            ...(cursor === undefined ? {} : { cursor }),
+          });
+          for (const { data } of page.items) {
+            const row = parseStoredResult(data);
+            if (row !== null) failed.push({ jobId, entryId: row.entryId, locale: row.locale });
+          }
+          cursor = page.hasMore ? page.cursor : undefined;
+        } while (cursor !== undefined);
+        const job = await updateBatchJobStatus(jobs, jobId, "running");
+        // Failed rows stay until their retry records a new outcome over them.
+        await enqueueBatchMessages(queue, failed);
+        return batchJobView(results, jobId, job);
+      },
+    },
+    // Called by the queue consumer through `withEmDashRuntime`; returns the draft for the consumer to create.
+    "batch/translate": {
+      permission: "plugins:manage",
+      methods: ["POST"],
+      async handler(ctx) {
+        const message = readBatchMessage(ctx.input);
+        if (message === null) throw PluginRouteError.badRequest("invalid batch message");
+        const { jobs, results } = batchStorage(ctx.storage);
+        const job = await readBatchJob(jobs, message.jobId);
+        if (job === null || job.status === "cancelled" || !job.locales.includes(message.locale)) {
+          return { create: null } satisfies BatchTranslateResponse;
+        }
+        const previous = parseStoredResult(await results.get(batchResultId(message)));
+        if (previous !== null && previous.outcome !== "failed") return { create: null } satisfies BatchTranslateResponse;
+
+        const record = async (outcome: BatchJobOutcome, detail: string | null): Promise<BatchTranslateResponse> => {
+          await recordBatchResult(results, message, outcome, detail, dependencies.now());
+          return { create: null };
+        };
+        try {
+          const collection = job.collection;
+          const policy = await enabledCollectionPolicy(ctx.settings, collection);
+          const schema = await collectionSchema(ctx, collection);
+          const fields = policy.fields.filter((slug) => isTranslatableField(schema, slug)).slice(0, MAX_CONTENT_FIELDS);
+          if (fields.length === 0) return await record("failed", "No translatable fields are enabled for this collection.");
+          const siblings = await ctx.content?.getTranslations?.(collection, message.entryId);
+          if (siblings?.translations.some((sibling) => sameContentLocale(sibling.locale, message.locale, dependencies))) {
+            return await record("skipped", "A translation already exists.");
+          }
+          const { sourceItem, values } = await loadTranslationSource(
+            ctx,
+            options,
+            dependencies,
+            collection,
+            message.entryId,
+            message.locale,
+            fields,
+          );
+          if (sourceItem.id !== message.entryId) return await record("failed", "The entry is not in the source locale.");
+          const settings = await translationSettings(options, message.locale, ctx.settings, ctx.log, dependencies);
+          const result = await translateContentFields({
+            values,
+            translator: settings.translator,
+            glossary: settings.glossary,
+            sourceLocale: localeTag(options, options.catalogs.defaultLocale),
+            targetLocale: localeTag(options, message.locale),
+            ...(settings.promptInstruction === undefined ? {} : { promptInstruction: settings.promptInstruction }),
+            signal: ctx.request.signal,
+          });
+          return {
+            create: {
+              collection,
+              data: { ...sourceItem.data, ...result.patch },
+              slug: sourceItem.slug,
+              locale: contentLocale(message.locale, dependencies),
+              translationOf: sourceItem.id,
+              ...(job.createdBy === null ? {} : { authorId: job.createdBy }),
+            },
+          } satisfies BatchTranslateResponse;
+        } catch (error) {
+          return await record("failed", batchFailureMessage(error, ctx.log));
+        }
+      },
+    },
+    // Called by the queue consumer once it has created (or failed to create) the draft.
+    "batch/record": {
+      permission: "plugins:manage",
+      methods: ["POST"],
+      async handler(ctx) {
+        const input = readRecord(ctx.input, "request body");
+        const message = readBatchMessage(input);
+        if (message === null) throw PluginRouteError.badRequest("invalid batch message");
+        const outcome = input.outcome;
+        if (outcome !== "created" && outcome !== "skipped" && outcome !== "failed") {
+          throw PluginRouteError.badRequest("outcome must be created, skipped, or failed");
+        }
+        const detail = input.message === null ? null : readText(input.message, "message", MAX_BATCH_MESSAGE_CHARACTERS);
+        await recordBatchResult(batchStorage(ctx.storage).results, message, outcome, detail, dependencies.now());
+        return { recorded: true };
+      },
+    },
     overrides: {
       public: true,
       cacheControl: "public, max-age=60, stale-while-revalidate=300",
@@ -483,6 +660,123 @@ export function createPluginRoutes(
       },
     },
   };
+}
+
+function batchStorage(storage: Record<string, StorageCollection | undefined>): { jobs: StorageCollection; results: StorageCollection } {
+  const jobs = storage.batch_jobs;
+  const results = storage.batch_results;
+  if (jobs === undefined || results === undefined) throw PluginRouteError.internal("batch job storage is unavailable");
+  return { jobs, results };
+}
+
+async function listSourceEntryIds(ctx: RouteContext, collection: string, locale: string, maxEntries: number): Promise<string[]> {
+  if (ctx.content === undefined) throw PluginRouteError.internal("content access is unavailable");
+  const ids: string[] = [];
+  let cursor: string | undefined;
+  do {
+    const page = await ctx.content.list(collection, { where: { locale }, limit: 100, ...(cursor === undefined ? {} : { cursor }) });
+    ids.push(...page.items.map((item) => item.id));
+    if (ids.length > maxEntries) throw tooManyBatchTranslations();
+    cursor = page.hasMore ? page.cursor : undefined;
+  } while (cursor !== undefined);
+  return ids;
+}
+
+function tooManyBatchTranslations(): PluginRouteError {
+  return PluginRouteError.badRequest(
+    `a batch job cannot contain more than ${MAX_BATCH_TRANSLATIONS} translations; select fewer entries or locales`,
+  );
+}
+
+async function updateBatchJobStatus(jobs: StorageCollection, jobId: string, status: StoredBatchJob["status"]): Promise<StoredBatchJob> {
+  const stored = await jobs.getVersioned(jobId);
+  const job = stored === null ? null : parseStoredJob(stored.value);
+  if (stored === null || job === null) throw PluginRouteError.notFound("batch job not found");
+  const next: StoredBatchJob = { ...job, status };
+  if (!(await jobs.compareAndSet(jobId, stored.revision, next)).applied) {
+    throw PluginRouteError.conflict("The batch job changed. Reload and try again.");
+  }
+  return next;
+}
+
+async function batchJobView(results: StorageCollection, id: string, job: StoredBatchJob): Promise<BatchJobView> {
+  const countOutcome = (outcome: BatchJobOutcome) => results.count({ jobId: id, outcome });
+  const [created, skipped, failed, failures] = await Promise.all([
+    countOutcome("created"),
+    countOutcome("skipped"),
+    countOutcome("failed"),
+    results.query({ where: { jobId: id, outcome: "failed" }, limit: MAX_BATCH_FAILURES_SHOWN }),
+  ]);
+  return {
+    id,
+    collection: job.collection,
+    locales: job.locales,
+    total: job.total,
+    status: job.status,
+    createdAt: job.createdAt,
+    counts: { created, skipped, failed },
+    failures: failures.items.flatMap(({ data }) => {
+      const row = parseStoredResult(data);
+      return row === null ? [] : [{ entryId: row.entryId, locale: row.locale, message: row.message }];
+    }),
+  };
+}
+
+function batchFailureMessage(error: unknown, log: LogAccess): string {
+  if (error instanceof PluginRouteError || error instanceof ContentTranslationInputError) return error.message;
+  // Rethrows aborts, so the queue retries the message.
+  return translationFailureMessage(error, log, "batch");
+}
+
+async function enabledCollectionPolicy(settings: SettingsAccess, collection: string): Promise<CollectionPolicy> {
+  const policies = await collectionPolicies(settings);
+  const policy = Object.hasOwn(policies, collection) ? policies[collection] : undefined;
+  if (policy === undefined) throw PluginRouteError.forbidden("PolyStella is not enabled for this collection");
+  return policy;
+}
+
+async function collectionSchema(ctx: RouteContext, collection: string): Promise<CollectionSchemaInfo> {
+  if (ctx.schema === undefined) throw PluginRouteError.internal("schema access is unavailable");
+  const schema = await ctx.schema.getCollection(collection);
+  if (schema === null) throw PluginRouteError.notFound("collection not found");
+  return schema;
+}
+
+function isTranslatableField(schema: CollectionSchemaInfo, slug: string): boolean {
+  const field = schema.fields.find((candidate) => candidate.slug === slug);
+  return field !== undefined && field.translatable && TRANSLATABLE_FIELD_TYPES.has(field.type);
+}
+
+async function loadTranslationSource(
+  ctx: RouteContext,
+  options: PolystellaEmdashOptions,
+  dependencies: PluginRouteDependencies,
+  collection: string,
+  entryId: string,
+  targetLocale: string,
+  fields: readonly string[],
+): Promise<{ sourceItem: PluginContentItem; values: Record<string, unknown> }> {
+  if (ctx.content === undefined) throw PluginRouteError.internal("content access is unavailable");
+  const item = await ctx.content.get(collection, entryId);
+  if (item === null) throw PluginRouteError.notFound("content entry not found");
+  // A source-locale entry is translated directly so the panel can create a missing locale.
+  const isSourceEntry = sameContentLocale(item.locale, options.catalogs.defaultLocale, dependencies);
+  if (!isSourceEntry && !sameContentLocale(item.locale, targetLocale, dependencies)) {
+    throw PluginRouteError.badRequest("entry locale must match targetLocale or the source locale");
+  }
+  let sourceItem = item;
+  if (!isSourceEntry) {
+    const siblings = await ctx.content.getTranslations?.(collection, entryId);
+    const sourceId = siblings?.translations.find((sibling) =>
+      sameContentLocale(sibling.locale, options.catalogs.defaultLocale, dependencies),
+    )?.id;
+    sourceItem = (sourceId === undefined ? null : await ctx.content.get(collection, sourceId)) ?? item;
+  }
+  const values = Object.fromEntries(
+    fields.flatMap((field) => (Object.hasOwn(sourceItem.data, field) ? [[field, sourceItem.data[field]]] : [])),
+  );
+  if (Object.keys(values).length === 0) throw PluginRouteError.badRequest("selected fields have no saved values");
+  return { sourceItem, values };
 }
 
 function overrideMessageProblem(key: string, source: string | undefined, value: string, tag: string): string | undefined {

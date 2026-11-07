@@ -4,6 +4,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   MAX_SANDBOX_CHARACTERS,
+  type BatchJobsResponse,
+  type BatchJobView,
   type CatalogClearSyncedResponse,
   type CatalogExportResponse,
   type CatalogGenerationResponse,
@@ -132,25 +134,31 @@ function createStorage(): StorageCollection {
       for (const id of ids) if (rows.delete(id)) count++;
       return count;
     },
-    query: async (query = {}) => {
-      const locale = query.where?.locale;
-      const items = [...rows]
-        .filter(([, row]) => locale === undefined || (isRecord(row.value) && row.value.locale === locale))
-        .map(([id, row]) => ({ id, data: row.value }));
-      return { items, hasMore: false };
-    },
-    count: async () => rows.size,
+    query: async (query = {}) => ({ items: matchingRows(query.where), hasMore: false }),
+    count: async (where) => matchingRows(where).length,
   };
+
+  function matchingRows(where: Record<string, unknown> = {}): Array<{ id: string; data: unknown }> {
+    return [...rows]
+      .filter(([, row]) => Object.entries(where).every(([field, value]) => isRecord(row.value) && row.value[field] === value))
+      .map(([id, row]) => ({ id, data: row.value }));
+  }
 }
 
 function schemaField(slug: string, type: FieldSchemaInfo["type"], translatable = true): FieldSchemaInfo {
   return { slug, label: slug, type, required: false, unique: false, searchable: false, indexed: false, translatable, sortOrder: 0 };
 }
 
-function context(input: unknown, method: string, kv: KVAccess, storage: StorageCollection): RouteContext {
+function context(
+  input: unknown,
+  method: string,
+  kv: KVAccess,
+  storage: StorageCollection,
+  batch: { jobs: StorageCollection; results: StorageCollection } = { jobs: createStorage(), results: createStorage() },
+): RouteContext {
   return {
     plugin: { id: "polystella", version: "0.0.0" },
-    storage: { catalog_overrides: storage },
+    storage: { catalog_overrides: storage, batch_jobs: batch.jobs, batch_results: batch.results },
     content: {
       getTranslations: async (_collection, id) => ({
         translationGroup: id,
@@ -985,6 +993,12 @@ describe("EmDash plugin routes", () => {
       "catalog/runtime": ["PUT"],
       "catalog/export": ["GET"],
       "translation-sandbox": ["POST"],
+      "batch/jobs": ["GET"],
+      "batch/start": ["POST"],
+      "batch/cancel": ["POST"],
+      "batch/retry": ["POST"],
+      "batch/translate": ["POST"],
+      "batch/record": ["POST"],
       overrides: ["GET"],
     });
   });
@@ -1278,6 +1292,173 @@ describe("EmDash plugin routes", () => {
       route(routes, "translation-sandbox").handler(
         context({ targetLocale: "fr-FR", model: "not-allowed", text: "Hello" }, "POST", kv, storage),
       ),
+    ).rejects.toMatchObject({ status: 400 });
+  });
+});
+
+describe("EmDash batch queue routes", () => {
+  function batchSetup(env: Record<string, unknown> = {}) {
+    const sent: unknown[] = [];
+    const queue = { sendBatch: async (messages: Array<{ body: unknown }>) => sent.push(...messages.map(({ body }) => body)) };
+    const routes = createPluginRoutes(
+      { ...options(), batchQueueBinding: "BATCH_QUEUE" },
+      { ...dependencies(), getEnv: async () => ({ ...(await dependencies().getEnv()), BATCH_QUEUE: queue, ...env }) },
+    );
+    const kv = createKv();
+    const storage = createStorage();
+    const batch = { jobs: createStorage(), results: createStorage() };
+    const call = (name: string, input: unknown, method = "POST", customize?: (routeContext: RouteContext) => void) => {
+      const routeContext = context(input, method, kv, storage, batch);
+      customize?.(routeContext);
+      return route(routes, name).handler(routeContext);
+    };
+    return { sent, kv, batch, call };
+  }
+
+  function sourceEntry(routeContext: RouteContext, siblings: Array<{ id: string; locale: string }> = []): void {
+    const content = routeContext.content;
+    if (content === undefined) throw new Error("missing content access");
+    content.get = async (_collection, id) => ({
+      id,
+      type: "posts",
+      slug: "hello",
+      status: "published",
+      locale: "en-US",
+      data: { title: "Hello", sku: "A-1" },
+      createdAt: "2026-09-03T00:00:00.000Z",
+      updatedAt: "2026-09-03T00:00:00.000Z",
+      publishedAt: null,
+    });
+    content.getTranslations = async (_collection, id) => ({
+      translationGroup: id,
+      translations: [
+        { id, locale: "en-US", slug: "hello", status: "published", updatedAt: "2026-09-03T00:00:00.000Z" },
+        ...siblings.map((sibling) => ({ ...sibling, slug: "hello", status: "draft", updatedAt: "2026-09-03T00:00:00.000Z" })),
+      ],
+    });
+  }
+
+  it("reports whether the queue is configured", async () => {
+    const routes = createPluginRoutes(options(), dependencies());
+    const result = await route(routes, "batch/jobs").handler(context({}, "GET", createKv(), createStorage()));
+    expect(result).toEqual({ queueEnabled: false, jobs: [] });
+  });
+
+  it("refuses to start a job without a queue binding", async () => {
+    const routes = createPluginRoutes(options(), dependencies());
+    const kv = createKv();
+    await enablePosts(kv);
+    await expect(
+      route(routes, "batch/start").handler(
+        context({ collection: "posts", locales: ["fr-FR"], entryIds: ["entry-1"] }, "POST", kv, createStorage()),
+      ),
+    ).rejects.toMatchObject({ status: 400 });
+  });
+
+  it("queues one message per selected entry and locale", async () => {
+    const { sent, kv, call } = batchSetup();
+    await enablePosts(kv);
+
+    const job = (await call("batch/start", { collection: "posts", locales: ["fr-FR"], entryIds: ["a", "b", "a"] })) as BatchJobView;
+
+    expect(job).toMatchObject({ collection: "posts", locales: ["fr-FR"], total: 2, status: "running" });
+    expect(sent).toEqual([
+      { jobId: job.id, entryId: "a", locale: "fr-FR" },
+      { jobId: job.id, entryId: "b", locale: "fr-FR" },
+    ]);
+    const listed = (await call("batch/jobs", {}, "GET")) as BatchJobsResponse;
+    expect(listed.queueEnabled).toBe(true);
+    expect(listed.jobs.map(({ id }) => id)).toEqual([job.id]);
+  });
+
+  it("lists source-locale entries when the whole collection is queued", async () => {
+    const { sent, kv, call } = batchSetup();
+    await enablePosts(kv);
+    const listQueries: unknown[] = [];
+
+    await call("batch/start", { collection: "posts", locales: ["fr-FR"] }, "POST", (routeContext) => {
+      const content = routeContext.content;
+      if (content === undefined) throw new Error("missing content access");
+      content.list = async (_collection, query) => {
+        listQueries.push(query);
+        return query?.cursor === undefined
+          ? { items: [{ id: "a" }, { id: "b" }] as never, hasMore: true, cursor: "next" }
+          : { items: [{ id: "c" }] as never, hasMore: false };
+      };
+    });
+
+    expect(listQueries).toEqual([
+      { where: { locale: "en-US" }, limit: 100 },
+      { where: { locale: "en-US" }, limit: 100, cursor: "next" },
+    ]);
+    expect(sent.map((message) => (message as { entryId: string }).entryId)).toEqual(["a", "b", "c"]);
+  });
+
+  it("returns a draft to create, keeping the source slug and author", async () => {
+    const { kv, call } = batchSetup();
+    await enablePosts(kv);
+    const job = (await call("batch/start", { collection: "posts", locales: ["fr-FR"], entryIds: ["entry-src"] })) as BatchJobView;
+
+    const result = await call("batch/translate", { jobId: job.id, entryId: "entry-src", locale: "fr-FR" }, "POST", (routeContext) =>
+      sourceEntry(routeContext),
+    );
+
+    expect(result).toEqual({
+      create: {
+        collection: "posts",
+        data: { title: "Bonjour", sku: "A-1" },
+        slug: "hello",
+        locale: "fr-FR",
+        translationOf: "entry-src",
+        authorId: "user-1",
+      },
+    });
+  });
+
+  it("records existing translations as skipped and ignores cancelled jobs", async () => {
+    const { kv, call } = batchSetup();
+    await enablePosts(kv);
+    const job = (await call("batch/start", { collection: "posts", locales: ["fr-FR"], entryIds: ["entry-src", "other"] })) as BatchJobView;
+
+    const skipped = await call("batch/translate", { jobId: job.id, entryId: "entry-src", locale: "fr-FR" }, "POST", (routeContext) =>
+      sourceEntry(routeContext, [{ id: "entry-fr", locale: "fr-FR" }]),
+    );
+    await call("batch/cancel", { jobId: job.id });
+    const cancelled = await call("batch/translate", { jobId: job.id, entryId: "other", locale: "fr-FR" }, "POST", (routeContext) =>
+      sourceEntry(routeContext),
+    );
+
+    expect(skipped).toEqual({ create: null });
+    expect(cancelled).toEqual({ create: null });
+    const listed = (await call("batch/jobs", {}, "GET")) as BatchJobsResponse;
+    expect(listed.jobs[0]).toMatchObject({ status: "cancelled", counts: { created: 0, skipped: 1, failed: 0 } });
+  });
+
+  it("records translation failures and requeues them on retry", async () => {
+    const { sent, kv, call, batch } = batchSetup({ AI: { run: async () => ({ response: "no markers" }) } });
+    await enablePosts(kv);
+    const job = (await call("batch/start", { collection: "posts", locales: ["fr-FR"], entryIds: ["entry-src"] })) as BatchJobView;
+    const message = { jobId: job.id, entryId: "entry-src", locale: "fr-FR" };
+
+    expect(await call("batch/translate", message, "POST", (routeContext) => sourceEntry(routeContext))).toEqual({ create: null });
+    const listed = (await call("batch/jobs", {}, "GET")) as BatchJobsResponse;
+    expect(listed.jobs[0]?.counts.failed).toBe(1);
+    expect(listed.jobs[0]?.failures[0]?.message).toContain("no segment markers");
+
+    sent.length = 0;
+    await call("batch/retry", { jobId: job.id });
+    expect(sent).toEqual([message]);
+
+    await call("batch/record", { ...message, outcome: "created", message: null });
+    expect(await batch.results.count({ jobId: job.id, outcome: "created" })).toBe(1);
+    expect(await batch.results.count({ jobId: job.id, outcome: "failed" })).toBe(0);
+  });
+
+  it("rejects malformed queue messages and outcomes", async () => {
+    const { call } = batchSetup();
+    await expect(call("batch/translate", { jobId: "j" })).rejects.toMatchObject({ status: 400 });
+    await expect(
+      call("batch/record", { jobId: "j", entryId: "e", locale: "fr-FR", outcome: "published", message: null }),
     ).rejects.toMatchObject({ status: 400 });
   });
 });

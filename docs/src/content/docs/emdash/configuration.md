@@ -1,6 +1,6 @@
 ---
 title: EmDash configuration
-description: PolystellaEmdashOptions — provider, catalogs, models, glossaryDefaults, and rules.
+description: PolystellaEmdashOptions — provider, catalogs, models, glossaryDefaults, rules, localeTags, and batchQueueBinding.
 aiGenerated: true
 sidebar:
   label: Configuration
@@ -91,6 +91,50 @@ misread (`{ jp: "ja" }`). Tags drive plural rules, number formatting,
 override validation and the language named in translation prompts.
 See [Catalog messages](/concepts/catalog-messages/#locale-tags).
 
+## `batchQueueBinding`
+
+Optional. The name of a Cloudflare Queue producer binding. When set,
+the [Batch translation tab](/emdash/admin-ui/#batch-translation-tab)
+can run jobs on the server, so they keep going after the browser tab
+closes. Server jobs only create missing translations, as drafts.
+
+EmDash plugins cannot declare bindings or queue consumers, so the site
+wires both. In `wrangler.jsonc`, point a producer and a consumer at the
+same queue:
+
+```jsonc
+{
+  "queues": {
+    "producers": [{ "binding": "POLYSTELLA_BATCH", "queue": "polystella-batch" }],
+    "consumers": [{ "queue": "polystella-batch", "max_batch_size": 5, "max_retries": 3 }],
+  },
+}
+```
+
+Then export the consumer from the Worker entry next to EmDash's own
+handlers:
+
+```ts
+// src/worker.ts
+import worker from "@emdash-cms/cloudflare/worker";
+import { handlePolystellaBatchQueue } from "@cloudflare/polystella-emdash/queue";
+
+export { PluginBridge } from "@emdash-cms/cloudflare/worker";
+export default { ...worker, queue: handlePolystellaBatchQueue };
+```
+
+If the Worker already consumes other queues, call
+`handlePolystellaBatchQueue(batch)` when `batch.queue` is the
+PolyStella queue.
+
+Each message is one source entry × one locale. The consumer runs
+inside EmDash with `withEmDashRuntime`, asks the plugin to translate
+the entry, then creates the draft with the source slug, as the
+administrator who started the job. A job holds at most 5,000
+translations. Translation errors are recorded as failed rows that
+**Retry failed** requeues. Infrastructure errors (for example, the
+database is unreachable) use the queue's own retries.
+
 ## Collections are not a config option
 
 Enabled collections and their translatable fields are
@@ -114,9 +158,9 @@ replace. Configure collection and field policy in the
   locale.
 - Every `localeTags` key must match a configured catalog locale, and
   every locale must resolve to a tag `Intl` recognises.
-- Provider env/binding names must be valid environment binding
-  names; `endpoint` must be a valid URL; `maxTokens` must be a
-  positive integer.
+- Provider env/binding names and `batchQueueBinding` must be valid
+  environment binding names; `endpoint` must be a valid URL;
+  `maxTokens` must be a positive integer.
 
 ## Astro integration options
 

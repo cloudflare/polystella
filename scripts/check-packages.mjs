@@ -99,7 +99,7 @@ const packages = [
   {
     directory: path.join(repositoryRoot, "packages", "emdash"),
     name: "@cloudflare/polystella-emdash",
-    exports: [".", "./admin", "./astro", "./client", "./config"],
+    exports: [".", "./admin", "./astro", "./client", "./config", "./queue"],
     internalDependencies: ["@cloudflare/polystella-core"],
     allowedTopLevel: ["CHANGELOG.md", "LICENSE", "README.md", "client.d.ts", "dist", "package.json", "src"],
     requiredFiles: [
@@ -144,6 +144,7 @@ const lowerPackageEntries = [
   "@cloudflare/polystella-emdash/admin",
   "@cloudflare/polystella-emdash/astro",
   "@cloudflare/polystella-emdash/config",
+  "@cloudflare/polystella-emdash/queue",
 ];
 const nodeSafeAstroEntries = [
   "@cloudflare/polystella-astro",

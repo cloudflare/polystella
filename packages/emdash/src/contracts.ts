@@ -157,3 +157,26 @@ export interface RuntimeOverridesResponse {
 
 export type TranslationSandboxResponse =
   { translation: string; debug?: TranslationDebugTrace | undefined } | { translation: null; error: string; debug: TranslationDebugTrace };
+
+/** Most entry × locale translations one queued batch job may contain. */
+export const MAX_BATCH_TRANSLATIONS = 5000;
+export const MAX_BATCH_FAILURES_SHOWN = 20;
+
+export type BatchJobOutcome = "created" | "skipped" | "failed";
+
+export interface BatchJobView {
+  id: string;
+  collection: string;
+  locales: string[];
+  total: number;
+  status: "running" | "cancelled";
+  createdAt: string;
+  counts: Record<BatchJobOutcome, number>;
+  failures: Array<{ entryId: string; locale: string; message: string | null }>;
+}
+
+export interface BatchJobsResponse {
+  /** False when the deployment has no `batchQueueBinding`; the admin then translates in the browser only. */
+  queueEnabled: boolean;
+  jobs: BatchJobView[];
+}
