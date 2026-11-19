@@ -1,5 +1,6 @@
 import type { ContentEditorPanelExtension } from "@emdash-cms/admin";
 
+import { BatchRunPage } from "./admin/plugin-page/BatchRunPage.js";
 import { Page } from "./admin/plugin-page/Page.js";
 import { ContentEditorPanel, panelErrorMessage } from "./admin/panels/ContentEditorPanel.js";
 import { TranslationProgress } from "./admin/components/TranslationProgress/TranslationProgress.js";
@@ -27,8 +28,10 @@ export {
 };
 export type { CatalogGroup } from "./admin/types.js";
 
+// `/batch-run` has no sidebar entry; the Batch translation tab opens it in a new tab.
 export const pages = {
   "/": Page,
+  "/batch-run": BatchRunPage,
 };
 
 export const contentEditorPanels = [

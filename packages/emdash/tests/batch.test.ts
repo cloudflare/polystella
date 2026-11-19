@@ -12,8 +12,18 @@ const admin = vi.hoisted(() => ({
 
 vi.mock("@emdash-cms/admin", async (importOriginal) => ({ ...(await importOriginal<object>()), ...admin }));
 
-const { findExistingTranslation, planBatchJobs, runBatchJob, runBatchJobs, untranslatedLocales } =
-  await import("../src/admin/plugin-page/tabs/BatchTab/helpers.js");
+const {
+  batchRunUrl,
+  clearBatchRun,
+  findExistingTranslation,
+  planBatchJobs,
+  publicContentUrl,
+  readBatchRun,
+  runBatchJob,
+  runBatchJobs,
+  saveBatchRun,
+  untranslatedLocales,
+} = await import("../src/admin/plugin-page/tabs/BatchTab/helpers.js");
 
 const job = { item: { id: "post-1", title: "Hello", slug: "hello" }, target: { locale: "fr", code: "fr-FR" } };
 const options = { collection: "posts", sourceLocale: "en", fields: ["title"], updateExisting: false, publish: false };
@@ -59,6 +69,43 @@ describe("batch translation", () => {
       { locale: "es", code: "es-ES" },
     ];
     await expect(untranslatedLocales("posts", ["a", "b"], targets, 2)).resolves.toEqual(["de", "es"]);
+  });
+
+  it("builds public URLs the way EmDash's admin does", () => {
+    const translation = { id: "01FR", locale: "fr", slug: "hello", published: true };
+    const i18n = { defaultLocale: "en" };
+    expect(publicContentUrl("posts", translation, { urlPattern: "/{slug}/", i18n })).toBe("/fr/hello/");
+    expect(publicContentUrl("posts", translation, { urlPattern: undefined, i18n })).toBe("/fr/posts/hello");
+    expect(publicContentUrl("posts", { ...translation, locale: "en" }, { urlPattern: "/blog/{slug}", i18n })).toBe("/blog/hello");
+    expect(publicContentUrl("posts", translation, { urlPattern: "/{year}/{slug}", i18n })).toBeNull();
+    expect(publicContentUrl("posts", { ...translation, slug: null }, { urlPattern: "/{slug}", i18n })).toBeNull();
+  });
+
+  it("hands a run to the new tab through storage and builds its address", () => {
+    const rows = new Map<string, string>();
+    const storage: Storage = {
+      get length() {
+        return rows.size;
+      },
+      key: (index) => [...rows.keys()][index] ?? null,
+      getItem: (key) => rows.get(key) ?? null,
+      setItem: (key, value) => void rows.set(key, value),
+      removeItem: (key) => void rows.delete(key),
+      clear: () => rows.clear(),
+    };
+    const plan = { collection: "posts", scope: "selected" as const, items: [job.item], targets: [job.target], options, createdAt: 1_000 };
+    rows.set("polystella:batch-run:old", JSON.stringify({ ...plan, createdAt: -100_000_000 }));
+    rows.set("polystella:batch-run:corrupt", "{");
+    rows.set("unrelated", "keep");
+
+    const id = saveBatchRun(plan, storage);
+
+    expect([...rows.keys()].sort()).toEqual([`polystella:batch-run:${id}`, "unrelated"]);
+    expect(readBatchRun(id, storage)).toEqual(plan);
+    clearBatchRun(id, storage);
+    expect(readBatchRun(id, storage)).toBeNull();
+    expect(batchRunUrl("/_emdash/admin/plugins/polystella/", "r1")).toBe("/_emdash/admin/plugins/polystella/batch-run?run=r1");
+    expect(batchRunUrl("/_emdash/admin/plugins/polystella", "r1")).toBe("/_emdash/admin/plugins/polystella/batch-run?run=r1");
   });
 
   it("caps concurrency and stops picking jobs once asked", async () => {

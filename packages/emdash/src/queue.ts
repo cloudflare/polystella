@@ -1,4 +1,4 @@
-import { POLYSTELLA_PLUGIN_ID } from "./contracts.js";
+import { POLYSTELLA_PLUGIN_ID, type BatchTranslationLink } from "./contracts.js";
 import { MAX_BATCH_MESSAGE_CHARACTERS, readBatchMessage, type BatchCreatePayload, type BatchMessage } from "./server/batch.js";
 
 /** The parts of a Cloudflare Queues `Message` the consumer uses. */
@@ -70,8 +70,10 @@ async function processMessage(runtime: PolystellaBatchRuntime, body: unknown): P
   if (created.success) {
     const entryId = created.data?.item.id;
     if (entryId !== undefined) await recordAiTranslation(runtime, collection, entryId);
-    const publish = isRecord(response) && response.publish === true;
-    await record(runtime, message, "created", publish ? await publishCreated(runtime, collection, entryId) : null);
+    const publish = isRecord(response) && response.publish === true ? await publishCreated(runtime, collection, entryId) : null;
+    const translation =
+      entryId === undefined ? null : { id: entryId, locale: draft.locale, slug: draft.slug, published: publish?.published === true };
+    await record(runtime, message, "created", publish?.message ?? null, translation);
   } else {
     // CONFLICT means the locale was created after the route checked, by an editor or a duplicate delivery.
     const outcome = created.error.code === "CONFLICT" ? "skipped" : "failed";
@@ -91,21 +93,31 @@ async function recordAiTranslation(runtime: PolystellaBatchRuntime, collection: 
 }
 
 /** A failed publish leaves the draft in place, so it is noted on the created row rather than retried. */
-async function publishCreated(runtime: PolystellaBatchRuntime, collection: string, id: string | undefined): Promise<string> {
-  if (id === undefined) return "Saved as a draft; EmDash did not return the new entry to publish.";
+async function publishCreated(
+  runtime: PolystellaBatchRuntime,
+  collection: string,
+  id: string | undefined,
+): Promise<{ published: boolean; message: string }> {
+  if (id === undefined) return { published: false, message: "Saved as a draft; EmDash did not return the new entry to publish." };
   let reason: string;
   try {
     const published = await runtime.handleContentPublish(collection, id);
-    if (published.success) return "Published.";
+    if (published.success) return { published: true, message: "Published." };
     reason = published.error?.message ?? "unknown error";
   } catch (error) {
     reason = error instanceof Error ? error.message : "unknown error";
   }
-  return `Saved as a draft; publishing failed: ${reason}`.slice(0, MAX_BATCH_MESSAGE_CHARACTERS);
+  return { published: false, message: `Saved as a draft; publishing failed: ${reason}`.slice(0, MAX_BATCH_MESSAGE_CHARACTERS) };
 }
 
-async function record(runtime: PolystellaBatchRuntime, message: BatchMessage, outcome: string, detail: string | null): Promise<void> {
-  await callRoute(runtime, "batch/record", { ...message, outcome, message: detail });
+async function record(
+  runtime: PolystellaBatchRuntime,
+  message: BatchMessage,
+  outcome: string,
+  detail: string | null,
+  translation: BatchTranslationLink | null = null,
+): Promise<void> {
+  await callRoute(runtime, "batch/record", { ...message, outcome, message: detail, translation });
 }
 
 async function callRoute(runtime: PolystellaBatchRuntime, path: string, body: unknown): Promise<unknown> {

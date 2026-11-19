@@ -52,12 +52,18 @@ same route and saves as the content-editor panel. Choose:
   translation is published right after it is saved. If publishing
   fails, the draft stays and its result row says why.
 
-The run happens in the browser, three translations at a time: keep
-the tab open until it finishes. **Stop** lets in-flight translations
-finish and starts no new ones. Each entry and locale gets a result row
-(created, updated, skipped, or failed) whose locale links to the
-translation, and **Retry failed** reruns only the failed rows.
-Debug traces are not collected for batch runs.
+**Translate … in a new tab** opens a run page in a new browser tab, so
+you can keep using the admin. The run page shows what it will do and
+waits for **Start translating**. It runs in that tab, three
+translations at a time: keep it open until it finishes, because
+closing, reloading, or leaving it stops the run. **Stop** lets
+in-flight translations finish and starts no new ones. Each entry and
+locale gets a result row (created, updated, skipped, or failed) with
+links that open in a new tab: **Edit**, **View live** for a published
+translation, and **Preview draft** for an unpublished one. **Retry
+failed** reruns only the failed rows. A run page that was already
+started, or never started within a day, can't be reopened. Debug
+traces are not collected for batch runs.
 
 When the deployment sets
 [`batchQueueBinding`](/emdash/configuration/#batchqueuebinding), a
@@ -66,8 +72,12 @@ Cloudflare Queues and keeps running after you close the tab. Server
 jobs only create missing translations; existing ones are skipped.
 They follow **Publish translations immediately** too.
 The tab lists the last ten jobs with their progress, the first
-failures, **Cancel** (queued entries finish without translating), and
-**Retry failed**. It refreshes every five seconds while a job runs.
+failures, **Show results** (every row with the same links as browser
+runs), **Cancel** (queued entries finish without translating), and
+**Retry failed**. **Remove** takes a finished or cancelled job off the
+list, and **Clear finished jobs** removes all of them; the
+translations they created stay. The list refreshes every five seconds
+while a job runs.
 
 ## Translation settings tab
 

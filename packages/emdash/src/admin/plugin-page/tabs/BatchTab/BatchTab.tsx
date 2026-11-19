@@ -1,6 +1,6 @@
-import { fetchCollection, fetchCollections, fetchContentList, Link } from "@emdash-cms/admin";
+import { fetchCollection, fetchCollections } from "@emdash-cms/admin";
 import { Button, Input, LayerCard, Select, Switch, Table } from "@cloudflare/kumo";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 import {
   MAX_CONTENT_FIELDS,
@@ -13,22 +13,11 @@ import { COLLECTIONS_SAVED_EVENT, errorMessage, isTranslatable, pluginRequest, s
 import { cardStyle, mutedStyle, rowStyle, sectionStyle, stackStyle } from "../../../styles.js";
 import { ErrorMessage } from "../../../components/ErrorMessage/ErrorMessage.js";
 import { LocalePicker } from "../../../components/LocalePicker/LocalePicker.js";
-import { TranslationProgress } from "../../../components/TranslationProgress/TranslationProgress.js";
 import { BatchJobs } from "./BatchJobs.js";
-import {
-  batchJobFinished,
-  entryTitle,
-  planBatchJobs,
-  runBatchJob,
-  runBatchJobs,
-  type BatchItem,
-  type BatchJob,
-  type BatchResult,
-  untranslatedLocales,
-} from "./helpers.js";
+import { usePublicUrlContexts } from "./BatchResults.js";
+import { batchJobFinished, batchRunUrl, loadItems, saveBatchRun, untranslatedLocales, type BatchItem, type ItemPage } from "./helpers.js";
 
 const CONCURRENCY = 3;
-const PAGE_SIZE = 50;
 const JOB_POLL_MS = 5000;
 
 type Scope = "all" | "selected";
@@ -44,11 +33,6 @@ interface LoadedCollection {
   fields: string[];
 }
 
-interface ItemPage {
-  items: BatchItem[];
-  nextCursor: string | undefined;
-}
-
 export function BatchTab(): ReactNode {
   const [collections, setCollections] = useState<CollectionOption[] | null>(null);
   const [collection, setCollection] = useState("");
@@ -62,15 +46,12 @@ export function BatchTab(): ReactNode {
   const [selected, setSelected] = useState<Map<string, BatchItem>>(new Map());
   const [running, setRunning] = useState(false);
   const [checkingLocales, setCheckingLocales] = useState(false);
-  const [stopping, setStopping] = useState(false);
-  const [total, setTotal] = useState(0);
-  const [results, setResults] = useState<BatchResult[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [runner, setRunner] = useState<Runner>("browser");
   const [serverJobs, setServerJobs] = useState<BatchJobsResponse | null>(null);
   const [jobsRefresh, setJobsRefresh] = useState(0);
   const [policiesVersion, setPoliciesVersion] = useState(0);
-  const stopRequested = useRef(false);
+  const urlContexts = usePublicUrlContexts();
 
   useEffect(() => {
     let active = true;
@@ -121,11 +102,9 @@ export function BatchTab(): ReactNode {
     setLocales([]);
     setPage(null);
     setSelected(new Map());
-    setResults([]);
-    setTotal(0);
   }, [collection]);
 
-  // Reloads on policy saves too, keeping the selection and any run in progress.
+  // Reloads on policy saves too, keeping the selection.
   useEffect(() => {
     if (collection.length === 0) return;
     let active = true;
@@ -169,13 +148,6 @@ export function BatchTab(): ReactNode {
     };
   }, [collection, loaded, scope, search]);
 
-  useEffect(() => {
-    if (!running) return;
-    const warn = (event: BeforeUnloadEvent) => event.preventDefault();
-    window.addEventListener("beforeunload", warn);
-    return () => window.removeEventListener("beforeunload", warn);
-  }, [running]);
-
   async function loadMore(): Promise<void> {
     if (loaded === null || page?.nextCursor === undefined) return;
     try {
@@ -199,50 +171,17 @@ export function BatchTab(): ReactNode {
     }
   }
 
-  async function run(jobs: BatchJob[] | null): Promise<void> {
+  // Synchronous on purpose: browsers only allow a new tab straight from the click.
+  function openBrowserRun(): void {
     if (loaded === null) return;
     const { policy, fields } = loaded;
-    setError(null);
-    setRunning(true);
-    stopRequested.current = false;
-    setStopping(false);
-    try {
-      let planned = jobs;
-      if (planned === null) {
-        const items = scope === "all" ? await loadAllItems(collection, policy.sourceLocale) : [...selected.values()];
-        const targets = policy.targetLocales.filter(({ locale }) => locales.includes(locale));
-        planned = planBatchJobs(items, targets);
-        if (planned.length === 0) {
-          setError("Nothing to translate: no source entries or no target locales selected.");
-          return;
-        }
-        const saved = publish ? "and publish them" : "as drafts";
-        const action = updateExisting
-          ? `create missing translations and replace the selected fields in existing ones, ${saved}`
-          : `create missing translations ${saved} and skip existing ones`;
-        if (!window.confirm(`PolyStella will ${action}: ${items.length} entries × ${targets.length} locales. Continue?`)) return;
-        setResults([]);
-        setTotal(planned.length);
-      } else {
-        // Retried rows leave the table and come back with their new outcome, so the run total stays the same.
-        const retried = new Set(planned);
-        setResults((current) => current.filter((result) => !retried.has(result)));
-      }
-      const options = { collection, sourceLocale: policy.sourceLocale ?? undefined, fields, updateExisting, publish };
-      await runBatchJobs(
-        planned,
-        CONCURRENCY,
-        async (job) => {
-          const result = await runBatchJob(job, options);
-          setResults((current) => [...current, result]);
-        },
-        () => stopRequested.current,
-      );
-    } catch (cause) {
-      setError(errorMessage(cause));
-    } finally {
-      setRunning(false);
-      setStopping(false);
+    const targets = policy.targetLocales.filter(({ locale }) => locales.includes(locale));
+    const items = scope === "all" ? [] : [...selected.values()];
+    const options = { collection, sourceLocale: policy.sourceLocale ?? undefined, fields, updateExisting, publish };
+    const runId = saveBatchRun({ collection, scope, items, targets, options, createdAt: Date.now() });
+    const url = batchRunUrl(window.location.pathname, runId);
+    if (window.open(url, "_blank") === null) {
+      setError(`Your browser blocked the new tab. Allow pop-ups for this site, or open ${url} yourself.`);
     }
   }
 
@@ -273,7 +212,6 @@ export function BatchTab(): ReactNode {
   if (collections === null && error === null) return <p style={sectionStyle}>Loading collections...</p>;
 
   const policy = loaded?.policy;
-  const failed = results.filter((result) => result.outcome === "failed");
   const visibleItems = page?.items ?? [];
   const allVisibleSelected = visibleItems.length > 0 && visibleItems.every((item) => selected.has(item.id));
   const someVisibleSelected = visibleItems.some((item) => selected.has(item.id));
@@ -291,7 +229,9 @@ export function BatchTab(): ReactNode {
         <h2>Batch translation</h2>
         <p style={mutedStyle}>
           Translate many entries at once from their latest saved source values.{" "}
-          {runner === "browser" ? "Keep this tab open until the run finishes." : "The server queue keeps running after you close this tab."}
+          {runner === "browser"
+            ? "Browser runs open in a new tab, which must stay open until the run finishes."
+            : "The server queue keeps running after you close this tab."}
         </p>
       </div>
       {error === null ? null : <ErrorMessage>{error}</ErrorMessage>}
@@ -472,99 +412,13 @@ export function BatchTab(): ReactNode {
           variant="primary"
           loading={running}
           disabled={!canRun}
-          onClick={() => void (runner === "queue" ? startServerJob() : run(null))}
+          onClick={() => (runner === "queue" ? void startServerJob() : openBrowserRun())}
         >
           {runner === "queue" ? "Queue" : "Translate"} {scope === "all" ? "collection" : `${selected.size} selected`}
+          {runner === "browser" ? " in a new tab" : ""}
         </Button>
-        {running && runner === "browser" ? (
-          <Button
-            variant="secondary"
-            disabled={stopping}
-            onClick={() => {
-              stopRequested.current = true;
-              setStopping(true);
-            }}
-          >
-            {stopping ? "Stopping after current entries..." : "Stop"}
-          </Button>
-        ) : null}
-        {!running && failed.length > 0 ? (
-          <Button variant="secondary" onClick={() => void run(failed)}>
-            Retry {failed.length} failed
-          </Button>
-        ) : null}
       </div>
-      {total === 0 ? null : (
-        <TranslationProgress percent={Math.round((results.length / total) * 100)} label={`${results.length}/${total} translations`} />
-      )}
-      {results.length === 0 ? null : <BatchResultsTable collection={collection} results={results} />}
-      <BatchJobs jobs={serverJobs?.jobs ?? []} onChange={() => setJobsRefresh((current) => current + 1)} />
+      <BatchJobs jobs={serverJobs?.jobs ?? []} urlContexts={urlContexts} onChange={() => setJobsRefresh((current) => current + 1)} />
     </section>
   );
-}
-
-function BatchResultsTable({ collection, results }: { collection: string; results: readonly BatchResult[] }): ReactNode {
-  return (
-    <div style={{ overflowX: "auto" }}>
-      <Table layout="fixed" style={{ minWidth: 720 }}>
-        <Table.Header>
-          <Table.Row>
-            <Table.Head style={{ width: "35%" }}>Entry</Table.Head>
-            <Table.Head style={{ width: "15%" }}>Translation</Table.Head>
-            <Table.Head style={{ width: "15%" }}>Result</Table.Head>
-            <Table.Head>Details</Table.Head>
-          </Table.Row>
-        </Table.Header>
-        <Table.Body>
-          {results.map((result) => (
-            <Table.Row key={`${result.item.id}:${result.target.locale}`}>
-              <Table.Cell>{result.item.title}</Table.Cell>
-              <Table.Cell>
-                {result.translation === null ? (
-                  result.target.locale
-                ) : (
-                  <Link
-                    to="/content/$collection/$id"
-                    params={{ collection, id: result.translation.id }}
-                    search={{ locale: result.translation.locale }}
-                  >
-                    {result.target.locale}
-                  </Link>
-                )}
-              </Table.Cell>
-              <Table.Cell>{result.outcome}</Table.Cell>
-              <Table.Cell>
-                <span style={mutedStyle}>{result.message ?? ""}</span>
-              </Table.Cell>
-            </Table.Row>
-          ))}
-        </Table.Body>
-      </Table>
-    </div>
-  );
-}
-
-async function loadItems(collection: string, locale: string | null, search: string, cursor: string | undefined): Promise<ItemPage> {
-  const query = search.trim();
-  const result = await fetchContentList(collection, {
-    limit: PAGE_SIZE,
-    ...(locale === null ? {} : { locale }),
-    ...(query.length === 0 ? {} : { search: query }),
-    ...(cursor === undefined ? {} : { cursor }),
-  });
-  return {
-    items: result.items.map((item) => ({ id: item.id, title: entryTitle(item), slug: item.slug })),
-    nextCursor: result.nextCursor,
-  };
-}
-
-async function loadAllItems(collection: string, locale: string | null): Promise<BatchItem[]> {
-  const items: BatchItem[] = [];
-  let cursor: string | undefined;
-  do {
-    const next = await loadItems(collection, locale, "", cursor);
-    items.push(...next.items);
-    cursor = next.nextCursor;
-  } while (cursor !== undefined);
-  return items;
 }

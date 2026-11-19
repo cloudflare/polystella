@@ -1,6 +1,11 @@
-import { ApiResponseError, fetchTranslations, publishContent } from "@emdash-cms/admin";
+import { ApiResponseError, fetchContentList, fetchTranslations, publishContent } from "@emdash-cms/admin";
 
-import type { BatchJobView, CollectionPolicyResponse } from "../../../../contracts.js";
+import {
+  POLYSTELLA_PLUGIN_ID,
+  type BatchJobView,
+  type BatchTranslationLink,
+  type CollectionPolicyResponse,
+} from "../../../../contracts.js";
 import { createTranslatedEntry, translateExistingEntry } from "../../../content-translation.js";
 import { panelErrorMessage } from "../../../panels/ContentEditorPanel.js";
 
@@ -23,7 +28,30 @@ export interface BatchResult extends BatchJob {
   outcome: BatchOutcome;
   message: string | null;
   /** The created, updated, or already existing translation. */
-  translation: { id: string; locale: string } | null;
+  translation: BatchTranslation | null;
+}
+
+export type BatchTranslation = BatchTranslationLink;
+
+/** The parts of EmDash's admin manifest that public URLs need. */
+export interface PublicUrlContext {
+  urlPattern: string | undefined;
+  i18n: { defaultLocale: string; prefixDefaultLocale?: boolean | undefined } | undefined;
+}
+
+const DATE_TOKEN = /\{(?:year|month|day|hour|minute|second)\}/;
+
+/** Mirrors EmDash's admin `contentUrl`. `null` for date-based patterns, which need the publish date. */
+export function publicContentUrl(collection: string, translation: BatchTranslation, context: PublicUrlContext): string | null {
+  const { urlPattern, i18n } = context;
+  if (translation.slug === null || (urlPattern !== undefined && DATE_TOKEN.test(urlPattern))) return null;
+  const slug = translation.slug.replace(/^\/+/, "");
+  const path =
+    urlPattern === undefined || urlPattern.length === 0
+      ? `/${collection}/${slug}`
+      : urlPattern.replaceAll("{id}", translation.id).replaceAll("{slug}", slug);
+  const prefixed = i18n !== undefined && (translation.locale !== i18n.defaultLocale || i18n.prefixDefaultLocale === true);
+  return prefixed ? `/${translation.locale}/${path.replace(/^\/+/, "")}` : path;
 }
 
 export interface BatchJobOptions {
@@ -32,6 +60,79 @@ export interface BatchJobOptions {
   fields: readonly string[];
   updateExisting: boolean;
   publish: boolean;
+}
+
+/** What the Batch tab hands to the run tab. `items` is empty for a whole-collection run; the run tab lists them. */
+export interface BatchRunPlan {
+  collection: string;
+  scope: "all" | "selected";
+  items: BatchItem[];
+  targets: BatchTargetLocale[];
+  options: BatchJobOptions;
+  createdAt: number;
+}
+
+const RUN_KEY_PREFIX = "polystella:batch-run:";
+const RUN_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
+/** Stores the plan for the run tab (localStorage is shared across tabs) and drops plans nobody started. */
+export function saveBatchRun(plan: BatchRunPlan, storage: Storage = window.localStorage): string {
+  for (let index = storage.length - 1; index >= 0; index--) {
+    const key = storage.key(index);
+    if (key === null || !key.startsWith(RUN_KEY_PREFIX)) continue;
+    const stale = readStoredPlan(storage.getItem(key));
+    if (stale === null || plan.createdAt - stale.createdAt > RUN_MAX_AGE_MS) storage.removeItem(key);
+  }
+  const id = crypto.randomUUID();
+  storage.setItem(RUN_KEY_PREFIX + id, JSON.stringify(plan));
+  return id;
+}
+
+export function readBatchRun(id: string, storage: Storage = window.localStorage): BatchRunPlan | null {
+  return readStoredPlan(storage.getItem(RUN_KEY_PREFIX + id));
+}
+
+export function clearBatchRun(id: string, storage: Storage = window.localStorage): void {
+  storage.removeItem(RUN_KEY_PREFIX + id);
+}
+
+/** The run tab's address: this plugin page's path with `/batch-run` in place of the page path. */
+export function batchRunUrl(pathname: string, id: string): string {
+  const pluginRoot = `/plugins/${POLYSTELLA_PLUGIN_ID}`;
+  const index = pathname.lastIndexOf(pluginRoot);
+  const base = index === -1 ? pathname.replace(/\/+$/, "") : pathname.slice(0, index + pluginRoot.length);
+  return `${base}/batch-run?run=${encodeURIComponent(id)}`;
+}
+
+function readStoredPlan(raw: string | null): BatchRunPlan | null {
+  if (raw === null) return null;
+  try {
+    const value: unknown = JSON.parse(raw);
+    return isBatchRunPlan(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+// Written by saveBatchRun in this origin; this only rejects corrupt or foreign values, not every nested field.
+function isBatchRunPlan(value: unknown): value is BatchRunPlan {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "collection" in value &&
+    typeof value.collection === "string" &&
+    "scope" in value &&
+    (value.scope === "all" || value.scope === "selected") &&
+    "items" in value &&
+    Array.isArray(value.items) &&
+    "targets" in value &&
+    Array.isArray(value.targets) &&
+    "options" in value &&
+    typeof value.options === "object" &&
+    value.options !== null &&
+    "createdAt" in value &&
+    typeof value.createdAt === "number"
+  );
 }
 
 export function batchJobDone(job: BatchJobView): number {
@@ -83,6 +184,38 @@ export function entryTitle(entry: { id: string; slug: string | null; data: Recor
   return entry.slug ?? entry.id;
 }
 
+export interface ItemPage {
+  items: BatchItem[];
+  nextCursor: string | undefined;
+}
+
+const PAGE_SIZE = 50;
+
+export async function loadItems(collection: string, locale: string | null, search: string, cursor: string | undefined): Promise<ItemPage> {
+  const query = search.trim();
+  const result = await fetchContentList(collection, {
+    limit: PAGE_SIZE,
+    ...(locale === null ? {} : { locale }),
+    ...(query.length === 0 ? {} : { search: query }),
+    ...(cursor === undefined ? {} : { cursor }),
+  });
+  return {
+    items: result.items.map((item) => ({ id: item.id, title: entryTitle(item), slug: item.slug })),
+    nextCursor: result.nextCursor,
+  };
+}
+
+export async function loadAllItems(collection: string, locale: string | null): Promise<BatchItem[]> {
+  const items: BatchItem[] = [];
+  let cursor: string | undefined;
+  do {
+    const next = await loadItems(collection, locale, "", cursor);
+    items.push(...next.items);
+    cursor = next.nextCursor;
+  } while (cursor !== undefined);
+  return items;
+}
+
 /** Workers pull the next job until the list is empty or `shouldStop` turns true; in-flight jobs finish. */
 export async function runBatchJobs<T>(
   jobs: readonly T[],
@@ -109,7 +242,9 @@ export async function runBatchJob(job: BatchJob, options: BatchJobOptions): Prom
   try {
     const { translations } = await fetchTranslations(collection, job.item.id);
     const existing = findExistingTranslation(translations, job.target);
-    if (existing !== undefined) translation = { id: existing.id, locale: existing.locale };
+    if (existing !== undefined) {
+      translation = { id: existing.id, locale: existing.locale, slug: existing.slug, published: existing.status === "published" };
+    }
     if (existing === undefined) {
       creating = true;
       const result = await createTranslatedEntry({
@@ -120,13 +255,17 @@ export async function runBatchJob(job: BatchJob, options: BatchJobOptions): Prom
         fields,
       });
       if (result.entry === null) return { ...job, outcome: "failed", message: result.error, translation };
-      translation = { id: result.entry.id, locale: result.entry.locale ?? job.target.locale };
-      return { ...job, outcome: "created", message: await publishIfAsked(collection, translation, options.publish), translation };
+      const created = { id: result.entry.id, locale: result.entry.locale ?? job.target.locale, slug: result.entry.slug, published: false };
+      const publish = await publishIfAsked(collection, created, options.publish);
+      translation = { ...created, published: publish.published };
+      return { ...job, outcome: "created", message: publish.message, translation };
     }
     if (!options.updateExisting) return { ...job, outcome: "skipped", message: "A translation already exists.", translation };
     const result = await translateExistingEntry({ collection, entryId: existing.id, locale: existing.locale, fields });
     if (result.entry === null) return { ...job, outcome: "failed", message: result.error, translation };
-    return { ...job, outcome: "updated", message: await publishIfAsked(collection, existing, options.publish), translation };
+    const publish = await publishIfAsked(collection, existing, options.publish);
+    const updated = translation === null ? null : { ...translation, published: translation.published || publish.published };
+    return { ...job, outcome: "updated", message: publish.message, translation: updated };
   } catch (cause) {
     const changedMeanwhile = cause instanceof ApiResponseError && cause.status === 409;
     return {
@@ -139,12 +278,16 @@ export async function runBatchJob(job: BatchJob, options: BatchJobOptions): Prom
 }
 
 /** A failed publish leaves the saved draft in place, so it is reported on the row instead of failing it. */
-async function publishIfAsked(collection: string, translation: { id: string; locale: string }, publish: boolean): Promise<string | null> {
-  if (!publish) return null;
+async function publishIfAsked(
+  collection: string,
+  translation: { id: string; locale: string },
+  publish: boolean,
+): Promise<{ published: boolean; message: string | null }> {
+  if (!publish) return { published: false, message: null };
   try {
     await publishContent(collection, translation.id, { locale: translation.locale });
-    return "Published.";
+    return { published: true, message: "Published." };
   } catch (cause) {
-    return `Saved as a draft; publishing failed: ${panelErrorMessage(cause)}`;
+    return { published: false, message: `Saved as a draft; publishing failed: ${panelErrorMessage(cause)}` };
   }
 }

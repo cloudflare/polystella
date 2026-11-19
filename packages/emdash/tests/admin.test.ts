@@ -22,7 +22,7 @@ afterEach(() => vi.unstubAllGlobals());
 
 describe("EmDash admin entry", () => {
   it("exports the declared pages and editor panel", () => {
-    expect(Object.keys(pages)).toEqual(["/"]);
+    expect(Object.keys(pages)).toEqual(["/", "/batch-run"]);
     expect(contentEditorPanels).toHaveLength(1);
     expect(contentEditorPanels[0]).toMatchObject({ id: "polystella", title: "PolyStella", minRole: 40 });
   });

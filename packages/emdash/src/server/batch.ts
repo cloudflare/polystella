@@ -1,6 +1,6 @@
 import { PluginRouteError, type StorageCollection } from "emdash";
 
-import type { BatchJobOutcome } from "../contracts.js";
+import type { BatchJobOutcome, BatchTranslationLink } from "../contracts.js";
 
 // Cloudflare Queues accept at most 100 messages per sendBatch call.
 const QUEUE_SEND_LIMIT = 100;
@@ -26,6 +26,8 @@ export interface StoredBatchResult {
   locale: string;
   outcome: BatchJobOutcome;
   message: string | null;
+  /** Rows recorded before links existed have none. */
+  translation: BatchTranslationLink | null;
   updatedAt: string;
 }
 
@@ -85,7 +87,7 @@ export function parseStoredJob(value: unknown): StoredBatchJob | null {
 
 export function parseStoredResult(value: unknown): StoredBatchResult | null {
   if (!isRecord(value)) return null;
-  const { jobId, entryId, locale, outcome, message, updatedAt } = value;
+  const { jobId, entryId, locale, outcome, message, translation, updatedAt } = value;
   if (
     !isNonEmptyString(jobId) ||
     !isNonEmptyString(entryId) ||
@@ -97,7 +99,7 @@ export function parseStoredResult(value: unknown): StoredBatchResult | null {
   ) {
     return null;
   }
-  return { jobId, entryId, locale, outcome: outcome as BatchJobOutcome, message, updatedAt };
+  return { jobId, entryId, locale, outcome: outcome as BatchJobOutcome, message, translation: readTranslationLink(translation), updatedAt };
 }
 
 export async function readBatchJob(storage: StorageCollection, jobId: string): Promise<StoredBatchJob | null> {
@@ -110,8 +112,9 @@ export async function recordBatchResult(
   outcome: BatchJobOutcome,
   detail: string | null,
   now: Date,
+  translation: BatchTranslationLink | null = null,
 ): Promise<void> {
-  const row: StoredBatchResult = { ...message, outcome, message: detail, updatedAt: now.toISOString() };
+  const row: StoredBatchResult = { ...message, outcome, message: detail, translation, updatedAt: now.toISOString() };
   await storage.put(batchResultId(message), row);
 }
 
@@ -128,6 +131,15 @@ export async function enqueueBatchMessages(queue: BatchQueue, messages: readonly
   for (let start = 0; start < messages.length; start += QUEUE_SEND_LIMIT) {
     await queue.sendBatch(messages.slice(start, start + QUEUE_SEND_LIMIT).map((body) => ({ body })));
   }
+}
+
+export function readTranslationLink(value: unknown): BatchTranslationLink | null {
+  if (!isRecord(value)) return null;
+  const { id, locale, slug, published } = value;
+  if (!isNonEmptyString(id) || !isNonEmptyString(locale) || (slug !== null && typeof slug !== "string") || typeof published !== "boolean") {
+    return null;
+  }
+  return { id, locale, slug, published };
 }
 
 function isBatchQueue(value: unknown): value is BatchQueue {

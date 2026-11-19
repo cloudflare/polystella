@@ -69,8 +69,10 @@ describe("polystellaEmdash", () => {
       "batch/start",
       "batch/cancel",
       "batch/retry",
+      "batch/delete",
       "batch/translate",
       "batch/record",
+      "batch/results",
       "overrides",
     ]);
     expect(plugin.admin.entry).toBe(descriptor.adminEntry);

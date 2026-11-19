@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   MAX_SANDBOX_CHARACTERS,
+  type BatchJobResultsResponse,
   type BatchJobsResponse,
   type BatchJobView,
   type CatalogClearSyncedResponse,
@@ -1088,8 +1089,10 @@ describe("EmDash plugin routes", () => {
       "batch/start": ["POST"],
       "batch/cancel": ["POST"],
       "batch/retry": ["POST"],
+      "batch/delete": ["POST"],
       "batch/translate": ["POST"],
       "batch/record": ["POST"],
+      "batch/results": ["GET"],
       overrides: ["GET"],
     });
   });
@@ -1564,6 +1567,62 @@ describe("EmDash batch queue routes", () => {
     await call("batch/record", { ...message, outcome: "created", message: null });
     expect(await batch.results.count({ jobId: job.id, outcome: "created" })).toBe(1);
     expect(await batch.results.count({ jobId: job.id, outcome: "failed" })).toBe(0);
+  });
+
+  it("lists job results with source titles and links to the translations", async () => {
+    const { kv, call } = batchSetup();
+    await enablePosts(kv);
+    const job = (await call("batch/start", { collection: "posts", locales: ["fr-FR"], entryIds: ["entry-src", "other"] })) as BatchJobView;
+    await call("batch/translate", { jobId: job.id, entryId: "entry-src", locale: "fr-FR" }, "POST", (routeContext) =>
+      sourceEntry(routeContext, [{ id: "entry-fr", locale: "fr-FR" }]),
+    );
+    const created = { id: "other-fr", locale: "fr-FR", slug: "hello", published: true };
+    await call("batch/record", {
+      jobId: job.id,
+      entryId: "other",
+      locale: "fr-FR",
+      outcome: "created",
+      message: "Published.",
+      translation: created,
+    });
+    await expect(
+      call("batch/record", { jobId: job.id, entryId: "other", locale: "fr-FR", outcome: "created", message: null, translation: { id: 1 } }),
+    ).rejects.toMatchObject({ status: 400 });
+
+    const listed = (await call("batch/results", { jobId: job.id }, "GET", (routeContext) =>
+      sourceEntry(routeContext),
+    )) as BatchJobResultsResponse;
+
+    expect(listed).toEqual({
+      results: [
+        {
+          entryId: "entry-src",
+          title: "Hello",
+          locale: "fr-FR",
+          outcome: "skipped",
+          message: "A translation already exists.",
+          translation: { id: "entry-fr", locale: "fr-FR", slug: "hello", published: false },
+        },
+        { entryId: "other", title: "Hello", locale: "fr-FR", outcome: "created", message: "Published.", translation: created },
+      ],
+      nextCursor: null,
+    });
+    await expect(call("batch/results", { jobId: "missing" }, "GET")).rejects.toMatchObject({ status: 404 });
+  });
+
+  it("removes only finished or cancelled jobs, with their results", async () => {
+    const { kv, call, batch } = batchSetup();
+    await enablePosts(kv);
+    const job = (await call("batch/start", { collection: "posts", locales: ["fr-FR"], entryIds: ["a", "b"] })) as BatchJobView;
+    await call("batch/record", { jobId: job.id, entryId: "a", locale: "fr-FR", outcome: "created", message: null });
+
+    await expect(call("batch/delete", { jobId: job.id })).rejects.toMatchObject({ status: 409 });
+    await call("batch/cancel", { jobId: job.id });
+    await expect(call("batch/delete", { jobId: job.id })).resolves.toEqual({ deleted: true });
+
+    expect(await batch.results.count({ jobId: job.id })).toBe(0);
+    expect(((await call("batch/jobs", {}, "GET")) as BatchJobsResponse).jobs).toEqual([]);
+    await expect(call("batch/delete", { jobId: job.id })).rejects.toMatchObject({ status: 404 });
   });
 
   it("rejects malformed queue messages and outcomes", async () => {

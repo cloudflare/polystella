@@ -41,7 +41,9 @@ import {
   MAX_BATCH_FAILURES_SHOWN,
   MAX_BATCH_TRANSLATIONS,
   type BatchJobOutcome,
+  type BatchJobResultsResponse,
   type BatchJobsResponse,
+  type BatchTranslationLink,
   type BatchJobView,
   type CatalogClearSyncedResponse,
   type CatalogEntryView,
@@ -66,6 +68,7 @@ import {
   parseStoredResult,
   readBatchJob,
   readBatchMessage,
+  readTranslationLink,
   recordBatchResult,
   type BatchMessage,
   type BatchTranslateResponse,
@@ -105,6 +108,7 @@ export type { PluginRouteDependencies };
 
 const MAX_CATALOG_SOURCE_CHARACTERS = 30_000;
 const RECENT_BATCH_JOBS = 10;
+const BATCH_RESULTS_PAGE_SIZE = 50;
 const ADMIN_ROLE = 50;
 const TRANSLATABLE_FIELD_TYPES = new Set(["string", "text", "portableText"]);
 
@@ -599,6 +603,29 @@ export function createPluginRoutes(
         return batchJobView(results, jobId, job);
       },
     },
+    // Removes a finished or cancelled job and its result rows from the jobs list. Translations it created stay.
+    "batch/delete": {
+      permission: "plugins:manage",
+      methods: ["POST"],
+      async handler(ctx) {
+        const jobId = readString(readRecord(ctx.input, "request body").jobId, "jobId");
+        const { jobs, results } = batchStorage(ctx.storage);
+        const job = await readBatchJob(jobs, jobId);
+        if (job === null) throw PluginRouteError.notFound("batch job not found");
+        const view = await batchJobView(results, jobId, job);
+        const done = view.counts.created + view.counts.skipped + view.counts.failed;
+        if (job.status === "running" && done < job.total) {
+          throw PluginRouteError.conflict("Cancel the job before removing it, or wait for it to finish.");
+        }
+        // shortcut: a message already in flight when a cancelled job is removed can still record one orphan result row.
+        for (;;) {
+          const page = await results.query({ where: { jobId }, limit: 100 });
+          if (page.items.length === 0 || (await results.deleteMany(page.items.map(({ id }) => id))) === 0) break;
+        }
+        await jobs.delete(jobId);
+        return { deleted: true };
+      },
+    },
     // Called by the queue consumer through `withEmDashRuntime`; returns the draft for the consumer to create.
     "batch/translate": {
       permission: "plugins:manage",
@@ -614,8 +641,12 @@ export function createPluginRoutes(
         const previous = parseStoredResult(await results.get(batchResultId(message)));
         if (previous !== null && previous.outcome !== "failed") return { create: null } satisfies BatchTranslateResponse;
 
-        const record = async (outcome: BatchJobOutcome, detail: string | null): Promise<BatchTranslateResponse> => {
-          await recordBatchResult(results, message, outcome, detail, dependencies.now());
+        const record = async (
+          outcome: BatchJobOutcome,
+          detail: string | null,
+          translation: BatchTranslationLink | null = null,
+        ): Promise<BatchTranslateResponse> => {
+          await recordBatchResult(results, message, outcome, detail, dependencies.now(), translation);
           return { create: null };
         };
         try {
@@ -625,8 +656,14 @@ export function createPluginRoutes(
           const fields = policy.fields.filter((slug) => isTranslatableField(schema, slug)).slice(0, MAX_CONTENT_FIELDS);
           if (fields.length === 0) return await record("failed", "No translatable fields are enabled for this collection.");
           const siblings = await ctx.content?.getTranslations?.(collection, message.entryId);
-          if (siblings?.translations.some((sibling) => sameContentLocale(sibling.locale, message.locale, dependencies))) {
-            return await record("skipped", "A translation already exists.");
+          const existing = siblings?.translations.find((sibling) => sameContentLocale(sibling.locale, message.locale, dependencies));
+          if (existing !== undefined) {
+            return await record("skipped", "A translation already exists.", {
+              id: existing.id,
+              locale: existing.locale ?? contentLocale(message.locale, dependencies),
+              slug: existing.slug,
+              published: existing.status === "published",
+            });
           }
           const { sourceItem, values } = await loadTranslationSource(
             ctx,
@@ -677,8 +714,45 @@ export function createPluginRoutes(
           throw PluginRouteError.badRequest("outcome must be created, skipped, or failed");
         }
         const detail = input.message === null ? null : readText(input.message, "message", MAX_BATCH_MESSAGE_CHARACTERS);
-        await recordBatchResult(batchStorage(ctx.storage).results, message, outcome, detail, dependencies.now());
+        const translation = input.translation === undefined || input.translation === null ? null : readTranslationLink(input.translation);
+        if (input.translation !== undefined && input.translation !== null && translation === null) {
+          throw PluginRouteError.badRequest("translation must have id, locale, slug, and published");
+        }
+        await recordBatchResult(batchStorage(ctx.storage).results, message, outcome, detail, dependencies.now(), translation);
         return { recorded: true };
+      },
+    },
+    "batch/results": {
+      permission: "plugins:manage",
+      methods: ["GET"],
+      async handler(ctx) {
+        const query = readRecord(ctx.input, "query");
+        const jobId = readString(query.jobId, "jobId");
+        const cursor = query.cursor === undefined ? undefined : readString(query.cursor, "cursor");
+        const { jobs, results } = batchStorage(ctx.storage);
+        const job = await readBatchJob(jobs, jobId);
+        if (job === null) throw PluginRouteError.notFound("batch job not found");
+        const page = await results.query({ where: { jobId }, limit: BATCH_RESULTS_PAGE_SIZE, ...(cursor === undefined ? {} : { cursor }) });
+        const rows = page.items.flatMap(({ data }) => {
+          const row = parseStoredResult(data);
+          return row === null ? [] : [row];
+        });
+        const titles = await sourceTitles(
+          ctx,
+          job.collection,
+          rows.map(({ entryId }) => entryId),
+        );
+        return {
+          results: rows.map((row) => ({
+            entryId: row.entryId,
+            title: titles.get(row.entryId) ?? row.entryId,
+            locale: row.locale,
+            outcome: row.outcome,
+            message: row.message,
+            translation: row.translation,
+          })),
+          nextCursor: page.hasMore && page.cursor !== undefined ? page.cursor : null,
+        } satisfies BatchJobResultsResponse;
       },
     },
     overrides: {
@@ -695,6 +769,20 @@ export function createPluginRoutes(
       },
     },
   };
+}
+
+/** Source titles for one page of result rows; a deleted entry falls back to its id. */
+async function sourceTitles(ctx: RouteContext, collection: string, entryIds: readonly string[]): Promise<Map<string, string>> {
+  const unique = [...new Set(entryIds)];
+  const items = await Promise.all(unique.map((id) => ctx.content?.get(collection, id) ?? Promise.resolve(null)));
+  const titles = new Map<string, string>();
+  for (const [index, item] of items.entries()) {
+    const id = unique[index];
+    if (item === null || id === undefined) continue;
+    const title = item.data.title;
+    titles.set(id, typeof title === "string" && title.trim().length > 0 ? title : (item.slug ?? id));
+  }
+  return titles;
 }
 
 function batchStorage(storage: Record<string, StorageCollection | undefined>): { jobs: StorageCollection; results: StorageCollection } {

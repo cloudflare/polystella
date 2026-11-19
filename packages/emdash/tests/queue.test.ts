@@ -45,7 +45,15 @@ describe("PolyStella batch queue consumer", () => {
     expect(routeCalls).toEqual([
       { path: "batch/translate", body },
       { path: "ai-translation", body: { collection: "posts", entryId: "entry-fr" } },
-      { path: "batch/record", body: { ...body, outcome: "created", message: null } },
+      {
+        path: "batch/record",
+        body: {
+          ...body,
+          outcome: "created",
+          message: null,
+          translation: { id: "entry-fr", locale: "fr", slug: "hello", published: false },
+        },
+      },
     ]);
     expect(message.ack).toHaveBeenCalled();
     expect(value.handleContentPublish).not.toHaveBeenCalled();
@@ -56,7 +64,11 @@ describe("PolyStella batch queue consumer", () => {
     await processPolystellaBatch({ messages: [queueMessage()] }, published.value);
     expect(published.value.handleContentPublish).toHaveBeenCalledWith("posts", "entry-fr");
     expect(published.routeCalls.map(({ path }) => path)).toEqual(["batch/translate", "ai-translation", "batch/record"]);
-    expect(published.routeCalls.at(-1)?.body).toMatchObject({ outcome: "created", message: "Published." });
+    expect(published.routeCalls.at(-1)?.body).toMatchObject({
+      outcome: "created",
+      message: "Published.",
+      translation: { id: "entry-fr", published: true },
+    });
 
     const refused = runtime(undefined, { create: draft, publish: true }, { success: false, error: { code: "X", message: "slug taken" } });
     const message = queueMessage();

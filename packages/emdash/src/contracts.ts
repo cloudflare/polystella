@@ -182,6 +182,30 @@ export interface BatchJobView {
   failures: Array<{ entryId: string; locale: string; message: string | null }>;
 }
 
+/** The translation a batch row created, updated, or found. `locale` is the content locale. */
+export interface BatchTranslationLink {
+  id: string;
+  locale: string;
+  slug: string | null;
+  /** Whether a live version exists after the row ran. */
+  published: boolean;
+}
+
+export interface BatchJobResultView {
+  entryId: string;
+  /** Source entry title, slug, or id, in that order. */
+  title: string;
+  locale: string;
+  outcome: BatchJobOutcome;
+  message: string | null;
+  translation: BatchTranslationLink | null;
+}
+
+export interface BatchJobResultsResponse {
+  results: BatchJobResultView[];
+  nextCursor: string | null;
+}
+
 export interface BatchJobsResponse {
   /** False when the deployment has no `batchQueueBinding`; the admin then translates in the browser only. */
   queueEnabled: boolean;
