@@ -155,10 +155,11 @@ function context(
   kv: KVAccess,
   storage: StorageCollection,
   batch: { jobs: StorageCollection; results: StorageCollection } = { jobs: createStorage(), results: createStorage() },
+  aiTranslations: StorageCollection = createStorage(),
 ): RouteContext {
   return {
     plugin: { id: "polystella", version: "0.0.0" },
-    storage: { catalog_overrides: storage, batch_jobs: batch.jobs, batch_results: batch.results },
+    storage: { catalog_overrides: storage, batch_jobs: batch.jobs, batch_results: batch.results, ai_translations: aiTranslations },
     content: {
       getTranslations: async (_collection, id) => ({
         translationGroup: id,
@@ -255,6 +256,41 @@ async function enableDebug(routes: Record<string, PluginRoute>, kv: KVAccess, st
 }
 
 describe("EmDash plugin routes", () => {
+  it("records an AI translation with the locale and model the server derives", async () => {
+    const routes = createPluginRoutes(options(), dependencies());
+    const kv = createKv();
+    const aiTranslations = createStorage();
+    const call = (input: unknown, customize?: (routeContext: RouteContext) => void) => {
+      const routeContext = context(input, "POST", kv, createStorage(), undefined, aiTranslations);
+      customize?.(routeContext);
+      return route(routes, "ai-translation").handler(routeContext);
+    };
+
+    await expect(call({ collection: "posts", entryId: "entry-1" })).rejects.toMatchObject({ status: 403 });
+    await enablePosts(kv);
+    await expect(call({ collection: "posts", entryId: "entry-1" })).resolves.toEqual({ recorded: true });
+    expect(await aiTranslations.get("entry-1")).toEqual({
+      collection: "posts",
+      entryId: "entry-1",
+      locale: "fr-FR",
+      model: "model-b",
+      aiTranslatedAt: "2026-09-03T00:00:00.000Z",
+    });
+
+    await expect(call({ collection: "posts", entryId: "missing" })).rejects.toMatchObject({ status: 404 });
+    const sourceLocale = (routeContext: RouteContext) => {
+      const content = routeContext.content;
+      if (content === undefined) throw new Error("missing content access");
+      const get = content.get;
+      content.get = async (collection, id) => {
+        const item = await get(collection, "entry-1");
+        return item === null ? null : { ...item, id, locale: "en-US" };
+      };
+    };
+    await expect(call({ collection: "posts", entryId: "entry-en" }, sourceLocale)).rejects.toMatchObject({ status: 400 });
+    expect(await aiTranslations.get("entry-en")).toBeNull();
+  });
+
   it("stores collection policies and applies them to the editor panel", async () => {
     const routes = createPluginRoutes(options(), dependencies());
     const kv = createKv();
@@ -715,6 +751,56 @@ describe("EmDash plugin routes", () => {
     expect(calls[1]?.system).toContain("Replacement instructions.");
   });
 
+  it("stores a max output tokens override and sends it to the provider", async () => {
+    const maxTokens: number[] = [];
+    const routes = createPluginRoutes(options(), {
+      ...dependencies(),
+      getEnv: async () => ({
+        AI: {
+          run: async (_model: string, input: WorkersAIInput) => {
+            maxTokens.push(input.max_tokens);
+            return { response: "@@catalog:0@@\nBonjour" };
+          },
+        },
+      }),
+    });
+    const kv = createKv();
+    const storage = createStorage();
+    const settingsRoute = route(routes, "settings/translation");
+    const generate = () => route(routes, "catalog/generate").handler(context({ locale: "fr-FR", keys: ["greeting"] }, "POST", kv, storage));
+    const save = (revision: string | null, value: unknown) =>
+      settingsRoute.handler(
+        context(
+          {
+            revision,
+            maxTokens: value,
+            locales: { "fr-FR": { model: null, glossaryMode: "default", glossaryText: "" } },
+            instructions: { mode: "default", text: "" },
+          },
+          "PUT",
+          kv,
+          storage,
+        ),
+      );
+
+    await expect(settingsRoute.handler(context({}, "GET", kv, storage))).resolves.toMatchObject({
+      maxTokens: null,
+      defaultMaxTokens: 8192,
+    });
+    await generate();
+
+    await expect(save(null, 100)).rejects.toMatchObject({ status: 400 });
+    await expect(save(null, 16_000.5)).rejects.toMatchObject({ status: 400 });
+    const saved = (await save(null, 16_000)) as TranslationSettingsResponse;
+    expect(saved).toMatchObject({ maxTokens: 16_000, defaultMaxTokens: 8192 });
+    await generate();
+
+    await save(saved.revision, null);
+    await generate();
+
+    expect(maxTokens).toEqual([8192, 16_000, 8192]);
+  });
+
   it("supports Workers AI HTTP credentials from runtime environment values", async () => {
     const configured = options();
     configured.provider = {
@@ -985,6 +1071,7 @@ describe("EmDash plugin routes", () => {
       "settings/collections": ["GET", "PUT"],
       "settings/translation": ["GET", "PUT"],
       policy: ["GET"],
+      "ai-translation": ["POST"],
       "translate-content": ["POST"],
       catalog: ["GET"],
       "catalog/generate": ["POST"],
@@ -1361,7 +1448,7 @@ describe("EmDash batch queue routes", () => {
 
     const job = (await call("batch/start", { collection: "posts", locales: ["fr-FR"], entryIds: ["a", "b", "a"] })) as BatchJobView;
 
-    expect(job).toMatchObject({ collection: "posts", locales: ["fr-FR"], total: 2, status: "running" });
+    expect(job).toMatchObject({ collection: "posts", locales: ["fr-FR"], total: 2, status: "running", publish: false });
     expect(sent).toEqual([
       { jobId: job.id, entryId: "a", locale: "fr-FR" },
       { jobId: job.id, entryId: "b", locale: "fr-FR" },
@@ -1412,7 +1499,28 @@ describe("EmDash batch queue routes", () => {
         translationOf: "entry-src",
         authorId: "user-1",
       },
+      publish: false,
     });
+  });
+
+  it("stores the publish choice on the job and returns it with the draft", async () => {
+    const { kv, call } = batchSetup();
+    await enablePosts(kv);
+    const job = (await call("batch/start", {
+      collection: "posts",
+      locales: ["fr-FR"],
+      entryIds: ["entry-src"],
+      publish: true,
+    })) as BatchJobView;
+    expect(job.publish).toBe(true);
+
+    const result = await call("batch/translate", { jobId: job.id, entryId: "entry-src", locale: "fr-FR" }, "POST", (routeContext) =>
+      sourceEntry(routeContext),
+    );
+    expect(result).toMatchObject({ publish: true });
+    await expect(
+      call("batch/start", { collection: "posts", locales: ["fr-FR"], entryIds: ["entry-src"], publish: "yes" }),
+    ).rejects.toMatchObject({ status: 400 });
   });
 
   it("records existing translations as skipped and ignores cancelled jobs", async () => {

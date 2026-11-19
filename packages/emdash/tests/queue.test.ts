@@ -17,8 +17,9 @@ function queueMessage(value: unknown = body) {
 }
 
 function runtime(
-  create: Awaited<ReturnType<PolystellaBatchRuntime["handleContentCreate"]>> = { success: true },
+  create: Awaited<ReturnType<PolystellaBatchRuntime["handleContentCreate"]>> = { success: true, data: { item: { id: "entry-fr" } } },
   translated: unknown = { create: draft },
+  published: Awaited<ReturnType<PolystellaBatchRuntime["handleContentPublish"]>> = { success: true },
 ) {
   const routeCalls: Array<{ path: string; body: unknown }> = [];
   const value = {
@@ -27,6 +28,7 @@ function runtime(
       return { success: true, data: path === "batch/translate" ? translated : { recorded: true } };
     }),
     handleContentCreate: vi.fn(async () => create),
+    handleContentPublish: vi.fn(async () => published),
   } satisfies PolystellaBatchRuntime;
   return { value, routeCalls };
 }
@@ -42,8 +44,27 @@ describe("PolyStella batch queue consumer", () => {
     expect(value.handleContentCreate).toHaveBeenCalledWith(collection, createBody);
     expect(routeCalls).toEqual([
       { path: "batch/translate", body },
+      { path: "ai-translation", body: { collection: "posts", entryId: "entry-fr" } },
       { path: "batch/record", body: { ...body, outcome: "created", message: null } },
     ]);
+    expect(message.ack).toHaveBeenCalled();
+    expect(value.handleContentPublish).not.toHaveBeenCalled();
+  });
+
+  it("publishes the created entry when the job asks, and notes a failed publish", async () => {
+    const published = runtime(undefined, { create: draft, publish: true });
+    await processPolystellaBatch({ messages: [queueMessage()] }, published.value);
+    expect(published.value.handleContentPublish).toHaveBeenCalledWith("posts", "entry-fr");
+    expect(published.routeCalls.map(({ path }) => path)).toEqual(["batch/translate", "ai-translation", "batch/record"]);
+    expect(published.routeCalls.at(-1)?.body).toMatchObject({ outcome: "created", message: "Published." });
+
+    const refused = runtime(undefined, { create: draft, publish: true }, { success: false, error: { code: "X", message: "slug taken" } });
+    const message = queueMessage();
+    await processPolystellaBatch({ messages: [message] }, refused.value);
+    expect(refused.routeCalls.at(-1)?.body).toMatchObject({
+      outcome: "created",
+      message: "Saved as a draft; publishing failed: slug taken",
+    });
     expect(message.ack).toHaveBeenCalled();
   });
 

@@ -49,6 +49,10 @@
       "types": "./dist/config.d.ts",
       "default": "./dist/config.js"
     },
+    "./content": {
+      "types": "./dist/content.d.ts",
+      "default": "./dist/content.js"
+    },
     "./queue": {
       "types": "./dist/queue.d.ts",
       "default": "./dist/queue.js"

@@ -17,14 +17,14 @@ The Workers AI transport. Either a named binding on the EmDash
 deployment, or HTTP with runtime environment variable names (never
 literal credentials):
 
-| Field          | Type                                          | Notes                                                                                                                                              |
-| -------------- | --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `kind`         | `"workers-ai-binding"` or `"workers-ai-http"` | Selects the transport.                                                                                                                             |
-| `binding`      | string                                        | Binding kind only. The named Workers AI binding on the EmDash deployment.                                                                          |
-| `accountIdEnv` | string                                        | HTTP kind only. Env var name for the account ID.                                                                                                   |
-| `apiTokenEnv`  | string                                        | HTTP kind only. Env var name for the API token.                                                                                                    |
-| `endpoint`     | string                                        | HTTP kind only, optional. Overrides the Workers AI endpoint.                                                                                       |
-| `maxTokens`    | number                                        | Optional. Defaults to `8192`. Do not lower it — the default is already the floor for multi-segment translations; truncation produces invalid JSON. |
+| Field          | Type                                          | Notes                                                                                                                                                                                                              |
+| -------------- | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `kind`         | `"workers-ai-binding"` or `"workers-ai-http"` | Selects the transport.                                                                                                                                                                                             |
+| `binding`      | string                                        | Binding kind only. The named Workers AI binding on the EmDash deployment.                                                                                                                                          |
+| `accountIdEnv` | string                                        | HTTP kind only. Env var name for the account ID.                                                                                                                                                                   |
+| `apiTokenEnv`  | string                                        | HTTP kind only. Env var name for the API token.                                                                                                                                                                    |
+| `endpoint`     | string                                        | HTTP kind only, optional. Overrides the Workers AI endpoint.                                                                                                                                                       |
+| `maxTokens`    | number                                        | Optional. Defaults to `8192`. Do not lower it — the default is already the floor for multi-segment translations; truncation produces invalid JSON. Administrators can override it in the Translation settings tab. |
 
 ## `catalogs`
 
@@ -96,7 +96,8 @@ See [Catalog messages](/concepts/catalog-messages/#locale-tags).
 Optional. The name of a Cloudflare Queue producer binding. When set,
 the [Batch translation tab](/emdash/admin-ui/#batch-translation-tab)
 can run jobs on the server, so they keep going after the browser tab
-closes. Server jobs only create missing translations, as drafts.
+closes. Server jobs only create missing translations, as drafts unless
+the administrator turns on **Publish translations immediately**.
 
 EmDash plugins cannot declare bindings or queue consumers, so the site
 wires both. In `wrangler.jsonc`, point a producer and a consumer at the

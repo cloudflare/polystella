@@ -5,6 +5,8 @@ export const MAX_CATALOG_KEYS = 100;
 export const MAX_COLLECTION_POLICY_FIELDS = 100;
 export const MAX_SANDBOX_CHARACTERS = 30_000;
 export const USE_CODE_DEFAULT_MODEL = "__polystella_code_default__";
+export const MIN_MAX_TOKENS = 256;
+export const MAX_MAX_TOKENS = 131_072;
 
 export type CustomizationMode = "default" | "append" | "replace";
 
@@ -42,6 +44,10 @@ export interface TranslationSettingsResponse {
   /** Host revision of the stored settings; send it back on PUT. `null` when nothing is stored. */
   revision: string | null;
   debugEnabled: boolean;
+  /** Administrator override for the model's output token limit; `null` uses `defaultMaxTokens`. */
+  maxTokens: number | null;
+  /** From deployment configuration (`provider.maxTokens`) or PolyStella's built-in default. */
+  defaultMaxTokens: number;
   allowedModels: string[];
   locales: TranslationLocaleSettings[];
   instructions: {
@@ -171,6 +177,7 @@ export interface BatchJobView {
   total: number;
   status: "running" | "cancelled";
   createdAt: string;
+  publish: boolean;
   counts: Record<BatchJobOutcome, number>;
   failures: Array<{ entryId: string; locale: string; message: string | null }>;
 }

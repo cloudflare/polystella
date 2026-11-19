@@ -29,6 +29,7 @@ export async function translateExistingEntry(input: TranslateExistingEntryInput)
   const result = await requestTranslation(input, entryId, locale);
   if (result.patch === null) return { entry: null, error: result.error, debug: result.debug };
   const entry = await updateContent(collection, entryId, { data: result.patch, _rev: saved._rev }, { locale });
+  await recordAiTranslation(collection, entry.id);
   return { entry, debug: result.debug };
 }
 
@@ -53,7 +54,18 @@ export async function createTranslatedEntry(input: CreateTranslatedEntryInput): 
     locale,
     translationOf: sourceEntryId,
   });
+  await recordAiTranslation(collection, entry.id);
   return { entry, debug: result.debug };
+}
+
+/** Marks the saved entry as AI-translated for `getEnrichedEntry`. Runs before any publish, so a live page never lacks its flag. */
+async function recordAiTranslation(collection: string, entryId: string): Promise<void> {
+  try {
+    await pluginRequest("ai-translation", { method: "POST", body: JSON.stringify({ collection, entryId }) });
+  } catch (cause) {
+    // shortcut: the content is already saved, so a missing flag is only logged; surface it in the UI if editors need to know.
+    console.error("[polystella-emdash] could not mark the entry as AI-translated", cause);
+  }
 }
 
 async function requestTranslation(

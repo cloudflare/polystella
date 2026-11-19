@@ -6,20 +6,21 @@ const admin = vi.hoisted(() => ({
   createContent: vi.fn(),
   fetchContent: vi.fn(),
   fetchTranslations: vi.fn(),
+  publishContent: vi.fn(),
   updateContent: vi.fn(),
 }));
 
 vi.mock("@emdash-cms/admin", async (importOriginal) => ({ ...(await importOriginal<object>()), ...admin }));
 
-const { findExistingTranslation, planBatchJobs, runBatchJob, runBatchJobs } =
+const { findExistingTranslation, planBatchJobs, runBatchJob, runBatchJobs, untranslatedLocales } =
   await import("../src/admin/plugin-page/tabs/BatchTab/helpers.js");
 
 const job = { item: { id: "post-1", title: "Hello", slug: "hello" }, target: { locale: "fr", code: "fr-FR" } };
-const options = { collection: "posts", sourceLocale: "en", fields: ["title"], updateExisting: false };
+const options = { collection: "posts", sourceLocale: "en", fields: ["title"], updateExisting: false, publish: false };
 
 beforeEach(() => {
   vi.resetAllMocks();
-  admin.apiFetch.mockResolvedValue(Response.json({ data: { patch: { title: "Bonjour" }, batchCount: 1 } }));
+  admin.apiFetch.mockImplementation(async () => Response.json({ data: { patch: { title: "Bonjour" }, batchCount: 1 } }));
 });
 
 describe("batch translation", () => {
@@ -47,6 +48,19 @@ describe("batch translation", () => {
     expect(findExistingTranslation([{ id: "3", locale: "de" }], target)).toBeUndefined();
   });
 
+  it("lists locales missing from at least one entry, in target order", async () => {
+    const existing: Record<string, string[]> = { a: ["fr-FR", "de"], b: ["fr"] };
+    admin.fetchTranslations.mockImplementation(async (_collection: string, id: string) => ({
+      translations: (existing[id] ?? []).map((locale) => ({ id: `${id}-${locale}`, locale })),
+    }));
+    const targets = [
+      { locale: "fr", code: "fr-FR" },
+      { locale: "de", code: "de-DE" },
+      { locale: "es", code: "es-ES" },
+    ];
+    await expect(untranslatedLocales("posts", ["a", "b"], targets, 2)).resolves.toEqual(["de", "es"]);
+  });
+
   it("caps concurrency and stops picking jobs once asked", async () => {
     let active = 0;
     let peak = 0;
@@ -70,9 +84,14 @@ describe("batch translation", () => {
   it("creates a draft for a missing locale", async () => {
     admin.fetchTranslations.mockResolvedValue({ translationGroup: "g", translations: [{ id: "post-1", locale: "en" }] });
     admin.fetchContent.mockResolvedValue({ id: "post-1", slug: "hello", data: { title: "Hello", body: [] } });
-    admin.createContent.mockResolvedValue({ id: "post-1-fr" });
+    admin.createContent.mockResolvedValue({ id: "post-1-fr", locale: "fr" });
 
-    expect(await runBatchJob(job, options)).toMatchObject({ outcome: "created", message: null });
+    expect(await runBatchJob(job, options)).toMatchObject({
+      outcome: "created",
+      message: null,
+      translation: { id: "post-1-fr", locale: "fr" },
+    });
+    expect(admin.publishContent).not.toHaveBeenCalled();
     expect(admin.createContent).toHaveBeenCalledWith("posts", {
       data: { title: "Bonjour", body: [] },
       slug: "hello",
@@ -81,10 +100,26 @@ describe("batch translation", () => {
     });
   });
 
+  it("publishes when asked, keeping the draft and noting a failed publish", async () => {
+    admin.fetchTranslations.mockResolvedValue({ translationGroup: "g", translations: [] });
+    admin.fetchContent.mockResolvedValue({ id: "post-1", slug: "hello", data: { title: "Hello" } });
+    admin.createContent.mockResolvedValue({ id: "post-1-fr", locale: "fr" });
+    admin.publishContent.mockResolvedValueOnce({ id: "post-1-fr" });
+
+    expect(await runBatchJob(job, { ...options, publish: true })).toMatchObject({ outcome: "created", message: "Published." });
+    expect(admin.publishContent).toHaveBeenCalledWith("posts", "post-1-fr", { locale: "fr" });
+
+    admin.publishContent.mockRejectedValueOnce(new Error("slug taken"));
+    expect(await runBatchJob(job, { ...options, publish: true })).toMatchObject({
+      outcome: "created",
+      message: "Saved as a draft; publishing failed: slug taken",
+    });
+  });
+
   it("skips existing translations unless updates are enabled", async () => {
     admin.fetchTranslations.mockResolvedValue({ translationGroup: "g", translations: [{ id: "post-1-fr", locale: "fr" }] });
 
-    expect(await runBatchJob(job, options)).toMatchObject({ outcome: "skipped" });
+    expect(await runBatchJob(job, options)).toMatchObject({ outcome: "skipped", translation: { id: "post-1-fr", locale: "fr" } });
     expect(admin.apiFetch).not.toHaveBeenCalled();
     expect(admin.updateContent).not.toHaveBeenCalled();
   });

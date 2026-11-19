@@ -70,12 +70,14 @@ import {
   type BatchTranslateResponse,
   type StoredBatchJob,
 } from "../batch.js";
+import { AI_TRANSLATIONS_COLLECTION, type AiTranslationRecord } from "../../ai-translations.js";
 import { resolveGlossary, resolveInstructions, runtimeOverrideSettingKey } from "../../settings.js";
 import type { PolystellaEmdashOptions } from "../options.js";
 import { localeTag, targetLocales } from "../options.js";
 import {
   collectionPolicies,
   collectionSettings,
+  defaultMaxTokens,
   readCollectionPolicies,
   readRevision,
   runtimeLocaleEnabled,
@@ -95,7 +97,7 @@ import {
   type TranslationDebugCollector,
 } from "./debug-collector.js";
 import { throwTranslationFailure, translationFailureMessage } from "./failures.js";
-import { createTranslator, MAX_TOKENS, type PluginRouteDependencies } from "./provider.js";
+import { createTranslator, type PluginRouteDependencies } from "./provider.js";
 import { readBoolean, readLocale, readNullableStringRecord, readRecord, readString, readStringArray, readText } from "./validators.js";
 
 export type { PluginRouteDependencies };
@@ -154,6 +156,34 @@ export function createPluginRoutes(
         } satisfies CollectionPolicyResponse;
       },
     },
+    // Called after the admin (or the queue consumer) saves AI-translated content. The server derives locale and model itself.
+    "ai-translation": {
+      permission: "content:edit_any",
+      methods: ["POST"],
+      async handler(ctx) {
+        const input = readRecord(ctx.input, "request body");
+        const collection = readString(input.collection, "collection");
+        const entryId = readString(input.entryId, "entryId");
+        await enabledCollectionPolicy(ctx.settings, collection);
+        if (ctx.content === undefined) throw PluginRouteError.internal("content access is unavailable");
+        const item = await ctx.content.get(collection, entryId);
+        if (item === null) throw PluginRouteError.notFound("content entry not found");
+        if (item.locale === null) throw PluginRouteError.badRequest("entry has no locale");
+        const locale = configuredTargetLocale(options, catalogLocale(options, item.locale, dependencies));
+        const stored = await storedTranslationSettings(options, ctx.settings);
+        const record: AiTranslationRecord = {
+          collection,
+          entryId,
+          locale,
+          model: stored.locales[locale]?.model ?? resolveModelId(options.models.defaults, locale),
+          aiTranslatedAt: dependencies.now().toISOString(),
+        };
+        const storage = ctx.storage[AI_TRANSLATIONS_COLLECTION];
+        if (storage === undefined) throw PluginRouteError.internal("AI translation storage is unavailable");
+        await storage.put(entryId, record);
+        return { recorded: true };
+      },
+    },
     "translate-content": {
       permission: "content:edit_any",
       methods: ["POST"],
@@ -189,7 +219,7 @@ export function createPluginRoutes(
               operation: "content",
               provider: options.provider.kind,
               model: settings.translator.modelId,
-              maxOutputTokens: options.provider.maxTokens ?? MAX_TOKENS,
+              maxOutputTokens: settings.maxTokens,
               maxSegmentsPerBatch: null,
               sourceLocale: options.catalogs.defaultLocale,
               targetLocale,
@@ -267,7 +297,7 @@ export function createPluginRoutes(
               operation: "catalog",
               provider: options.provider.kind,
               model: settings.translator.modelId,
-              maxOutputTokens: options.provider.maxTokens ?? MAX_TOKENS,
+              maxOutputTokens: settings.maxTokens,
               maxSegmentsPerBatch: DEFAULT_UI_STRING_BATCH_SIZE,
               sourceLocale: options.catalogs.defaultLocale,
               targetLocale: locale,
@@ -433,7 +463,7 @@ export function createPluginRoutes(
               operation: "sandbox",
               provider: options.provider.kind,
               model: settings.translator.modelId,
-              maxOutputTokens: options.provider.maxTokens ?? MAX_TOKENS,
+              maxOutputTokens: settings.maxTokens,
               maxSegmentsPerBatch: null,
               sourceLocale: options.catalogs.defaultLocale,
               targetLocale,
@@ -500,6 +530,7 @@ export function createPluginRoutes(
             ),
           ),
         ];
+        const publish = input.publish === undefined ? false : readBoolean(input.publish, "publish");
         const selectedIds = input.entryIds === undefined ? undefined : [...new Set(readStringArray(input.entryIds, "entryIds", false))];
         await enabledCollectionPolicy(ctx.settings, collection);
         const queue = batchQueue(options.batchQueueBinding, await dependencies.getEnv());
@@ -517,6 +548,7 @@ export function createPluginRoutes(
           locales,
           total: entryIds.length * locales.length,
           status: "running",
+          publish,
           createdAt: dependencies.now().toISOString(),
           createdBy: ctx.user?.id ?? null,
         };
@@ -623,6 +655,7 @@ export function createPluginRoutes(
               translationOf: sourceItem.id,
               ...(job.createdBy === null ? {} : { authorId: job.createdBy }),
             },
+            publish: job.publish,
           } satisfies BatchTranslateResponse;
         } catch (error) {
           return await record("failed", batchFailureMessage(error, ctx.log));
@@ -713,6 +746,7 @@ async function batchJobView(results: StorageCollection, id: string, job: StoredB
     locales: job.locales,
     total: job.total,
     status: job.status,
+    publish: job.publish,
     createdAt: job.createdAt,
     counts: { created, skipped, failed },
     failures: failures.items.flatMap(({ data }) => {
@@ -845,7 +879,13 @@ async function translationSettings(
   log: LogAccess,
   dependencies: PluginRouteDependencies,
   modelOverride?: string | undefined,
-): Promise<{ translator: Translator; glossary: Glossary; debugEnabled: boolean; promptInstruction?: string | undefined }> {
+): Promise<{
+  translator: Translator;
+  glossary: Glossary;
+  debugEnabled: boolean;
+  maxTokens: number;
+  promptInstruction?: string | undefined;
+}> {
   const [storedSettings, env] = await Promise.all([storedTranslationSettings(options, settings), dependencies.getEnv()]);
   const stored = storedSettings.locales[locale];
   if (stored === undefined) throw PluginRouteError.internal(`translation settings for ${locale} are unavailable`);
@@ -863,10 +903,12 @@ async function translationSettings(
   if (promptInstruction.length > MAX_INSTRUCTION_CHARACTERS) {
     throw PluginRouteError.badRequest(`translation instructions cannot exceed ${MAX_INSTRUCTION_CHARACTERS} characters`);
   }
+  const maxTokens = storedSettings.maxTokens ?? defaultMaxTokens(options);
   return {
-    translator: createTranslator(options, env, model, log, dependencies),
+    translator: createTranslator(options, env, model, log, dependencies, maxTokens),
     glossary,
     debugEnabled: storedSettings.debugEnabled,
+    maxTokens,
     ...(promptInstruction.length === 0 ? {} : { promptInstruction }),
   };
 }

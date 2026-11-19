@@ -46,6 +46,7 @@ describe("polystellaEmdash", () => {
         catalog_overrides: { indexes: ["locale"] },
         batch_jobs: { indexes: ["createdAt"] },
         batch_results: { indexes: ["jobId", "outcome"] },
+        ai_translations: { indexes: ["locale"] },
       },
     });
     expect(plugin.id).toBe(descriptor.id);
@@ -55,6 +56,7 @@ describe("polystellaEmdash", () => {
       "settings/collections",
       "settings/translation",
       "policy",
+      "ai-translation",
       "translate-content",
       "catalog",
       "catalog/generate",

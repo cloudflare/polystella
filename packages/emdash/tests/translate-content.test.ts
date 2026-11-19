@@ -42,6 +42,39 @@ describe("translateContentFields", () => {
     expect(body[0]).toMatchObject({ children: [{ text: "World" }] });
   });
 
+  it("translates Portable Text table cells and keeps the table structure", async () => {
+    const cell = (key: string, text: string) => ({ _type: "tableCell", _key: key, content: [{ _type: "span", _key: "s0", text }] });
+    const table = {
+      _type: "table",
+      _key: "b1",
+      rows: [
+        { _type: "tableRow", _key: "r0", cells: [cell("c0", "Rule"), cell("c1", "Rule ID")] },
+        { _type: "tableRow", _key: "r1", cells: [cell("c2", "Generic rule"), cell("c3", "   ")] },
+      ],
+    };
+    const result = await translateContentFields({
+      values: { body: [table] },
+      translator: translator(
+        "@@field:0:block:0:row:0:cell:0:span:0@@\nRegra\n\n@@field:0:block:0:row:0:cell:1:span:0@@\nID da regra\n\n@@field:0:block:0:row:1:cell:0:span:0@@\nRegra genérica",
+      ),
+      glossary: EMPTY_GLOSSARY,
+      sourceLocale: "en-US",
+      targetLocale: "pt-BR",
+    });
+
+    expect(result.patch).toEqual({
+      body: [
+        {
+          ...table,
+          rows: [
+            { _type: "tableRow", _key: "r0", cells: [cell("c0", "Regra"), cell("c1", "ID da regra")] },
+            { _type: "tableRow", _key: "r1", cells: [cell("c2", "Regra genérica"), cell("c3", "   ")] },
+          ],
+        },
+      ],
+    });
+  });
+
   it("preserves span boundary whitespace", async () => {
     const result = await translateContentFields({
       values: {

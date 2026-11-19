@@ -24,7 +24,11 @@ export interface PolystellaBatchRuntime {
   handleContentCreate(
     collection: string,
     body: Omit<BatchCreatePayload, "collection">,
-  ): Promise<{ success: true } | { success: false; error: { code: string; message: string } }>;
+  ): Promise<{ success: true; data?: { item: { id: string } } } | { success: false; error: { code: string; message: string } }>;
+  handleContentPublish(
+    collection: string,
+    id: string,
+  ): Promise<{ success: true } | { success: false; error?: { code: string; message: string } | undefined }>;
 }
 
 /**
@@ -57,18 +61,47 @@ async function processMessage(runtime: PolystellaBatchRuntime, body: unknown): P
     console.error("[polystella-emdash] dropping a malformed batch message");
     return;
   }
-  const create = readCreatePayload(await callRoute(runtime, "batch/translate", message));
+  const response = await callRoute(runtime, "batch/translate", message);
+  const create = readCreatePayload(response);
   if (create === null) return;
 
   const { collection, ...draft } = create;
   const created = await runtime.handleContentCreate(collection, draft);
   if (created.success) {
-    await record(runtime, message, "created", null);
+    const entryId = created.data?.item.id;
+    if (entryId !== undefined) await recordAiTranslation(runtime, collection, entryId);
+    const publish = isRecord(response) && response.publish === true;
+    await record(runtime, message, "created", publish ? await publishCreated(runtime, collection, entryId) : null);
   } else {
     // CONFLICT means the locale was created after the route checked, by an editor or a duplicate delivery.
     const outcome = created.error.code === "CONFLICT" ? "skipped" : "failed";
     await record(runtime, message, outcome, created.error.message.slice(0, MAX_BATCH_MESSAGE_CHARACTERS));
   }
+}
+
+/** The draft already exists, so a failure here is logged instead of retrying the message (which would skip it). */
+async function recordAiTranslation(runtime: PolystellaBatchRuntime, collection: string, entryId: string): Promise<void> {
+  try {
+    await callRoute(runtime, "ai-translation", { collection, entryId });
+  } catch (error) {
+    console.error(
+      `[polystella-emdash] could not mark ${entryId} as AI-translated: ${error instanceof Error ? error.message : "unknown error"}`,
+    );
+  }
+}
+
+/** A failed publish leaves the draft in place, so it is noted on the created row rather than retried. */
+async function publishCreated(runtime: PolystellaBatchRuntime, collection: string, id: string | undefined): Promise<string> {
+  if (id === undefined) return "Saved as a draft; EmDash did not return the new entry to publish.";
+  let reason: string;
+  try {
+    const published = await runtime.handleContentPublish(collection, id);
+    if (published.success) return "Published.";
+    reason = published.error?.message ?? "unknown error";
+  } catch (error) {
+    reason = error instanceof Error ? error.message : "unknown error";
+  }
+  return `Saved as a draft; publishing failed: ${reason}`.slice(0, MAX_BATCH_MESSAGE_CHARACTERS);
 }
 
 async function record(runtime: PolystellaBatchRuntime, message: BatchMessage, outcome: string, detail: string | null): Promise<void> {

@@ -13,6 +13,8 @@ export interface StoredBatchJob {
   locales: string[];
   total: number;
   status: "running" | "cancelled";
+  /** Publish each created translation instead of leaving it as a draft. */
+  publish: boolean;
   createdAt: string;
   createdBy: string | null;
 }
@@ -46,6 +48,7 @@ export interface BatchCreatePayload {
 
 export interface BatchTranslateResponse {
   create: BatchCreatePayload | null;
+  publish?: boolean;
 }
 
 export interface BatchQueue {
@@ -64,7 +67,7 @@ export function readBatchMessage(value: unknown): BatchMessage | null {
 
 export function parseStoredJob(value: unknown): StoredBatchJob | null {
   if (!isRecord(value)) return null;
-  const { collection, locales, total, status, createdAt, createdBy } = value;
+  const { collection, locales, total, status, publish, createdAt, createdBy } = value;
   if (
     !isNonEmptyString(collection) ||
     !Array.isArray(locales) ||
@@ -76,7 +79,8 @@ export function parseStoredJob(value: unknown): StoredBatchJob | null {
   ) {
     return null;
   }
-  return { collection, locales, total, status, createdAt, createdBy };
+  // Jobs stored before `publish` existed created drafts.
+  return { collection, locales, total, status, publish: publish === true, createdAt, createdBy };
 }
 
 export function parseStoredResult(value: unknown): StoredBatchResult | null {

@@ -1,7 +1,9 @@
-import { Button, LayerCard, Select, Switch, Textarea } from "@cloudflare/kumo";
+import { Button, Input, LayerCard, Select, Switch, Textarea } from "@cloudflare/kumo";
 import { useEffect, useState, type ReactNode } from "react";
 
 import {
+  MAX_MAX_TOKENS,
+  MIN_MAX_TOKENS,
   USE_CODE_DEFAULT_MODEL,
   type CustomizationMode,
   type TranslationLocaleSettings,
@@ -48,6 +50,7 @@ export function TranslationSettingsTab(): ReactNode {
         body: JSON.stringify({
           revision: settings.revision,
           debugEnabled: settings.debugEnabled,
+          maxTokens: settings.maxTokens,
           locales: Object.fromEntries(
             settings.locales.map((locale) => [
               locale.locale,
@@ -79,14 +82,27 @@ export function TranslationSettingsTab(): ReactNode {
           <div style={stackStyle}>
             <Switch
               label="Debug mode"
+              labelTooltip="Administrators receive request-scoped prompts, normalized model responses, and batch diagnostics. Debug traces are not stored on the server."
               checked={settings.debugEnabled}
               disabled={working}
               onCheckedChange={(debugEnabled) => setSettings((current) => (current === null ? null : { ...current, debugEnabled }))}
             />
-            <small style={mutedStyle}>
-              Administrators receive request-scoped prompts, normalized model responses, and batch diagnostics. Debug traces are not stored
-              on the server.
-            </small>
+            <Input
+              label="Max output tokens"
+              type="number"
+              min={MIN_MAX_TOKENS}
+              max={MAX_MAX_TOKENS}
+              step={1}
+              placeholder={`Default (${settings.defaultMaxTokens})`}
+              labelTooltip={`Raise this if long entries fail with truncated responses. Leave empty to use the default (${settings.defaultMaxTokens}).`}
+              value={settings.maxTokens?.toString() ?? ""}
+              disabled={working}
+              onChange={(event) => {
+                const text = event.target.value.trim();
+                const maxTokens = text.length === 0 ? null : Number(text);
+                setSettings((current) => (current === null ? null : { ...current, maxTokens }));
+              }}
+            />
             <h3>Shared translation instructions</h3>
             <Select
               label="Instruction behavior"

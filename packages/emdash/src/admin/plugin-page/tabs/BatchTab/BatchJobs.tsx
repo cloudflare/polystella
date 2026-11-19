@@ -40,7 +40,7 @@ export function BatchJobs({ jobs, onChange }: { jobs: readonly BatchJobView[]; o
               <span>
                 <strong>{job.collection}</strong> → {job.locales.join(", ")}{" "}
                 <small style={mutedStyle}>
-                  {state}, started {job.createdAt}
+                  {state}, {job.publish ? "publishing" : "as drafts"}, started {job.createdAt}
                 </small>
               </span>
               <TranslationProgress

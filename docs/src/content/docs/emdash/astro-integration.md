@@ -57,6 +57,44 @@ lookup as the main Astro catalog integration. EmDash adds only the
 server override layer; nested groups still resolve through dotted
 keys such as `t("nav.home")`.
 
+## AI-translated flag
+
+EmDash plugins cannot add fields to a collection, so PolyStella keeps
+its own record of which entries its AI wrote. Read it with
+`getEnrichedEntry` and `getEnrichedCollection`. They take the same
+arguments as `getEmDashEntry` and `getEmDashCollection` and return the
+same result, with `entry.polystella` added to each entry:
+
+```astro
+---
+import { getEnrichedEntry } from "@cloudflare/polystella-emdash/content";
+
+const { entry, cacheHint } = await getEnrichedEntry("posts", Astro.params.slug, { locale: Astro.currentLocale });
+Astro.cache.set(cacheHint);
+---
+
+{entry?.polystella.aiTranslated && (
+  <p>Translated by AI on {entry.polystella.aiTranslatedAt}.</p>
+)}
+```
+
+| Field                           | Type             | Meaning                                              |
+| ------------------------------- | ---------------- | ---------------------------------------------------- |
+| `polystella.aiTranslated`       | `boolean`        | PolyStella's AI translated this entry.               |
+| `polystella.aiTranslatedAt`     | `string \| null` | ISO time of the latest AI translation.               |
+| `polystella.aiTranslationModel` | `string \| null` | Model the locale was configured to use at that time. |
+
+- The flag is set whenever PolyStella saves a translation: from the
+  content-editor panel, the Batch translation tab, and server queue
+  jobs. It is written before any publish.
+- It stays set after a person edits the entry; translating again
+  updates the time and model.
+- A locale that falls back to the source entry reads as not
+  AI-translated, because the source entry has no record.
+- If the record can't be read, the page still renders and the entry
+  reads as not AI-translated; the error is logged.
+- Each call does one storage read (one per page for collections).
+
 ## Prerendering
 
 Prerendered pages always use deployed dictionaries, so temporary

@@ -3,6 +3,8 @@ import { PluginRouteError, type SettingsAccess } from "emdash";
 
 import {
   MAX_COLLECTION_POLICY_FIELDS,
+  MAX_MAX_TOKENS,
+  MIN_MAX_TOKENS,
   type CollectionPolicy,
   type CollectionSettingsResponse,
   type CustomizationMode,
@@ -11,6 +13,7 @@ import {
 import { isCustomizationMode, resolveGlossary, resolveInstructions, runtimeOverrideSettingKey } from "../settings.js";
 import type { PolystellaEmdashOptions } from "./options.js";
 import { targetLocales } from "./options.js";
+import { MAX_TOKENS } from "./routes/provider.js";
 import {
   isAllowedCollectionSlug,
   isAllowedFieldSlug,
@@ -131,6 +134,8 @@ export async function translationSettingsView(
     defaultLocale: options.catalogs.defaultLocale,
     revision: versioned?.revision ?? null,
     debugEnabled: stored.debugEnabled,
+    maxTokens: stored.maxTokens,
+    defaultMaxTokens: defaultMaxTokens(options),
     allowedModels: [...options.models.allowed],
     locales,
     instructions: {
@@ -148,6 +153,10 @@ export async function saveTranslationSettings(
 ): Promise<void> {
   const expectedRevision = readRevision(input.revision);
   const debugEnabled = input.debugEnabled === undefined ? false : readBoolean(input.debugEnabled, "debugEnabled");
+  const maxTokens = input.maxTokens === undefined || input.maxTokens === null ? null : input.maxTokens;
+  if (maxTokens !== null && !isMaxTokens(maxTokens)) {
+    throw PluginRouteError.badRequest(`maxTokens must be null or an integer from ${MIN_MAX_TOKENS} to ${MAX_MAX_TOKENS}`);
+  }
   const localeInput = readRecord(input.locales, "locales");
   const configuredLocales = targetLocales(options);
   if (
@@ -184,6 +193,7 @@ export async function saveTranslationSettings(
 
   await compareAndSetSetting(settings, TRANSLATION_SETTINGS_KEY, expectedRevision, {
     debugEnabled,
+    maxTokens,
     locales: Object.fromEntries(values.map(({ locale, ...localeSettings }) => [locale, localeSettings])),
     instructions: { mode: instructionMode, text: instructionText },
   } satisfies StoredTranslationSettings);
@@ -213,6 +223,7 @@ export interface StoredLocaleSettings {
 
 export interface StoredTranslationSettings {
   debugEnabled: boolean;
+  maxTokens: number | null;
   locales: Record<string, StoredLocaleSettings>;
   instructions: { mode: CustomizationMode; text: string };
 }
@@ -247,6 +258,7 @@ function parseTranslationSettings(options: PolystellaEmdashOptions, stored: unkn
   const instructionText = typeof storedInstructions.text === "string" ? storedInstructions.text : "";
   return {
     debugEnabled: storedRoot.debugEnabled === true,
+    maxTokens: isMaxTokens(storedRoot.maxTokens) ? storedRoot.maxTokens : null,
     locales,
     instructions: {
       mode: isCustomizationMode(storedInstructions.mode)
@@ -257,6 +269,14 @@ function parseTranslationSettings(options: PolystellaEmdashOptions, stored: unkn
       text: instructionText,
     },
   };
+}
+
+export function defaultMaxTokens(options: PolystellaEmdashOptions): number {
+  return options.provider.maxTokens ?? MAX_TOKENS;
+}
+
+function isMaxTokens(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value >= MIN_MAX_TOKENS && value <= MAX_MAX_TOKENS;
 }
 
 export async function runtimeLocales(options: PolystellaEmdashOptions, settings: SettingsAccess): Promise<string[]> {

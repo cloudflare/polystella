@@ -1,6 +1,6 @@
-import { fetchCollection, fetchCollections, fetchContentList } from "@emdash-cms/admin";
-import { Button, Checkbox, Input, LayerCard, Select, Switch, Table } from "@cloudflare/kumo";
-import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { fetchCollection, fetchCollections, fetchContentList, Link } from "@emdash-cms/admin";
+import { Button, Input, LayerCard, Select, Switch, Table } from "@cloudflare/kumo";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import {
   MAX_CONTENT_FIELDS,
@@ -12,6 +12,7 @@ import {
 import { COLLECTIONS_SAVED_EVENT, errorMessage, isTranslatable, pluginRequest, supportsTranslation } from "../../../utils.js";
 import { cardStyle, mutedStyle, rowStyle, sectionStyle, stackStyle } from "../../../styles.js";
 import { ErrorMessage } from "../../../components/ErrorMessage/ErrorMessage.js";
+import { LocalePicker } from "../../../components/LocalePicker/LocalePicker.js";
 import { TranslationProgress } from "../../../components/TranslationProgress/TranslationProgress.js";
 import { BatchJobs } from "./BatchJobs.js";
 import {
@@ -23,16 +24,12 @@ import {
   type BatchItem,
   type BatchJob,
   type BatchResult,
+  untranslatedLocales,
 } from "./helpers.js";
 
 const CONCURRENCY = 3;
 const PAGE_SIZE = 50;
 const JOB_POLL_MS = 5000;
-const localeGridStyle: CSSProperties = {
-  display: "grid",
-  gap: "8px 16px",
-  gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))",
-};
 
 type Scope = "all" | "selected";
 type Runner = "browser" | "queue";
@@ -59,10 +56,12 @@ export function BatchTab(): ReactNode {
   const [locales, setLocales] = useState<string[]>([]);
   const [scope, setScope] = useState<Scope>("all");
   const [updateExisting, setUpdateExisting] = useState(false);
+  const [publish, setPublish] = useState(false);
   const [search, setSearch] = useState("");
   const [page, setPage] = useState<ItemPage | null>(null);
   const [selected, setSelected] = useState<Map<string, BatchItem>>(new Map());
   const [running, setRunning] = useState(false);
+  const [checkingLocales, setCheckingLocales] = useState(false);
   const [stopping, setStopping] = useState(false);
   const [total, setTotal] = useState(0);
   const [results, setResults] = useState<BatchResult[]>([]);
@@ -142,7 +141,7 @@ export function BatchTab(): ReactNode {
           .slice(0, MAX_CONTENT_FIELDS);
         const available = policy.targetLocales.map(({ locale }) => locale);
         setLoaded({ policy, fields });
-        setLocales((current) => (current.length === 0 ? available : current.filter((locale) => available.includes(locale))));
+        setLocales((current) => current.filter((locale) => available.includes(locale)));
       })
       .catch((cause: unknown) => {
         if (active) setError(errorMessage(cause));
@@ -187,6 +186,19 @@ export function BatchTab(): ReactNode {
     }
   }
 
+  async function selectUntranslated(): Promise<void> {
+    if (loaded === null) return;
+    setCheckingLocales(true);
+    setError(null);
+    try {
+      setLocales(await untranslatedLocales(collection, [...selected.keys()], loaded.policy.targetLocales, CONCURRENCY));
+    } catch (cause) {
+      setError(errorMessage(cause));
+    } finally {
+      setCheckingLocales(false);
+    }
+  }
+
   async function run(jobs: BatchJob[] | null): Promise<void> {
     if (loaded === null) return;
     const { policy, fields } = loaded;
@@ -204,9 +216,10 @@ export function BatchTab(): ReactNode {
           setError("Nothing to translate: no source entries or no target locales selected.");
           return;
         }
+        const saved = publish ? "and publish them" : "as drafts";
         const action = updateExisting
-          ? "create missing translations and replace the selected fields in existing ones"
-          : "create missing translations as drafts and skip existing ones";
+          ? `create missing translations and replace the selected fields in existing ones, ${saved}`
+          : `create missing translations ${saved} and skip existing ones`;
         if (!window.confirm(`PolyStella will ${action}: ${items.length} entries × ${targets.length} locales. Continue?`)) return;
         setResults([]);
         setTotal(planned.length);
@@ -215,7 +228,7 @@ export function BatchTab(): ReactNode {
         const retried = new Set(planned);
         setResults((current) => current.filter((result) => !retried.has(result)));
       }
-      const options = { collection, sourceLocale: policy.sourceLocale ?? undefined, fields, updateExisting };
+      const options = { collection, sourceLocale: policy.sourceLocale ?? undefined, fields, updateExisting, publish };
       await runBatchJobs(
         planned,
         CONCURRENCY,
@@ -237,7 +250,7 @@ export function BatchTab(): ReactNode {
     const entries = scope === "all" ? "every source entry" : `${selected.size} entries`;
     if (
       !window.confirm(
-        `PolyStella will queue missing translations for ${entries} into ${locales.length} locales on the server. They are saved as drafts and existing translations are skipped. Continue?`,
+        `PolyStella will queue missing translations for ${entries} into ${locales.length} locales on the server. They are ${publish ? "published" : "saved as drafts"} and existing translations are skipped. Continue?`,
       )
     ) {
       return;
@@ -247,7 +260,7 @@ export function BatchTab(): ReactNode {
     try {
       await pluginRequest<BatchJobView>("batch/start", {
         method: "POST",
-        body: JSON.stringify({ collection, locales, ...(scope === "selected" ? { entryIds: [...selected.keys()] } : {}) }),
+        body: JSON.stringify({ collection, locales, publish, ...(scope === "selected" ? { entryIds: [...selected.keys()] } : {}) }),
       });
       setJobsRefresh((current) => current + 1);
     } catch (cause) {
@@ -264,14 +277,20 @@ export function BatchTab(): ReactNode {
   const visibleItems = page?.items ?? [];
   const allVisibleSelected = visibleItems.length > 0 && visibleItems.every((item) => selected.has(item.id));
   const someVisibleSelected = visibleItems.some((item) => selected.has(item.id));
-  const canRun = !running && loaded !== null && loaded.fields.length > 0 && locales.length > 0 && (scope === "all" || selected.size > 0);
+  const canRun =
+    !running &&
+    !checkingLocales &&
+    loaded !== null &&
+    loaded.fields.length > 0 &&
+    locales.length > 0 &&
+    (scope === "all" || selected.size > 0);
 
   return (
     <section style={sectionStyle}>
       <div>
         <h2>Batch translation</h2>
         <p style={mutedStyle}>
-          Translate many entries at once from their latest saved source values. New translations are saved as drafts.{" "}
+          Translate many entries at once from their latest saved source values.{" "}
           {runner === "browser" ? "Keep this tab open until the run finishes." : "The server queue keeps running after you close this tab."}
         </p>
       </div>
@@ -331,27 +350,43 @@ export function BatchTab(): ReactNode {
               <span style={mutedStyle}>Loading collection settings...</span>
             ) : (
               <>
-                <span style={mutedStyle}>
-                  Source locale: {policy.sourceLocale}. Fields:{" "}
-                  {loaded?.fields.length === 0 ? "none configured" : loaded?.fields.join(", ")}
-                </span>
-                <Checkbox.Group
+                {loaded?.fields.length === 0 ? (
+                  <span style={mutedStyle}>No translatable fields are configured for this collection.</span>
+                ) : null}
+                <LocalePicker
                   legend="Target locales"
+                  options={policy.targetLocales.map(({ locale, code }) => ({
+                    locale,
+                    label: locale === code ? locale : `${locale} (${code})`,
+                  }))}
                   value={locales}
-                  allValues={policy.targetLocales.map(({ locale }) => locale)}
+                  disabled={running || checkingLocales}
+                  onChange={setLocales}
+                  actions={
+                    scope === "selected" ? (
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        loading={checkingLocales}
+                        disabled={running || selected.size === 0}
+                        onClick={() => void selectUntranslated()}
+                      >
+                        Select untranslated
+                      </Button>
+                    ) : null
+                  }
+                />
+                <Switch
+                  label="Publish translations immediately"
+                  labelTooltip="When off, translations are saved as drafts. If publishing fails, the draft is kept and its result says why."
+                  checked={publish}
                   disabled={running}
-                  onValueChange={setLocales}
-                >
-                  {/* Kumo always stacks group items in one column; this grid packs them into rows instead. */}
-                  <div style={localeGridStyle}>
-                    {policy.targetLocales.map(({ locale, code }) => (
-                      <Checkbox.Item key={locale} value={locale} label={locale === code ? locale : `${locale} (${code})`} />
-                    ))}
-                  </div>
-                </Checkbox.Group>
+                  onCheckedChange={setPublish}
+                />
                 {runner === "browser" ? (
                   <Switch
-                    label="Update existing translations (replaces the selected fields; entries edited during the run are skipped)"
+                    label="Update existing translations"
+                    labelTooltip="Replaces the selected fields in translations that already exist. Entries edited during the run are skipped."
                     checked={updateExisting}
                     disabled={running}
                     onCheckedChange={setUpdateExisting}
@@ -462,20 +497,20 @@ export function BatchTab(): ReactNode {
       {total === 0 ? null : (
         <TranslationProgress percent={Math.round((results.length / total) * 100)} label={`${results.length}/${total} translations`} />
       )}
-      {results.length === 0 ? null : <BatchResultsTable results={results} />}
+      {results.length === 0 ? null : <BatchResultsTable collection={collection} results={results} />}
       <BatchJobs jobs={serverJobs?.jobs ?? []} onChange={() => setJobsRefresh((current) => current + 1)} />
     </section>
   );
 }
 
-function BatchResultsTable({ results }: { results: readonly BatchResult[] }): ReactNode {
+function BatchResultsTable({ collection, results }: { collection: string; results: readonly BatchResult[] }): ReactNode {
   return (
     <div style={{ overflowX: "auto" }}>
       <Table layout="fixed" style={{ minWidth: 720 }}>
         <Table.Header>
           <Table.Row>
             <Table.Head style={{ width: "35%" }}>Entry</Table.Head>
-            <Table.Head style={{ width: "15%" }}>Locale</Table.Head>
+            <Table.Head style={{ width: "15%" }}>Translation</Table.Head>
             <Table.Head style={{ width: "15%" }}>Result</Table.Head>
             <Table.Head>Details</Table.Head>
           </Table.Row>
@@ -484,7 +519,19 @@ function BatchResultsTable({ results }: { results: readonly BatchResult[] }): Re
           {results.map((result) => (
             <Table.Row key={`${result.item.id}:${result.target.locale}`}>
               <Table.Cell>{result.item.title}</Table.Cell>
-              <Table.Cell>{result.target.locale}</Table.Cell>
+              <Table.Cell>
+                {result.translation === null ? (
+                  result.target.locale
+                ) : (
+                  <Link
+                    to="/content/$collection/$id"
+                    params={{ collection, id: result.translation.id }}
+                    search={{ locale: result.translation.locale }}
+                  >
+                    {result.target.locale}
+                  </Link>
+                )}
+              </Table.Cell>
               <Table.Cell>{result.outcome}</Table.Cell>
               <Table.Cell>
                 <span style={mutedStyle}>{result.message ?? ""}</span>
