@@ -136,6 +136,7 @@ export async function translationSettingsView(
     debugEnabled: stored.debugEnabled,
     maxTokens: stored.maxTokens,
     defaultMaxTokens: defaultMaxTokens(options),
+    clearAiFlagOnEdit: stored.clearAiFlagOnEdit,
     allowedModels: [...options.models.allowed],
     locales,
     instructions: {
@@ -153,6 +154,7 @@ export async function saveTranslationSettings(
 ): Promise<void> {
   const expectedRevision = readRevision(input.revision);
   const debugEnabled = input.debugEnabled === undefined ? false : readBoolean(input.debugEnabled, "debugEnabled");
+  const clearAiFlagOnEdit = input.clearAiFlagOnEdit === undefined ? false : readBoolean(input.clearAiFlagOnEdit, "clearAiFlagOnEdit");
   const maxTokens = input.maxTokens === undefined || input.maxTokens === null ? null : input.maxTokens;
   if (maxTokens !== null && !isMaxTokens(maxTokens)) {
     throw PluginRouteError.badRequest(`maxTokens must be null or an integer from ${MIN_MAX_TOKENS} to ${MAX_MAX_TOKENS}`);
@@ -194,6 +196,7 @@ export async function saveTranslationSettings(
   await compareAndSetSetting(settings, TRANSLATION_SETTINGS_KEY, expectedRevision, {
     debugEnabled,
     maxTokens,
+    clearAiFlagOnEdit,
     locales: Object.fromEntries(values.map(({ locale, ...localeSettings }) => [locale, localeSettings])),
     instructions: { mode: instructionMode, text: instructionText },
   } satisfies StoredTranslationSettings);
@@ -224,6 +227,8 @@ export interface StoredLocaleSettings {
 export interface StoredTranslationSettings {
   debugEnabled: boolean;
   maxTokens: number | null;
+  /** Remove the AI-translated flag as soon as an AI-written field is saved with other text. */
+  clearAiFlagOnEdit: boolean;
   locales: Record<string, StoredLocaleSettings>;
   instructions: { mode: CustomizationMode; text: string };
 }
@@ -259,6 +264,7 @@ function parseTranslationSettings(options: PolystellaEmdashOptions, stored: unkn
   return {
     debugEnabled: storedRoot.debugEnabled === true,
     maxTokens: isMaxTokens(storedRoot.maxTokens) ? storedRoot.maxTokens : null,
+    clearAiFlagOnEdit: storedRoot.clearAiFlagOnEdit === true,
     locales,
     instructions: {
       mode: isCustomizationMode(storedInstructions.mode)
@@ -269,6 +275,12 @@ function parseTranslationSettings(options: PolystellaEmdashOptions, stored: unkn
       text: instructionText,
     },
   };
+}
+
+/** For save hooks, which only need this one setting. */
+export async function aiFlagClearsOnEdit(settings: SettingsAccess): Promise<boolean> {
+  const stored = await settings.get<unknown>(TRANSLATION_SETTINGS_KEY);
+  return isRecord(stored) && stored.clearAiFlagOnEdit === true;
 }
 
 export function defaultMaxTokens(options: PolystellaEmdashOptions): number {

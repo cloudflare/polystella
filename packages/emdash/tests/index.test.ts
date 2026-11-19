@@ -57,6 +57,8 @@ describe("polystellaEmdash", () => {
       "settings/translation",
       "policy",
       "ai-translation",
+      "ai-translation/status",
+      "ai-translation/review",
       "translate-content",
       "catalog",
       "catalog/generate",

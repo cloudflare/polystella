@@ -39,6 +39,14 @@ export interface TranslationLocaleSettings {
   glossaryText: string;
 }
 
+export interface AiTranslationStatus {
+  aiTranslated: boolean;
+  aiTranslatedAt: string | null;
+  model: string | null;
+  /** AI-written fields changed since the flag was set or last kept; `null` when that can't be checked. */
+  editedFields: string[] | null;
+}
+
 export interface TranslationSettingsResponse {
   defaultLocale: string;
   /** Host revision of the stored settings; send it back on PUT. `null` when nothing is stored. */
@@ -48,6 +56,8 @@ export interface TranslationSettingsResponse {
   maxTokens: number | null;
   /** From deployment configuration (`provider.maxTokens`) or PolyStella's built-in default. */
   defaultMaxTokens: number;
+  /** Off by default: edited AI text keeps its flag until an editor keeps or removes it in the panel. */
+  clearAiFlagOnEdit: boolean;
   allowedModels: string[];
   locales: TranslationLocaleSettings[];
   instructions: {

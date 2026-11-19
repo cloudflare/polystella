@@ -35,7 +35,7 @@ export async function translateExistingEntry(input: TranslateExistingEntryInput)
   const result = await requestTranslation(input, entryId, locale);
   if (result.patch === null) return { entry: null, error: result.error, debug: result.debug };
   const entry = await updateContent(collection, entryId, { data: result.patch, _rev: saved._rev }, { locale });
-  return { entry, debug: result.debug, flagWarning: await recordAiTranslation(collection, entry.id) };
+  return { entry, debug: result.debug, flagWarning: await recordAiTranslation(collection, entry.id, input.fields) };
 }
 
 export interface CreateTranslatedEntryInput extends ContentTranslationHooks {
@@ -59,13 +59,13 @@ export async function createTranslatedEntry(input: CreateTranslatedEntryInput): 
     locale,
     translationOf: sourceEntryId,
   });
-  return { entry, debug: result.debug, flagWarning: await recordAiTranslation(collection, entry.id) };
+  return { entry, debug: result.debug, flagWarning: await recordAiTranslation(collection, entry.id, input.fields) };
 }
 
 /** Marks the saved entry as AI-translated for `getEnrichedEntry`. Runs before any publish, so a live page never lacks its flag. */
-async function recordAiTranslation(collection: string, entryId: string): Promise<string | null> {
+async function recordAiTranslation(collection: string, entryId: string, fields: readonly string[]): Promise<string | null> {
   try {
-    await pluginRequest("ai-translation", { method: "POST", body: JSON.stringify({ collection, entryId }) });
+    await pluginRequest("ai-translation", { method: "POST", body: JSON.stringify({ collection, entryId, fields }) });
     return null;
   } catch (cause) {
     // The content is already saved, so this is a warning, not a failure.

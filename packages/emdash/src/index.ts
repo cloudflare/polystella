@@ -64,9 +64,10 @@ export function createPlugin(runtimeOptions: { serialized: string }): ResolvedPl
     routes: createPluginRoutes(options),
     admin: { entry: ADMIN_ENTRY, pages: ADMIN_PAGES },
     hooks: {
-      "content:afterSave": (event, ctx) => clearEditedAiTranslation(event.content, ctx.storage[AI_TRANSLATIONS_COLLECTION]),
+      "content:afterSave": (event, ctx) => clearEditedAiTranslation(event.content, ctx.storage[AI_TRANSLATIONS_COLLECTION], ctx.settings),
       // A restored revision skips the save hooks, so it is checked when published.
-      "content:afterPublish": (event, ctx) => clearEditedAiTranslation(event.content, ctx.storage[AI_TRANSLATIONS_COLLECTION]),
+      "content:afterPublish": (event, ctx) =>
+        clearEditedAiTranslation(event.content, ctx.storage[AI_TRANSLATIONS_COLLECTION], ctx.settings),
     },
   });
 }

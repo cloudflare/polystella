@@ -51,6 +51,7 @@ export function TranslationSettingsTab(): ReactNode {
           revision: settings.revision,
           debugEnabled: settings.debugEnabled,
           maxTokens: settings.maxTokens,
+          clearAiFlagOnEdit: settings.clearAiFlagOnEdit,
           locales: Object.fromEntries(
             settings.locales.map((locale) => [
               locale.locale,
@@ -102,6 +103,15 @@ export function TranslationSettingsTab(): ReactNode {
                 const maxTokens = text.length === 0 ? null : Number(text);
                 setSettings((current) => (current === null ? null : { ...current, maxTokens }));
               }}
+            />
+            <Switch
+              label="Remove the AI-translated flag when an editor changes AI text"
+              labelTooltip="Off: the flag stays, and the PolyStella panel on the entry shows which AI-written fields were edited, with Keep AI flag and Remove AI flag. On: saving different text in an AI-written field removes the flag right away."
+              checked={settings.clearAiFlagOnEdit}
+              disabled={working}
+              onCheckedChange={(clearAiFlagOnEdit) =>
+                setSettings((current) => (current === null ? null : { ...current, clearAiFlagOnEdit }))
+              }
             />
             <h3>Shared translation instructions</h3>
             <Select

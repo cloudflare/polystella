@@ -100,6 +100,11 @@ request, for every translation. Leave it empty to use `provider.maxTokens`
 from configuration (or `8192`). Raise it if long entries fail with
 truncated responses; accepted values are 256 to 131,072.
 
+**Remove the AI-translated flag when an editor changes AI text** is
+off by default, so edited AI text keeps its flag until an editor
+decides in the content-editor panel. When on, saving different text in
+any field PolyStella wrote removes the flag right away.
+
 **Debug mode** is a per-project switch. When enabled, content,
 catalog, and sandbox translation traces include the effective model, batch
 metrics, exact prompts, every provider attempt, normalized model
@@ -147,6 +152,11 @@ lists them with an **Open** button each. Failed locales stay ticked so
 **Retry** reruns only them. Locales that already have an entry aren't
 offered, and if someone creates one in the meantime, the panel reports
 it instead of creating a duplicate.
+
+On an AI-translated entry, the panel shows **AI-translated** with the
+time and model. Once a person saves different text in a field
+PolyStella wrote, it shows **Edited since AI translation** and the
+changed fields, with **Keep AI flag** and **Remove AI flag**.
 
 Named percentage stages show when the panel is loading the latest
 saved entry, translating selected fields, and saving the patch.

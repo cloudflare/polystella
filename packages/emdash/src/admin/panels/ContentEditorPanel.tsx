@@ -27,6 +27,7 @@ import { codeStyle, mutedStyle, rowStyle, stackStyle } from "../styles.js";
 import { LocalePicker } from "../components/LocalePicker/LocalePicker.js";
 import { TranslationDebugView } from "../components/TranslationDebugView/TranslationDebugView.js";
 import { TranslationProgress } from "../components/TranslationProgress/TranslationProgress.js";
+import { AiFlagStatus } from "./AiFlagStatus.js";
 
 const ADMIN_ROLE = 50;
 
@@ -309,9 +310,17 @@ export function ContentEditorPanel({ collection, entry, locale }: ContentEditorP
           />
         </>
       ) : (
-        <p style={mutedStyle}>
-          Translate the latest saved {policy.sourceLocale} values into this {targetLocale} draft.
-        </p>
+        <>
+          <AiFlagStatus
+            collection={collection}
+            entryId={entry.id}
+            savedAt={entry.updatedAt}
+            fieldLabel={(slug) => schema.fields.find((field) => field.slug === slug)?.label ?? slug}
+          />
+          <p style={mutedStyle}>
+            Translate the latest saved {policy.sourceLocale} values into this {targetLocale} draft.
+          </p>
+        </>
       )}
       {eligibleFields.map((field) => (
         <Checkbox

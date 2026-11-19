@@ -10,16 +10,34 @@ export interface AiTranslationRecord {
   locale: string;
   model: string;
   aiTranslatedAt: string;
-  /** The collection's translatable fields when the record was written. */
-  fields: string[];
-  /** `translatedFieldsHash` of those fields as saved; `null` when the saved draft couldn't be read, which disables auto-clearing. */
-  contentHash: string | null;
+  /**
+   * SHA-256 of each field PolyStella wrote, as saved. `null` when the saved draft couldn't be read,
+   * so edits can't be detected.
+   */
+  fieldHashes: Record<string, string> | null;
 }
 
-/** SHA-256 of the given fields' saved values, independent of object key order. */
-export async function translatedFieldsHash(data: Record<string, unknown>, fields: readonly string[]): Promise<string> {
-  const values = [...fields].sort().map((field) => [field, data[field] ?? null]);
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(stableJson(values)));
+export async function hashFields(data: Record<string, unknown>, fields: readonly string[]): Promise<Record<string, string>> {
+  return Object.fromEntries(await Promise.all(fields.map(async (field) => [field, await hashValue(data[field] ?? null)] as const)));
+}
+
+/** Fields whose saved value no longer matches the hash PolyStella stored. */
+export async function changedFields(data: Record<string, unknown>, hashes: Readonly<Record<string, string>>): Promise<string[]> {
+  const current = await hashFields(data, Object.keys(hashes));
+  return Object.keys(hashes)
+    .filter((field) => current[field] !== hashes[field])
+    .sort();
+}
+
+export function readFieldHashes(value: unknown): Record<string, string> | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const entries = Object.entries(value);
+  return entries.every(([, hash]) => typeof hash === "string") ? Object.fromEntries(entries) : null;
+}
+
+// Independent of object key order, so a re-serialised but unchanged value keeps its hash.
+async function hashValue(value: unknown): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(stableJson(value)));
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 

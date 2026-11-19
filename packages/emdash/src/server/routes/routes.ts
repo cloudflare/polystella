@@ -40,6 +40,7 @@ import {
   MAX_SANDBOX_CHARACTERS,
   MAX_BATCH_FAILURES_SHOWN,
   MAX_BATCH_TRANSLATIONS,
+  type AiTranslationStatus,
   type BatchJobOutcome,
   type BatchJobResultsResponse,
   type BatchJobsResponse,
@@ -80,7 +81,9 @@ import {
 import {
   AI_TRANSLATIONS_CACHE_NAMESPACE,
   AI_TRANSLATIONS_COLLECTION,
-  translatedFieldsHash,
+  changedFields,
+  hashFields,
+  readFieldHashes,
   type AiTranslationRecord,
 } from "../../ai-translations.js";
 import { resolveGlossary, resolveInstructions, runtimeOverrideSettingKey } from "../../settings.js";
@@ -110,7 +113,16 @@ import {
 } from "./debug-collector.js";
 import { throwTranslationFailure, translationFailureMessage } from "./failures.js";
 import { createTranslator, type PluginRouteDependencies } from "./provider.js";
-import { readBoolean, readLocale, readNullableStringRecord, readRecord, readString, readStringArray, readText } from "./validators.js";
+import {
+  isRecord,
+  readBoolean,
+  readLocale,
+  readNullableStringRecord,
+  readRecord,
+  readString,
+  readStringArray,
+  readText,
+} from "./validators.js";
 
 export type { PluginRouteDependencies };
 
@@ -177,29 +189,74 @@ export function createPluginRoutes(
       methods: ["POST"],
       async handler(ctx) {
         const input = readRecord(ctx.input, "request body");
-        const collection = readString(input.collection, "collection");
-        const entryId = readString(input.entryId, "entryId");
-        const policy = await enabledCollectionPolicy(ctx.settings, collection);
-        const content = contentAccess(ctx);
-        const item = await content.get(collection, entryId);
-        if (item === null) throw PluginRouteError.notFound("content entry not found");
+        const { collection, entryId, item, storage, policy } = await aiTranslationTarget(ctx, input);
+        // The queue translates every enabled field, so it sends none.
+        const fields = input.fields === undefined ? policy.fields : [...new Set(readStringArray(input.fields, "fields", false))];
+        if (fields.some((field) => !policy.fields.includes(field)))
+          throw PluginRouteError.badRequest("fields must be enabled for the collection");
         if (item.locale === null) throw PluginRouteError.badRequest("entry has no locale");
         const locale = configuredTargetLocale(options, catalogLocale(options, item.locale, dependencies));
         const stored = await storedTranslationSettings(options, ctx.settings);
+        const data = await savedEntryData(contentAccess(ctx), collection, item);
+        const previous = readFieldHashes(recordValue(await storage.get(entryId)).fieldHashes);
         const record: AiTranslationRecord = {
           collection,
           entryId,
           locale,
           model: stored.locales[locale]?.model ?? resolveModelId(options.models.defaults, locale),
           aiTranslatedAt: dependencies.now().toISOString(),
-          fields: policy.fields,
-          contentHash: await savedFieldsHash(content, collection, item, policy.fields),
+          fieldHashes: data === null ? null : await mergedFieldHashes(data, fields, previous),
         };
-        const storage = ctx.storage[AI_TRANSLATIONS_COLLECTION];
-        if (storage === undefined) throw PluginRouteError.internal("AI translation storage is unavailable");
         await storage.put(entryId, record);
         invalidateObjectCache(AI_TRANSLATIONS_CACHE_NAMESPACE);
         return { recorded: true };
+      },
+    },
+    // For the editor panel: whether the entry is flagged, and which AI-written fields were changed since.
+    "ai-translation/status": {
+      permission: "content:edit_any",
+      methods: ["GET"],
+      async handler(ctx) {
+        const { collection, item, storage, entryId } = await aiTranslationTarget(ctx, readRecord(ctx.input, "query"));
+        const value = await storage.get(entryId);
+        if (value === null)
+          return { aiTranslated: false, aiTranslatedAt: null, model: null, editedFields: null } satisfies AiTranslationStatus;
+        const record = recordValue(value);
+        const hashes = readFieldHashes(record.fieldHashes);
+        const data = hashes === null ? null : await savedEntryData(contentAccess(ctx), collection, item);
+        return {
+          aiTranslated: true,
+          aiTranslatedAt: typeof record.aiTranslatedAt === "string" ? record.aiTranslatedAt : null,
+          model: typeof record.model === "string" ? record.model : null,
+          editedFields: hashes === null || data === null ? null : await changedFields(data, hashes),
+        } satisfies AiTranslationStatus;
+      },
+    },
+    // An editor keeps the flag (the saved text becomes the new baseline) or removes it.
+    "ai-translation/review": {
+      permission: "content:edit_any",
+      methods: ["POST"],
+      async handler(ctx) {
+        const input = readRecord(ctx.input, "request body");
+        const action = input.action;
+        if (action !== "keep" && action !== "remove") throw PluginRouteError.badRequest("action must be keep or remove");
+        const { collection, item, storage, entryId } = await aiTranslationTarget(ctx, input);
+        const stored = await storage.getVersioned(entryId);
+        if (stored === null) throw PluginRouteError.notFound("entry is not flagged as AI-translated");
+        let applied: boolean;
+        if (action === "remove") {
+          applied = (await storage.compareAndDelete(entryId, stored.revision)).applied;
+        } else {
+          const record = recordValue(stored.value);
+          const fields = Object.keys(readFieldHashes(record.fieldHashes) ?? {});
+          const data = await savedEntryData(contentAccess(ctx), collection, item);
+          if (data === null) throw PluginRouteError.internal("the saved draft could not be read");
+          applied = (await storage.compareAndSet(entryId, stored.revision, { ...record, fieldHashes: await hashFields(data, fields) }))
+            .applied;
+        }
+        if (!applied) throw PluginRouteError.conflict("The AI-translated flag changed meanwhile. Reload and try again.");
+        invalidateObjectCache(AI_TRANSLATIONS_CACHE_NAMESPACE);
+        return { reviewed: true };
       },
     },
     "translate-content": {
@@ -861,19 +918,46 @@ function batchStorage(storage: Record<string, StorageCollection | undefined>): {
   return { jobs, results };
 }
 
-/** Hashes what EmDash's save hooks see: live data with any draft revision merged over it. */
-async function savedFieldsHash(
+/** What EmDash's save hooks see: live data with any draft revision merged over it. `null` if the draft can't be read. */
+async function savedEntryData(
   content: NonNullable<RouteContext["content"]>,
   collection: string,
   item: PluginContentItem,
-  fields: readonly string[],
-): Promise<string | null> {
+): Promise<Record<string, unknown> | null> {
   const draftId = item.draftRevisionId;
-  if (draftId === undefined || draftId === null) return translatedFieldsHash(item.data, fields);
+  if (draftId === undefined || draftId === null) return item.data;
   const revision = await content.getRevision?.(collection, item.id, draftId);
   if (revision === undefined || revision === null) return null;
-  const draft = Object.fromEntries(Object.entries(revision.data).filter(([key]) => !key.startsWith("_")));
-  return translatedFieldsHash({ ...item.data, ...draft }, fields);
+  return { ...item.data, ...Object.fromEntries(Object.entries(revision.data).filter(([key]) => !key.startsWith("_"))) };
+}
+
+/** This run's fields, plus fields an earlier AI run wrote that nobody has changed since. */
+async function mergedFieldHashes(
+  data: Record<string, unknown>,
+  fields: readonly string[],
+  previous: Readonly<Record<string, string>> | null,
+): Promise<Record<string, string>> {
+  const untouched: Record<string, string> = {};
+  if (previous !== null) {
+    const changed = new Set(await changedFields(data, previous));
+    for (const [field, hash] of Object.entries(previous)) if (!changed.has(field)) untouched[field] = hash;
+  }
+  return { ...untouched, ...(await hashFields(data, fields)) };
+}
+
+async function aiTranslationTarget(ctx: RouteContext, input: Record<string, unknown>) {
+  const collection = readString(input.collection, "collection");
+  const entryId = readString(input.entryId, "entryId");
+  const policy = await enabledCollectionPolicy(ctx.settings, collection);
+  const item = await contentAccess(ctx).get(collection, entryId);
+  if (item === null) throw PluginRouteError.notFound("content entry not found");
+  const storage = ctx.storage[AI_TRANSLATIONS_COLLECTION];
+  if (storage === undefined) throw PluginRouteError.internal("AI translation storage is unavailable");
+  return { collection, entryId, item, policy, storage };
+}
+
+function recordValue(value: unknown): Record<string, unknown> {
+  return isRecord(value) ? value : {};
 }
 
 function contentAccess(ctx: RouteContext): NonNullable<RouteContext["content"]> {

@@ -22,7 +22,7 @@ import { createPluginRoutes, type PluginRouteDependencies } from "../src/server/
 const objectCache = vi.hoisted(() => ({ invalidateObjectCache: vi.fn() }));
 vi.mock("emdash", async (importOriginal) => ({ ...(await importOriginal<object>()), ...objectCache }));
 import type { CatalogOverride, PolystellaEmdashOptions } from "../src/index.js";
-import { translatedFieldsHash } from "../src/ai-translations.js";
+import { hashFields } from "../src/ai-translations.js";
 
 function options(): PolystellaEmdashOptions {
   return {
@@ -275,10 +275,11 @@ describe("EmDash plugin routes", () => {
       customize?.(routeContext);
       return route(routes, "ai-translation").handler(routeContext);
     };
+    const saved = { title: "Hello", body: [{ _type: "block", _key: "block-1", children: [{ _type: "span", _key: "span-1" }] }] };
 
     await expect(call({ collection: "posts", entryId: "entry-1" })).rejects.toMatchObject({ status: 403 });
     await enablePosts(kv);
-    await expect(call({ collection: "posts", entryId: "entry-1" })).resolves.toEqual({ recorded: true });
+    await expect(call({ collection: "posts", entryId: "entry-1", fields: ["title"] })).resolves.toEqual({ recorded: true });
     expect(objectCache.invalidateObjectCache).toHaveBeenCalledWith("plugin:polystella:ai");
     expect(await aiTranslations.get("entry-1")).toEqual({
       collection: "posts",
@@ -286,14 +287,12 @@ describe("EmDash plugin routes", () => {
       locale: "fr-FR",
       model: "model-b",
       aiTranslatedAt: "2026-09-03T00:00:00.000Z",
-      fields: ["body", "title"],
-      contentHash: await translatedFieldsHash(
-        { title: "Hello", body: [{ _type: "block", _key: "block-1", children: [{ _type: "span", _key: "span-1" }] }] },
-        ["title", "body"],
-      ),
+      fieldHashes: await hashFields(saved, ["title"]),
     });
+    await expect(call({ collection: "posts", entryId: "entry-1", fields: ["sku"] })).rejects.toMatchObject({ status: 400 });
 
     // An unpublished draft is fingerprinted as EmDash's save hooks see it: the draft merged over the live data.
+    // A later run keeps earlier AI fields that are still unchanged.
     const withDraft = (getRevision: boolean) => (routeContext: RouteContext) => {
       const content = routeContext.content;
       if (content === undefined) throw new Error("missing content access");
@@ -307,22 +306,19 @@ describe("EmDash plugin routes", () => {
           id: "rev-1",
           collection: "posts",
           entryId: "entry-1",
-          data: { title: "Brouillon", _slug: "hello" },
+          data: { body: [], _slug: "hello" },
           createdAt: "2026-09-03T00:00:00.000Z",
         });
       } else {
         delete content.getRevision;
       }
     };
-    await call({ collection: "posts", entryId: "entry-1" }, withDraft(true));
+    await call({ collection: "posts", entryId: "entry-1", fields: ["body"] }, withDraft(true));
     expect(await aiTranslations.get("entry-1")).toMatchObject({
-      contentHash: await translatedFieldsHash(
-        { title: "Brouillon", body: [{ _type: "block", _key: "block-1", children: [{ _type: "span", _key: "span-1" }] }] },
-        ["title", "body"],
-      ),
+      fieldHashes: await hashFields({ title: "Hello", body: [] }, ["title", "body"]),
     });
     await call({ collection: "posts", entryId: "entry-1" }, withDraft(false));
-    expect(await aiTranslations.get("entry-1")).toMatchObject({ contentHash: null });
+    expect(await aiTranslations.get("entry-1")).toMatchObject({ fieldHashes: null });
 
     await expect(call({ collection: "posts", entryId: "missing" })).rejects.toMatchObject({ status: 404 });
     const sourceLocale = (routeContext: RouteContext) => {
@@ -336,6 +332,45 @@ describe("EmDash plugin routes", () => {
     };
     await expect(call({ collection: "posts", entryId: "entry-en" }, sourceLocale)).rejects.toMatchObject({ status: 400 });
     expect(await aiTranslations.get("entry-en")).toBeNull();
+  });
+
+  it("shows edited AI fields and lets an editor keep or remove the flag", async () => {
+    const routes = createPluginRoutes(options(), dependencies());
+    const kv = createKv();
+    await enablePosts(kv);
+    const aiTranslations = createStorage();
+    let title = "Bonjour";
+    const call = (name: string, input: unknown, method = "POST") => {
+      const routeContext = context(input, method, kv, createStorage(), undefined, aiTranslations);
+      const content = routeContext.content;
+      if (content === undefined) throw new Error("missing content access");
+      const get = content.get;
+      content.get = async (collection, id) => {
+        const item = await get(collection, id);
+        return item === null ? null : { ...item, data: { ...item.data, title } };
+      };
+      return route(routes, name).handler(routeContext);
+    };
+    const entry = { collection: "posts", entryId: "entry-1" };
+
+    await expect(call("ai-translation/status", entry, "GET")).resolves.toEqual({
+      aiTranslated: false,
+      aiTranslatedAt: null,
+      model: null,
+      editedFields: null,
+    });
+    await call("ai-translation", { ...entry, fields: ["title", "body"] });
+    await expect(call("ai-translation/status", entry, "GET")).resolves.toMatchObject({ aiTranslated: true, editedFields: [] });
+
+    title = "Bonjour à tous";
+    await expect(call("ai-translation/status", entry, "GET")).resolves.toMatchObject({ editedFields: ["title"] });
+    await expect(call("ai-translation/review", { ...entry, action: "keep" })).resolves.toEqual({ reviewed: true });
+    await expect(call("ai-translation/status", entry, "GET")).resolves.toMatchObject({ aiTranslated: true, editedFields: [] });
+
+    await expect(call("ai-translation/review", { ...entry, action: "maybe" })).rejects.toMatchObject({ status: 400 });
+    await call("ai-translation/review", { ...entry, action: "remove" });
+    expect(await aiTranslations.get("entry-1")).toBeNull();
+    await expect(call("ai-translation/review", { ...entry, action: "remove" })).rejects.toMatchObject({ status: 404 });
   });
 
   it("stores collection policies and applies them to the editor panel", async () => {
@@ -833,16 +868,34 @@ describe("EmDash plugin routes", () => {
     await expect(settingsRoute.handler(context({}, "GET", kv, storage))).resolves.toMatchObject({
       maxTokens: null,
       defaultMaxTokens: 8192,
+      clearAiFlagOnEdit: false,
     });
     await generate();
 
     await expect(save(null, 100)).rejects.toMatchObject({ status: 400 });
     await expect(save(null, 16_000.5)).rejects.toMatchObject({ status: 400 });
     const saved = (await save(null, 16_000)) as TranslationSettingsResponse;
-    expect(saved).toMatchObject({ maxTokens: 16_000, defaultMaxTokens: 8192 });
+    expect(saved).toMatchObject({ maxTokens: 16_000, defaultMaxTokens: 8192, clearAiFlagOnEdit: false });
+    await expect(
+      settingsRoute.handler(
+        context(
+          {
+            revision: saved.revision,
+            maxTokens: 16_000,
+            clearAiFlagOnEdit: true,
+            locales: { "fr-FR": { model: null, glossaryMode: "default", glossaryText: "" } },
+            instructions: { mode: "default", text: "" },
+          },
+          "PUT",
+          kv,
+          storage,
+        ),
+      ),
+    ).resolves.toMatchObject({ clearAiFlagOnEdit: true });
+    const reread = (await settingsRoute.handler(context({}, "GET", kv, storage))) as TranslationSettingsResponse;
     await generate();
 
-    await save(saved.revision, null);
+    await save(reread.revision, null);
     await generate();
 
     expect(maxTokens).toEqual([8192, 16_000, 8192]);
@@ -1119,6 +1172,8 @@ describe("EmDash plugin routes", () => {
       "settings/translation": ["GET", "PUT"],
       policy: ["GET"],
       "ai-translation": ["POST"],
+      "ai-translation/status": ["GET"],
+      "ai-translation/review": ["POST"],
       "translate-content": ["POST"],
       catalog: ["GET"],
       "catalog/generate": ["POST"],

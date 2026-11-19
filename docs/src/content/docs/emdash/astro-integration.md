@@ -89,16 +89,21 @@ Astro.cache.set(cacheHint);
   jobs. It is written before any publish. If only the flag fails to
   save, the translation stays saved and the panel or result row shows
   a warning.
-- It clears itself once a person changes any of the collection's
-  translatable fields. PolyStella stores a fingerprint of those fields
-  as saved and compares it after every save and publish. Changes to
-  other fields keep the flag; translating again sets it with the new
-  time and model. The plugin's `content:revisions:read` capability
-  lets it fingerprint unpublished drafts.
-- Restoring an old revision clears the flag when that revision is
-  published, not when it is restored. Writes by other plugins through
-  `ctx.content.update` skip EmDash's save hooks, so they keep the flag
-  until the next save or publish.
+- A human edit keeps the flag by default. PolyStella stores a
+  fingerprint of each field it wrote, as saved, and the editor panel
+  shows **Edited since AI translation** with the changed fields once
+  one differs. The editor chooses **Keep AI flag** (the current text
+  becomes the new baseline) or **Remove AI flag**. Changes to fields
+  PolyStella didn't write never count; translating again sets the flag
+  with the new time and model.
+- **Remove the AI-translated flag when an editor changes AI text**
+  in Translation settings removes it automatically instead, checked
+  after every save and publish. Restoring an old revision is then
+  checked when that revision is published, and writes by other plugins
+  through `ctx.content.update` skip EmDash's save hooks until the next
+  save or publish.
+- The plugin's read-only `content:revisions:read` capability lets it
+  fingerprint unpublished drafts.
 - A locale that falls back to the source entry reads as not
   AI-translated, because the source entry has no record.
 - If the record can't be read, the page still renders and the entry
