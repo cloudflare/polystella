@@ -1,9 +1,10 @@
-import type { PluginDescriptor, PluginStorageConfig, ResolvedPlugin } from "emdash";
+import type { PluginCapability, PluginDescriptor, PluginStorageConfig, ResolvedPlugin } from "emdash";
 import { definePlugin } from "emdash";
 
 import packageManifest from "../package.json" with { type: "json" };
 import { AI_TRANSLATIONS_COLLECTION } from "./ai-translations.js";
 import { POLYSTELLA_PLUGIN_ID } from "./contracts.js";
+import { clearEditedAiTranslation } from "./server/ai-translation-hooks.js";
 import { createPluginRoutes } from "./server/routes/routes.js";
 import { deserializeOptions, serializeOptions, validatePolystellaEmdashOptions, type PolystellaEmdashOptions } from "./server/options.js";
 
@@ -33,6 +34,9 @@ const STORAGE = {
   [AI_TRANSLATIONS_COLLECTION]: { indexes: ["locale"] },
 } satisfies PluginStorageConfig;
 
+// `content:revisions:read` lets the AI-translated flag fingerprint an unpublished draft.
+const CAPABILITIES: PluginCapability[] = ["content:read", "content:revisions:read", "schema:read"];
+
 const ADMIN_PAGES = [{ path: "/", label: "PolyStella" }];
 
 export function polystellaEmdash(options: PolystellaEmdashOptions): PluginDescriptor<{ serialized: string }> {
@@ -45,7 +49,7 @@ export function polystellaEmdash(options: PolystellaEmdashOptions): PluginDescri
     adminEntry: ADMIN_ENTRY,
     adminPages: ADMIN_PAGES,
     options: serializeOptions(options),
-    capabilities: ["content:read", "schema:read"],
+    capabilities: CAPABILITIES,
     storage: STORAGE,
   };
 }
@@ -55,10 +59,15 @@ export function createPlugin(runtimeOptions: { serialized: string }): ResolvedPl
   return definePlugin({
     id: POLYSTELLA_PLUGIN_ID,
     version,
-    capabilities: ["content:read", "schema:read"],
+    capabilities: CAPABILITIES,
     storage: STORAGE,
     routes: createPluginRoutes(options),
     admin: { entry: ADMIN_ENTRY, pages: ADMIN_PAGES },
+    hooks: {
+      "content:afterSave": (event, ctx) => clearEditedAiTranslation(event.content, ctx.storage[AI_TRANSLATIONS_COLLECTION]),
+      // A restored revision skips the save hooks, so it is checked when published.
+      "content:afterPublish": (event, ctx) => clearEditedAiTranslation(event.content, ctx.storage[AI_TRANSLATIONS_COLLECTION]),
+    },
   });
 }
 

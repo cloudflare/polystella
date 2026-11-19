@@ -1,7 +1,7 @@
 import { createContent, fetchContent, updateContent } from "@emdash-cms/admin";
 
 import type { TranslateContentResponse, TranslationDebugTrace } from "../contracts.js";
-import { pluginRequest } from "./utils.js";
+import { errorMessage, pluginRequest } from "./utils.js";
 
 type ContentItem = Awaited<ReturnType<typeof fetchContent>>;
 
@@ -12,7 +12,13 @@ export interface ContentTranslationHooks {
 }
 
 export type ContentTranslationResult =
-  { entry: ContentItem; debug?: TranslationDebugTrace | undefined } | { entry: null; error: string; debug: TranslationDebugTrace };
+  | {
+      entry: ContentItem;
+      debug?: TranslationDebugTrace | undefined;
+      /** Set when the content saved but the AI-translated flag did not. */
+      flagWarning: string | null;
+    }
+  | { entry: null; error: string; debug: TranslationDebugTrace };
 
 export interface TranslateExistingEntryInput extends ContentTranslationHooks {
   collection: string;
@@ -29,8 +35,7 @@ export async function translateExistingEntry(input: TranslateExistingEntryInput)
   const result = await requestTranslation(input, entryId, locale);
   if (result.patch === null) return { entry: null, error: result.error, debug: result.debug };
   const entry = await updateContent(collection, entryId, { data: result.patch, _rev: saved._rev }, { locale });
-  await recordAiTranslation(collection, entry.id);
-  return { entry, debug: result.debug };
+  return { entry, debug: result.debug, flagWarning: await recordAiTranslation(collection, entry.id) };
 }
 
 export interface CreateTranslatedEntryInput extends ContentTranslationHooks {
@@ -54,17 +59,18 @@ export async function createTranslatedEntry(input: CreateTranslatedEntryInput): 
     locale,
     translationOf: sourceEntryId,
   });
-  await recordAiTranslation(collection, entry.id);
-  return { entry, debug: result.debug };
+  return { entry, debug: result.debug, flagWarning: await recordAiTranslation(collection, entry.id) };
 }
 
 /** Marks the saved entry as AI-translated for `getEnrichedEntry`. Runs before any publish, so a live page never lacks its flag. */
-async function recordAiTranslation(collection: string, entryId: string): Promise<void> {
+async function recordAiTranslation(collection: string, entryId: string): Promise<string | null> {
   try {
     await pluginRequest("ai-translation", { method: "POST", body: JSON.stringify({ collection, entryId }) });
+    return null;
   } catch (cause) {
-    // shortcut: the content is already saved, so a missing flag is only logged; surface it in the UI if editors need to know.
+    // The content is already saved, so this is a warning, not a failure.
     console.error("[polystella-emdash] could not mark the entry as AI-translated", cause);
+    return `Saved, but PolyStella could not mark it as AI-translated (${errorMessage(cause)}).`;
   }
 }
 

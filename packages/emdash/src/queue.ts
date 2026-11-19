@@ -1,5 +1,11 @@
 import { POLYSTELLA_PLUGIN_ID, type BatchTranslationLink } from "./contracts.js";
-import { MAX_BATCH_MESSAGE_CHARACTERS, readBatchMessage, type BatchCreatePayload, type BatchMessage } from "./server/batch.js";
+import {
+  MAX_BATCH_MESSAGE_CHARACTERS,
+  readBatchListMessage,
+  readBatchMessage,
+  type BatchCreatePayload,
+  type BatchMessage,
+} from "./server/batch.js";
 
 /** The parts of a Cloudflare Queues `Message` the consumer uses. */
 export interface PolystellaQueueMessage {
@@ -56,6 +62,11 @@ export async function processPolystellaBatch(batch: PolystellaQueueBatch, runtim
 }
 
 async function processMessage(runtime: PolystellaBatchRuntime, body: unknown): Promise<void> {
+  const list = readBatchListMessage(body);
+  if (list !== null) {
+    await callRoute(runtime, "batch/list", list);
+    return;
+  }
   const message = readBatchMessage(body);
   if (message === null) {
     console.error("[polystella-emdash] dropping a malformed batch message");

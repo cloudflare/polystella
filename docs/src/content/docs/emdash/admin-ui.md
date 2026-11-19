@@ -76,8 +76,9 @@ failures, **Show results** (every row with the same links as browser
 runs), **Cancel** (queued entries finish without translating), and
 **Retry failed**. **Remove** takes a finished or cancelled job off the
 list, and **Clear finished jobs** removes all of them; the
-translations they created stay. The list refreshes every five seconds
-while a job runs.
+translations they created stay. Jobs older than 30 days are deleted
+automatically when the list loads. The list refreshes every five
+seconds while a job runs.
 
 ## Translation settings tab
 

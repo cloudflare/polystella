@@ -10,6 +10,28 @@ export interface AiTranslationRecord {
   locale: string;
   model: string;
   aiTranslatedAt: string;
+  /** The collection's translatable fields when the record was written. */
+  fields: string[];
+  /** `translatedFieldsHash` of those fields as saved; `null` when the saved draft couldn't be read, which disables auto-clearing. */
+  contentHash: string | null;
+}
+
+/** SHA-256 of the given fields' saved values, independent of object key order. */
+export async function translatedFieldsHash(data: Record<string, unknown>, fields: readonly string[]): Promise<string> {
+  const values = [...fields].sort().map((field) => [field, data[field] ?? null]);
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(stableJson(values)));
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  if (typeof value === "object" && value !== null) {
+    const entries = Object.entries(value)
+      .filter(([, item]) => item !== undefined)
+      .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0));
+    return `{${entries.map(([key, item]) => `${JSON.stringify(key)}:${stableJson(item)}`).join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "null";
 }
 
 /** What themes read on `entry.polystella`. */

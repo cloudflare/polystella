@@ -1,7 +1,7 @@
 import { Button, LayerCard, Table } from "@cloudflare/kumo";
 import { useEffect, useState, type ReactNode } from "react";
 
-import type { BatchJobResultsResponse, BatchJobResultView, BatchJobView } from "../../../../contracts.js";
+import { MAX_BATCH_TRANSLATIONS, type BatchJobResultsResponse, type BatchJobResultView, type BatchJobView } from "../../../../contracts.js";
 import { errorMessage, pluginRequest } from "../../../utils.js";
 import { cardStyle, mutedStyle, rowStyle, stackStyle } from "../../../styles.js";
 import { ErrorMessage } from "../../../components/ErrorMessage/ErrorMessage.js";
@@ -73,9 +73,15 @@ export function BatchJobs({
                 </small>
               </span>
               <TranslationProgress
-                percent={Math.round((done / job.total) * 100)}
-                label={`${done}/${job.total}: ${job.counts.created} created, ${job.counts.skipped} skipped, ${job.counts.failed} failed`}
+                percent={job.total === 0 ? 0 : Math.round((done / job.total) * 100)}
+                label={`${done}/${job.total}${job.listing ? " so far, still listing entries" : ""}: ${job.counts.created} created, ${job.counts.skipped} skipped, ${job.counts.failed} failed`}
               />
+              {job.truncated ? (
+                <small style={mutedStyle}>
+                  Stopped at {MAX_BATCH_TRANSLATIONS.toLocaleString()} translations, the most one job holds. Later entries in the collection
+                  were not queued; select them and start another job.
+                </small>
+              ) : null}
               {done === 0 ? null : <JobResults job={job} done={done} urlContext={urlContexts[job.collection]} />}
               {job.failures.length === 0 ? null : (
                 <details>

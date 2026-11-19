@@ -178,6 +178,10 @@ export interface BatchJobView {
   status: "running" | "cancelled";
   createdAt: string;
   publish: boolean;
+  /** The queue is still listing the collection, so `total` can still grow. */
+  listing: boolean;
+  /** Listing stopped at `MAX_BATCH_TRANSLATIONS`; later entries were not queued. */
+  truncated: boolean;
   counts: Record<BatchJobOutcome, number>;
   failures: Array<{ entryId: string; locale: string; message: string | null }>;
 }

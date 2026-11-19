@@ -17,9 +17,24 @@ export interface StoredBatchJob {
   publish: boolean;
   createdAt: string;
   createdBy: string | null;
+  /** The next page of source entries for a whole-collection job; `null` once every entry is queued. */
+  listing: BatchListing | null;
+  /** Listing stopped at `MAX_BATCH_TRANSLATIONS`, so later entries were not queued. */
+  truncated: boolean;
 }
 
-// shortcut: job and result rows are never deleted; add a cleanup route or cron once sites run many large jobs.
+export interface BatchListing {
+  page: number;
+  cursor: string | null;
+}
+
+/** Asks the consumer to list and queue one page of a whole-collection job. */
+export interface BatchListMessage {
+  kind: "list";
+  jobId: string;
+  page: number;
+}
+
 export interface StoredBatchResult {
   jobId: string;
   entryId: string;
@@ -54,11 +69,49 @@ export interface BatchTranslateResponse {
 }
 
 export interface BatchQueue {
-  sendBatch(messages: Array<{ body: BatchMessage }>): Promise<unknown>;
+  sendBatch(messages: Array<{ body: BatchMessage | BatchListMessage }>): Promise<unknown>;
+}
+
+/** Deletes a job's result rows, then the job. The translations it created stay. */
+export async function deleteBatchJob(jobs: StorageCollection, results: StorageCollection, jobId: string): Promise<void> {
+  for (;;) {
+    const page = await results.query({ where: { jobId }, limit: 100 });
+    if (page.items.length === 0 || (await results.deleteMany(page.items.map(({ id }) => id))) === 0) break;
+  }
+  await jobs.delete(jobId);
+}
+
+export const BATCH_JOB_MAX_AGE_DAYS = 30;
+// A few per call keeps the jobs listing fast; it is polled, so older backlogs drain over later calls.
+const EXPIRED_JOBS_PER_CALL = 3;
+
+/**
+ * Deletes jobs created more than 30 days ago, whatever their status: queue messages are
+ * kept for at most 14 days, so nothing can still record into them.
+ */
+export async function deleteExpiredBatchJobs(jobs: StorageCollection, results: StorageCollection, now: Date): Promise<void> {
+  const cutoff = new Date(now.getTime() - BATCH_JOB_MAX_AGE_DAYS * 24 * 60 * 60 * 1000).toISOString();
+  const expired = await jobs.query({ where: { createdAt: { lt: cutoff } }, limit: EXPIRED_JOBS_PER_CALL });
+  for (const { id } of expired.items) await deleteBatchJob(jobs, results, id);
 }
 
 export function batchResultId(message: BatchMessage): string {
   return JSON.stringify([message.jobId, message.entryId, message.locale]);
+}
+
+export function readBatchListMessage(value: unknown): BatchListMessage | null {
+  if (!isRecord(value) || value.kind !== "list") return null;
+  const { jobId, page } = value;
+  return isNonEmptyString(jobId) && Number.isSafeInteger(page) && typeof page === "number" && page >= 0
+    ? { kind: "list", jobId, page }
+    : null;
+}
+
+function readListing(value: unknown): BatchListing | null {
+  if (!isRecord(value)) return null;
+  const { page, cursor } = value;
+  if (typeof page !== "number" || !Number.isSafeInteger(page) || page < 0 || (cursor !== null && typeof cursor !== "string")) return null;
+  return { page, cursor };
 }
 
 export function readBatchMessage(value: unknown): BatchMessage | null {
@@ -69,7 +122,7 @@ export function readBatchMessage(value: unknown): BatchMessage | null {
 
 export function parseStoredJob(value: unknown): StoredBatchJob | null {
   if (!isRecord(value)) return null;
-  const { collection, locales, total, status, publish, createdAt, createdBy } = value;
+  const { collection, locales, total, status, publish, createdAt, createdBy, listing, truncated } = value;
   if (
     !isNonEmptyString(collection) ||
     !Array.isArray(locales) ||
@@ -82,7 +135,17 @@ export function parseStoredJob(value: unknown): StoredBatchJob | null {
     return null;
   }
   // Jobs stored before `publish` existed created drafts.
-  return { collection, locales, total, status, publish: publish === true, createdAt, createdBy };
+  return {
+    collection,
+    locales,
+    total,
+    status,
+    publish: publish === true,
+    createdAt,
+    createdBy,
+    listing: readListing(listing),
+    truncated: truncated === true,
+  };
 }
 
 export function parseStoredResult(value: unknown): StoredBatchResult | null {
@@ -127,7 +190,7 @@ export function batchQueue(binding: string | undefined, env: Record<string, unkn
   return queue;
 }
 
-export async function enqueueBatchMessages(queue: BatchQueue, messages: readonly BatchMessage[]): Promise<void> {
+export async function enqueueBatchMessages(queue: BatchQueue, messages: ReadonlyArray<BatchMessage | BatchListMessage>): Promise<void> {
   for (let start = 0; start < messages.length; start += QUEUE_SEND_LIMIT) {
     await queue.sendBatch(messages.slice(start, start + QUEUE_SEND_LIMIT).map((body) => ({ body })));
   }

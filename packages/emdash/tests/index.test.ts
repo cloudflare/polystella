@@ -41,7 +41,7 @@ describe("polystellaEmdash", () => {
       entrypoint: "@cloudflare/polystella-emdash",
       adminEntry: "@cloudflare/polystella-emdash/admin",
       adminPages: [{ path: "/", label: "PolyStella" }],
-      capabilities: ["content:read", "schema:read"],
+      capabilities: ["content:read", "content:revisions:read", "schema:read"],
       storage: {
         catalog_overrides: { indexes: ["locale"] },
         batch_jobs: { indexes: ["createdAt"] },
@@ -70,6 +70,7 @@ describe("polystellaEmdash", () => {
       "batch/cancel",
       "batch/retry",
       "batch/delete",
+      "batch/list",
       "batch/translate",
       "batch/record",
       "batch/results",

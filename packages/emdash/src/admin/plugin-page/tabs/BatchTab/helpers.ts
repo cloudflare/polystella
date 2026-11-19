@@ -140,7 +140,7 @@ export function batchJobDone(job: BatchJobView): number {
 }
 
 export function batchJobFinished(job: BatchJobView): boolean {
-  return batchJobDone(job) >= job.total;
+  return !job.listing && batchJobDone(job) >= job.total;
 }
 
 export function planBatchJobs(items: readonly BatchItem[], targets: readonly BatchTargetLocale[]): BatchJob[] {
@@ -258,14 +258,14 @@ export async function runBatchJob(job: BatchJob, options: BatchJobOptions): Prom
       const created = { id: result.entry.id, locale: result.entry.locale ?? job.target.locale, slug: result.entry.slug, published: false };
       const publish = await publishIfAsked(collection, created, options.publish);
       translation = { ...created, published: publish.published };
-      return { ...job, outcome: "created", message: publish.message, translation };
+      return { ...job, outcome: "created", message: joinMessages(result.flagWarning, publish.message), translation };
     }
     if (!options.updateExisting) return { ...job, outcome: "skipped", message: "A translation already exists.", translation };
     const result = await translateExistingEntry({ collection, entryId: existing.id, locale: existing.locale, fields });
     if (result.entry === null) return { ...job, outcome: "failed", message: result.error, translation };
     const publish = await publishIfAsked(collection, existing, options.publish);
     const updated = translation === null ? null : { ...translation, published: translation.published || publish.published };
-    return { ...job, outcome: "updated", message: publish.message, translation: updated };
+    return { ...job, outcome: "updated", message: joinMessages(result.flagWarning, publish.message), translation: updated };
   } catch (cause) {
     const changedMeanwhile = cause instanceof ApiResponseError && cause.status === 409;
     return {
@@ -278,6 +278,11 @@ export async function runBatchJob(job: BatchJob, options: BatchJobOptions): Prom
 }
 
 /** A failed publish leaves the saved draft in place, so it is reported on the row instead of failing it. */
+function joinMessages(...messages: Array<string | null>): string | null {
+  const present = messages.filter((message) => message !== null);
+  return present.length === 0 ? null : present.join(" ");
+}
+
 async function publishIfAsked(
   collection: string,
   translation: { id: string; locale: string },

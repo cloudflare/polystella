@@ -131,8 +131,11 @@ PolyStella queue.
 Each message is one source entry × one locale. The consumer runs
 inside EmDash with `withEmDashRuntime`, asks the plugin to translate
 the entry, then creates the draft with the source slug, as the
-administrator who started the job. A job holds at most 5,000
-translations. Translation errors are recorded as failed rows that
+administrator who started the job. A whole-collection job is listed
+by the queue too, 100 source entries at a time, so its total grows
+until listing ends. A job holds at most 5,000 translations: listing
+stops there, and the job card says later entries were not queued.
+Translation errors are recorded as failed rows that
 **Retry failed** requeues. Infrastructure errors (for example, the
 database is unreachable) use the queue's own retries.
 

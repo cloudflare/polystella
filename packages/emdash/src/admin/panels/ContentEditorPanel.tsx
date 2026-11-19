@@ -42,6 +42,7 @@ export function ContentEditorPanel({ collection, entry, locale }: ContentEditorP
   const [schema, setSchema] = useState<CollectionSchema | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
   const [error, setError] = useState<PanelError | null>(null);
+  const [warning, setWarning] = useState<string | null>(null);
   const [loadAttempt, setLoadAttempt] = useState(0);
   const [hidden, setHidden] = useState(false);
   const [translating, setTranslating] = useState(false);
@@ -115,6 +116,7 @@ export function ContentEditorPanel({ collection, entry, locale }: ContentEditorP
     setTranslating(true);
     setTranslationProgress({ percent: 15, label: "Loading the latest saved entry" });
     setError(null);
+    setWarning(null);
     setDebug(null);
     try {
       const result = await translateExistingEntry({
@@ -135,6 +137,11 @@ export function ContentEditorPanel({ collection, entry, locale }: ContentEditorP
       if (result.debug !== undefined && currentUser.data !== undefined && currentUser.data.role >= ADMIN_ROLE) {
         storeTranslationDebug(collection, entry.id, targetLocale, currentUser.data.id, result.debug);
       }
+      // A reload would hide the warning, so the editor asks for one instead.
+      if (result.flagWarning !== null) {
+        setWarning(`${result.flagWarning} Reload the page to see the translated fields.`);
+        return;
+      }
       window.location.reload();
     } catch (cause) {
       setError(panelError(cause));
@@ -148,9 +155,12 @@ export function ContentEditorPanel({ collection, entry, locale }: ContentEditorP
     if (createLocales.length === 0) return;
     setTranslating(true);
     setError(null);
+    setWarning(null);
     setDebug(null);
     setCreated([]);
     const failed: string[] = [];
+    const unflagged: string[] = [];
+    let flagWarning = "";
     let lastError = "";
     let lastCreated: { id: string; locale: string } | null = null;
     try {
@@ -177,6 +187,10 @@ export function ContentEditorPanel({ collection, entry, locale }: ContentEditorP
           if (result.debug !== undefined && currentUser.data !== undefined && currentUser.data.role >= ADMIN_ROLE) {
             storeTranslationDebug(collection, result.entry.id, createdLocale, currentUser.data.id, result.debug);
           }
+          if (result.flagWarning !== null) {
+            unflagged.push(createdLocale);
+            flagWarning = result.flagWarning;
+          }
           const draft = { id: result.entry.id, locale: createdLocale };
           lastCreated = draft;
           setCreated((current) => [...current, draft]);
@@ -187,9 +201,10 @@ export function ContentEditorPanel({ collection, entry, locale }: ContentEditorP
         }
       }
       setCreateLocales(failed);
+      if (unflagged.length > 0) setWarning(`${flagWarning} Affected locales: ${unflagged.join(", ")}.`);
       if (failed.length > 0) {
         setError(panelError(new Error(`${failed.length} of ${createLocales.length} drafts failed (${failed.join(", ")}): ${lastError}`)));
-      } else if (createLocales.length === 1 && lastCreated !== null) {
+      } else if (createLocales.length === 1 && lastCreated !== null && unflagged.length === 0) {
         await navigate({
           to: "/content/$collection/$id",
           params: { collection, id: lastCreated.id },
@@ -266,6 +281,18 @@ export function ContentEditorPanel({ collection, entry, locale }: ContentEditorP
   return (
     <div style={stackStyle}>
       {error === null ? null : <PanelErrorMessage error={error} onDismiss={() => setError(null)} onRetry={() => void run()} />}
+      {warning === null ? null : (
+        <Banner
+          variant="alert"
+          title="Translation saved without the AI-translated flag"
+          description={warning}
+          action={
+            <Button size="sm" variant="secondary" onClick={() => setWarning(null)}>
+              Dismiss
+            </Button>
+          }
+        />
+      )}
       {debug === null || currentUser.data === undefined || currentUser.data.role < ADMIN_ROLE ? null : (
         <TranslationDebugView trace={debug} onDismiss={() => setDebug(null)} />
       )}

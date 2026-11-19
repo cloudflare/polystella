@@ -163,6 +163,23 @@ describe("batch translation", () => {
     });
   });
 
+  it("keeps a row created when only the AI-translated flag fails to save, and says so", async () => {
+    admin.fetchTranslations.mockResolvedValue({ translationGroup: "g", translations: [] });
+    admin.fetchContent.mockResolvedValue({ id: "post-1", slug: "hello", data: { title: "Hello" } });
+    admin.createContent.mockResolvedValue({ id: "post-1-fr", locale: "fr" });
+    admin.apiFetch.mockImplementation(async (url: string) =>
+      url.includes("ai-translation")
+        ? Response.json({ error: { message: "storage down" } }, { status: 500 })
+        : Response.json({ data: { patch: { title: "Bonjour" }, batchCount: 1 } }),
+    );
+    admin.publishContent.mockResolvedValueOnce({ id: "post-1-fr" });
+
+    const result = await runBatchJob(job, { ...options, publish: true });
+
+    expect(result.outcome).toBe("created");
+    expect(result.message).toMatch(/^Saved, but PolyStella could not mark it as AI-translated \(.+\)\. Published\.$/);
+  });
+
   it("skips existing translations unless updates are enabled", async () => {
     admin.fetchTranslations.mockResolvedValue({ translationGroup: "g", translations: [{ id: "post-1-fr", locale: "fr" }] });
 

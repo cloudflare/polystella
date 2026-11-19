@@ -22,6 +22,7 @@ import { createPluginRoutes, type PluginRouteDependencies } from "../src/server/
 const objectCache = vi.hoisted(() => ({ invalidateObjectCache: vi.fn() }));
 vi.mock("emdash", async (importOriginal) => ({ ...(await importOriginal<object>()), ...objectCache }));
 import type { CatalogOverride, PolystellaEmdashOptions } from "../src/index.js";
+import { translatedFieldsHash } from "../src/ai-translations.js";
 
 function options(): PolystellaEmdashOptions {
   return {
@@ -144,9 +145,14 @@ function createStorage(): StorageCollection {
 
   function matchingRows(where: Record<string, unknown> = {}): Array<{ id: string; data: unknown }> {
     return [...rows]
-      .filter(([, row]) => Object.entries(where).every(([field, value]) => isRecord(row.value) && row.value[field] === value))
+      .filter(([, row]) => Object.entries(where).every(([field, value]) => isRecord(row.value) && matches(row.value[field], value)))
       .map(([id, row]) => ({ id, data: row.value }));
   }
+}
+
+function matches(actual: unknown, expected: unknown): boolean {
+  if (isRecord(expected) && "lt" in expected) return typeof actual === "string" && typeof expected.lt === "string" && actual < expected.lt;
+  return actual === expected;
 }
 
 function schemaField(slug: string, type: FieldSchemaInfo["type"], translatable = true): FieldSchemaInfo {
@@ -280,7 +286,43 @@ describe("EmDash plugin routes", () => {
       locale: "fr-FR",
       model: "model-b",
       aiTranslatedAt: "2026-09-03T00:00:00.000Z",
+      fields: ["body", "title"],
+      contentHash: await translatedFieldsHash(
+        { title: "Hello", body: [{ _type: "block", _key: "block-1", children: [{ _type: "span", _key: "span-1" }] }] },
+        ["title", "body"],
+      ),
     });
+
+    // An unpublished draft is fingerprinted as EmDash's save hooks see it: the draft merged over the live data.
+    const withDraft = (getRevision: boolean) => (routeContext: RouteContext) => {
+      const content = routeContext.content;
+      if (content === undefined) throw new Error("missing content access");
+      const get = content.get;
+      content.get = async (collection, id) => {
+        const item = await get(collection, id);
+        return item === null ? null : { ...item, draftRevisionId: "rev-1" };
+      };
+      if (getRevision) {
+        content.getRevision = async () => ({
+          id: "rev-1",
+          collection: "posts",
+          entryId: "entry-1",
+          data: { title: "Brouillon", _slug: "hello" },
+          createdAt: "2026-09-03T00:00:00.000Z",
+        });
+      } else {
+        delete content.getRevision;
+      }
+    };
+    await call({ collection: "posts", entryId: "entry-1" }, withDraft(true));
+    expect(await aiTranslations.get("entry-1")).toMatchObject({
+      contentHash: await translatedFieldsHash(
+        { title: "Brouillon", body: [{ _type: "block", _key: "block-1", children: [{ _type: "span", _key: "span-1" }] }] },
+        ["title", "body"],
+      ),
+    });
+    await call({ collection: "posts", entryId: "entry-1" }, withDraft(false));
+    expect(await aiTranslations.get("entry-1")).toMatchObject({ contentHash: null });
 
     await expect(call({ collection: "posts", entryId: "missing" })).rejects.toMatchObject({ status: 404 });
     const sourceLocale = (routeContext: RouteContext) => {
@@ -1090,6 +1132,7 @@ describe("EmDash plugin routes", () => {
       "batch/cancel": ["POST"],
       "batch/retry": ["POST"],
       "batch/delete": ["POST"],
+      "batch/list": ["POST"],
       "batch/translate": ["POST"],
       "batch/record": ["POST"],
       "batch/results": ["GET"],
@@ -1465,27 +1508,69 @@ describe("EmDash batch queue routes", () => {
     expect(listed.jobs.map(({ id }) => id)).toEqual([job.id]);
   });
 
-  it("lists source-locale entries when the whole collection is queued", async () => {
-    const { sent, kv, call } = batchSetup();
+  it("lists a whole collection a page at a time from the queue", async () => {
+    const { sent, kv, call, batch } = batchSetup();
     await enablePosts(kv);
     const listQueries: unknown[] = [];
-
-    await call("batch/start", { collection: "posts", locales: ["fr-FR"] }, "POST", (routeContext) => {
+    const listEntries = (routeContext: RouteContext) => {
       const content = routeContext.content;
       if (content === undefined) throw new Error("missing content access");
       content.list = async (_collection, query) => {
         listQueries.push(query);
+        if (query?.limit === 1) return { items: [{ id: "a" }] as never, hasMore: true };
         return query?.cursor === undefined
           ? { items: [{ id: "a" }, { id: "b" }] as never, hasMore: true, cursor: "next" }
           : { items: [{ id: "c" }] as never, hasMore: false };
       };
-    });
+    };
+
+    const job = (await call("batch/start", { collection: "posts", locales: ["fr-FR"] }, "POST", listEntries)) as BatchJobView;
+    expect(job).toMatchObject({ total: 0, listing: true, truncated: false });
+    expect(sent).toEqual([{ kind: "list", jobId: job.id, page: 0 }]);
+
+    await expect(call("batch/list", { kind: "list", jobId: job.id, page: 1 }, "POST", listEntries)).rejects.toMatchObject({ status: 409 });
+    await expect(call("batch/list", { kind: "list", jobId: job.id, page: 0 }, "POST", listEntries)).resolves.toEqual({ listed: true });
+    await expect(call("batch/list", { kind: "list", jobId: job.id, page: 0 }, "POST", listEntries)).resolves.toEqual({ listed: false });
+    await call("batch/list", { kind: "list", jobId: job.id, page: 1 }, "POST", listEntries);
 
     expect(listQueries).toEqual([
+      { where: { locale: "en-US" }, limit: 1 },
       { where: { locale: "en-US" }, limit: 100 },
       { where: { locale: "en-US" }, limit: 100, cursor: "next" },
     ]);
-    expect(sent.map((message) => (message as { entryId: string }).entryId)).toEqual(["a", "b", "c"]);
+    expect(sent.slice(1)).toEqual([
+      { jobId: job.id, entryId: "a", locale: "fr-FR" },
+      { jobId: job.id, entryId: "b", locale: "fr-FR" },
+      { kind: "list", jobId: job.id, page: 1 },
+      { jobId: job.id, entryId: "c", locale: "fr-FR" },
+    ]);
+    expect(await batch.jobs.get(job.id)).toMatchObject({ total: 3, listing: null, truncated: false });
+  });
+
+  it("stops listing at the translation cap and says so", async () => {
+    const { sent, call, batch } = batchSetup();
+    await batch.jobs.put("big", {
+      collection: "posts",
+      locales: ["fr-FR", "de-DE"],
+      total: 4990,
+      status: "running",
+      publish: false,
+      createdAt: "2026-09-01T00:00:00.000Z",
+      createdBy: null,
+      listing: { page: 7, cursor: "c7" },
+      truncated: false,
+    });
+
+    await call("batch/list", { kind: "list", jobId: "big", page: 7 }, "POST", (routeContext) => {
+      const content = routeContext.content;
+      if (content === undefined) throw new Error("missing content access");
+      content.list = async () => ({ items: ["a", "b", "c", "d", "e", "f"].map((id) => ({ id })) as never, hasMore: true, cursor: "c8" });
+    });
+
+    expect(sent.map((message) => (message as { entryId?: string }).entryId)).toEqual(["a", "a", "b", "b", "c", "c", "d", "d", "e", "e"]);
+    expect(await batch.jobs.get("big")).toMatchObject({ total: 5000, listing: null, truncated: true });
+    const listed = (await call("batch/jobs", {}, "GET")) as BatchJobsResponse;
+    expect(listed.jobs[0]).toMatchObject({ id: "big", listing: false, truncated: true });
   });
 
   it("returns a draft to create, keeping the source slug and author", async () => {
@@ -1623,6 +1708,23 @@ describe("EmDash batch queue routes", () => {
     expect(await batch.results.count({ jobId: job.id })).toBe(0);
     expect(((await call("batch/jobs", {}, "GET")) as BatchJobsResponse).jobs).toEqual([]);
     await expect(call("batch/delete", { jobId: job.id })).rejects.toMatchObject({ status: 404 });
+    await expect(
+      call("batch/record", { jobId: job.id, entryId: "b", locale: "fr-FR", outcome: "created", message: null }),
+    ).resolves.toEqual({ recorded: false });
+    expect(await batch.results.count({ jobId: job.id })).toBe(0);
+  });
+
+  it("deletes jobs older than 30 days when the jobs list loads", async () => {
+    const { call, batch } = batchSetup();
+    const job = { collection: "posts", locales: ["fr-FR"], total: 1, status: "running", publish: false, createdBy: null };
+    await batch.jobs.put("old", { ...job, createdAt: "2026-08-03T00:00:00.000Z" });
+    await batch.jobs.put("recent", { ...job, createdAt: "2026-08-05T00:00:00.000Z" });
+    await batch.results.put("old-row", { jobId: "old", entryId: "a", locale: "fr-FR", outcome: "created", message: null });
+
+    const listed = (await call("batch/jobs", {}, "GET")) as BatchJobsResponse;
+
+    expect(listed.jobs.map(({ id }) => id)).toEqual(["recent"]);
+    expect(await batch.results.count({ jobId: "old" })).toBe(0);
   });
 
   it("rejects malformed queue messages and outcomes", async () => {

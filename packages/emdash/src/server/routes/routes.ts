@@ -67,6 +67,9 @@ import {
   parseStoredJob,
   parseStoredResult,
   readBatchJob,
+  deleteBatchJob,
+  deleteExpiredBatchJobs,
+  readBatchListMessage,
   readBatchMessage,
   readTranslationLink,
   recordBatchResult,
@@ -74,7 +77,12 @@ import {
   type BatchTranslateResponse,
   type StoredBatchJob,
 } from "../batch.js";
-import { AI_TRANSLATIONS_CACHE_NAMESPACE, AI_TRANSLATIONS_COLLECTION, type AiTranslationRecord } from "../../ai-translations.js";
+import {
+  AI_TRANSLATIONS_CACHE_NAMESPACE,
+  AI_TRANSLATIONS_COLLECTION,
+  translatedFieldsHash,
+  type AiTranslationRecord,
+} from "../../ai-translations.js";
 import { resolveGlossary, resolveInstructions, runtimeOverrideSettingKey } from "../../settings.js";
 import type { PolystellaEmdashOptions } from "../options.js";
 import { localeTag, targetLocales } from "../options.js";
@@ -109,6 +117,7 @@ export type { PluginRouteDependencies };
 const MAX_CATALOG_SOURCE_CHARACTERS = 30_000;
 const RECENT_BATCH_JOBS = 10;
 const BATCH_RESULTS_PAGE_SIZE = 50;
+const BATCH_LIST_PAGE_SIZE = 100;
 const ADMIN_ROLE = 50;
 const TRANSLATABLE_FIELD_TYPES = new Set(["string", "text", "portableText"]);
 
@@ -124,6 +133,7 @@ export function createPluginRoutes(
   dependencies: PluginRouteDependencies = defaultDependencies,
 ): Record<string, PluginRoute> {
   const options = flattenEmdashCatalogs(inputOptions);
+  const sourceContentLocale = () => contentLocale(options.catalogs.defaultLocale, dependencies);
   return {
     "settings/collections": {
       permission: "plugins:manage",
@@ -169,9 +179,9 @@ export function createPluginRoutes(
         const input = readRecord(ctx.input, "request body");
         const collection = readString(input.collection, "collection");
         const entryId = readString(input.entryId, "entryId");
-        await enabledCollectionPolicy(ctx.settings, collection);
-        if (ctx.content === undefined) throw PluginRouteError.internal("content access is unavailable");
-        const item = await ctx.content.get(collection, entryId);
+        const policy = await enabledCollectionPolicy(ctx.settings, collection);
+        const content = contentAccess(ctx);
+        const item = await content.get(collection, entryId);
         if (item === null) throw PluginRouteError.notFound("content entry not found");
         if (item.locale === null) throw PluginRouteError.badRequest("entry has no locale");
         const locale = configuredTargetLocale(options, catalogLocale(options, item.locale, dependencies));
@@ -182,6 +192,8 @@ export function createPluginRoutes(
           locale,
           model: stored.locales[locale]?.model ?? resolveModelId(options.models.defaults, locale),
           aiTranslatedAt: dependencies.now().toISOString(),
+          fields: policy.fields,
+          contentHash: await savedFieldsHash(content, collection, item, policy.fields),
         };
         const storage = ctx.storage[AI_TRANSLATIONS_COLLECTION];
         if (storage === undefined) throw PluginRouteError.internal("AI translation storage is unavailable");
@@ -513,6 +525,12 @@ export function createPluginRoutes(
       methods: ["GET"],
       async handler(ctx) {
         const { jobs, results } = batchStorage(ctx.storage);
+        try {
+          await deleteExpiredBatchJobs(jobs, results, dependencies.now());
+        } catch (error) {
+          // Cleanup retries on the next listing; it must not hide the jobs.
+          ctx.log.warn("PolyStella could not delete expired batch jobs", { error: error instanceof Error ? error.message : String(error) });
+        }
         const page = await jobs.query({ orderBy: { createdAt: "desc" }, limit: RECENT_BATCH_JOBS });
         const views = await Promise.all(
           page.items.flatMap(({ id, data }) => {
@@ -540,28 +558,33 @@ export function createPluginRoutes(
         const selectedIds = input.entryIds === undefined ? undefined : [...new Set(readStringArray(input.entryIds, "entryIds", false))];
         await enabledCollectionPolicy(ctx.settings, collection);
         const queue = batchQueue(options.batchQueueBinding, await dependencies.getEnv());
-        const maxEntries = Math.floor(MAX_BATCH_TRANSLATIONS / locales.length);
-        const entryIds =
-          selectedIds ??
-          (await listSourceEntryIds(ctx, collection, contentLocale(options.catalogs.defaultLocale, dependencies), maxEntries));
-        if (entryIds.length === 0) throw PluginRouteError.badRequest("the collection has no source entries to translate");
-        if (entryIds.length > maxEntries) throw tooManyBatchTranslations();
+        if (selectedIds === undefined) {
+          const first = await contentAccess(ctx).list(collection, { where: { locale: sourceContentLocale() }, limit: 1 });
+          if (first.items.length === 0) throw PluginRouteError.badRequest("the collection has no source entries to translate");
+        } else if (selectedIds.length > Math.floor(MAX_BATCH_TRANSLATIONS / locales.length)) {
+          throw tooManyBatchTranslations();
+        }
 
         const { jobs, results } = batchStorage(ctx.storage);
         const jobId = crypto.randomUUID();
         const job: StoredBatchJob = {
           collection,
           locales,
-          total: entryIds.length * locales.length,
+          total: (selectedIds?.length ?? 0) * locales.length,
           status: "running",
           publish,
           createdAt: dependencies.now().toISOString(),
           createdBy: ctx.user?.id ?? null,
+          // A whole collection is listed by the queue, a page at a time, so this request stays small.
+          listing: selectedIds === undefined ? { page: 0, cursor: null } : null,
+          truncated: false,
         };
         await jobs.put(jobId, job);
         await enqueueBatchMessages(
           queue,
-          entryIds.flatMap((entryId) => locales.map((locale) => ({ jobId, entryId, locale }))),
+          selectedIds === undefined
+            ? [{ kind: "list", jobId, page: 0 }]
+            : selectedIds.flatMap((entryId) => locales.map((locale) => ({ jobId, entryId, locale }))),
         );
         return batchJobView(results, jobId, job);
       },
@@ -598,8 +621,11 @@ export function createPluginRoutes(
           cursor = page.hasMore ? page.cursor : undefined;
         } while (cursor !== undefined);
         const job = await updateBatchJobStatus(jobs, jobId, "running");
-        // Failed rows stay until their retry records a new outcome over them.
-        await enqueueBatchMessages(queue, failed);
+        // Failed rows stay until their retry records a new outcome over them. Listing resumes where it stopped.
+        await enqueueBatchMessages(queue, [
+          ...failed,
+          ...(job.listing === null ? [] : [{ kind: "list" as const, jobId, page: job.listing.page }]),
+        ]);
         return batchJobView(results, jobId, job);
       },
     },
@@ -614,16 +640,56 @@ export function createPluginRoutes(
         if (job === null) throw PluginRouteError.notFound("batch job not found");
         const view = await batchJobView(results, jobId, job);
         const done = view.counts.created + view.counts.skipped + view.counts.failed;
-        if (job.status === "running" && done < job.total) {
+        if (job.status === "running" && (done < job.total || job.listing !== null)) {
           throw PluginRouteError.conflict("Cancel the job before removing it, or wait for it to finish.");
         }
-        // shortcut: a message already in flight when a cancelled job is removed can still record one orphan result row.
-        for (;;) {
-          const page = await results.query({ where: { jobId }, limit: 100 });
-          if (page.items.length === 0 || (await results.deleteMany(page.items.map(({ id }) => id))) === 0) break;
-        }
-        await jobs.delete(jobId);
+        await deleteBatchJob(jobs, results, jobId);
         return { deleted: true };
+      },
+    },
+    // Called by the queue consumer: queues one page of a whole-collection job, then the next page.
+    "batch/list": {
+      permission: "plugins:manage",
+      methods: ["POST"],
+      async handler(ctx) {
+        const message = readBatchListMessage(ctx.input);
+        if (message === null) throw PluginRouteError.badRequest("invalid batch list message");
+        const { jobs } = batchStorage(ctx.storage);
+        const queue = batchQueue(options.batchQueueBinding, await dependencies.getEnv());
+        const content = contentAccess(ctx);
+        // Retries only when another write (cancel, retry, a duplicate delivery) changed the job meanwhile.
+        for (let attempt = 0; attempt < 3; attempt++) {
+          const stored = await jobs.getVersioned(message.jobId);
+          const job = stored === null ? null : parseStoredJob(stored.value);
+          if (stored === null || job === null || job.status === "cancelled" || job.listing === null || message.page < job.listing.page) {
+            return { listed: false };
+          }
+          // The previous page's job update hasn't landed yet; the queue redelivers this message.
+          if (message.page > job.listing.page) throw PluginRouteError.conflict("an earlier page of this job is still being listed");
+          const { cursor } = job.listing;
+          const page = await content.list(job.collection, {
+            where: { locale: sourceContentLocale() },
+            limit: BATCH_LIST_PAGE_SIZE,
+            ...(cursor === null ? {} : { cursor }),
+          });
+          const room = Math.max(0, Math.floor((MAX_BATCH_TRANSLATIONS - job.total) / job.locales.length));
+          const entries = page.items.slice(0, room);
+          const truncated = entries.length < page.items.length;
+          const nextCursor = !truncated && page.hasMore && page.cursor !== undefined ? page.cursor : null;
+          // Queued before the job update: a duplicate message is harmless, a lost page is not.
+          await enqueueBatchMessages(queue, [
+            ...entries.flatMap((entry) => job.locales.map((locale) => ({ jobId: message.jobId, entryId: entry.id, locale }))),
+            ...(nextCursor === null ? [] : [{ kind: "list" as const, jobId: message.jobId, page: message.page + 1 }]),
+          ]);
+          const next: StoredBatchJob = {
+            ...job,
+            total: job.total + entries.length * job.locales.length,
+            listing: nextCursor === null ? null : { page: message.page + 1, cursor: nextCursor },
+            truncated,
+          };
+          if ((await jobs.compareAndSet(message.jobId, stored.revision, next)).applied) return { listed: true };
+        }
+        throw PluginRouteError.conflict("The batch job kept changing while its entries were listed.");
       },
     },
     // Called by the queue consumer through `withEmDashRuntime`; returns the draft for the consumer to create.
@@ -718,7 +784,10 @@ export function createPluginRoutes(
         if (input.translation !== undefined && input.translation !== null && translation === null) {
           throw PluginRouteError.badRequest("translation must have id, locale, slug, and published");
         }
-        await recordBatchResult(batchStorage(ctx.storage).results, message, outcome, detail, dependencies.now(), translation);
+        const { jobs, results } = batchStorage(ctx.storage);
+        // A message still in flight when its job was removed must not leave a row nothing lists.
+        if ((await readBatchJob(jobs, message.jobId)) === null) return { recorded: false };
+        await recordBatchResult(results, message, outcome, detail, dependencies.now(), translation);
         return { recorded: true };
       },
     },
@@ -792,17 +861,24 @@ function batchStorage(storage: Record<string, StorageCollection | undefined>): {
   return { jobs, results };
 }
 
-async function listSourceEntryIds(ctx: RouteContext, collection: string, locale: string, maxEntries: number): Promise<string[]> {
+/** Hashes what EmDash's save hooks see: live data with any draft revision merged over it. */
+async function savedFieldsHash(
+  content: NonNullable<RouteContext["content"]>,
+  collection: string,
+  item: PluginContentItem,
+  fields: readonly string[],
+): Promise<string | null> {
+  const draftId = item.draftRevisionId;
+  if (draftId === undefined || draftId === null) return translatedFieldsHash(item.data, fields);
+  const revision = await content.getRevision?.(collection, item.id, draftId);
+  if (revision === undefined || revision === null) return null;
+  const draft = Object.fromEntries(Object.entries(revision.data).filter(([key]) => !key.startsWith("_")));
+  return translatedFieldsHash({ ...item.data, ...draft }, fields);
+}
+
+function contentAccess(ctx: RouteContext): NonNullable<RouteContext["content"]> {
   if (ctx.content === undefined) throw PluginRouteError.internal("content access is unavailable");
-  const ids: string[] = [];
-  let cursor: string | undefined;
-  do {
-    const page = await ctx.content.list(collection, { where: { locale }, limit: 100, ...(cursor === undefined ? {} : { cursor }) });
-    ids.push(...page.items.map((item) => item.id));
-    if (ids.length > maxEntries) throw tooManyBatchTranslations();
-    cursor = page.hasMore ? page.cursor : undefined;
-  } while (cursor !== undefined);
-  return ids;
+  return ctx.content;
 }
 
 function tooManyBatchTranslations(): PluginRouteError {
@@ -838,6 +914,8 @@ async function batchJobView(results: StorageCollection, id: string, job: StoredB
     status: job.status,
     publish: job.publish,
     createdAt: job.createdAt,
+    listing: job.listing !== null,
+    truncated: job.truncated,
     counts: { created, skipped, failed },
     failures: failures.items.flatMap(({ data }) => {
       const row = parseStoredResult(data);

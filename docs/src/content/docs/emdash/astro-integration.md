@@ -86,9 +86,19 @@ Astro.cache.set(cacheHint);
 
 - The flag is set whenever PolyStella saves a translation: from the
   content-editor panel, the Batch translation tab, and server queue
-  jobs. It is written before any publish.
-- It stays set after a person edits the entry; translating again
-  updates the time and model.
+  jobs. It is written before any publish. If only the flag fails to
+  save, the translation stays saved and the panel or result row shows
+  a warning.
+- It clears itself once a person changes any of the collection's
+  translatable fields. PolyStella stores a fingerprint of those fields
+  as saved and compares it after every save and publish. Changes to
+  other fields keep the flag; translating again sets it with the new
+  time and model. The plugin's `content:revisions:read` capability
+  lets it fingerprint unpublished drafts.
+- Restoring an old revision clears the flag when that revision is
+  published, not when it is restored. Writes by other plugins through
+  `ctx.content.update` skip EmDash's save hooks, so they keep the flag
+  until the next save or publish.
 - A locale that falls back to the source entry reads as not
   AI-translated, because the source entry has no record.
 - If the record can't be read, the page still renders and the entry

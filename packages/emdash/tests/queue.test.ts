@@ -34,6 +34,17 @@ function runtime(
 }
 
 describe("PolyStella batch queue consumer", () => {
+  it("hands list messages to the listing route", async () => {
+    const list = { kind: "list", jobId: "job-1", page: 2 };
+    const message = queueMessage(list);
+    const { value, routeCalls } = runtime();
+
+    await processPolystellaBatch({ messages: [message] }, value);
+
+    expect(routeCalls).toEqual([{ path: "batch/list", body: list }]);
+    expect(message.ack).toHaveBeenCalled();
+  });
+
   it("creates the translated draft and records it", async () => {
     const message = queueMessage();
     const { value, routeCalls } = runtime();
