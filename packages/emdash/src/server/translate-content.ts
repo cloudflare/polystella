@@ -13,7 +13,10 @@ const MAX_SEGMENTS = 500;
 const MAX_SEGMENT_CHARACTERS = 20_000;
 const MAX_TOTAL_CHARACTERS = 30_000;
 
-type SegmentTarget = { kind: "field"; field: string } | { kind: "span"; field: string; blockIndex: number; childIndex: number };
+/** `cell` is `[row, cell]` for spans inside a table block, `null` for a text block's children. */
+type SpanContainer = { blockIndex: number; cell: readonly [number, number] | null };
+
+type SegmentTarget = { kind: "field"; field: string } | ({ kind: "span"; field: string; childIndex: number } & SpanContainer);
 
 type SegmentLocation = SegmentTarget & { leadingWhitespace: string; trailingWhitespace: string };
 
@@ -59,23 +62,23 @@ export async function translateContentFields(options: TranslateContentFieldsOpti
         if (!isPortableTextNode(block)) {
           throw new ContentTranslationInputError(`Portable Text field "${field}" contains an invalid block`);
         }
-        if (block._type !== "block") continue;
-        if (!Array.isArray(block.children)) {
-          throw new ContentTranslationInputError(`Portable Text field "${field}" contains a block without children`);
-        }
-        for (const [childIndex, child] of block.children.entries()) {
-          if (!isPortableTextSpan(child)) {
-            throw new ContentTranslationInputError(`Portable Text field "${field}" contains an invalid span`);
+        for (const container of spanContainers(field, block, blockIndex)) {
+          const spans = containerSpans(value, container);
+          if (spans === null) continue;
+          for (const [childIndex, child] of spans.entries()) {
+            if (!isPortableTextSpan(child)) {
+              throw new ContentTranslationInputError(`Portable Text field "${field}" contains an invalid span`);
+            }
+            const cellPath = container.cell === null ? "" : `:row:${container.cell[0]}:cell:${container.cell[1]}`;
+            addSegment(
+              `field:${fieldIndex}:block:${blockIndex}${cellPath}:span:${childIndex}`,
+              child.text,
+              { kind: "span", field, ...container, childIndex },
+              group,
+              segments,
+              locations,
+            );
           }
-          if (block.style === "code") continue;
-          addSegment(
-            `field:${fieldIndex}:block:${blockIndex}:span:${childIndex}`,
-            child.text,
-            { kind: "span", field, blockIndex, childIndex },
-            group,
-            segments,
-            locations,
-          );
         }
       }
     } else {
@@ -121,13 +124,13 @@ export async function translateContentFields(options: TranslateContentFieldsOpti
     }
     applyTranslation(patch, location, `${location.leadingWhitespace}${translation}${location.trailingWhitespace}`);
   }
-  validatePortableTextTokens(options.values, patch, (field, blockIndex, message) => {
+  validatePortableTextTokens(options.values, patch, (field, container, message) => {
     notifyValidationIssue(
       options.onValidationIssue,
       segments
         .filter((segment) => {
           const location = locations.get(segment.id);
-          return location?.kind === "span" && location.field === field && location.blockIndex === blockIndex;
+          return location?.kind === "span" && location.field === field && sameContainer(location, container);
         })
         .map(({ id }) => id),
       message,
@@ -137,25 +140,63 @@ export async function translateContentFields(options: TranslateContentFieldsOpti
   return { patch, batchCount: result.batchCount };
 }
 
+/** The span lists a block holds: a text block's children, or each table cell's content. Code blocks hold none. */
+function spanContainers(field: string, block: Record<string, unknown>, blockIndex: number): SpanContainer[] {
+  if (block._type === "block") {
+    if (!Array.isArray(block.children)) {
+      throw new ContentTranslationInputError(`Portable Text field "${field}" contains a block without children`);
+    }
+    return block.style === "code" ? [] : [{ blockIndex, cell: null }];
+  }
+  if (block._type !== "table") return [];
+  if (!Array.isArray(block.rows)) throw new ContentTranslationInputError(`Portable Text field "${field}" contains a table without rows`);
+  return block.rows.flatMap((row, rowIndex) => {
+    if (!isRecord(row) || !Array.isArray(row.cells)) {
+      throw new ContentTranslationInputError(`Portable Text field "${field}" contains an invalid table row`);
+    }
+    return row.cells.map((cell, cellIndex) => {
+      if (!isRecord(cell) || !Array.isArray(cell.content)) {
+        throw new ContentTranslationInputError(`Portable Text field "${field}" contains an invalid table cell`);
+      }
+      return { blockIndex, cell: [rowIndex, cellIndex] as const };
+    });
+  });
+}
+
+function containerSpans(blocks: readonly unknown[], container: SpanContainer): unknown[] | null {
+  const block = blocks[container.blockIndex];
+  if (!isRecord(block)) return null;
+  if (container.cell === null) return Array.isArray(block.children) ? block.children : null;
+  const [rowIndex, cellIndex] = container.cell;
+  const row = Array.isArray(block.rows) ? block.rows[rowIndex] : undefined;
+  const cell = isRecord(row) && Array.isArray(row.cells) ? row.cells[cellIndex] : undefined;
+  return isRecord(cell) && Array.isArray(cell.content) ? cell.content : null;
+}
+
+function sameContainer(left: SpanContainer, right: SpanContainer): boolean {
+  return left.blockIndex === right.blockIndex && left.cell?.[0] === right.cell?.[0] && left.cell?.[1] === right.cell?.[1];
+}
+
 function validatePortableTextTokens(
   source: Record<string, unknown>,
   patch: Record<string, unknown>,
-  onValidationIssue: (field: string, blockIndex: number, message: string) => void,
+  onValidationIssue: (field: string, container: SpanContainer, message: string) => void,
 ): void {
   for (const [field, value] of Object.entries(source)) {
     if (!Array.isArray(value)) continue;
     const translated = patch[field];
     if (!Array.isArray(translated)) continue;
     for (const [blockIndex, block] of value.entries()) {
-      if (!isRecord(block) || block._type !== "block" || !Array.isArray(block.children)) continue;
-      const translatedBlock = translated[blockIndex];
-      if (!isRecord(translatedBlock) || !Array.isArray(translatedBlock.children)) continue;
-      const sourceText = block.children.map(spanText).join("");
-      const translatedText = translatedBlock.children.map(spanText).join("");
-      if (validateTokenPreservation(field, sourceText, translatedText) !== null) {
-        const message = `[polystella-emdash] translation changed placeholder tokens in field "${field}"`;
-        onValidationIssue(field, blockIndex, message);
-        throw new Error(message);
+      if (!isRecord(block)) continue;
+      for (const container of spanContainers(field, block, blockIndex)) {
+        const sourceSpans = containerSpans(value, container);
+        const translatedSpans = containerSpans(translated, container);
+        if (sourceSpans === null || translatedSpans === null) continue;
+        if (validateTokenPreservation(field, sourceSpans.map(spanText).join(""), translatedSpans.map(spanText).join("")) !== null) {
+          const message = `[polystella-emdash] translation changed placeholder tokens in field "${field}"`;
+          onValidationIssue(field, container, message);
+          throw new Error(message);
+        }
       }
     }
   }
@@ -205,11 +246,11 @@ function applyTranslation(patch: Record<string, unknown>, location: SegmentLocat
 
   const value = patch[location.field];
   if (!Array.isArray(value)) throw new Error(`[polystella-emdash] Portable Text field "${location.field}" changed shape`);
-  const block = value[location.blockIndex];
-  if (!isRecord(block) || !Array.isArray(block.children)) {
+  const spans = containerSpans(value, location);
+  if (spans === null) {
     throw new Error(`[polystella-emdash] Portable Text field "${location.field}" changed block structure`);
   }
-  const child = block.children[location.childIndex];
+  const child = spans[location.childIndex];
   if (!isRecord(child) || child._type !== "span") {
     throw new Error(`[polystella-emdash] Portable Text field "${location.field}" changed span structure`);
   }

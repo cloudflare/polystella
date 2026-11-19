@@ -3,7 +3,7 @@ import { Button, Checkbox, LayerCard, Switch } from "@cloudflare/kumo";
 import { useEffect, useState, type ReactNode } from "react";
 
 import { MAX_COLLECTION_POLICY_FIELDS, type CollectionSettingsResponse } from "../../../../contracts.js";
-import { errorMessage, isTranslatable, pluginRequest, supportsTranslation } from "../../../utils.js";
+import { COLLECTIONS_SAVED_EVENT, errorMessage, isTranslatable, pluginRequest, supportsTranslation } from "../../../utils.js";
 import type { CollectionSchema } from "../../../types.js";
 import { cardStyle, mutedStyle, sectionStyle, stackStyle } from "../../../styles.js";
 import { ErrorMessage } from "../../../components/ErrorMessage/ErrorMessage.js";
@@ -62,6 +62,7 @@ export function CollectionsTab(): ReactNode {
       });
       setSettings(value);
       setPolicies(value.policies);
+      window.dispatchEvent(new Event(COLLECTIONS_SAVED_EVENT));
     } catch (cause) {
       setError(errorMessage(cause));
     } finally {

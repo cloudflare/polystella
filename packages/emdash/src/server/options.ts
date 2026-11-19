@@ -45,6 +45,8 @@ export interface PolystellaEmdashOptions {
   rules?: readonly string[] | undefined;
   /** Catalog locale → BCP 47 tag for codes `Intl` would misread (`jp` → `ja`). Unmapped locales are used as-is. */
   localeTags?: LocaleTags | undefined;
+  /** Cloudflare Queue producer binding for server-side batch translation. The Worker must also export the queue consumer. */
+  batchQueueBinding?: string | undefined;
 }
 
 export interface SerializedPolystellaEmdashOptions {
@@ -53,8 +55,9 @@ export interface SerializedPolystellaEmdashOptions {
 
 export function validatePolystellaEmdashOptions(value: unknown): asserts value is PolystellaEmdashOptions {
   const options = readRecord(value, "options");
-  rejectUnknownKeys(options, ["provider", "catalogs", "models", "glossaryDefaults", "rules", "localeTags"], "options");
+  rejectUnknownKeys(options, ["provider", "catalogs", "models", "glossaryDefaults", "rules", "localeTags", "batchQueueBinding"], "options");
   validateProvider(options.provider);
+  if (options.batchQueueBinding !== undefined) readEnvironmentName(options.batchQueueBinding, "options.batchQueueBinding");
 
   const catalogs = readRecord(options.catalogs, "options.catalogs");
   const defaultLocale = readLocale(catalogs.defaultLocale, "options.catalogs.defaultLocale");
@@ -167,6 +170,7 @@ export function serializeOptions(options: PolystellaEmdashOptions): SerializedPo
         }),
     ...(options.rules === undefined ? {} : { rules: [...options.rules] }),
     ...(options.localeTags === undefined ? {} : { localeTags: { ...options.localeTags } }),
+    ...(options.batchQueueBinding === undefined ? {} : { batchQueueBinding: options.batchQueueBinding }),
   };
   return { serialized: JSON.stringify(normalized) };
 }

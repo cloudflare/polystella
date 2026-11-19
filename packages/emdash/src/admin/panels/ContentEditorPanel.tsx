@@ -1,24 +1,17 @@
 import {
   ApiResponseError,
-  createContent,
   entryLockRefusal,
   fetchCollection,
-  fetchContent,
   fetchTranslations,
-  updateContent,
   useCurrentUser,
   useNavigate,
   type ContentEditorPanelContext,
 } from "@emdash-cms/admin";
-import { Banner, Button, Checkbox, Select } from "@cloudflare/kumo";
+import { Banner, Button, Checkbox } from "@cloudflare/kumo";
 import { useEffect, useState, type ReactNode } from "react";
 
-import {
-  MAX_CONTENT_FIELDS,
-  type CollectionPolicyResponse,
-  type TranslateContentResponse,
-  type TranslationDebugTrace,
-} from "../../contracts.js";
+import { MAX_CONTENT_FIELDS, type CollectionPolicyResponse, type TranslationDebugTrace } from "../../contracts.js";
+import { createTranslatedEntry, translateExistingEntry } from "../content-translation.js";
 import {
   errorMessage,
   formatErrorDetails,
@@ -31,8 +24,10 @@ import {
 } from "../utils.js";
 import type { CollectionSchema, SchemaField, TranslationProgressState } from "../types.js";
 import { codeStyle, mutedStyle, rowStyle, stackStyle } from "../styles.js";
+import { LocalePicker } from "../components/LocalePicker/LocalePicker.js";
 import { TranslationDebugView } from "../components/TranslationDebugView/TranslationDebugView.js";
 import { TranslationProgress } from "../components/TranslationProgress/TranslationProgress.js";
+import { AiFlagStatus } from "./AiFlagStatus.js";
 
 const ADMIN_ROLE = 50;
 
@@ -48,13 +43,15 @@ export function ContentEditorPanel({ collection, entry, locale }: ContentEditorP
   const [schema, setSchema] = useState<CollectionSchema | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
   const [error, setError] = useState<PanelError | null>(null);
+  const [warning, setWarning] = useState<string | null>(null);
   const [loadAttempt, setLoadAttempt] = useState(0);
   const [hidden, setHidden] = useState(false);
   const [translating, setTranslating] = useState(false);
   const [translationProgress, setTranslationProgress] = useState<TranslationProgressState | null>(null);
   const [debug, setDebug] = useState<TranslationDebugTrace | null>(null);
   const [existingLocales, setExistingLocales] = useState<string[]>([]);
-  const [createLocale, setCreateLocale] = useState("");
+  const [createLocales, setCreateLocales] = useState<string[]>([]);
+  const [created, setCreated] = useState<Array<{ id: string; locale: string }>>([]);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -83,7 +80,8 @@ export function ContentEditorPanel({ collection, entry, locale }: ContentEditorP
         if (!active) return;
         const existing = translations.translations.map((translation) => translation.locale.toLowerCase());
         setExistingLocales(existing);
-        setCreateLocale(missingLocales(nextPolicy, existing)[0] ?? "");
+        setCreateLocales([]);
+        setCreated([]);
         setPolicy(nextPolicy);
         setSchema(nextSchema);
         setSelected(
@@ -119,24 +117,31 @@ export function ContentEditorPanel({ collection, entry, locale }: ContentEditorP
     setTranslating(true);
     setTranslationProgress({ percent: 15, label: "Loading the latest saved entry" });
     setError(null);
+    setWarning(null);
     setDebug(null);
     try {
-      const saved = await fetchContent(collection, entry.id, { locale: targetLocale });
-      if (saved._rev === undefined) throw new Error("EmDash did not return a revision token; no fields were changed.");
-      setTranslationProgress({ percent: 45, label: "Translating selected fields" });
-      const result = await pluginRequest<TranslateContentResponse>("translate-content", {
-        method: "POST",
-        body: JSON.stringify({ collection, entryId: entry.id, targetLocale, fields: selected }),
+      const result = await translateExistingEntry({
+        collection,
+        entryId: entry.id,
+        locale: targetLocale,
+        fields: selected,
+        onTranslating: () => setTranslationProgress({ percent: 45, label: "Translating selected fields" }),
+        onTranslated: (trace) => {
+          if (trace !== undefined) setDebug(trace);
+          setTranslationProgress({ percent: 85, label: "Saving translated fields" });
+        },
       });
-      if (result.debug !== undefined) setDebug(result.debug);
-      if (result.patch === null) {
+      if (result.entry === null) {
         setError(panelError(new Error(result.error)));
         return;
       }
-      setTranslationProgress({ percent: 85, label: "Saving translated fields" });
-      await updateContent(collection, entry.id, { data: result.patch, _rev: saved._rev }, { locale: targetLocale });
       if (result.debug !== undefined && currentUser.data !== undefined && currentUser.data.role >= ADMIN_ROLE) {
         storeTranslationDebug(collection, entry.id, targetLocale, currentUser.data.id, result.debug);
+      }
+      // A reload would hide the warning, so the editor asks for one instead.
+      if (result.flagWarning !== null) {
+        setWarning(`${result.flagWarning} Reload the page to see the translated fields.`);
+        return;
       }
       window.location.reload();
     } catch (cause) {
@@ -147,39 +152,66 @@ export function ContentEditorPanel({ collection, entry, locale }: ContentEditorP
     }
   }
 
-  async function createTranslation(): Promise<void> {
-    if (createLocale.length === 0) return;
+  async function createTranslations(): Promise<void> {
+    if (createLocales.length === 0) return;
     setTranslating(true);
-    setTranslationProgress({ percent: 15, label: "Loading the latest saved entry" });
     setError(null);
+    setWarning(null);
     setDebug(null);
+    setCreated([]);
+    const failed: string[] = [];
+    const unflagged: string[] = [];
+    let flagWarning = "";
+    let lastError = "";
+    let lastCreated: { id: string; locale: string } | null = null;
     try {
-      const source = await fetchContent(collection, entry.id, { locale: entry.locale ?? undefined });
-      setTranslationProgress({ percent: 45, label: `Translating selected fields into ${createLocale}` });
-      const result = await pluginRequest<TranslateContentResponse>("translate-content", {
-        method: "POST",
-        body: JSON.stringify({ collection, entryId: entry.id, targetLocale: createLocale, fields: selected }),
-      });
-      if (result.debug !== undefined) setDebug(result.debug);
-      if (result.patch === null) {
-        setError(panelError(new Error(result.error)));
-        return;
+      // One locale at a time keeps the progress readable and avoids provider rate limits.
+      for (const [index, locale] of createLocales.entries()) {
+        const step = (percent: number, label: string) =>
+          setTranslationProgress({ percent: Math.round(((index + percent / 100) / createLocales.length) * 100), label });
+        step(15, `Loading the latest saved entry for ${locale}`);
+        try {
+          const result = await createTranslatedEntry({
+            collection,
+            sourceEntryId: entry.id,
+            sourceLocale: entry.locale ?? undefined,
+            locale,
+            fields: selected,
+            onTranslating: () => step(45, `Translating selected fields into ${locale}`),
+            onTranslated: (trace) => {
+              if (trace !== undefined) setDebug(trace);
+              step(85, `Creating the ${locale} draft`);
+            },
+          });
+          if (result.entry === null) throw new Error(result.error);
+          const createdLocale = result.entry.locale ?? locale;
+          if (result.debug !== undefined && currentUser.data !== undefined && currentUser.data.role >= ADMIN_ROLE) {
+            storeTranslationDebug(collection, result.entry.id, createdLocale, currentUser.data.id, result.debug);
+          }
+          if (result.flagWarning !== null) {
+            unflagged.push(createdLocale);
+            flagWarning = result.flagWarning;
+          }
+          const draft = { id: result.entry.id, locale: createdLocale };
+          lastCreated = draft;
+          setCreated((current) => [...current, draft]);
+          setExistingLocales((current) => [...current, locale.toLowerCase(), createdLocale.toLowerCase()]);
+        } catch (cause) {
+          failed.push(locale);
+          lastError = panelErrorMessage(cause, locale);
+        }
       }
-      setTranslationProgress({ percent: 85, label: `Creating the ${createLocale} draft` });
-      // Same payload as EmDash's own "Create translation" button, with the selected fields translated.
-      const created = await createContent(collection, {
-        data: { ...source.data, ...result.patch },
-        slug: source.slug,
-        locale: createLocale,
-        translationOf: entry.id,
-      });
-      const createdLocale = created.locale ?? createLocale;
-      if (result.debug !== undefined && currentUser.data !== undefined && currentUser.data.role >= ADMIN_ROLE) {
-        storeTranslationDebug(collection, created.id, createdLocale, currentUser.data.id, result.debug);
+      setCreateLocales(failed);
+      if (unflagged.length > 0) setWarning(`${flagWarning} Affected locales: ${unflagged.join(", ")}.`);
+      if (failed.length > 0) {
+        setError(panelError(new Error(`${failed.length} of ${createLocales.length} drafts failed (${failed.join(", ")}): ${lastError}`)));
+      } else if (createLocales.length === 1 && lastCreated !== null && unflagged.length === 0) {
+        await navigate({
+          to: "/content/$collection/$id",
+          params: { collection, id: lastCreated.id },
+          search: { locale: lastCreated.locale },
+        });
       }
-      await navigate({ to: "/content/$collection/$id", params: { collection, id: created.id }, search: { locale: createdLocale } });
-    } catch (cause) {
-      setError(panelError(cause, createLocale));
     } finally {
       setTranslating(false);
       setTranslationProgress(null);
@@ -217,39 +249,78 @@ export function ContentEditorPanel({ collection, entry, locale }: ContentEditorP
   }
   const isSourceEntry = targetLocale?.toLowerCase() === policy.sourceLocale?.toLowerCase();
   const creatableLocales = missingLocales(policy, existingLocales);
+  const createdDrafts =
+    created.length === 0 ? null : (
+      <div style={stackStyle}>
+        <small style={mutedStyle}>Created drafts:</small>
+        <div style={rowStyle}>
+          {created.map((draft) => (
+            <Button
+              key={draft.id}
+              size="sm"
+              variant="secondary"
+              onClick={() =>
+                void navigate({ to: "/content/$collection/$id", params: { collection, id: draft.id }, search: { locale: draft.locale } })
+              }
+            >
+              Open {draft.locale}
+            </Button>
+          ))}
+        </div>
+      </div>
+    );
   if (isSourceEntry && creatableLocales.length === 0) {
-    return <small style={mutedStyle}>Every configured locale already has an entry. Open one from Translations to update it.</small>;
+    return (
+      <div style={stackStyle}>
+        {createdDrafts}
+        <small style={mutedStyle}>Every configured locale already has an entry. Open one from Translations to update it.</small>
+      </div>
+    );
   }
-  const run = isSourceEntry ? createTranslation : translate;
+  const run = isSourceEntry ? createTranslations : translate;
 
   return (
     <div style={stackStyle}>
       {error === null ? null : <PanelErrorMessage error={error} onDismiss={() => setError(null)} onRetry={() => void run()} />}
+      {warning === null ? null : (
+        <Banner
+          variant="alert"
+          title="Translation saved without the AI-translated flag"
+          description={warning}
+          action={
+            <Button size="sm" variant="secondary" onClick={() => setWarning(null)}>
+              Dismiss
+            </Button>
+          }
+        />
+      )}
       {debug === null || currentUser.data === undefined || currentUser.data.role < ADMIN_ROLE ? null : (
         <TranslationDebugView trace={debug} onDismiss={() => setDebug(null)} />
       )}
       {isSourceEntry ? (
         <>
-          <p style={mutedStyle}>Create a translated draft from the latest saved {policy.sourceLocale} values.</p>
-          <Select
-            label="New locale"
-            value={createLocale}
+          <p style={mutedStyle}>Create translated drafts from the latest saved {policy.sourceLocale} values.</p>
+          {createdDrafts}
+          <LocalePicker
+            legend="Untranslated locales"
+            options={creatableLocales.map((locale) => ({ locale, label: locale }))}
+            value={createLocales}
             disabled={translating}
-            onValueChange={(value) => {
-              if (typeof value === "string") setCreateLocale(value);
-            }}
-          >
-            {creatableLocales.map((locale) => (
-              <Select.Option key={locale} value={locale}>
-                {locale}
-              </Select.Option>
-            ))}
-          </Select>
+            onChange={setCreateLocales}
+          />
         </>
       ) : (
-        <p style={mutedStyle}>
-          Translate the latest saved {policy.sourceLocale} values into this {targetLocale} draft.
-        </p>
+        <>
+          <AiFlagStatus
+            collection={collection}
+            entryId={entry.id}
+            savedAt={entry.updatedAt}
+            fieldLabel={(slug) => schema.fields.find((field) => field.slug === slug)?.label ?? slug}
+          />
+          <p style={mutedStyle}>
+            Translate the latest saved {policy.sourceLocale} values into this {targetLocale} draft.
+          </p>
+        </>
       )}
       {eligibleFields.map((field) => (
         <Checkbox
@@ -267,10 +338,10 @@ export function ContentEditorPanel({ collection, entry, locale }: ContentEditorP
       <Button
         variant="primary"
         loading={translating}
-        disabled={selected.length === 0 || currentUser.data === undefined}
+        disabled={selected.length === 0 || currentUser.data === undefined || (isSourceEntry && createLocales.length === 0)}
         onClick={() => void run()}
       >
-        {isSourceEntry ? `Create ${createLocale} draft` : "Translate with PolyStella"}
+        {isSourceEntry ? createButtonLabel(createLocales) : "Translate with PolyStella"}
       </Button>
     </div>
   );
@@ -306,6 +377,11 @@ function PanelErrorMessage({ error, onDismiss, onRetry }: { error: PanelError; o
 
 function fieldIsEligible(field: SchemaField, policy: CollectionPolicyResponse): boolean {
   return policy.fields.includes(field.slug) && supportsTranslation(field) && isTranslatable(field);
+}
+
+function createButtonLabel(locales: readonly string[]): string {
+  if (locales.length === 0) return "Select locales to translate";
+  return locales.length === 1 ? `Create ${locales[0]} draft` : `Create ${locales.length} drafts`;
 }
 
 function missingLocales(policy: CollectionPolicyResponse, existingLocales: readonly string[]): string[] {

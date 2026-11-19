@@ -1,15 +1,15 @@
 ---
 title: EmDash admin UI
-description: The Kumo React panels — Catalog, Collections, Translation settings, Translation sandbox — and the content-editor translation panel.
+description: The Kumo React panels — Catalog, Collections, Batch translation, Translation settings, Translation sandbox — and the content-editor translation panel.
 aiGenerated: true
 sidebar:
   label: Admin UI
 ---
 
-The native admin registers one **PolyStella** page with four tabs —
-**Catalog**, **Collections**, **Translation settings**, and
-**Translation sandbox** — rendered with EmDash's Kumo design system.
-No generated plugin settings page is registered.
+The native admin registers one **PolyStella** page with five tabs —
+**Catalog**, **Collections**, **Batch translation**, **Translation
+settings**, and **Translation sandbox** — rendered with EmDash's Kumo
+design system. No generated plugin settings page is registered.
 
 ## Collections tab
 
@@ -30,6 +30,56 @@ Administrator saved in the meantime, the save is rejected; reload the
 tab and reapply your change. The Translation settings tab behaves the
 same way.
 
+## Batch translation tab
+
+Translates many entries of one enabled collection at once, using the
+same route and saves as the content-editor panel. Choose:
+
+- **Entries** — the whole collection, or entries you tick in a list
+  of source-locale entries that shows each slug and searches by
+  title or slug.
+- **Target locales** — any of the configured non-default locales.
+  None are ticked at first. **Select all** and **Clear all** change
+  them together. With selected entries, **Select untranslated** ticks
+  each locale that at least one selected entry has no translation for.
+- **Update existing translations** — off by default. When off, only
+  missing locales are created and existing translations are skipped.
+  When on, the collection's enabled fields are retranslated into
+  existing translations and saved with EmDash's `_rev` token, so an
+  entry edited during the run is skipped instead of overwritten.
+- **Publish translations immediately** — off by default, so
+  translations are saved as drafts. When on, each created or updated
+  translation is published right after it is saved. If publishing
+  fails, the draft stays and its result row says why.
+
+**Translate … in a new tab** opens a run page in a new browser tab, so
+you can keep using the admin. The run page shows what it will do and
+waits for **Start translating**. It runs in that tab, three
+translations at a time: keep it open until it finishes, because
+closing, reloading, or leaving it stops the run. **Stop** lets
+in-flight translations finish and starts no new ones. Each entry and
+locale gets a result row (created, updated, skipped, or failed) with
+links that open in a new tab: **Edit**, **View live** for a published
+translation, and **Preview draft** for an unpublished one. **Retry
+failed** reruns only the failed rows. A run page that was already
+started, or never started within a day, can't be reopened. Debug
+traces are not collected for batch runs.
+
+When the deployment sets
+[`batchQueueBinding`](/emdash/configuration/#batchqueuebinding), a
+**Run in** choice adds **Server queue**. The job is queued on
+Cloudflare Queues and keeps running after you close the tab. Server
+jobs only create missing translations; existing ones are skipped.
+They follow **Publish translations immediately** too.
+The tab lists the last ten jobs with their progress, the first
+failures, **Show results** (every row with the same links as browser
+runs), **Cancel** (queued entries finish without translating), and
+**Retry failed**. **Remove** takes a finished or cancelled job off the
+list, and **Clear finished jobs** removes all of them; the
+translations they created stay. Jobs older than 30 days are deleted
+automatically when the list loads. The list refreshes every five
+seconds while a job runs.
+
 ## Translation settings tab
 
 Target-locale settings, each with its own model and glossary behavior. The
@@ -44,6 +94,16 @@ code-defined default locale is source-only and is not listed here:
 - **Custom glossary** — plain text applied per the behavior above.
 - **Shared translation instructions** — use code defaults, append,
   or replace the `rules` from configuration.
+
+**Max output tokens** caps how much text the model may return per
+request, for every translation. Leave it empty to use `provider.maxTokens`
+from configuration (or `8192`). Raise it if long entries fail with
+truncated responses; accepted values are 256 to 131,072.
+
+**Remove the AI-translated flag when an editor changes AI text** is
+off by default, so edited AI text keeps its flag until an editor
+decides in the content-editor panel. When on, saving different text in
+any field PolyStella wrote removes the flag right away.
 
 **Debug mode** is a per-project switch. When enabled, content,
 catalog, and sandbox translation traces include the effective model, batch
@@ -81,14 +141,22 @@ and are lost after confirmation. If another editor has taken over the
 entry's edit lock, the save is refused and the panel names the lock
 holder.
 
-On a source-locale entry, the panel creates a missing translation
-instead. Pick a locale that has no entry yet and the fields to
-translate, then select **Create &lt;locale&gt; draft**. The panel creates the draft
-as you, the same way EmDash's own **Create translation** button does:
-it copies the source entry and slug, replaces the selected fields
-with their translations, and opens the new draft. Locales that
-already have an entry aren't offered, and if someone creates one in
-the meantime, the panel reports it instead of creating a duplicate.
+On a source-locale entry, the panel creates missing translations
+instead. Tick one or more locales that have no entry yet (or
+**Select all**) and the fields to translate, then select **Create
+drafts**. The panel creates each draft in turn, as you, the same way
+EmDash's own **Create translation** button does: it copies the source
+entry and slug and replaces the selected fields with their
+translations. With one locale it opens the new draft; with several it
+lists them with an **Open** button each. Failed locales stay ticked so
+**Retry** reruns only them. Locales that already have an entry aren't
+offered, and if someone creates one in the meantime, the panel reports
+it instead of creating a duplicate.
+
+On an AI-translated entry, the panel shows **AI-translated** with the
+time and model. Once a person saves different text in a field
+PolyStella wrote, it shows **Edited since AI translation** and the
+changed fields, with **Keep AI flag** and **Remove AI flag**.
 
 Named percentage stages show when the panel is loading the latest
 saved entry, translating selected fields, and saving the patch.

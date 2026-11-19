@@ -5,6 +5,8 @@ export const MAX_CATALOG_KEYS = 100;
 export const MAX_COLLECTION_POLICY_FIELDS = 100;
 export const MAX_SANDBOX_CHARACTERS = 30_000;
 export const USE_CODE_DEFAULT_MODEL = "__polystella_code_default__";
+export const MIN_MAX_TOKENS = 256;
+export const MAX_MAX_TOKENS = 131_072;
 
 export type CustomizationMode = "default" | "append" | "replace";
 
@@ -37,11 +39,25 @@ export interface TranslationLocaleSettings {
   glossaryText: string;
 }
 
+export interface AiTranslationStatus {
+  aiTranslated: boolean;
+  aiTranslatedAt: string | null;
+  model: string | null;
+  /** AI-written fields changed since the flag was set or last kept; `null` when that can't be checked. */
+  editedFields: string[] | null;
+}
+
 export interface TranslationSettingsResponse {
   defaultLocale: string;
   /** Host revision of the stored settings; send it back on PUT. `null` when nothing is stored. */
   revision: string | null;
   debugEnabled: boolean;
+  /** Administrator override for the model's output token limit; `null` uses `defaultMaxTokens`. */
+  maxTokens: number | null;
+  /** From deployment configuration (`provider.maxTokens`) or PolyStella's built-in default. */
+  defaultMaxTokens: number;
+  /** Off by default: edited AI text keeps its flag until an editor keeps or removes it in the panel. */
+  clearAiFlagOnEdit: boolean;
   allowedModels: string[];
   locales: TranslationLocaleSettings[];
   instructions: {
@@ -157,3 +173,55 @@ export interface RuntimeOverridesResponse {
 
 export type TranslationSandboxResponse =
   { translation: string; debug?: TranslationDebugTrace | undefined } | { translation: null; error: string; debug: TranslationDebugTrace };
+
+/** Most entry × locale translations one queued batch job may contain. */
+export const MAX_BATCH_TRANSLATIONS = 5000;
+export const MAX_BATCH_FAILURES_SHOWN = 20;
+
+export type BatchJobOutcome = "created" | "skipped" | "failed";
+
+export interface BatchJobView {
+  id: string;
+  collection: string;
+  locales: string[];
+  total: number;
+  status: "running" | "cancelled";
+  createdAt: string;
+  publish: boolean;
+  /** The queue is still listing the collection, so `total` can still grow. */
+  listing: boolean;
+  /** Listing stopped at `MAX_BATCH_TRANSLATIONS`; later entries were not queued. */
+  truncated: boolean;
+  counts: Record<BatchJobOutcome, number>;
+  failures: Array<{ entryId: string; locale: string; message: string | null }>;
+}
+
+/** The translation a batch row created, updated, or found. `locale` is the content locale. */
+export interface BatchTranslationLink {
+  id: string;
+  locale: string;
+  slug: string | null;
+  /** Whether a live version exists after the row ran. */
+  published: boolean;
+}
+
+export interface BatchJobResultView {
+  entryId: string;
+  /** Source entry title, slug, or id, in that order. */
+  title: string;
+  locale: string;
+  outcome: BatchJobOutcome;
+  message: string | null;
+  translation: BatchTranslationLink | null;
+}
+
+export interface BatchJobResultsResponse {
+  results: BatchJobResultView[];
+  nextCursor: string | null;
+}
+
+export interface BatchJobsResponse {
+  /** False when the deployment has no `batchQueueBinding`; the admin then translates in the browser only. */
+  queueEnabled: boolean;
+  jobs: BatchJobView[];
+}

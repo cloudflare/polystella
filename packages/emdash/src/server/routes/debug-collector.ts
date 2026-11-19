@@ -90,11 +90,13 @@ export function createTranslationDebugCollector(options: TranslationDebugCollect
 }
 
 export function contentSegmentLabel(id: string, fields: string[]): string {
-  const match = /^field:(\d+)(?::block:(\d+):span:(\d+))?$/.exec(id);
+  const match = /^field:(\d+)(?::block:(\d+)(?::row:(\d+):cell:(\d+))?:span:(\d+))?$/.exec(id);
   if (match === null) return id;
   const field = fields[Number(match[1])];
   if (field === undefined) return id;
-  return match[2] === undefined ? field : `${field} (block ${match[2]}, span ${match[3]})`;
+  if (match[2] === undefined) return field;
+  const cell = match[3] === undefined ? "" : `, row ${match[3]}, cell ${match[4]}`;
+  return `${field} (block ${match[2]}${cell}, span ${match[5]})`;
 }
 
 export function catalogSegmentLabel(id: string, entries: ReadonlyArray<{ key: string }>): string {

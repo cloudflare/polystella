@@ -3,6 +3,9 @@ import { ApiResponseError, apiFetch, parseApiResponse } from "@emdash-cms/admin"
 import { POLYSTELLA_API_BASE, type TranslationDebugTrace } from "../contracts.js";
 import type { SchemaField } from "./types.js";
 
+/** Dispatched on `window` after collection policies are saved, so other tabs can reload them. */
+export const COLLECTIONS_SAVED_EVENT = "polystella:collections-saved";
+
 export async function pluginRequest<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await apiFetch(`${POLYSTELLA_API_BASE}/${path}`, {
     ...init,

@@ -134,6 +134,8 @@ remains code-defined.
 - A `polystella` binary that hosts `check-ui`, `sync-ui`, and
   `translate-ui`, retaining the Astro CLI's config and flags.
 - A public overrides endpoint for other runtimes.
+- An [AI-translated flag](/emdash/astro-integration/#ai-translated-flag)
+  on every entry PolyStella translates, read with `getEnrichedEntry`.
 
 Translation actions show named percentage stages. Content translation
 tracks its load, provider, and save requests; catalog and sandbox
