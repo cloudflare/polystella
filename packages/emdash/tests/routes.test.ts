@@ -1,6 +1,6 @@
 import type { FieldSchemaInfo, KVAccess, PluginRoute, RouteContext, SettingsAccess, StorageCollection } from "emdash";
 import type { WorkersAIInput } from "@cloudflare/polystella-core/providers/workers-ai";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   MAX_SANDBOX_CHARACTERS,
@@ -17,6 +17,9 @@ import {
   type TranslationSettingsResponse,
 } from "../src/contracts.js";
 import { createPluginRoutes, type PluginRouteDependencies } from "../src/server/routes/routes.js";
+
+const objectCache = vi.hoisted(() => ({ invalidateObjectCache: vi.fn() }));
+vi.mock("emdash", async (importOriginal) => ({ ...(await importOriginal<object>()), ...objectCache }));
 import type { CatalogOverride, PolystellaEmdashOptions } from "../src/index.js";
 
 function options(): PolystellaEmdashOptions {
@@ -269,6 +272,7 @@ describe("EmDash plugin routes", () => {
     await expect(call({ collection: "posts", entryId: "entry-1" })).rejects.toMatchObject({ status: 403 });
     await enablePosts(kv);
     await expect(call({ collection: "posts", entryId: "entry-1" })).resolves.toEqual({ recorded: true });
+    expect(objectCache.invalidateObjectCache).toHaveBeenCalledWith("plugin:polystella:ai");
     expect(await aiTranslations.get("entry-1")).toEqual({
       collection: "posts",
       entryId: "entry-1",

@@ -14,4 +14,4 @@ Content translation now covers text inside Portable Text tables.
 
 **Publish translations immediately** in the Batch tab publishes each translation right after it is saved, in the browser and on the server queue. Browser results link to each translation.
 
-Entries translated by PolyStella are now flagged as AI-translated. Themes read the flag with `getEnrichedEntry` and `getEnrichedCollection` from the new `@cloudflare/polystella-emdash/content` export: same arguments and result as EmDash's getters, plus `entry.polystella.aiTranslated`, `aiTranslatedAt`, and `aiTranslationModel`. The plugin declares a new storage collection, `ai_translations`.
+Entries translated by PolyStella are now flagged as AI-translated. Themes read the flag with `getEnrichedEntry` and `getEnrichedCollection` from the new `@cloudflare/polystella-emdash/content` export: same arguments and result as EmDash's getters, plus `entry.polystella.aiTranslated`, `aiTranslatedAt`, and `aiTranslationModel`. The plugin declares a new storage collection, `ai_translations`. Flag reads use EmDash's object cache (per entry, and per page for collections) and are cleared whenever a flag is saved.

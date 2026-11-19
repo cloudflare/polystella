@@ -93,7 +93,11 @@ Astro.cache.set(cacheHint);
   AI-translated, because the source entry has no record.
 - If the record can't be read, the page still renders and the entry
   reads as not AI-translated; the error is logged.
-- Each call does one storage read (one per page for collections).
+- Reads use EmDash's object cache when the site configures one (for
+  example `kvCache`): a single entry is cached by its id, a page of
+  entries as one unit. Saving a flag clears them; other servers see the
+  change within EmDash's revalidate window (1 second by default).
+  Without an object cache, each entry or page is read once per request.
 
 ## Prerendering
 

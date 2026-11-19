@@ -9,6 +9,7 @@ import {
 } from "@cloudflare/polystella-core/catalog/translate";
 import {
   getI18nConfig,
+  invalidateObjectCache,
   PluginRouteError,
   type CollectionSchemaInfo,
   type LogAccess,
@@ -70,7 +71,7 @@ import {
   type BatchTranslateResponse,
   type StoredBatchJob,
 } from "../batch.js";
-import { AI_TRANSLATIONS_COLLECTION, type AiTranslationRecord } from "../../ai-translations.js";
+import { AI_TRANSLATIONS_CACHE_NAMESPACE, AI_TRANSLATIONS_COLLECTION, type AiTranslationRecord } from "../../ai-translations.js";
 import { resolveGlossary, resolveInstructions, runtimeOverrideSettingKey } from "../../settings.js";
 import type { PolystellaEmdashOptions } from "../options.js";
 import { localeTag, targetLocales } from "../options.js";
@@ -181,6 +182,7 @@ export function createPluginRoutes(
         const storage = ctx.storage[AI_TRANSLATIONS_COLLECTION];
         if (storage === undefined) throw PluginRouteError.internal("AI translation storage is unavailable");
         await storage.put(entryId, record);
+        invalidateObjectCache(AI_TRANSLATIONS_CACHE_NAMESPACE);
         return { recorded: true };
       },
     },

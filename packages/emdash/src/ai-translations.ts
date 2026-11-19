@@ -1,4 +1,6 @@
 export const AI_TRANSLATIONS_COLLECTION = "ai_translations";
+/** EmDash object-cache namespace for flag reads; bumped on every record write. */
+export const AI_TRANSLATIONS_CACHE_NAMESPACE = "plugin:polystella:ai";
 
 /** Stored per translated entry, keyed by the entry's database id (unique per locale). */
 export interface AiTranslationRecord {
