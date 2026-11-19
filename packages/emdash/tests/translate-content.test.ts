@@ -2,6 +2,7 @@ import type { Translator } from "@cloudflare/polystella-core";
 import { EMPTY_GLOSSARY } from "@cloudflare/polystella-core";
 import { describe, expect, it } from "vitest";
 
+import { contentSegmentLabel } from "../src/server/routes/debug-collector.js";
 import { translateContentFields } from "../src/server/translate-content.js";
 
 function translator(response: string): Translator {
@@ -170,5 +171,156 @@ describe("translateContentFields", () => {
         targetLocale: "fr-FR",
       }),
     ).rejects.toThrow("more than 25 fields");
+  });
+
+  describe("custom blocks", () => {
+    const heroSource = {
+      _type: "marketing.hero",
+      _key: "hero-1",
+      headline: "Build faster",
+      primaryCtaUrl: "/start",
+      banners: [{ title: "New", linkHref: "/new" }, { title: "Beta" }],
+      tags: ["one", "two"],
+      columns: [
+        {
+          content: [{ _type: "block", _key: "b1", children: [{ _type: "span", _key: "s1", text: "Nested" }] }],
+        },
+      ],
+    };
+
+    async function translateHero(response: string, blockFields: Record<string, string[]>) {
+      return translateContentFields({
+        values: { body: [structuredClone(heroSource)] },
+        translator: translator(response),
+        glossary: EMPTY_GLOSSARY,
+        sourceLocale: "en-US",
+        targetLocale: "fr-FR",
+        blockFields,
+      });
+    }
+
+    it("translates only the listed paths and leaves everything else untouched", async () => {
+      const result = await translateHero(
+        [
+          "@@field:0:block:0:headline@@\nConstruisez plus vite",
+          "@@field:0:block:0:banners:0:title@@\nNouveau",
+          "@@field:0:block:0:banners:1:title@@\nBêta",
+          "@@field:0:block:0:tags:0@@\nun",
+          "@@field:0:block:0:tags:1@@\ndeux",
+          "@@field:0:block:0:columns:0:content:block:0:span:0@@\nImbriqué",
+        ].join("\n\n"),
+        { "marketing.hero": ["headline", "banners[].title", "tags[]", "columns[].content"] },
+      );
+
+      expect(result.patch).toEqual({
+        body: [
+          {
+            ...heroSource,
+            headline: "Construisez plus vite",
+            banners: [{ title: "Nouveau", linkHref: "/new" }, { title: "Bêta" }],
+            tags: ["un", "deux"],
+            columns: [{ content: [{ _type: "block", _key: "b1", children: [{ _type: "span", _key: "s1", text: "Imbriqué" }] }] }],
+          },
+        ],
+      });
+    });
+
+    it("skips custom blocks with no configured paths", async () => {
+      const result = await translateContentFields({
+        values: { body: [heroSource, { _type: "block", _key: "b", children: [{ _type: "span", _key: "s", text: "Hi" }] }] },
+        translator: translator("@@field:0:block:1:span:0@@\nSalut"),
+        glossary: EMPTY_GLOSSARY,
+        sourceLocale: "en-US",
+        targetLocale: "fr-FR",
+      });
+
+      expect(result.patch).toMatchObject({ body: [heroSource, { children: [{ text: "Salut" }] }] });
+    });
+
+    it("rejects placeholder changes in block text", async () => {
+      await expect(
+        translateContentFields({
+          values: { body: [{ _type: "marketing.hero", _key: "h", headline: "Hi {{name}}" }] },
+          translator: translator("@@field:0:block:0:headline@@\nSalut"),
+          glossary: EMPTY_GLOSSARY,
+          sourceLocale: "en-US",
+          targetLocale: "fr-FR",
+          blockFields: { "marketing.hero": ["headline"] },
+        }),
+      ).rejects.toThrow("changed placeholder tokens");
+    });
+
+    it("rejects placeholder changes split across spans in nested Portable Text", async () => {
+      const validationIssues: string[][] = [];
+      await expect(
+        translateContentFields({
+          values: {
+            body: [
+              {
+                _type: "marketing.columns",
+                _key: "c",
+                columns: [
+                  {
+                    content: [
+                      {
+                        _type: "block",
+                        _key: "b",
+                        children: [
+                          { _type: "span", _key: "s1", text: "{{" },
+                          { _type: "span", _key: "s2", text: "name" },
+                          { _type: "span", _key: "s3", text: "}}" },
+                        ],
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+          translator: translator(
+            [
+              "@@field:0:block:0:columns:0:content:block:0:span:0@@\n{{",
+              "@@field:0:block:0:columns:0:content:block:0:span:1@@\nnom",
+              "@@field:0:block:0:columns:0:content:block:0:span:2@@\n}}",
+            ].join("\n\n"),
+          ),
+          glossary: EMPTY_GLOSSARY,
+          sourceLocale: "en-US",
+          targetLocale: "fr-FR",
+          blockFields: { "marketing.columns": ["columns[].content"] },
+          onValidationIssue: (segmentIds) => validationIssues.push(segmentIds),
+        }),
+      ).rejects.toThrow("changed placeholder tokens");
+      expect(validationIssues).toEqual([
+        [
+          "field:0:block:0:columns:0:content:block:0:span:0",
+          "field:0:block:0:columns:0:content:block:0:span:1",
+          "field:0:block:0:columns:0:content:block:0:span:2",
+        ],
+      ]);
+    });
+
+    it("names the exact location of invalid nested content", async () => {
+      await expect(
+        translateContentFields({
+          values: {
+            body: [{ _type: "marketing.columns", _key: "c", columns: [{ content: [{ _type: "block", children: [] }] }] }],
+          },
+          translator: translator(""),
+          glossary: EMPTY_GLOSSARY,
+          sourceLocale: "en-US",
+          targetLocale: "fr-FR",
+          blockFields: { "marketing.columns": ["columns[].content"] },
+        }),
+      ).rejects.toThrow('Portable Text field "body" contains an invalid block at body[0].columns[0].content[0]');
+    });
+  });
+
+  it("labels standard, table and custom block segments for the debug view", () => {
+    const fields = ["title", "body"];
+    expect(contentSegmentLabel("field:0", fields)).toBe("title");
+    expect(contentSegmentLabel("field:1:block:2:span:0", fields)).toBe("body (block 2, span 0)");
+    expect(contentSegmentLabel("field:1:block:2:row:1:cell:0:span:0", fields)).toBe("body (block 2, row 1, cell 0, span 0)");
+    expect(contentSegmentLabel("field:1:block:3:cards:1:title", fields)).toBe("body (block 3, cards 1 title)");
   });
 });

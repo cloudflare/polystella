@@ -84,6 +84,34 @@ Optional. Shared code-defined translation instructions, joined into
 a single prompt. Administrators can use them unchanged, append to
 them, or replace them.
 
+## `blockFields`
+
+Optional. Text to translate inside custom Portable Text blocks, keyed by
+the block's `_type`. Standard paragraphs, headings, lists and tables are
+always translated; custom blocks are copied unchanged unless listed here.
+
+```js
+blockFields: {
+  "marketing.hero": ["headline", "banners[].title", "body"],
+  "marketing.columns": ["columns[].content"],
+}
+```
+
+| Path              | Meaning                                                                                                  |
+| :---------------- | :------------------------------------------------------------------------------------------------------- |
+| `headline`        | A string property                                                                                        |
+| `cta.label`       | A property of a nested object                                                                            |
+| `banners[].title` | A property of every item in a list                                                                       |
+| `tags[]`          | Every string in a list                                                                                   |
+| `columns[].body`  | If the value is a Portable Text array, its text blocks (and any listed custom blocks) are translated too |
+
+List only copy. Leave URLs, IDs, icons, dates and media references out.
+Plain strings are sent to the model as text, so Markdown fields keep
+their syntax only as well as the model preserves it. Nested Portable
+Text must be valid (every node needs `_type` and `_key`); otherwise the
+request fails with the exact location, such as
+`body[3].columns[0].content[1]`.
+
 ## `localeTags`
 
 Optional. Catalog locale → BCP 47 tag, for locale codes `Intl` would
@@ -162,6 +190,9 @@ replace. Configure collection and field policy in the
   locale.
 - Every `localeTags` key must match a configured catalog locale, and
   every locale must resolve to a tag `Intl` recognises.
+- Every `blockFields` list must be non-empty and unique, use paths like
+  `title`, `cta.label` or `cards[].title`, and not target the reserved
+  `block` or `span` types.
 - Provider env/binding names and `batchQueueBinding` must be valid
   environment binding names; `endpoint` must be a valid URL;
   `maxTokens` must be a positive integer.

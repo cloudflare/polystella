@@ -13,12 +13,33 @@ const MAX_SEGMENTS = 500;
 const MAX_SEGMENT_CHARACTERS = 20_000;
 const MAX_TOTAL_CHARACTERS = 30_000;
 
-/** `cell` is `[row, cell]` for spans inside a table block, `null` for a text block's children. */
-type SpanContainer = { blockIndex: number; cell: readonly [number, number] | null };
+type PathPart = string | number;
 
-type SegmentTarget = { kind: "field"; field: string } | ({ kind: "span"; field: string; childIndex: number } & SpanContainer);
+interface SegmentLocation {
+  field: string;
+  /** Where the text lives inside the values, starting at the field name. */
+  path: PathPart[];
+  leadingWhitespace: string;
+  trailingWhitespace: string;
+}
 
-type SegmentLocation = SegmentTarget & { leadingWhitespace: string; trailingWhitespace: string };
+/** A span list (text block children or a table cell) whose joined text must keep the source placeholder tokens. */
+interface SpanList {
+  field: string;
+  path: PathPart[];
+  segmentIds: string[];
+}
+
+interface Collector {
+  segments: Segment[];
+  group: Segment[];
+  locations: Map<string, SegmentLocation>;
+  spanLists: SpanList[];
+  blockFields: BlockFieldPaths;
+}
+
+/** Custom Portable Text block type → text paths inside it, like `cards[].title`. */
+export type BlockFieldPaths = Readonly<Record<string, readonly string[]>>;
 
 export class ContentTranslationInputError extends Error {
   constructor(message: string) {
@@ -34,6 +55,7 @@ export interface TranslateContentFieldsOptions {
   sourceLocale: string;
   targetLocale: string;
   promptInstruction?: string | undefined;
+  blockFields?: BlockFieldPaths | undefined;
   onBatchAttempt?: ((event: TranslateBatchAttemptEvent) => void) | undefined;
   onValidationIssue?: ((segmentIds: string[], message: string) => void) | undefined;
   signal?: AbortSignal | undefined;
@@ -48,43 +70,22 @@ export async function translateContentFields(options: TranslateContentFieldsOpti
   const segments: Segment[] = [];
   const groups: Segment[][] = [];
   const locations = new Map<string, SegmentLocation>();
+  const spanLists: SpanList[] = [];
   const fields = Object.entries(options.values);
   if (fields.length > MAX_CONTENT_FIELDS) {
     throw new ContentTranslationInputError(`cannot translate more than ${MAX_CONTENT_FIELDS} fields at once`);
   }
 
   for (const [fieldIndex, [field, value]] of fields.entries()) {
-    const group: Segment[] = [];
+    const collector: Collector = { segments, group: [], locations, spanLists, blockFields: options.blockFields ?? {} };
     if (typeof value === "string") {
-      addSegment(`field:${fieldIndex}`, value, { kind: "field", field }, group, segments, locations);
+      addSegment(`field:${fieldIndex}`, value, field, [field], collector);
     } else if (Array.isArray(value)) {
-      for (const [blockIndex, block] of value.entries()) {
-        if (!isPortableTextNode(block)) {
-          throw new ContentTranslationInputError(`Portable Text field "${field}" contains an invalid block`);
-        }
-        for (const container of spanContainers(field, block, blockIndex)) {
-          const spans = containerSpans(value, container);
-          if (spans === null) continue;
-          for (const [childIndex, child] of spans.entries()) {
-            if (!isPortableTextSpan(child)) {
-              throw new ContentTranslationInputError(`Portable Text field "${field}" contains an invalid span`);
-            }
-            const cellPath = container.cell === null ? "" : `:row:${container.cell[0]}:cell:${container.cell[1]}`;
-            addSegment(
-              `field:${fieldIndex}:block:${blockIndex}${cellPath}:span:${childIndex}`,
-              child.text,
-              { kind: "span", field, ...container, childIndex },
-              group,
-              segments,
-              locations,
-            );
-          }
-        }
-      }
+      collectBlocks(value, `field:${fieldIndex}`, field, [field], collector);
     } else {
       throw new ContentTranslationInputError(`field "${field}" is not supported for translation`);
     }
-    if (group.length > 0) groups.push(group);
+    if (collector.group.length > 0) groups.push(collector.group);
   }
 
   if (segments.length > MAX_SEGMENTS) {
@@ -122,82 +123,105 @@ export async function translateContentFields(options: TranslateContentFieldsOpti
       notifyValidationIssue(options.onValidationIssue, [segment.id], message);
       throw new Error(message);
     }
-    applyTranslation(patch, location, `${location.leadingWhitespace}${translation}${location.trailingWhitespace}`);
+    setAtPath(patch, location, `${location.leadingWhitespace}${translation}${location.trailingWhitespace}`);
   }
-  validatePortableTextTokens(options.values, patch, (field, container, message) => {
-    notifyValidationIssue(
-      options.onValidationIssue,
-      segments
-        .filter((segment) => {
-          const location = locations.get(segment.id);
-          return location?.kind === "span" && location.field === field && sameContainer(location, container);
-        })
-        .map(({ id }) => id),
-      message,
-    );
-  });
+  validateSpanListTokens(options.values, patch, spanLists, (segmentIds, message) =>
+    notifyValidationIssue(options.onValidationIssue, segmentIds, message),
+  );
 
   return { patch, batchCount: result.batchCount };
 }
 
-/** The span lists a block holds: a text block's children, or each table cell's content. Code blocks hold none. */
-function spanContainers(field: string, block: Record<string, unknown>, blockIndex: number): SpanContainer[] {
-  if (block._type === "block") {
-    if (!Array.isArray(block.children)) {
-      throw new ContentTranslationInputError(`Portable Text field "${field}" contains a block without children`);
+function collectBlocks(blocks: readonly unknown[], idPrefix: string, field: string, path: PathPart[], collector: Collector): void {
+  for (const [blockIndex, block] of blocks.entries()) {
+    const blockPath = [...path, blockIndex];
+    if (!isPortableTextNode(block)) {
+      throw inputError(`Portable Text field "${field}" contains an invalid block`, blockPath);
     }
-    return block.style === "code" ? [] : [{ blockIndex, cell: null }];
-  }
-  if (block._type !== "table") return [];
-  if (!Array.isArray(block.rows)) throw new ContentTranslationInputError(`Portable Text field "${field}" contains a table without rows`);
-  return block.rows.flatMap((row, rowIndex) => {
-    if (!isRecord(row) || !Array.isArray(row.cells)) {
-      throw new ContentTranslationInputError(`Portable Text field "${field}" contains an invalid table row`);
-    }
-    return row.cells.map((cell, cellIndex) => {
-      if (!isRecord(cell) || !Array.isArray(cell.content)) {
-        throw new ContentTranslationInputError(`Portable Text field "${field}" contains an invalid table cell`);
+    const blockId = `${idPrefix}:block:${blockIndex}`;
+    if (block._type === "block") {
+      if (!Array.isArray(block.children)) {
+        throw inputError(`Portable Text field "${field}" contains a block without children`, blockPath);
       }
-      return { blockIndex, cell: [rowIndex, cellIndex] as const };
-    });
-  });
+      if (block.style !== "code") collectSpans(block.children, blockId, field, [...blockPath, "children"], collector);
+    } else if (block._type === "table") {
+      collectTable(block, blockId, field, blockPath, collector);
+    } else {
+      const fieldPaths = Object.hasOwn(collector.blockFields, block._type) ? collector.blockFields[block._type] : undefined;
+      for (const fieldPath of fieldPaths ?? []) {
+        collectBlockPath(block, fieldPath.split("."), blockId, field, blockPath, collector);
+      }
+    }
+  }
 }
 
-function containerSpans(blocks: readonly unknown[], container: SpanContainer): unknown[] | null {
-  const block = blocks[container.blockIndex];
-  if (!isRecord(block)) return null;
-  if (container.cell === null) return Array.isArray(block.children) ? block.children : null;
-  const [rowIndex, cellIndex] = container.cell;
-  const row = Array.isArray(block.rows) ? block.rows[rowIndex] : undefined;
-  const cell = isRecord(row) && Array.isArray(row.cells) ? row.cells[cellIndex] : undefined;
-  return isRecord(cell) && Array.isArray(cell.content) ? cell.content : null;
+function collectTable(table: Record<string, unknown>, blockId: string, field: string, blockPath: PathPart[], collector: Collector): void {
+  if (!Array.isArray(table.rows)) throw inputError(`Portable Text field "${field}" contains a table without rows`, blockPath);
+  for (const [rowIndex, row] of table.rows.entries()) {
+    const rowPath = [...blockPath, "rows", rowIndex];
+    if (!isRecord(row) || !Array.isArray(row.cells)) {
+      throw inputError(`Portable Text field "${field}" contains an invalid table row`, rowPath);
+    }
+    for (const [cellIndex, cell] of row.cells.entries()) {
+      const cellPath = [...rowPath, "cells", cellIndex];
+      if (!isRecord(cell) || !Array.isArray(cell.content)) {
+        throw inputError(`Portable Text field "${field}" contains an invalid table cell`, cellPath);
+      }
+      collectSpans(cell.content, `${blockId}:row:${rowIndex}:cell:${cellIndex}`, field, [...cellPath, "content"], collector);
+    }
+  }
 }
 
-function sameContainer(left: SpanContainer, right: SpanContainer): boolean {
-  return left.blockIndex === right.blockIndex && left.cell?.[0] === right.cell?.[0] && left.cell?.[1] === right.cell?.[1];
+function collectSpans(spans: readonly unknown[], idPrefix: string, field: string, path: PathPart[], collector: Collector): void {
+  const segmentIds: string[] = [];
+  for (const [spanIndex, span] of spans.entries()) {
+    if (!isPortableTextSpan(span)) throw inputError(`Portable Text field "${field}" contains an invalid span`, [...path, spanIndex]);
+    const id = `${idPrefix}:span:${spanIndex}`;
+    if (addSegment(id, span.text, field, [...path, spanIndex, "text"], collector)) segmentIds.push(id);
+  }
+  if (segmentIds.length > 0) collector.spanLists.push({ field, path, segmentIds });
 }
 
-function validatePortableTextTokens(
+/** Follows one `a.b[].c` path. Strings are translated; a Portable Text array is walked like a field. */
+function collectBlockPath(node: unknown, parts: string[], id: string, field: string, path: PathPart[], collector: Collector): void {
+  const [head, ...rest] = parts;
+  if (head === undefined || !isRecord(node)) return;
+  const isList = head.endsWith("[]");
+  const key = isList ? head.slice(0, -2) : head;
+  if (!Object.hasOwn(node, key)) return;
+  const value = node[key];
+  const valuePath = [...path, key];
+  const valueId = `${id}:${key}`;
+  if (isList) {
+    if (!Array.isArray(value)) return;
+    for (const [index, item] of value.entries()) {
+      const itemPath = [...valuePath, index];
+      if (rest.length > 0) collectBlockPath(item, rest, `${valueId}:${index}`, field, itemPath, collector);
+      else if (typeof item === "string") addSegment(`${valueId}:${index}`, item, field, itemPath, collector);
+    }
+  } else if (rest.length > 0) {
+    collectBlockPath(value, rest, valueId, field, valuePath, collector);
+  } else if (typeof value === "string") {
+    addSegment(valueId, value, field, valuePath, collector);
+  } else if (Array.isArray(value)) {
+    collectBlocks(value, valueId, field, valuePath, collector);
+  }
+}
+
+function validateSpanListTokens(
   source: Record<string, unknown>,
   patch: Record<string, unknown>,
-  onValidationIssue: (field: string, container: SpanContainer, message: string) => void,
+  spanLists: readonly SpanList[],
+  onValidationIssue: (segmentIds: string[], message: string) => void,
 ): void {
-  for (const [field, value] of Object.entries(source)) {
-    if (!Array.isArray(value)) continue;
-    const translated = patch[field];
-    if (!Array.isArray(translated)) continue;
-    for (const [blockIndex, block] of value.entries()) {
-      if (!isRecord(block)) continue;
-      for (const container of spanContainers(field, block, blockIndex)) {
-        const sourceSpans = containerSpans(value, container);
-        const translatedSpans = containerSpans(translated, container);
-        if (sourceSpans === null || translatedSpans === null) continue;
-        if (validateTokenPreservation(field, sourceSpans.map(spanText).join(""), translatedSpans.map(spanText).join("")) !== null) {
-          const message = `[polystella-emdash] translation changed placeholder tokens in field "${field}"`;
-          onValidationIssue(field, container, message);
-          throw new Error(message);
-        }
-      }
+  for (const { field, path, segmentIds } of spanLists) {
+    const sourceSpans = getAtPath(source, path);
+    const translatedSpans = getAtPath(patch, path);
+    if (!Array.isArray(sourceSpans) || !Array.isArray(translatedSpans)) continue;
+    if (validateTokenPreservation(field, sourceSpans.map(spanText).join(""), translatedSpans.map(spanText).join("")) !== null) {
+      const message = `[polystella-emdash] translation changed placeholder tokens in field "${field}"`;
+      onValidationIssue(segmentIds, message);
+      throw new Error(message);
     }
   }
 }
@@ -214,47 +238,51 @@ function spanText(value: unknown): string {
   return isRecord(value) && value._type === "span" && typeof value.text === "string" ? value.text : "";
 }
 
-function addSegment(
-  id: string,
-  source: string,
-  target: SegmentTarget,
-  group: Segment[],
-  segments: Segment[],
-  locations: Map<string, SegmentLocation>,
-): void {
+/** Returns whether the text produced a segment; blank text is left as-is. */
+function addSegment(id: string, source: string, field: string, path: PathPart[], collector: Collector): boolean {
   const text = source.trim();
-  if (text.length === 0) return;
+  if (text.length === 0) return false;
   if (text.length > MAX_SEGMENT_CHARACTERS) {
-    throw new ContentTranslationInputError(`one text segment exceeds ${MAX_SEGMENT_CHARACTERS} characters`);
+    throw inputError(`one text segment exceeds ${MAX_SEGMENT_CHARACTERS} characters`, path);
   }
   const start = source.indexOf(text);
   const segment = { id, text };
-  group.push(segment);
-  segments.push(segment);
-  locations.set(id, {
-    ...target,
+  collector.group.push(segment);
+  collector.segments.push(segment);
+  collector.locations.set(id, {
+    field,
+    path,
     leadingWhitespace: source.slice(0, start),
     trailingWhitespace: source.slice(start + text.length),
   });
+  return true;
 }
 
-function applyTranslation(patch: Record<string, unknown>, location: SegmentLocation, translation: string): void {
-  if (location.kind === "field") {
-    patch[location.field] = translation;
-    return;
+function getAtPath(root: unknown, path: readonly PathPart[]): unknown {
+  let current = root;
+  for (const part of path) {
+    if (typeof current !== "object" || current === null) return undefined;
+    current = (current as Record<PathPart, unknown>)[part];
   }
+  return current;
+}
 
-  const value = patch[location.field];
-  if (!Array.isArray(value)) throw new Error(`[polystella-emdash] Portable Text field "${location.field}" changed shape`);
-  const spans = containerSpans(value, location);
-  if (spans === null) {
-    throw new Error(`[polystella-emdash] Portable Text field "${location.field}" changed block structure`);
+function setAtPath(patch: Record<string, unknown>, location: SegmentLocation, translation: string): void {
+  const last = location.path.at(-1);
+  const parent = getAtPath(patch, location.path.slice(0, -1));
+  if (last === undefined || typeof parent !== "object" || parent === null) {
+    throw new Error(`[polystella-emdash] field "${location.field}" changed structure at ${formatPath(location.path)}`);
   }
-  const child = spans[location.childIndex];
-  if (!isRecord(child) || child._type !== "span") {
-    throw new Error(`[polystella-emdash] Portable Text field "${location.field}" changed span structure`);
-  }
-  child.text = translation;
+  (parent as Record<PathPart, unknown>)[last] = translation;
+}
+
+function inputError(message: string, path: readonly PathPart[]): ContentTranslationInputError {
+  return new ContentTranslationInputError(path.length > 1 ? `${message} at ${formatPath(path)}` : message);
+}
+
+/** `["body", 3, "cards", 0, "title"]` → `body[3].cards[0].title`. */
+function formatPath(path: readonly PathPart[]): string {
+  return path.map((part, index) => (typeof part === "number" ? `[${part}]` : index === 0 ? part : `.${part}`)).join("");
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
