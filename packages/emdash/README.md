@@ -114,6 +114,35 @@ and reloads after success. Unsaved browser changes are not translated and are
 lost after confirmation. A save refused by another editor's edit lock names the
 lock holder.
 
+Portable Text paragraphs, headings, lists and tables are always translated.
+Custom blocks are copied unchanged unless the `blockFields` option lists their
+text paths by block `_type`:
+
+```js
+polystellaEmdash({
+  // ...
+  blockFields: {
+    "marketing.hero": ["headline", "cta.label", "banners[].title"],
+    "marketing.columns": ["columns[].content"],
+  },
+});
+```
+
+| Path                | Translates                                        |
+| :------------------ | :------------------------------------------------ |
+| `headline`          | A string property                                 |
+| `cta.label`         | A property of a nested object                     |
+| `banners[].title`   | That property on every item of a list             |
+| `tags[]`            | Every string in a list                            |
+| `columns[].content` | A nested Portable Text array, walked like a field |
+
+A path a block doesn't have, or whose value is neither text nor an array, is
+skipped silently, so one list can cover several stored shapes of the same block
+type. An array at the end of a path without `[]` is read as Portable Text and
+must be valid; otherwise the request fails and names the location, such as
+`body[3].columns[0].content[1]`.
+List only copy, never URLs, IDs, icons or media references.
+
 On a source-locale entry, the panel instead creates a missing locale: it
 translates the selected fields, creates the draft as the signed-in user through
 EmDash's content API (copying the source entry and slug, like EmDash's

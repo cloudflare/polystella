@@ -1,6 +1,6 @@
 ---
 title: EmDash configuration
-description: PolystellaEmdashOptions — provider, catalogs, models, glossaryDefaults, rules, localeTags, and batchQueueBinding.
+description: PolystellaEmdashOptions — provider, catalogs, models, glossaryDefaults, rules, blockFields, localeTags, and batchQueueBinding.
 aiGenerated: true
 sidebar:
   label: Configuration
@@ -104,6 +104,11 @@ blockFields: {
 | `banners[].title` | A property of every item in a list                                                                       |
 | `tags[]`          | Every string in a list                                                                                   |
 | `columns[].body`  | If the value is a Portable Text array, its text blocks (and any listed custom blocks) are translated too |
+
+A path a block doesn't have, or whose value is neither text nor an array,
+is skipped silently. One list can therefore cover several stored shapes of
+the same block type. An array at the end of a path without `[]` is read as
+Portable Text.
 
 List only copy. Leave URLs, IDs, icons, dates and media references out.
 Plain strings are sent to the model as text, so Markdown fields keep
