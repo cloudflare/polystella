@@ -134,7 +134,7 @@ stages; EmDash plugin routes do not stream provider or batch progress.
 ## Content-editor panel
 
 The panel appears for Editors and Administrators. It translates
-selected `string`, `text`, and Portable Text fields in an existing
+selected `string`, `text`, Portable Text and `blocks` fields in an existing
 target-locale draft — the source locale is the code-defined
 `catalogs.defaultLocale`, and the target must differ from it.
 

@@ -109,6 +109,21 @@ A `blockFields` entry for one of these types replaces its default, and
 an empty list (`image: []`) copies that type unchanged. `code`,
 `htmlBlock` and `file` blocks are never translated.
 
+[`blocks` fields](https://docs.emdashcms.com/guides/blocks/) use the same
+map, keyed by block type slug:
+
+```js
+blockFields: {
+  hero: ["heading", "body", "link_label"],
+  feature_grid: ["heading", "items[].title", "items[].description"],
+}
+```
+
+Inside a `blocks` field only the site's entries apply. A block type named
+`image` or `table` there is the site's own, so it gets neither EmDash's
+defaults nor Portable Text table handling. `_version`, `_key`, URLs and
+media are always copied unchanged.
+
 ```js
 blockFields: {
   "marketing.hero": ["headline", "banners[].title", "body"],

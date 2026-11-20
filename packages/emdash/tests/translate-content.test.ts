@@ -359,6 +359,38 @@ describe("EmDash block type defaults", () => {
     expect(overridden.patch.body).toMatchObject([{ alt: "FR", caption: "Our cat" }, { buttons: [{ text: "Sign up" }] }, {}, {}]);
   });
 
+  it("translates `blocks` fields with the site's blockFields only", async () => {
+    const layout = [
+      { _type: "hero", _version: 1, _key: "h", heading: "Welcome", body: [paragraph("p", "Intro")], link_label: "More", link_url: "/more" },
+      { _type: "image", _version: 1, _key: "i", photo: { id: "m1" }, alt: "Site-defined image block" },
+      { _type: "table", _version: 2, _key: "t", heading: "Not a Portable Text table" },
+    ];
+    const { patch } = await translateContentFields({
+      translator: echo,
+      glossary: EMPTY_GLOSSARY,
+      sourceLocale: "en",
+      targetLocale: "fr",
+      values: { layout },
+      blockFields: { hero: ["heading", "body", "link_label"], table: ["heading"] },
+      blocksFieldSlugs: ["layout"],
+    });
+    expect(patch.layout).toEqual([
+      { ...layout[0], heading: "FR", body: [paragraph("p", "FR")], link_label: "FR" },
+      layout[1],
+      { ...layout[2], heading: "FR" },
+    ]);
+    await expect(
+      translateContentFields({
+        translator: echo,
+        glossary: EMPTY_GLOSSARY,
+        sourceLocale: "en",
+        targetLocale: "fr",
+        values: { layout: [{ heading: "No type" }] },
+        blocksFieldSlugs: ["layout"],
+      }),
+    ).rejects.toThrow('blocks field "layout" contains an invalid block at layout[0]');
+  });
+
   it("is re-checked whenever the tested EmDash version changes", () => {
     const manifest = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as {
       devDependencies: Record<string, string>;

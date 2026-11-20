@@ -133,7 +133,7 @@ const BATCH_LIST_PAGE_SIZE = 100;
 const ADMIN_ROLE = 50;
 // A translation already running when its job was cancelled still saves; its row says so.
 const FINISHED_AFTER_CANCEL = "Finished after the job was cancelled.";
-const TRANSLATABLE_FIELD_TYPES = new Set(["string", "text", "portableText"]);
+const TRANSLATABLE_FIELD_TYPES = new Set(["string", "text", "portableText", "blocks"]);
 
 const defaultDependencies: PluginRouteDependencies = {
   async getEnv() {
@@ -309,6 +309,7 @@ export function createPluginRoutes(
             translator: settings.translator,
             glossary: settings.glossary,
             blockFields: options.blockFields,
+            blocksFieldSlugs: blocksFieldSlugs(schema),
             sourceLocale: localeTag(options, options.catalogs.defaultLocale),
             targetLocale: localeTag(options, targetLocale),
             ...(settings.promptInstruction === undefined ? {} : { promptInstruction: settings.promptInstruction }),
@@ -807,6 +808,7 @@ export function createPluginRoutes(
             translator: settings.translator,
             glossary: settings.glossary,
             blockFields: options.blockFields,
+            blocksFieldSlugs: blocksFieldSlugs(schema),
             sourceLocale: localeTag(options, options.catalogs.defaultLocale),
             targetLocale: localeTag(options, message.locale),
             ...(settings.promptInstruction === undefined ? {} : { promptInstruction: settings.promptInstruction }),
@@ -1034,6 +1036,10 @@ async function collectionSchema(ctx: RouteContext, collection: string): Promise<
   const schema = await ctx.schema.getCollection(collection);
   if (schema === null) throw PluginRouteError.notFound("collection not found");
   return schema;
+}
+
+function blocksFieldSlugs(schema: CollectionSchemaInfo): string[] {
+  return schema.fields.filter((field) => field.type === "blocks").map((field) => field.slug);
 }
 
 function isTranslatableField(schema: CollectionSchemaInfo, slug: string): boolean {

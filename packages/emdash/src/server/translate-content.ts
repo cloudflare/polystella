@@ -75,6 +75,8 @@ export interface TranslateContentFieldsOptions {
   targetLocale: string;
   promptInstruction?: string | undefined;
   blockFields?: BlockFieldPaths | undefined;
+  /** Fields of EmDash's `blocks` type. Their block types are the site's own, so only `blockFields` applies to them. */
+  blocksFieldSlugs?: readonly string[] | undefined;
   onBatchAttempt?: ((event: TranslateBatchAttemptEvent) => void) | undefined;
   onValidationIssue?: ((segmentIds: string[], message: string) => void) | undefined;
   signal?: AbortSignal | undefined;
@@ -105,6 +107,8 @@ export async function translateContentFields(options: TranslateContentFieldsOpti
     };
     if (typeof value === "string") {
       addSegment(`field:${fieldIndex}`, value, field, [field], collector);
+    } else if (Array.isArray(value) && options.blocksFieldSlugs?.includes(field) === true) {
+      collectBlocksField(value, `field:${fieldIndex}`, field, options.blockFields ?? {}, collector);
     } else if (Array.isArray(value)) {
       collectBlocks(value, `field:${fieldIndex}`, field, [field], collector);
     } else {
@@ -173,12 +177,34 @@ function collectBlocks(blocks: readonly unknown[], idPrefix: string, field: stri
     } else if (block._type === "table") {
       collectTable(block, blockId, field, blockPath, collector);
     } else {
-      const fieldPaths = Object.hasOwn(collector.blockFields, block._type) ? collector.blockFields[block._type] : undefined;
-      for (const fieldPath of fieldPaths ?? []) {
-        collectBlockPath(block, fieldPath.split("."), blockId, field, blockPath, collector);
-      }
+      collectCustomBlock(block, collector.blockFields, blockId, field, blockPath, collector);
     }
   }
+}
+
+function collectBlocksField(
+  blocks: readonly unknown[],
+  idPrefix: string,
+  field: string,
+  blockFields: BlockFieldPaths,
+  collector: Collector,
+): void {
+  for (const [blockIndex, block] of blocks.entries()) {
+    if (!isPortableTextNode(block)) throw inputError(`blocks field "${field}" contains an invalid block`, [field, blockIndex]);
+    collectCustomBlock(block, blockFields, `${idPrefix}:block:${blockIndex}`, field, [field, blockIndex], collector);
+  }
+}
+
+function collectCustomBlock(
+  block: Record<string, unknown> & { _type: string },
+  blockFields: BlockFieldPaths,
+  blockId: string,
+  field: string,
+  blockPath: PathPart[],
+  collector: Collector,
+): void {
+  const fieldPaths = Object.hasOwn(blockFields, block._type) ? blockFields[block._type] : undefined;
+  for (const fieldPath of fieldPaths ?? []) collectBlockPath(block, fieldPath.split("."), blockId, field, blockPath, collector);
 }
 
 function collectTable(table: Record<string, unknown>, blockId: string, field: string, blockPath: PathPart[], collector: Collector): void {
