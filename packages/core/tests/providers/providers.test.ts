@@ -155,6 +155,27 @@ describe("Workers AI binding translator", () => {
     await expect(translator.translate("s", "u")).rejects.toBe(failure);
   });
 
+  it("explains replies cut off at the output token limit", async () => {
+    const binding = createWorkersAIBindingTranslator({
+      modelId: "reasoner",
+      maxTokens: 8192,
+      run: vi.fn().mockResolvedValue({ choices: [{ message: { content: null, reasoning_content: "..." }, finish_reason: "length" }] }),
+    });
+    await expect(binding.translate("s", "u")).rejects.toThrow('model ran out of output tokens (model="reasoner", max_tokens=8192)');
+
+    const http = createWorkersAIHttpTranslator({
+      accountId: "acct",
+      apiToken: "token",
+      modelId: "reasoner",
+      maxTokens: 512,
+      fetchImpl: makeFetchStub({
+        success: true,
+        result: { choices: [{ message: { content: "@@a@@\nPartial" }, finish_reason: "length" }] },
+      }),
+    });
+    await expect(http.translate("s", "u")).rejects.toThrow("max_tokens=512");
+  });
+
   it("includes a preview for unsupported binding responses", async () => {
     const translator = createWorkersAIBindingTranslator({
       modelId: "model",
@@ -169,6 +190,11 @@ describe("Anthropic translator", () => {
   function createAnthropic(fetchImpl: typeof fetch) {
     return createAnthropicTranslator({ apiKey: "KEY", modelId: "claude-test", maxTokens: 8192, fetchImpl });
   }
+
+  it("explains replies cut off at the output token limit", async () => {
+    const translator = createAnthropic(makeFetchStub({ content: [{ type: "text", text: "@@a@@\nPart" }], stop_reason: "max_tokens" }));
+    await expect(translator.translate("s", "u")).rejects.toThrow('model ran out of output tokens (model="claude-test", max_tokens=8192)');
+  });
 
   it("sends the documented endpoint, headers, body, and signal", async () => {
     const fetchImpl = makeFetchStub({ content: [{ type: "text", text: "OK" }] });

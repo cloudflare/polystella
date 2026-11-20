@@ -12,6 +12,8 @@ import { MAX_CONTENT_FIELDS } from "../contracts.js";
 const MAX_SEGMENTS = 500;
 const MAX_SEGMENT_CHARACTERS = 20_000;
 const MAX_TOTAL_CHARACTERS = 30_000;
+// One entry is one request here, so nothing else multiplies these provider calls.
+const BATCH_CONCURRENCY = 3;
 
 type PathPart = string | number;
 
@@ -103,6 +105,7 @@ export async function translateContentFields(options: TranslateContentFieldsOpti
     glossary: options.glossary,
     sourceLocale: options.sourceLocale,
     targetLocale: options.targetLocale,
+    concurrency: BATCH_CONCURRENCY,
     ...(options.promptInstruction === undefined ? {} : { promptInstruction: options.promptInstruction }),
     ...(options.onBatchAttempt === undefined ? {} : { onBatchAttempt: options.onBatchAttempt }),
     ...(options.signal === undefined ? {} : { signal: options.signal }),

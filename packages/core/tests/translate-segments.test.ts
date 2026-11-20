@@ -68,6 +68,46 @@ describe("translateSegments", () => {
     expect([...translated.translations.keys()]).toEqual(["a", "b", "c", "d"]);
   });
 
+  it("runs up to `concurrency` batches at once and cancels the rest after a failure", async () => {
+    const groups = ["a", "b", "c", "d"].map((id) => [segment(id, "hello world")]);
+    let inFlight = 0;
+    let peak = 0;
+    const signals: AbortSignal[] = [];
+    const translator: Translator = {
+      modelId: "stub/slow",
+      async translate(_systemPrompt, userPrompt, signal) {
+        const id = /^@@([^@\n]+?)@@/m.exec(userPrompt)?.[1] ?? "";
+        if (signal !== undefined) signals.push(signal);
+        inFlight += 1;
+        peak = Math.max(peak, inFlight);
+        if (id === "b") throw new PermanentProviderError("bad request");
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        inFlight -= 1;
+        return responseFor([id]);
+      },
+    };
+
+    await expect(
+      translateSegments({ ...commonOptions, translator, segments: groups.flat(), groups, inputTokenBudget: 4, concurrency: 2 }),
+    ).rejects.toThrow("bad request");
+    expect(peak).toBe(2);
+    // "a" was in flight when "b" failed; "c" and "d" never started.
+    expect(signals).toHaveLength(2);
+    expect(signals.every((batchSignal) => batchSignal.aborted)).toBe(true);
+
+    const echo = makeEchoTranslator();
+    const translated = await translateSegments({
+      ...commonOptions,
+      translator: echo,
+      segments: groups.flat(),
+      groups,
+      inputTokenBudget: 4,
+      concurrency: 3,
+    });
+    expect(translated.batchCount).toBe(4);
+    expect([...translated.translations.keys()].sort()).toEqual(["a", "b", "c", "d"]);
+  });
+
   it("rejects groups that omit segments", async () => {
     const translator = makeEchoTranslator();
     const segments = [segment("a", "hello"), segment("b", "world")];

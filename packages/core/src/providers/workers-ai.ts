@@ -1,6 +1,7 @@
 import type { Translator } from "../index.js";
 
 import { createProviderHttpError } from "./http-error.js";
+import { outOfTokensError } from "./out-of-tokens.js";
 
 export interface WorkersAIInput {
   messages: Array<{ role: "system" | "user"; content: string }>;
@@ -51,7 +52,7 @@ export function createWorkersAIHttpTranslator(options: WorkersAIHttpTranslatorOp
         throw new Error(`[polystella] Workers AI returned errors: ${JSON.stringify(property(data, "errors") ?? [])}`);
       }
 
-      return normalizeWorkersAIHttpResponse(data, modelId);
+      return normalizeWorkersAIHttpResponse(data, modelId, maxTokens);
     },
   };
 }
@@ -64,7 +65,7 @@ export function createWorkersAIBindingTranslator(options: WorkersAIBindingTransl
       signal?.throwIfAborted();
       const data = await run(modelId, createInput(systemPrompt, userPrompt, maxTokens));
       signal?.throwIfAborted();
-      return normalizeWorkersAIBindingResponse(data, modelId);
+      return normalizeWorkersAIBindingResponse(data, modelId, maxTokens);
     },
   };
 }
@@ -79,8 +80,9 @@ function createInput(systemPrompt: string, userPrompt: string, maxTokens: number
   };
 }
 
-function normalizeWorkersAIHttpResponse(data: unknown, modelId: string): string {
+function normalizeWorkersAIHttpResponse(data: unknown, modelId: string, maxTokens: number): string {
   const result = property(data, "result");
+  throwIfOutOfTokens([property(result, "choices"), property(data, "choices")], modelId, maxTokens);
   const candidates = [
     property(result, "response"),
     firstChoiceContent(property(result, "choices")),
@@ -99,8 +101,9 @@ function normalizeWorkersAIHttpResponse(data: unknown, modelId: string): string 
   );
 }
 
-function normalizeWorkersAIBindingResponse(data: unknown, modelId: string): string {
+function normalizeWorkersAIBindingResponse(data: unknown, modelId: string, maxTokens: number): string {
   if (typeof data === "string") return data;
+  throwIfOutOfTokens([property(data, "choices")], modelId, maxTokens);
   if (data !== null && typeof data === "object") {
     const hasResponseEnvelope = Object.hasOwn(data, "response");
     const hasChoicesEnvelope = Object.hasOwn(data, "choices");
@@ -121,6 +124,13 @@ function normalizeWorkersAIBindingResponse(data: unknown, modelId: string): stri
     "none of the direct value, response, or choices[0].message.content held a usable string or object",
     data,
   );
+}
+
+/** Reasoning models often spend the whole budget before answering; other models drop the last segments. */
+function throwIfOutOfTokens(choiceLists: unknown[], modelId: string, maxTokens: number): void {
+  for (const choices of choiceLists) {
+    if (Array.isArray(choices) && property(choices[0], "finish_reason") === "length") throw outOfTokensError(modelId, maxTokens);
+  }
 }
 
 function firstChoiceContent(value: unknown): unknown {

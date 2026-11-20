@@ -1,5 +1,6 @@
 import { packGroupsIntoBatches } from "./batch.js";
 import type { Logger } from "./logger.js";
+import { runWithConcurrency } from "./pool.js";
 import { assertUniqueSegmentIds, type Segment } from "./segment.js";
 import { translateBatch, type TranslateBatchOptions } from "./translate-batch.js";
 
@@ -11,6 +12,11 @@ export interface TranslateSegmentsOptions extends TranslateBatchOptions {
   inputTokenBudget?: number;
   logger?: Logger;
   sourcePath?: string;
+  /**
+   * Batches sent at once; default 1. Raise it only where nothing else runs requests in parallel:
+   * the Astro build already translates several files at once.
+   */
+  concurrency?: number;
 }
 
 /** Translation map and number of provider batches used. */
@@ -20,7 +26,7 @@ export interface TranslateSegmentsResult {
 }
 
 export async function translateSegments(options: TranslateSegmentsOptions): Promise<TranslateSegmentsResult> {
-  const { segments, groups, documentContext, inputTokenBudget, logger, sourcePath, signal, ...rest } = options;
+  const { segments, groups, documentContext, inputTokenBudget, logger, sourcePath, signal, concurrency = 1, ...rest } = options;
 
   signal?.throwIfAborted();
   assertUniqueSegmentIds(segments.map((segment) => segment.id));
@@ -41,16 +47,32 @@ export async function translateSegments(options: TranslateSegmentsOptions): Prom
   if (batches.length === 0) return { translations: new Map(), batchCount: 0 };
 
   const translations = new Map<string, string>();
-  for (const batch of batches) {
-    signal?.throwIfAborted();
+  const runBatch = async (batch: Segment[], batchSignal: AbortSignal | undefined): Promise<void> => {
+    batchSignal?.throwIfAborted();
     const batchResult = await translateBatch({
       ...rest,
       segments: batch,
       ...(documentContext !== undefined ? { documentContext } : {}),
-      ...(signal !== undefined ? { signal } : {}),
+      ...(batchSignal !== undefined ? { signal: batchSignal } : {}),
     });
     for (const [id, text] of batchResult) translations.set(id, text);
+  };
+
+  if (concurrency <= 1) {
+    for (const batch of batches) await runBatch(batch, signal);
+    return { translations, batchCount: batches.length };
   }
 
+  // The first failure cancels batches still in flight instead of paying for answers nobody reads.
+  const failed = new AbortController();
+  const batchSignal = signal === undefined ? failed.signal : AbortSignal.any([signal, failed.signal]);
+  await runWithConcurrency(batches, concurrency, async (batch) => {
+    try {
+      await runBatch(batch, batchSignal);
+    } catch (error) {
+      if (!failed.signal.aborted) failed.abort(error);
+      throw error;
+    }
+  });
   return { translations, batchCount: batches.length };
 }
