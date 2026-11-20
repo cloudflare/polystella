@@ -131,6 +131,8 @@ const RECENT_BATCH_JOBS = 10;
 const BATCH_RESULTS_PAGE_SIZE = 50;
 const BATCH_LIST_PAGE_SIZE = 100;
 const ADMIN_ROLE = 50;
+// A translation already running when its job was cancelled still saves; its row says so.
+const FINISHED_AFTER_CANCEL = "Finished after the job was cancelled.";
 const TRANSLATABLE_FIELD_TYPES = new Set(["string", "text", "portableText"]);
 
 const defaultDependencies: PluginRouteDependencies = {
@@ -845,8 +847,11 @@ export function createPluginRoutes(
         }
         const { jobs, results } = batchStorage(ctx.storage);
         // A message still in flight when its job was removed must not leave a row nothing lists.
-        if ((await readBatchJob(jobs, message.jobId)) === null) return { recorded: false };
-        await recordBatchResult(results, message, outcome, detail, dependencies.now(), translation);
+        const job = await readBatchJob(jobs, message.jobId);
+        if (job === null) return { recorded: false };
+        const note = job.status === "cancelled" && outcome !== "skipped" ? FINISHED_AFTER_CANCEL : null;
+        const recordedDetail = note === null ? detail : detail === null ? note : `${note} ${detail}`;
+        await recordBatchResult(results, message, outcome, recordedDetail, dependencies.now(), translation);
         return { recorded: true };
       },
     },
@@ -997,7 +1002,8 @@ async function batchJobView(results: StorageCollection, id: string, job: StoredB
     collection: job.collection,
     locales: job.locales,
     total: job.total,
-    status: job.status,
+    status:
+      job.status === "cancelled" ? "cancelled" : job.listing === null && created + skipped + failed >= job.total ? "finished" : "running",
     publish: job.publish,
     createdAt: job.createdAt,
     listing: job.listing !== null,

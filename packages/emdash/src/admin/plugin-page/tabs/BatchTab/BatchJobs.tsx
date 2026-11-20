@@ -111,7 +111,7 @@ export function BatchJobs({
                 </details>
               )}
               <div style={rowStyle}>
-                {job.status === "running" && !finished ? (
+                {job.status === "running" ? (
                   <Button size="sm" variant="secondary" loading={working === job.id} onClick={() => void act([job.id], "cancel", job.id)}>
                     Cancel
                   </Button>

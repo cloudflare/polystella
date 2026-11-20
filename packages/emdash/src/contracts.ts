@@ -185,7 +185,8 @@ export interface BatchJobView {
   collection: string;
   locales: string[];
   total: number;
-  status: "running" | "cancelled";
+  /** `finished` once every queued translation has a result and listing is done. */
+  status: "running" | "cancelled" | "finished";
   createdAt: string;
   publish: boolean;
   /** The queue is still listing the collection, so `total` can still grow. */

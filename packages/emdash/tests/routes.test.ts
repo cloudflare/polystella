@@ -1563,6 +1563,26 @@ describe("EmDash batch queue routes", () => {
     expect(listed.jobs.map(({ id }) => id)).toEqual([job.id]);
   });
 
+  it("reports a job as finished once every translation has a result, and notes results after a cancel", async () => {
+    const { kv, call, batch } = batchSetup();
+    await enablePosts(kv);
+    const job = (await call("batch/start", { collection: "posts", locales: ["fr-FR"], entryIds: ["a", "b"] })) as BatchJobView;
+    const jobStatus = async (id: string) =>
+      ((await call("batch/jobs", {}, "GET")) as BatchJobsResponse).jobs.find((listed) => listed.id === id)?.status;
+
+    await call("batch/record", { jobId: job.id, entryId: "a", locale: "fr-FR", outcome: "created", message: null });
+    expect(await jobStatus(job.id)).toBe("running");
+    await call("batch/record", { jobId: job.id, entryId: "b", locale: "fr-FR", outcome: "failed", message: "Model timed out." });
+    expect(await jobStatus(job.id)).toBe("finished");
+
+    const cancelled = (await call("batch/start", { collection: "posts", locales: ["fr-FR"], entryIds: ["c"] })) as BatchJobView;
+    await call("batch/cancel", { jobId: cancelled.id });
+    await call("batch/record", { jobId: cancelled.id, entryId: "c", locale: "fr-FR", outcome: "created", message: null });
+    expect(await jobStatus(cancelled.id)).toBe("cancelled");
+    const rows = await batch.results.query({ where: { jobId: cancelled.id } });
+    expect(rows.items.map(({ data }) => (data as { message: string | null }).message)).toEqual(["Finished after the job was cancelled."]);
+  });
+
   it("lists a whole collection a page at a time from the queue", async () => {
     const { sent, kv, call, batch } = batchSetup();
     await enablePosts(kv);
