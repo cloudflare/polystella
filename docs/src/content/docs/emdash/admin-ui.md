@@ -138,6 +138,12 @@ selected `string`, `text`, Portable Text and `blocks` fields in an existing
 target-locale draft — the source locale is the code-defined
 `catalogs.defaultLocale`, and the target must differ from it.
 
+Long entries are translated in parts of up to 30,000 characters and 500
+text segments, one request per part; the panel shows which part is
+running, and queued batch jobs translate one part per queue message. An
+entry can hold up to 500,000 characters and 5,000 segments. If the source
+changes between parts, the translation stops and asks to start again.
+
 The private route rereads selected values through its `content:read`
 capability, so the browser never supplies the values being
 translated. The panel updates the draft with EmDash's `_rev` token

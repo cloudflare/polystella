@@ -107,7 +107,16 @@ export interface TranslationDebugTrace {
 
 export type TranslateContentResponse =
   | { patch: Record<string, unknown>; batchCount: number; debug?: TranslationDebugTrace | undefined }
-  | { patch: null; batchCount: number; error: string; debug: TranslationDebugTrace };
+  | { patch: null; batchCount: number; error: string; debug: TranslationDebugTrace }
+  | { patch: null; batchCount: number; next: TranslateContentNextPart; debug?: TranslationDebugTrace | undefined };
+
+/** A long entry is translated one part per request: send this back, with the same fields, to translate the next part. */
+export interface TranslateContentNextPart {
+  part: number;
+  partCount: number;
+  fingerprint: string;
+  translations: Record<string, string>;
+}
 
 export interface CatalogLocaleSummary {
   locale: string;

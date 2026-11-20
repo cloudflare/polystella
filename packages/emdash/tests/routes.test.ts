@@ -668,7 +668,7 @@ describe("EmDash plugin routes", () => {
         batches: [{ attempts: [{ response: "private model response", error: expect.stringContaining("no segment markers") }] }],
       },
     });
-    if (failed.patch !== null) throw new Error("expected debug translation failure");
+    if (failed.patch !== null || !("error" in failed)) throw new Error("expected debug translation failure");
     expect(failed.error).toContain(failed.debug.id);
 
     const secretFailureRoutes = createPluginRoutes(options(), {
@@ -1681,6 +1681,73 @@ describe("EmDash batch queue routes", () => {
       },
       publish: false,
     });
+  });
+
+  it("translates an entry too long for one request a part at a time", async () => {
+    const echo = {
+      run: async (_model: string, input: { messages: Array<{ content: string }> }) => ({
+        response: [...(input.messages.at(-1)?.content ?? "").matchAll(/^@@([^@\n]+?)@@\s*$/gm)]
+          .map(([, id]) => `@@${id}@@\nFR`)
+          .join("\n\n"),
+      }),
+    };
+    const { sent, kv, call, batch } = batchSetup({ AI: echo });
+    await enablePosts(kv);
+    const paragraph = (key: string) => ({
+      _type: "block",
+      _key: key,
+      style: "normal",
+      markDefs: [],
+      children: [{ _type: "span", _key: `${key}s`, text: "x".repeat(9_000), marks: [] }],
+    });
+    let body = ["a", "b", "c", "d"].map(paragraph);
+    const longEntry = (routeContext: RouteContext) => {
+      sourceEntry(routeContext);
+      const content = routeContext.content;
+      if (content === undefined) throw new Error("missing content access");
+      const get = content.get;
+      content.get = async (collection, id) => {
+        const item = await get(collection, id);
+        return item === null ? null : { ...item, data: { ...item.data, body } };
+      };
+    };
+    const translatedBody = ["a", "b", "c", "d"].map((key) => ({
+      ...paragraph(key),
+      children: [{ ...paragraph(key).children[0], text: "FR" }],
+    }));
+
+    // Browser: each response hands back the next part, with the translations so far.
+    const input = { collection: "posts", entryId: "entry-src", targetLocale: "fr-FR", fields: ["title", "body"] };
+    const first = (await call("translate-content", input, "POST", longEntry)) as TranslateContentResponse;
+    if (!("next" in first)) throw new Error("expected a next part");
+    expect(first.next).toMatchObject({ part: 1, partCount: 2 });
+    const last = (await call("translate-content", { ...input, ...first.next }, "POST", longEntry)) as TranslateContentResponse;
+    expect(last.patch).toEqual({ title: "FR", body: translatedBody });
+    await expect(call("translate-content", { ...input, ...first.next, fingerprint: "stale" }, "POST", longEntry)).rejects.toMatchObject({
+      status: 409,
+    });
+
+    // Queue: each part stores what it translated and queues the next part.
+    const job = (await call("batch/start", { collection: "posts", locales: ["fr-FR"], entryIds: ["entry-src"] })) as BatchJobView;
+    sent.length = 0;
+    const message = { jobId: job.id, entryId: "entry-src", locale: "fr-FR" };
+    await expect(call("batch/translate", message, "POST", longEntry)).resolves.toEqual({ create: null });
+    expect(sent).toEqual([{ ...message, part: 1 }]);
+    await expect(call("batch/translate", message, "POST", longEntry)).resolves.toEqual({ create: null });
+    const created = await call("batch/translate", { ...message, part: 1 }, "POST", longEntry);
+    expect(created).toMatchObject({ create: { data: { title: "FR", body: translatedBody } } });
+    expect(await batch.results.count({ jobId: job.id })).toBe(0);
+
+    await call("batch/translate", message, "POST", longEntry);
+    body = [{ ...paragraph("a"), children: [{ ...paragraph("a").children[0], text: "Edited meanwhile" }] }, ...body.slice(1)];
+    await call("batch/translate", { ...message, part: 1 }, "POST", longEntry);
+    const rows = await batch.results.query({ where: { jobId: job.id } });
+    expect(rows.items.map(({ data }) => data)).toEqual([
+      expect.objectContaining({
+        outcome: "failed",
+        message: "The source entry changed while it was being translated. Start the translation again.",
+      }),
+    ]);
   });
 
   it("stores the publish choice on the job and returns it with the draft", async () => {

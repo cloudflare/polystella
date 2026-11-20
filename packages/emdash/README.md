@@ -119,6 +119,12 @@ and reloads after success. Unsaved browser changes are not translated and are
 lost after confirmation. A save refused by another editor's edit lock names the
 lock holder.
 
+Long entries are translated in parts of up to 30,000 characters and 500 text
+segments, one request per part, so each request stays short. The panel shows
+which part is running; queued batch jobs translate one part per queue message.
+An entry can hold up to 500,000 characters and 5,000 segments. If the source
+entry changes between parts, the translation stops and asks to start again.
+
 Portable Text paragraphs, headings, lists and tables are always translated.
 EmDash's own block types (`image`, `gallery`, `video`, `button`, `buttons`,
 `columns`, `cover`, `pullquote`, `embed`, `iframe`) are translated by default;
