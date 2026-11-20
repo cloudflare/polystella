@@ -35,8 +35,8 @@ describe("spot tests — code blocks", () => {
     // The two surrounding paragraphs are translatable; the code block
     // contributes nothing — neither its body nor its info string.
     expect(segments).toEqual([
-      { id: "body:0", text: "Before the code." },
-      { id: "body:1", text: "After the code." },
+      { id: "body:0", text: "Before the code.", markup: "markdown" },
+      { id: "body:1", text: "After the code.", markup: "markdown" },
     ]);
   });
 

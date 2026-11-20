@@ -109,6 +109,23 @@ A `blockFields` entry for one of these types replaces its default, and
 an empty list (`image: []`) copies that type unchanged. `code`,
 `htmlBlock` and `file` blocks are never translated.
 
+A path can also be an object that marks a Markdown string:
+
+```js
+blockFields: {
+  faq: ["question", { path: "answer", format: "markdown" }],
+}
+```
+
+A Markdown string is translated one paragraph, heading or list item at
+a time, so its structure can't be merged or reordered. Links, images,
+emphasis and code spans are replaced with placeholders before the model
+sees the text, so URLs are never sent and lost links are caught. Inline
+tags such as `<gradient>…</gradient>` are protected the same way in
+every translated string. When a reply loses, repeats or reorders a
+placeholder, that text is resent once with the problem explained; if it
+fails again, the translation fails with "model changed inline markup".
+
 [`blocks` fields](https://docs.emdashcms.com/guides/blocks/) use the same
 map, keyed by block type slug:
 
@@ -229,7 +246,8 @@ replace. Configure collection and field policy in the
   locale.
 - Every `localeTags` key must match a configured catalog locale, and
   every locale must resolve to a tag `Intl` recognises.
-- Every `blockFields` list must be unique (an empty list turns a default off), use paths like
+- Every `blockFields` list must be unique (an empty list turns a default off), hold
+  strings or `{ path, format: "markdown" }` objects, use paths like
   `title`, `cta.label` or `cards[].title`, and not target the reserved
   `block` or `span` types.
 - Provider env/binding names and `batchQueueBinding` must be valid

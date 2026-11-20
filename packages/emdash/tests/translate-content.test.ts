@@ -400,3 +400,59 @@ describe("EmDash block type defaults", () => {
     expect(Object.keys(EMDASH_BLOCK_FIELDS)).not.toContain("code");
   });
 });
+
+describe("inline markup and Markdown block fields", () => {
+  const calls: string[] = [];
+  const recording = (reply: (id: string, text: string) => string): Translator => ({
+    modelId: "recording",
+    async translate(_system, user) {
+      calls.push(user);
+      return [...user.matchAll(/^@@([^@\n]+?)@@\n([\s\S]*?)(?=\n\n@@|$)/gm)]
+        .map(([, id = "", text = ""]) => `@@${id}@@\n${reply(id, text)}`)
+        .join("\n\n");
+    },
+  });
+  const base = { glossary: EMPTY_GLOSSARY, sourceLocale: "en", targetLocale: "sv" };
+
+  it("hides tags and Markdown from the model and splits Markdown by block", async () => {
+    calls.length = 0;
+    const body = [
+      {
+        _type: "marketing.hero",
+        _key: "h",
+        headline: "Build <gradient>everywhere</gradient>",
+        body: "At [DreamHost](https://dreamhost.com), **open** hosting.\n\n1. Add your site\n2. [Review](/learning/)",
+      },
+    ];
+    const { patch } = await translateContentFields({
+      ...base,
+      translator: recording((_id, text) =>
+        text.replace("Build", "Bygg").replace("everywhere", "överallt").replace("hosting", "webbhotell"),
+      ),
+      values: { body },
+      blockFields: { "marketing.hero": ["headline", { path: "body", format: "markdown" }] },
+    });
+    expect(calls.join("\n")).not.toMatch(/dreamhost\.com|<gradient>|\*\*|\/learning\//);
+    expect(calls.join("\n")).toContain("At {{ps_1}}DreamHost{{ps_2}}, {{ps_3}}open{{ps_4}} hosting.");
+    expect(patch.body).toEqual([
+      {
+        ...body[0],
+        headline: "Bygg <gradient>överallt</gradient>",
+        body: "At [DreamHost](https://dreamhost.com), **open** webbhotell.\n\n1. Add your site\n2. [Review](/learning/)",
+      },
+    ]);
+  });
+
+  it("fails after one resend when the model keeps dropping a link", async () => {
+    calls.length = 0;
+    await expect(
+      translateContentFields({
+        ...base,
+        translator: recording((_id, text) => text.replace(/\{\{ps_\d+\}\}/g, "")),
+        values: { body: [{ _type: "faq", _key: "f", answer: "See [plans](/plans/)." }] },
+        blockFields: { faq: [{ path: "answer", format: "markdown" }] },
+      }),
+    ).rejects.toThrow("[polystella] model changed inline markup in 1 segment(s)");
+    expect(calls).toHaveLength(2);
+  });
+});

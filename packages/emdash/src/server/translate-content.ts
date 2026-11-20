@@ -5,15 +5,18 @@ import {
   type TranslateBatchAttemptEvent,
   type Translator,
 } from "@cloudflare/polystella-core";
+import { createMarkdownAdapter } from "@cloudflare/polystella-core/adapters";
 import { validateTokenPreservation } from "@cloudflare/polystella-core/catalog/translate";
 
 import { MAX_CONTENT_FIELDS } from "../contracts.js";
+import type { BlockFieldPath } from "./options.js";
 
 const MAX_SEGMENTS = 500;
 const MAX_SEGMENT_CHARACTERS = 20_000;
 const MAX_TOTAL_CHARACTERS = 30_000;
 // One entry is one request here, so nothing else multiplies these provider calls.
 const BATCH_CONCURRENCY = 3;
+const markdownAdapter = createMarkdownAdapter();
 
 type PathPart = string | number;
 
@@ -32,16 +35,27 @@ interface SpanList {
   segmentIds: string[];
 }
 
+/** A Markdown string split into paragraph and list-item segments, rebuilt by core's Markdown adapter. */
+interface MarkdownText {
+  field: string;
+  path: PathPart[];
+  source: string;
+  parsed: ReturnType<typeof markdownAdapter.parse>;
+  /** Our segment id → the adapter's own id (`body:0`, ...). */
+  adapterIds: Map<string, string>;
+}
+
 interface Collector {
   segments: Segment[];
   group: Segment[];
   locations: Map<string, SegmentLocation>;
   spanLists: SpanList[];
+  markdownTexts: MarkdownText[];
   blockFields: BlockFieldPaths;
 }
 
 /** Custom Portable Text block type → text paths inside it, like `cards[].title`. */
-export type BlockFieldPaths = Readonly<Record<string, readonly string[]>>;
+export type BlockFieldPaths = Readonly<Record<string, readonly BlockFieldPath[]>>;
 
 /**
  * Text in the block types EmDash itself writes: its editor, WordPress import and `emdash/ui` components.
@@ -92,6 +106,7 @@ export async function translateContentFields(options: TranslateContentFieldsOpti
   const groups: Segment[][] = [];
   const locations = new Map<string, SegmentLocation>();
   const spanLists: SpanList[] = [];
+  const markdownTexts: MarkdownText[] = [];
   const fields = Object.entries(options.values);
   if (fields.length > MAX_CONTENT_FIELDS) {
     throw new ContentTranslationInputError(`cannot translate more than ${MAX_CONTENT_FIELDS} fields at once`);
@@ -103,6 +118,7 @@ export async function translateContentFields(options: TranslateContentFieldsOpti
       group: [],
       locations,
       spanLists,
+      markdownTexts,
       blockFields: { ...EMDASH_BLOCK_FIELDS, ...options.blockFields },
     };
     if (typeof value === "string") {
@@ -139,8 +155,18 @@ export async function translateContentFields(options: TranslateContentFieldsOpti
   });
 
   const patch = structuredClone(options.values);
+  const markdownSegmentFields = new Map(markdownTexts.flatMap((text) => [...text.adapterIds.keys()].map((id) => [id, text.field])));
   for (const segment of segments) {
     const translation = result.translations.get(segment.id);
+    const markdownField = markdownSegmentFields.get(segment.id);
+    if (markdownField !== undefined && translation !== undefined) {
+      if (validateTokenPreservation(markdownField, segment.text, translation) !== null) {
+        const message = `[polystella-emdash] translation changed placeholder tokens in field "${markdownField}"`;
+        notifyValidationIssue(options.onValidationIssue, [segment.id], message);
+        throw new Error(message);
+      }
+      continue;
+    }
     const location = locations.get(segment.id);
     if (translation === undefined || location === undefined) {
       const message = `[polystella-emdash] missing translation for internal segment "${segment.id}"`;
@@ -154,6 +180,19 @@ export async function translateContentFields(options: TranslateContentFieldsOpti
       throw new Error(message);
     }
     setAtPath(patch, location, `${location.leadingWhitespace}${translation}${location.trailingWhitespace}`);
+  }
+  for (const text of markdownTexts) {
+    const translations = new Map<string, string>();
+    for (const [id, adapterId] of text.adapterIds) {
+      const translation = result.translations.get(id);
+      if (translation === undefined) throw new Error(`[polystella-emdash] missing translation for internal segment "${id}"`);
+      translations.set(adapterId, translation);
+    }
+    setAtPath(
+      patch,
+      { field: text.field, path: text.path, leadingWhitespace: "", trailingWhitespace: "" },
+      markdownAdapter.applyTranslations(text.parsed, text.source, translations),
+    );
   }
   validateSpanListTokens(options.values, patch, spanLists, (segmentIds, message) =>
     notifyValidationIssue(options.onValidationIssue, segmentIds, message),
@@ -204,7 +243,11 @@ function collectCustomBlock(
   collector: Collector,
 ): void {
   const fieldPaths = Object.hasOwn(blockFields, block._type) ? blockFields[block._type] : undefined;
-  for (const fieldPath of fieldPaths ?? []) collectBlockPath(block, fieldPath.split("."), blockId, field, blockPath, collector);
+  for (const fieldPath of fieldPaths ?? []) {
+    const { path, markdown } =
+      typeof fieldPath === "string" ? { path: fieldPath, markdown: false } : { path: fieldPath.path, markdown: true };
+    collectBlockPath(block, path.split("."), markdown, blockId, field, blockPath, collector);
+  }
 }
 
 function collectTable(table: Record<string, unknown>, blockId: string, field: string, blockPath: PathPart[], collector: Collector): void {
@@ -235,7 +278,16 @@ function collectSpans(spans: readonly unknown[], idPrefix: string, field: string
 }
 
 /** Follows one `a.b[].c` path. Strings are translated; a Portable Text array is walked like a field. */
-function collectBlockPath(node: unknown, parts: string[], id: string, field: string, path: PathPart[], collector: Collector): void {
+function collectBlockPath(
+  node: unknown,
+  parts: string[],
+  markdown: boolean,
+  id: string,
+  field: string,
+  path: PathPart[],
+  collector: Collector,
+): void {
+  const addText = markdown ? addMarkdownText : addSegment;
   const [head, ...rest] = parts;
   if (head === undefined || !isRecord(node)) return;
   const isList = head.endsWith("[]");
@@ -248,13 +300,13 @@ function collectBlockPath(node: unknown, parts: string[], id: string, field: str
     if (!Array.isArray(value)) return;
     for (const [index, item] of value.entries()) {
       const itemPath = [...valuePath, index];
-      if (rest.length > 0) collectBlockPath(item, rest, `${valueId}:${index}`, field, itemPath, collector);
-      else if (typeof item === "string") addSegment(`${valueId}:${index}`, item, field, itemPath, collector);
+      if (rest.length > 0) collectBlockPath(item, rest, markdown, `${valueId}:${index}`, field, itemPath, collector);
+      else if (typeof item === "string") addText(`${valueId}:${index}`, item, field, itemPath, collector);
     }
   } else if (rest.length > 0) {
-    collectBlockPath(value, rest, valueId, field, valuePath, collector);
+    collectBlockPath(value, rest, markdown, valueId, field, valuePath, collector);
   } else if (typeof value === "string") {
-    addSegment(valueId, value, field, valuePath, collector);
+    addText(valueId, value, field, valuePath, collector);
   } else if (Array.isArray(value)) {
     collectBlocks(value, valueId, field, valuePath, collector);
   }
@@ -298,7 +350,7 @@ function addSegment(id: string, source: string, field: string, path: PathPart[],
     throw inputError(`one text segment exceeds ${MAX_SEGMENT_CHARACTERS} characters`, path);
   }
   const start = source.indexOf(text);
-  const segment = { id, text };
+  const segment: Segment = { id, text, markup: "html" };
   collector.group.push(segment);
   collector.segments.push(segment);
   collector.locations.set(id, {
@@ -307,6 +359,25 @@ function addSegment(id: string, source: string, field: string, path: PathPart[],
     leadingWhitespace: source.slice(0, start),
     trailingWhitespace: source.slice(start + text.length),
   });
+  return true;
+}
+
+/** Splits Markdown into paragraph and list-item segments so the model never sees its block structure. */
+function addMarkdownText(id: string, source: string, field: string, path: PathPart[], collector: Collector): boolean {
+  if (source.trim().length === 0) return false;
+  const parsed = markdownAdapter.parse(source);
+  const adapterIds = new Map<string, string>();
+  for (const segment of markdownAdapter.extractSegments(parsed, source, { sourcePath: `${field}.md`, translatableKeys: {} })) {
+    if (segment.text.length > MAX_SEGMENT_CHARACTERS)
+      throw inputError(`one text segment exceeds ${MAX_SEGMENT_CHARACTERS} characters`, path);
+    const ownId = `${id}:${segment.id}`;
+    adapterIds.set(ownId, segment.id);
+    const ownSegment = { ...segment, id: ownId };
+    collector.group.push(ownSegment);
+    collector.segments.push(ownSegment);
+  }
+  if (adapterIds.size === 0) return false;
+  collector.markdownTexts.push({ field, path, source, parsed, adapterIds });
   return true;
 }
 

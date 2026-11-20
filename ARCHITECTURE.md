@@ -569,6 +569,22 @@ callers with no outer pool: EmDash content translation sends 3
 batches of one entry at once. The first failure aborts the batches
 still in flight.
 
+**Inline markup placeholders.** A segment can set `markup:
+"html"` or `"markdown"`. `translateSegments` then swaps its tags (and,
+for Markdown, links, images, emphasis, code spans and escapes) for
+numbered `{{ps_N}}` placeholders before the model call, so URLs and
+markup never reach the model. After the call, `restoreInlineMarkup`
+checks that every placeholder came back once, that each closing
+placeholder still follows its opening one without crossing another
+pair, and that a pair that wrapped text still does. Segments that fail
+are resent once, alone, with the problems listed (the catalog's
+corrections pattern); a second failure throws `InlineMarkupError`. This
+is a single validation resend, not a provider retry layer. The Markdown
+adapter sets `markup: "markdown"` on `.md` body segments; MDX keeps its
+own `<ph>` placeholders for inline JSX. EmDash sets `"html"` on every
+text segment. Placeholders don't change the cache key: cached output is
+the restored text.
+
 **Cache-key invariance (v1 trade-off).** `documentContext` and
 `markdown.contextKeys` are NOT in the cache-key hash. Changing
 `contextKeys` from `["title"]` to `["title", "excerpt"]` does not

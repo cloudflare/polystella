@@ -60,8 +60,8 @@ describe("Markdown reconstruction", () => {
     const parsed = markdownAdapter.parse(source, options.sourcePath);
     const segments = markdownAdapter.extractSegments(parsed, source, options);
     expect(segments).toEqual([
-      { id: "body:0", text: "Heading" },
-      { id: "body:1", text: "A **formatted** [paragraph](/docs)." },
+      { id: "body:0", text: "Heading", markup: "markdown" },
+      { id: "body:1", text: "A **formatted** [paragraph](/docs).", markup: "markdown" },
       { id: "fm:title", text: "Hello" },
       { id: "fm:tags[0]", text: "First" },
       { id: "fm:tags[1]", text: "Second" },

@@ -152,8 +152,8 @@ describe("markdownAdapter — interface conformance", () => {
       translatableKeys: {},
     });
     expect(segs).toEqual([
-      { id: "body:0", text: "Title" },
-      { id: "body:1", text: "Body paragraph." },
+      { id: "body:0", text: "Title", markup: "markdown" },
+      { id: "body:1", text: "Body paragraph.", markup: "markdown" },
     ]);
   });
 

@@ -1,5 +1,6 @@
 export * from "./batch.js";
 export * from "./glossary.js";
+export type { InlineMarkup } from "./inline-markup.js";
 export * from "./logger.js";
 export * from "./prompt.js";
 export type { Segment } from "./segment.js";

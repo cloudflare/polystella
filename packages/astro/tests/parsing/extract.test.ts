@@ -21,8 +21,8 @@ describe("extractSegments — body", () => {
     const segments = extractSegments(ast, noFrontmatterRules, source);
 
     expect(segments).toEqual([
-      { id: "body:0", text: "First paragraph." },
-      { id: "body:1", text: "Second paragraph." },
+      { id: "body:0", text: "First paragraph.", markup: "markdown" },
+      { id: "body:1", text: "Second paragraph.", markup: "markdown" },
     ]);
   });
 
@@ -32,8 +32,8 @@ describe("extractSegments — body", () => {
     const collected = collectMarkdownSegments(ast, noFrontmatterRules, source);
 
     expect(collected).toEqual([
-      { segment: { id: "body:0", text: "First paragraph." }, kind: "body", span: { start: 0, end: 16 } },
-      { segment: { id: "body:1", text: "Second paragraph." }, kind: "body", span: { start: 18, end: 35 } },
+      { segment: { id: "body:0", text: "First paragraph.", markup: "markdown" }, kind: "body", span: { start: 0, end: 16 } },
+      { segment: { id: "body:1", text: "Second paragraph.", markup: "markdown" }, kind: "body", span: { start: 18, end: 35 } },
     ]);
   });
 
@@ -43,9 +43,9 @@ describe("extractSegments — body", () => {
     const segments = extractSegments(ast, noFrontmatterRules, source);
 
     expect(segments).toEqual([
-      { id: "body:0", text: "Title" },
-      { id: "body:1", text: "Body text." },
-      { id: "body:2", text: "Subtitle" },
+      { id: "body:0", text: "Title", markup: "markdown" },
+      { id: "body:1", text: "Body text.", markup: "markdown" },
+      { id: "body:2", text: "Subtitle", markup: "markdown" },
     ]);
   });
 
@@ -62,6 +62,7 @@ describe("extractSegments — body", () => {
     expect(segments[0]).toEqual({
       id: "body:0",
       text: "This is **bold** and _italic_ and `code`.",
+      markup: "markdown",
     });
   });
 
@@ -88,9 +89,9 @@ describe("extractSegments — body", () => {
     const segments = extractSegments(ast, noFrontmatterRules, source);
 
     expect(segments).toEqual([
-      { id: "body:0", text: "one" },
-      { id: "body:1", text: "two" },
-      { id: "body:2", text: "three" },
+      { id: "body:0", text: "one", markup: "markdown" },
+      { id: "body:1", text: "two", markup: "markdown" },
+      { id: "body:2", text: "three", markup: "markdown" },
     ]);
   });
 
@@ -144,7 +145,7 @@ describe("extractSegments — frontmatter", () => {
     );
 
     expect(segments).toEqual([
-      { id: "body:0", text: "Body." },
+      { id: "body:0", text: "Body.", markup: "markdown" },
       { id: "fm:title", text: "Hello" },
       { id: "fm:description", text: "A test doc." },
     ]);

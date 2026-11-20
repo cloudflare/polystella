@@ -136,6 +136,12 @@ polystellaEmdash({
 });
 ```
 
+Mark a Markdown string with `{ path: "answer", format: "markdown" }`. It is
+translated one paragraph, heading or list item at a time, with links, emphasis
+and code replaced by placeholders, so URLs never reach the model. Inline tags
+such as `<gradient>` are protected the same way in every string. A reply that
+loses or reorders a placeholder is resent once, then fails.
+
 For [`blocks` fields](https://docs.emdashcms.com/guides/blocks/), list each
 block type's text fields the same way, keyed by the block type slug, such as
 `hero: ["heading", "body", "link_label"]`. Unlisted block types and fields,

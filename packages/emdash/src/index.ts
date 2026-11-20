@@ -17,6 +17,7 @@ export {
   type CatalogOverrideState,
 } from "./catalog.js";
 export {
+  type BlockFieldPath,
   type EmDashCatalogLocale,
   type EmDashWorkersAIProvider,
   type PolystellaEmdashOptions,

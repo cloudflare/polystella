@@ -186,6 +186,15 @@ describe("polystellaEmdash", () => {
       "options.blockFields.marketing.hero[0]",
     );
     expect(() => validatePolystellaEmdashOptions({ ...configured, blockFields: { image: [] } })).not.toThrow();
+    expect(() =>
+      validatePolystellaEmdashOptions({ ...configured, blockFields: { faq: ["question", { path: "answer", format: "markdown" }] } }),
+    ).not.toThrow();
+    expect(() => validatePolystellaEmdashOptions({ ...configured, blockFields: { faq: [{ path: "answer", format: "html" }] } })).toThrow(
+      'options.blockFields.faq[0].format must be "markdown"',
+    );
+    expect(() =>
+      validatePolystellaEmdashOptions({ ...configured, blockFields: { faq: ["answer", { path: "answer", format: "markdown" }] } }),
+    ).toThrow("duplicates");
     expect(() => validatePolystellaEmdashOptions({ ...configured, blockFields: { "marketing.hero": ["title", "title"] } })).toThrow(
       "options.blockFields.marketing.hero cannot contain duplicates",
     );
