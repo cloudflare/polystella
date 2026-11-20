@@ -5,7 +5,7 @@ import {
   type TranslateBatchAttemptEvent,
   type Translator,
 } from "@cloudflare/polystella-core";
-import { createMarkdownAdapter } from "@cloudflare/polystella-core/adapters";
+import { splitMarkdownText, type SplitMarkdownText } from "@cloudflare/polystella-core/adapters";
 import { validateTokenPreservation } from "@cloudflare/polystella-core/catalog/translate";
 
 import { MAX_CONTENT_FIELDS } from "../contracts.js";
@@ -20,7 +20,6 @@ const MAX_SEGMENT_CHARACTERS = 20_000;
 const MAX_TOTAL_CHARACTERS = 500_000;
 // One entry is one request here, so nothing else multiplies these provider calls.
 const BATCH_CONCURRENCY = 3;
-const markdownAdapter = createMarkdownAdapter();
 
 type PathPart = string | number;
 
@@ -39,13 +38,12 @@ interface SpanList {
   segmentIds: string[];
 }
 
-/** A Markdown string split into paragraph and list-item segments, rebuilt by core's Markdown adapter. */
+/** A Markdown string split into paragraph and list-item segments, rebuilt by core's `splitMarkdownText`. */
 interface MarkdownText {
   field: string;
   path: PathPart[];
-  source: string;
-  parsed: ReturnType<typeof markdownAdapter.parse>;
-  /** Our segment id → the adapter's own id (`body:0`, ...). */
+  split: SplitMarkdownText;
+  /** Our segment id → the splitter's own id (`body:0`, ...). */
   adapterIds: Map<string, string>;
 }
 
@@ -247,7 +245,7 @@ export function applyContentTranslations(
       adapterTranslations.set(adapterId, translation);
     }
     const location = { field: text.field, path: text.path, leadingWhitespace: "", trailingWhitespace: "" };
-    setAtPath(patch, location, markdownAdapter.applyTranslations(text.parsed, text.source, adapterTranslations));
+    setAtPath(patch, location, text.split.apply(adapterTranslations));
   }
   validateSpanListTokens(plan.values, patch, spanLists, (segmentIds, message) =>
     notifyValidationIssue(onValidationIssue, segmentIds, message),
@@ -447,9 +445,9 @@ function addSegment(id: string, source: string, field: string, path: PathPart[],
 /** Splits Markdown into paragraph and list-item segments so the model never sees its block structure. */
 function addMarkdownText(id: string, source: string, field: string, path: PathPart[], collector: Collector): boolean {
   if (source.trim().length === 0) return false;
-  const parsed = markdownAdapter.parse(source);
+  const split = splitMarkdownText(source);
   const adapterIds = new Map<string, string>();
-  for (const segment of markdownAdapter.extractSegments(parsed, source, { sourcePath: `${field}.md`, translatableKeys: {} })) {
+  for (const segment of split.segments) {
     if (segment.text.length > MAX_SEGMENT_CHARACTERS)
       throw inputError(`one text segment exceeds ${MAX_SEGMENT_CHARACTERS} characters`, path);
     const ownId = `${id}:${segment.id}`;
@@ -459,7 +457,7 @@ function addMarkdownText(id: string, source: string, field: string, path: PathPa
     collector.segments.push(ownSegment);
   }
   if (adapterIds.size === 0) return false;
-  collector.markdownTexts.push({ field, path, source, parsed, adapterIds });
+  collector.markdownTexts.push({ field, path, split, adapterIds });
   return true;
 }
 

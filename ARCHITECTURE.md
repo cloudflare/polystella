@@ -582,7 +582,9 @@ corrections pattern); a second failure throws `InlineMarkupError`. This
 is a single validation resend, not a provider retry layer. The Markdown
 adapter sets `markup: "markdown"` on `.md` body segments; MDX keeps its
 own `<ph>` placeholders for inline JSX. EmDash sets `"html"` on every
-text segment. Placeholders don't change the cache key: cached output is
+text segment, and splits Markdown block fields with `splitMarkdownText`,
+the adapter's body walker without frontmatter or MDX, to keep the
+Worker bundle small. Placeholders don't change the cache key: cached output is
 the restored text.
 
 **Cache-key invariance (v1 trade-off).** `documentContext` and

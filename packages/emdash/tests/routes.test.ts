@@ -1693,14 +1693,14 @@ describe("EmDash batch queue routes", () => {
     };
     const { sent, kv, call, batch } = batchSetup({ AI: echo });
     await enablePosts(kv);
-    const paragraph = (key: string) => ({
+    const paragraph = (key: string, text = "x".repeat(9_000)) => ({
       _type: "block",
       _key: key,
       style: "normal",
       markDefs: [],
-      children: [{ _type: "span", _key: `${key}s`, text: "x".repeat(9_000), marks: [] }],
+      children: [{ _type: "span", _key: `${key}s`, text, marks: [] }],
     });
-    let body = ["a", "b", "c", "d"].map(paragraph);
+    let body = ["a", "b", "c", "d"].map((key) => paragraph(key));
     const longEntry = (routeContext: RouteContext) => {
       sourceEntry(routeContext);
       const content = routeContext.content;
@@ -1711,10 +1711,7 @@ describe("EmDash batch queue routes", () => {
         return item === null ? null : { ...item, data: { ...item.data, body } };
       };
     };
-    const translatedBody = ["a", "b", "c", "d"].map((key) => ({
-      ...paragraph(key),
-      children: [{ ...paragraph(key).children[0], text: "FR" }],
-    }));
+    const translatedBody = ["a", "b", "c", "d"].map((key) => paragraph(key, "FR"));
 
     // Browser: each response hands back the next part, with the translations so far.
     const input = { collection: "posts", entryId: "entry-src", targetLocale: "fr-FR", fields: ["title", "body"] };
@@ -1739,7 +1736,7 @@ describe("EmDash batch queue routes", () => {
     expect(await batch.results.count({ jobId: job.id })).toBe(0);
 
     await call("batch/translate", message, "POST", longEntry);
-    body = [{ ...paragraph("a"), children: [{ ...paragraph("a").children[0], text: "Edited meanwhile" }] }, ...body.slice(1)];
+    body = [paragraph("a", "Edited meanwhile"), ...body.slice(1)];
     await call("batch/translate", { ...message, part: 1 }, "POST", longEntry);
     const rows = await batch.results.query({ where: { jobId: job.id } });
     expect(rows.items.map(({ data }) => data)).toEqual([
