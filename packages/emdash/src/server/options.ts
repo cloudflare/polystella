@@ -10,6 +10,8 @@ import {
 
 import { USE_CODE_DEFAULT_MODEL } from "../contracts.js";
 
+// Same ceiling as the glossary file loader. Prompts carry only the terms a batch uses, so this is only a sanity bound.
+const MAX_GLOSSARY_DEFAULT_CHARACTERS = 1_000_000;
 const BLOCK_FIELD_PATH_PATTERN = /^[A-Za-z_][\w-]*(\[\])?(\.[A-Za-z_][\w-]*(\[\])?)*$/;
 const EMDASH_LOCALE_PATTERN = /^[a-z]{2,3}(-[a-z0-9]{2,8})*$/i;
 
@@ -46,6 +48,8 @@ export interface PolystellaEmdashOptions {
     defaults: ModelSpec;
   };
   glossaryDefaults?: Readonly<Record<string, Glossary>> | undefined;
+  /** Let any letters follow a glossary term when deciding whether a batch uses it, so `Worker` matches "Workers". Default false. */
+  glossaryMatchInflections?: boolean | undefined;
   rules?: readonly string[] | undefined;
   /**
    * Text paths translated inside custom Portable Text blocks, by block `_type`. `a.b` follows objects, `a[]` walks a list,
@@ -68,7 +72,17 @@ export function validatePolystellaEmdashOptions(value: unknown): asserts value i
   const options = readRecord(value, "options");
   rejectUnknownKeys(
     options,
-    ["provider", "catalogs", "models", "glossaryDefaults", "rules", "blockFields", "localeTags", "batchQueueBinding"],
+    [
+      "provider",
+      "catalogs",
+      "models",
+      "glossaryDefaults",
+      "glossaryMatchInflections",
+      "rules",
+      "blockFields",
+      "localeTags",
+      "batchQueueBinding",
+    ],
     "options",
   );
   validateProvider(options.provider);
@@ -119,7 +133,13 @@ export function validatePolystellaEmdashOptions(value: unknown): asserts value i
     for (const [locale, glossary] of Object.entries(defaults)) {
       if (!configuredLocales.has(locale)) fail(`options.glossaryDefaults.${locale} must match a configured catalog locale`);
       validateGlossary(glossary, `options.glossaryDefaults.${locale}`);
+      if (JSON.stringify(glossary).length > MAX_GLOSSARY_DEFAULT_CHARACTERS) {
+        fail(`options.glossaryDefaults.${locale} cannot exceed ${MAX_GLOSSARY_DEFAULT_CHARACTERS} characters`);
+      }
     }
+  }
+  if (options.glossaryMatchInflections !== undefined && typeof options.glossaryMatchInflections !== "boolean") {
+    fail("options.glossaryMatchInflections must be a boolean");
   }
 
   if (options.rules !== undefined) readStringArray(options.rules, "options.rules", true);

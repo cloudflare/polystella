@@ -62,6 +62,7 @@ function safeTranslationFailure(message: string): boolean {
     message.startsWith("[polystella] unexpected Workers AI binding response shape ") ||
     message.startsWith("[polystella] model ran out of output tokens ") ||
     message.startsWith("[polystella] model changed inline markup in ") ||
+    message.startsWith("[polystella] prompt for segment ") ||
     message.startsWith("[polystella] message validation failed for ") ||
     message.startsWith("[polystella-emdash] missing translation for internal segment ") ||
     message.startsWith("[polystella-emdash] missing translation for sandbox text") ||

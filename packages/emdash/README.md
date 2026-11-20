@@ -48,6 +48,11 @@ export default defineConfig({
 glossary source forms. Remote sources load one `{locale}` YAML object
 per configured locale and do not require `projectRoot`.
 
+Each translation request carries only the glossary terms its text uses, plus
+the style rules and notes, so code-defined glossaries can be large (up to
+1,000,000 characters per locale). `glossaryMatchInflections: true` lets any
+letters follow a term, so `Worker` also matches "Workers".
+
 Keep `polystellaEmdashAstro()` after `emdash()`. It binds `Astro.locals.t` and
 `Astro.locals.lhref`, overlays enabled EmDash overrides, and falls back to the
 deployed dictionaries when storage is unavailable. Configure the named Workers

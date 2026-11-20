@@ -54,6 +54,23 @@ Default: 4000.
 The default 4000 is a deliberate compromise. Tune it if profiling
 shows a specific bottleneck; the value isn't sacred.
 
+## Glossary terms and the prompt ceiling
+
+Each batch's prompt carries only the glossary terms that appear in its
+segments or document context. Matching ignores case and needs the term to
+start and end at a word boundary, so `Access` matches "Cloudflare Access"
+but not "Accessibility", and `API` doesn't match "rapid". Style rules and
+notes are always sent. Set `glossary.matchInflections: true` to let any
+letters follow a term (`Worker` then matches "Workers").
+
+`provider.maxPromptTokens` (default `8000`) caps a whole prompt: the
+instructions, matched terms, style rules, notes, document context and
+segments. A batch over it is split until it fits. A single segment that is
+still over it fails with "prompt for segment … is about N tokens, over
+maxPromptTokens"; shorten the style rules or notes, or raise the ceiling.
+
+Neither setting changes the cache key.
+
 ## Cache implications
 
 Batching is invisible to the cache. The cache key is over the whole

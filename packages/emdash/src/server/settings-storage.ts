@@ -10,7 +10,7 @@ import {
   type CustomizationMode,
   type TranslationSettingsResponse,
 } from "../contracts.js";
-import { isCustomizationMode, resolveGlossary, resolveInstructions, runtimeOverrideSettingKey } from "../settings.js";
+import { isCustomizationMode, resolveInstructions, runtimeOverrideSettingKey } from "../settings.js";
 import type { PolystellaEmdashOptions } from "./options.js";
 import { targetLocales } from "./options.js";
 import { MAX_TOKENS } from "./routes/provider.js";
@@ -176,13 +176,8 @@ export async function saveTranslationSettings(
       throw PluginRouteError.badRequest(`locales.${locale}.model must be allowed by deployment configuration`);
     }
     const glossaryMode = readCustomizationMode(localeSettings.glossaryMode, `locales.${locale}.glossaryMode`);
+    // Only the typed text is capped: code-defined defaults are trusted, and prompts carry only the terms a batch uses.
     const glossaryText = readText(localeSettings.glossaryText, `locales.${locale}.glossaryText`, MAX_GLOSSARY_CHARACTERS);
-    if (
-      JSON.stringify(resolveGlossary(options.glossaryDefaults?.[locale], glossaryMode, glossaryText.trim())).length >
-      MAX_GLOSSARY_CHARACTERS
-    ) {
-      throw PluginRouteError.badRequest(`effective glossary for ${locale} cannot exceed ${MAX_GLOSSARY_CHARACTERS} characters`);
-    }
     return { locale, model, glossaryMode, glossaryText };
   });
 

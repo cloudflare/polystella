@@ -113,6 +113,7 @@ export interface ContentPlanOptions {
 export interface ContentTranslateOptions {
   translator: Translator;
   glossary: Glossary;
+  matchInflections?: boolean | undefined;
   sourceLocale: string;
   targetLocale: string;
   promptInstruction?: string | undefined;
@@ -214,6 +215,7 @@ export async function translateContentPart(
     segments: groups.flat(),
     groups,
     glossary: options.glossary,
+    matchInflections: options.matchInflections,
     sourceLocale: options.sourceLocale,
     targetLocale: options.targetLocale,
     concurrency: BATCH_CONCURRENCY,

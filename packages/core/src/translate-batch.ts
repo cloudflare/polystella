@@ -1,8 +1,8 @@
 import pRetry from "p-retry";
 
 import { estimateInputTokens } from "./batch.js";
-import type { Glossary } from "./glossary.js";
-import { buildPrompt, parseResponse } from "./prompt.js";
+import { selectGlossaryForText, type Glossary, type GlossaryStats } from "./glossary.js";
+import { buildPrompt, parseResponse, type BuiltPrompt } from "./prompt.js";
 import type { Segment } from "./segment.js";
 import { isPermanentProviderError, type Translator } from "./translator.js";
 
@@ -16,6 +16,8 @@ export interface TranslateBatchOptions {
   context?: string | undefined;
   documentContext?: string | undefined;
   promptInstruction?: string | undefined;
+  /** See `GlossaryMatchOptions`. Not part of the glossary, so it doesn't change glossary hashes. */
+  matchInflections?: boolean | undefined;
   maxRetries?: number;
   onRetry?: ((event: TranslateBatchRetryEvent) => void) | undefined;
   onBatchAttempt?: ((event: TranslateBatchAttemptEvent) => void) | undefined;
@@ -42,10 +44,24 @@ export interface TranslateBatchAttemptEvent {
   sourceCharacters: number;
   systemPrompt: string;
   userPrompt: string;
+  /** The glossary terms this batch's prompt carried, out of all of them. */
+  glossary: GlossaryStats;
   response?: string | undefined;
   translations?: Map<string, string> | undefined;
   durationMs: number;
   error?: unknown;
+}
+
+/** The prompt one batch sends: only the glossary terms that appear in its segments or document context. */
+export function buildBatchPrompt(
+  options: Pick<
+    TranslateBatchOptions,
+    "segments" | "glossary" | "sourceLocale" | "targetLocale" | "context" | "documentContext" | "promptInstruction" | "matchInflections"
+  >,
+): BuiltPrompt & { glossaryStats: GlossaryStats } {
+  const text = [...options.segments.map((segment) => segment.text), options.documentContext ?? ""].join("\n");
+  const selected = selectGlossaryForText(options.glossary, text, { matchInflections: options.matchInflections });
+  return { ...buildPrompt({ ...options, glossary: selected.glossary }), glossaryStats: selected.stats };
 }
 
 export async function translateBatch(options: TranslateBatchOptions): Promise<Map<string, string>> {
@@ -68,7 +84,7 @@ export async function translateBatch(options: TranslateBatchOptions): Promise<Ma
   } = options;
   if (segments.length === 0) return new Map();
 
-  const { systemPrompt, userPrompt } = buildPrompt({
+  const { systemPrompt, userPrompt, glossaryStats } = buildBatchPrompt({
     segments,
     glossary,
     sourceLocale,
@@ -76,6 +92,7 @@ export async function translateBatch(options: TranslateBatchOptions): Promise<Ma
     context,
     documentContext,
     promptInstruction,
+    matchInflections: options.matchInflections,
   });
   const expectedIds = segments.map((segment) => segment.id);
   const totalAttempts = Math.max(1, maxRetries + 1);
@@ -104,6 +121,7 @@ export async function translateBatch(options: TranslateBatchOptions): Promise<Ma
               sourceCharacters: segments.reduce((total, segment) => total + segment.text.length, 0),
               systemPrompt,
               userPrompt,
+              glossary: glossaryStats,
               response,
               translations: new Map(translations),
               durationMs: performance.now() - startedAt,
@@ -119,6 +137,7 @@ export async function translateBatch(options: TranslateBatchOptions): Promise<Ma
               sourceCharacters: segments.reduce((total, segment) => total + segment.text.length, 0),
               systemPrompt,
               userPrompt,
+              glossary: glossaryStats,
               ...(response === undefined ? {} : { response }),
               durationMs: performance.now() - startedAt,
               error,
