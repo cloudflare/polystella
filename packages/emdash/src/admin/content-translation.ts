@@ -1,12 +1,14 @@
 import { createContent, fetchContent, updateContent } from "@emdash-cms/admin";
 
-import type { TranslateContentResponse, TranslationDebugTrace } from "../contracts.js";
+import type { TranslateContentNextPart, TranslateContentResponse, TranslationDebugTrace } from "../contracts.js";
 import { errorMessage, pluginRequest } from "./utils.js";
 
 type ContentItem = Awaited<ReturnType<typeof fetchContent>>;
 
 export interface ContentTranslationHooks {
   onTranslating?: (() => void) | undefined;
+  /** A long entry moved on to `part` (0-based) of `partCount`. */
+  onPart?: ((part: number, partCount: number) => void) | undefined;
   /** Runs before the save, so a trace stays visible even when the save fails. */
   onTranslated?: ((debug: TranslationDebugTrace | undefined) => void) | undefined;
 }
@@ -74,16 +76,23 @@ async function recordAiTranslation(collection: string, entryId: string, fields: 
   }
 }
 
+/** Long entries come back one part at a time; each request sends the earlier parts' translations back. */
 async function requestTranslation(
   input: ContentTranslationHooks & { collection: string; fields: readonly string[] },
   entryId: string,
   targetLocale: string,
-): Promise<TranslateContentResponse> {
+): Promise<Exclude<TranslateContentResponse, { next: TranslateContentNextPart }>> {
   input.onTranslating?.();
-  const result = await pluginRequest<TranslateContentResponse>("translate-content", {
-    method: "POST",
-    body: JSON.stringify({ collection: input.collection, entryId, targetLocale, fields: input.fields }),
-  });
+  const body = { collection: input.collection, entryId, targetLocale, fields: input.fields };
+  let result = await pluginRequest<TranslateContentResponse>("translate-content", { method: "POST", body: JSON.stringify(body) });
+  while ("next" in result) {
+    const { part, partCount, fingerprint, translations } = result.next;
+    input.onPart?.(part, partCount);
+    result = await pluginRequest<TranslateContentResponse>("translate-content", {
+      method: "POST",
+      body: JSON.stringify({ ...body, part, fingerprint, translations }),
+    });
+  }
   input.onTranslated?.(result.debug);
   return result;
 }

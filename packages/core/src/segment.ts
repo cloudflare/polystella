@@ -1,8 +1,12 @@
+import type { InlineMarkup } from "./inline-markup.js";
+
 /** Smallest independently translated unit, identified for response matching. */
 export interface Segment {
   /** Unique within one translation input. */
   id: string;
   text: string;
+  /** Inline markup to swap for placeholders before the model call and check afterwards. */
+  markup?: InlineMarkup | undefined;
 }
 
 export function assertUniqueSegmentIds(ids: readonly string[]): void {

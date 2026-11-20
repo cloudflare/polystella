@@ -33,7 +33,7 @@ export function formatErrorDetails(value: unknown): string {
 }
 
 export function supportsTranslation(field: SchemaField): boolean {
-  return field.type === "string" || field.type === "text" || field.type === "portableText";
+  return field.type === "string" || field.type === "text" || field.type === "portableText" || field.type === "blocks";
 }
 
 export function isTranslatable(field: SchemaField): boolean {

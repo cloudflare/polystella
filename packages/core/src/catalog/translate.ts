@@ -2,6 +2,7 @@ import { isLiteralElement, isPluralElement, isSelectElement, type MessageFormatE
 import pRetry from "p-retry";
 
 import { packGroupsIntoBatches } from "../batch.js";
+import { formatCorrections, type TranslationCorrection } from "../corrections.js";
 import type { Glossary } from "../glossary.js";
 import { assertUniqueSegmentIds, type Segment } from "../segment.js";
 import { translateBatch, type TranslateBatchAttemptEvent, type TranslateBatchRetryEvent } from "../translate-batch.js";
@@ -432,21 +433,6 @@ export function describeTokenValidationIssue({ missing, spurious, problems }: To
 /** One-line description of a failed key, e.g. `roles: {{count}} plural is missing few for pl`. */
 export function formatTokenValidationIssue(issue: TokenValidationIssue): string {
   return `${issue.key}: ${describeTokenValidationIssue(issue).join("; ")}`;
-}
-
-interface TranslationCorrection {
-  id: string;
-  translation: string;
-  problems: string[];
-}
-
-function formatCorrections(corrections: readonly TranslationCorrection[]): string | undefined {
-  if (corrections.length === 0) return undefined;
-  const lines = ["CORRECTIONS (your previous answer for these segments was invalid; return a corrected translation for each):"];
-  for (const { id, translation, problems } of corrections) {
-    lines.push(`- Segment ${id}`, `  Previous answer: ${translation}`, `  Problem: ${problems.join("; ")}`);
-  }
-  return lines.join("\n");
 }
 
 class RetriableTypeError extends Error {

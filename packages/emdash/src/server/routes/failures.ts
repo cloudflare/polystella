@@ -19,8 +19,29 @@ export function translationFailureMessage(
     operation,
     errorType: error instanceof Error ? error.name : typeof error,
     message,
+    raw: rawErrorChain(error),
   });
   return `${message} (Diagnostic ID: ${diagnosticId})`;
+}
+
+const MAX_LOGGED_CAUSES = 5;
+const MAX_LOGGED_MESSAGE_CHARACTERS = 4000;
+
+/** Server log only: the full message (provider response previews included), code, and cause chain. */
+function rawErrorChain(error: unknown): Array<{ name: string; message: string; code?: unknown }> {
+  const chain: Array<{ name: string; message: string; code?: unknown }> = [];
+  let current = error;
+  while (current !== undefined && chain.length < MAX_LOGGED_CAUSES) {
+    const message = current instanceof Error ? current.message : String(current);
+    const code = current instanceof Error && "code" in current ? current.code : undefined;
+    chain.push({
+      name: current instanceof Error ? current.name : typeof current,
+      message: message.length > MAX_LOGGED_MESSAGE_CHARACTERS ? `${message.slice(0, MAX_LOGGED_MESSAGE_CHARACTERS)}...` : message,
+      ...(code === undefined ? {} : { code }),
+    });
+    current = current instanceof Error ? current.cause : undefined;
+  }
+  return chain;
 }
 
 export function publicTranslationFailure(error: unknown): string {
@@ -39,6 +60,8 @@ function safeTranslationFailure(message: string): boolean {
     /^\[polystella\] Workers AI request failed: \d{3}(?: [A-Za-z ]+)?$/.test(message) ||
     message.startsWith("[polystella] unexpected Workers AI response shape ") ||
     message.startsWith("[polystella] unexpected Workers AI binding response shape ") ||
+    message.startsWith("[polystella] model ran out of output tokens ") ||
+    message.startsWith("[polystella] model changed inline markup in ") ||
     message.startsWith("[polystella] message validation failed for ") ||
     message.startsWith("[polystella-emdash] missing translation for internal segment ") ||
     message.startsWith("[polystella-emdash] missing translation for sandbox text") ||

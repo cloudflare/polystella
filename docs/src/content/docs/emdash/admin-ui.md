@@ -113,6 +113,11 @@ diagnostic ID. Traces are returned only to administrators, are not
 stored server-side, and never include credentials, authorization
 headers, account IDs, or raw provider HTTP envelopes.
 
+Whether or not debug mode is on, every failure writes its diagnostic ID to the
+server log with the full error message, its code and cause chain, and for an
+unusable model reply the finish reason and reply field sizes. Editors see only a
+short, safe message and the same ID.
+
 ## Translation sandbox tab
 
 Lets an Administrator translate up to 30,000 characters of freeform
@@ -129,9 +134,15 @@ stages; EmDash plugin routes do not stream provider or batch progress.
 ## Content-editor panel
 
 The panel appears for Editors and Administrators. It translates
-selected `string`, `text`, and Portable Text fields in an existing
+selected `string`, `text`, Portable Text and `blocks` fields in an existing
 target-locale draft — the source locale is the code-defined
 `catalogs.defaultLocale`, and the target must differ from it.
+
+Long entries are translated in parts of up to 30,000 characters and 500
+text segments, one request per part; the panel shows which part is
+running, and queued batch jobs translate one part per queue message. An
+entry can hold up to 500,000 characters and 5,000 segments. If the source
+changes between parts, the translation stops and asks to start again.
 
 The private route rereads selected values through its `content:read`
 capability, so the browser never supplies the values being

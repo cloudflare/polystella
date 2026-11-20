@@ -126,6 +126,11 @@ export function ContentEditorPanel({ collection, entry, locale }: ContentEditorP
         locale: targetLocale,
         fields: selected,
         onTranslating: () => setTranslationProgress({ percent: 45, label: "Translating selected fields" }),
+        onPart: (part, partCount) =>
+          setTranslationProgress({
+            percent: 45 + Math.round((40 * part) / partCount),
+            label: `Translating part ${part + 1} of ${partCount}`,
+          }),
         onTranslated: (trace) => {
           if (trace !== undefined) setDebug(trace);
           setTranslationProgress({ percent: 85, label: "Saving translated fields" });
@@ -178,6 +183,7 @@ export function ContentEditorPanel({ collection, entry, locale }: ContentEditorP
             locale,
             fields: selected,
             onTranslating: () => step(45, `Translating selected fields into ${locale}`),
+            onPart: (part, partCount) => step(45, `Translating part ${part + 1} of ${partCount} into ${locale}`),
             onTranslated: (trace) => {
               if (trace !== undefined) setDebug(trace);
               step(85, `Creating the ${locale} draft`);

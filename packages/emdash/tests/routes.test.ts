@@ -668,7 +668,7 @@ describe("EmDash plugin routes", () => {
         batches: [{ attempts: [{ response: "private model response", error: expect.stringContaining("no segment markers") }] }],
       },
     });
-    if (failed.patch !== null) throw new Error("expected debug translation failure");
+    if (failed.patch !== null || !("error" in failed)) throw new Error("expected debug translation failure");
     expect(failed.error).toContain(failed.debug.id);
 
     const secretFailureRoutes = createPluginRoutes(options(), {
@@ -676,13 +676,26 @@ describe("EmDash plugin routes", () => {
       getEnv: async () => ({
         AI: {
           run: async () => {
-            throw new Error("Authorization: secret-token");
+            throw Object.assign(new Error("Authorization: secret-token", { cause: new Error("socket hang up") }), { code: 3040 });
           },
         },
       }),
     });
-    const secretFailure = await route(secretFailureRoutes, "translate-content").handler(context(input, "POST", kv, storage));
+    const logged: unknown[] = [];
+    const secretContext = context(input, "POST", kv, storage);
+    secretContext.log = { ...secretContext.log, error: (_message: string, data?: unknown) => void logged.push(data) };
+    const secretFailure = (await route(secretFailureRoutes, "translate-content").handler(secretContext)) as TranslateContentResponse;
     expect(JSON.stringify(secretFailure)).not.toContain("secret-token");
+    // The raw error stays in the server log, under the same Diagnostic ID editors see.
+    expect(logged).toEqual([
+      expect.objectContaining({
+        diagnosticId: secretFailure.debug?.id,
+        raw: [
+          { name: "Error", message: "Authorization: secret-token", code: 3040 },
+          { name: "Error", message: "socket hang up" },
+        ],
+      }),
+    ]);
   });
 
   it("attributes content validation failures to their source batch", async () => {
@@ -1563,6 +1576,26 @@ describe("EmDash batch queue routes", () => {
     expect(listed.jobs.map(({ id }) => id)).toEqual([job.id]);
   });
 
+  it("reports a job as finished once every translation has a result, and notes results after a cancel", async () => {
+    const { kv, call, batch } = batchSetup();
+    await enablePosts(kv);
+    const job = (await call("batch/start", { collection: "posts", locales: ["fr-FR"], entryIds: ["a", "b"] })) as BatchJobView;
+    const jobStatus = async (id: string) =>
+      ((await call("batch/jobs", {}, "GET")) as BatchJobsResponse).jobs.find((listed) => listed.id === id)?.status;
+
+    await call("batch/record", { jobId: job.id, entryId: "a", locale: "fr-FR", outcome: "created", message: null });
+    expect(await jobStatus(job.id)).toBe("running");
+    await call("batch/record", { jobId: job.id, entryId: "b", locale: "fr-FR", outcome: "failed", message: "Model timed out." });
+    expect(await jobStatus(job.id)).toBe("finished");
+
+    const cancelled = (await call("batch/start", { collection: "posts", locales: ["fr-FR"], entryIds: ["c"] })) as BatchJobView;
+    await call("batch/cancel", { jobId: cancelled.id });
+    await call("batch/record", { jobId: cancelled.id, entryId: "c", locale: "fr-FR", outcome: "created", message: null });
+    expect(await jobStatus(cancelled.id)).toBe("cancelled");
+    const rows = await batch.results.query({ where: { jobId: cancelled.id } });
+    expect(rows.items.map(({ data }) => (data as { message: string | null }).message)).toEqual(["Finished after the job was cancelled."]);
+  });
+
   it("lists a whole collection a page at a time from the queue", async () => {
     const { sent, kv, call, batch } = batchSetup();
     await enablePosts(kv);
@@ -1648,6 +1681,70 @@ describe("EmDash batch queue routes", () => {
       },
       publish: false,
     });
+  });
+
+  it("translates an entry too long for one request a part at a time", async () => {
+    const echo = {
+      run: async (_model: string, input: { messages: Array<{ content: string }> }) => ({
+        response: [...(input.messages.at(-1)?.content ?? "").matchAll(/^@@([^@\n]+?)@@\s*$/gm)]
+          .map(([, id]) => `@@${id}@@\nFR`)
+          .join("\n\n"),
+      }),
+    };
+    const { sent, kv, call, batch } = batchSetup({ AI: echo });
+    await enablePosts(kv);
+    const paragraph = (key: string, text = "x".repeat(9_000)) => ({
+      _type: "block",
+      _key: key,
+      style: "normal",
+      markDefs: [],
+      children: [{ _type: "span", _key: `${key}s`, text, marks: [] }],
+    });
+    let body = ["a", "b", "c", "d"].map((key) => paragraph(key));
+    const longEntry = (routeContext: RouteContext) => {
+      sourceEntry(routeContext);
+      const content = routeContext.content;
+      if (content === undefined) throw new Error("missing content access");
+      const get = content.get;
+      content.get = async (collection, id) => {
+        const item = await get(collection, id);
+        return item === null ? null : { ...item, data: { ...item.data, body } };
+      };
+    };
+    const translatedBody = ["a", "b", "c", "d"].map((key) => paragraph(key, "FR"));
+
+    // Browser: each response hands back the next part, with the translations so far.
+    const input = { collection: "posts", entryId: "entry-src", targetLocale: "fr-FR", fields: ["title", "body"] };
+    const first = (await call("translate-content", input, "POST", longEntry)) as TranslateContentResponse;
+    if (!("next" in first)) throw new Error("expected a next part");
+    expect(first.next).toMatchObject({ part: 1, partCount: 2 });
+    const last = (await call("translate-content", { ...input, ...first.next }, "POST", longEntry)) as TranslateContentResponse;
+    expect(last.patch).toEqual({ title: "FR", body: translatedBody });
+    await expect(call("translate-content", { ...input, ...first.next, fingerprint: "stale" }, "POST", longEntry)).rejects.toMatchObject({
+      status: 409,
+    });
+
+    // Queue: each part stores what it translated and queues the next part.
+    const job = (await call("batch/start", { collection: "posts", locales: ["fr-FR"], entryIds: ["entry-src"] })) as BatchJobView;
+    sent.length = 0;
+    const message = { jobId: job.id, entryId: "entry-src", locale: "fr-FR" };
+    await expect(call("batch/translate", message, "POST", longEntry)).resolves.toEqual({ create: null });
+    expect(sent).toEqual([{ ...message, part: 1 }]);
+    await expect(call("batch/translate", message, "POST", longEntry)).resolves.toEqual({ create: null });
+    const created = await call("batch/translate", { ...message, part: 1 }, "POST", longEntry);
+    expect(created).toMatchObject({ create: { data: { title: "FR", body: translatedBody } } });
+    expect(await batch.results.count({ jobId: job.id })).toBe(0);
+
+    await call("batch/translate", message, "POST", longEntry);
+    body = [paragraph("a", "Edited meanwhile"), ...body.slice(1)];
+    await call("batch/translate", { ...message, part: 1 }, "POST", longEntry);
+    const rows = await batch.results.query({ where: { jobId: job.id } });
+    expect(rows.items.map(({ data }) => data)).toEqual([
+      expect.objectContaining({
+        outcome: "failed",
+        message: "The source entry changed while it was being translated. Start the translation again.",
+      }),
+    ]);
   });
 
   it("stores the publish choice on the job and returns it with the draft", async () => {

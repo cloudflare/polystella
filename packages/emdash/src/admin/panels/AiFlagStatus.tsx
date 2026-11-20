@@ -1,10 +1,13 @@
 import { Badge, Button } from "@cloudflare/kumo";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import type { AiTranslationStatus } from "../../contracts.js";
 import { errorMessage, pluginRequest } from "../utils.js";
 import { mutedStyle, rowStyle, stackStyle } from "../styles.js";
 import { ErrorMessage } from "../components/ErrorMessage/ErrorMessage.js";
+
+/** Save hooks can clear the flag after the save responds, so a save triggers a second, delayed check. */
+const POST_SAVE_RECHECK_MS = 2_000;
 
 /** The entry's AI-translated flag, and Keep / Remove once an editor changed AI-written text. Reloads after each save. */
 export function AiFlagStatus({
@@ -37,6 +40,25 @@ export function AiFlagStatus({
       active = false;
     };
   }, [collection, entryId, savedAt, reload]);
+
+  const firstSavedAt = useRef(savedAt);
+  useEffect(() => {
+    if (savedAt === firstSavedAt.current) return;
+    const timer = setTimeout(() => setReload((current) => current + 1), POST_SAVE_RECHECK_MS);
+    return () => clearTimeout(timer);
+  }, [savedAt]);
+
+  useEffect(() => {
+    const recheck = (): void => {
+      if (document.visibilityState === "visible") setReload((current) => current + 1);
+    };
+    window.addEventListener("focus", recheck);
+    document.addEventListener("visibilitychange", recheck);
+    return () => {
+      window.removeEventListener("focus", recheck);
+      document.removeEventListener("visibilitychange", recheck);
+    };
+  }, []);
 
   async function review(action: "keep" | "remove"): Promise<void> {
     setWorking(action);

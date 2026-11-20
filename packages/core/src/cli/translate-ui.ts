@@ -14,7 +14,7 @@ import {
 
 import { loadAstroI18n, loadPolystellaConfig, resolveCatalogConfig } from "./config.js";
 import { loadGlossaries } from "./glossary.js";
-import { runWithConcurrency } from "./pool.js";
+import { runWithConcurrency } from "../pool.js";
 import { createTranslator } from "./provider.js";
 import { applySyncToDisk, formatLocaleFile, formatNestedLocaleFile, formatSyncSummary, parseSourceLayout, syncLocaleDict } from "./sync.js";
 

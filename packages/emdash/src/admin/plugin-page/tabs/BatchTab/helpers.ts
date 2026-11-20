@@ -140,7 +140,7 @@ export function batchJobDone(job: BatchJobView): number {
 }
 
 export function batchJobFinished(job: BatchJobView): boolean {
-  return !job.listing && batchJobDone(job) >= job.total;
+  return job.status === "finished";
 }
 
 export function planBatchJobs(items: readonly BatchItem[], targets: readonly BatchTargetLocale[]): BatchJob[] {
