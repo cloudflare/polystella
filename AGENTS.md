@@ -103,6 +103,12 @@ to the explanatory section when adding code that touches one.
   `pnpm changeset add --empty` only when the change deliberately does
   not require a package release (for example, docs-site-only or CI-only
   maintenance).
+- When the tested EmDash version changes (the `emdash` devDependency in
+  `packages/emdash/package.json`), re-check `EMDASH_BLOCK_FIELDS` in
+  `packages/emdash/src/server/translate-content.ts` against EmDash's
+  `src/content/converters` and `src/components` for new or changed block
+  types. A test in `packages/emdash/tests/translate-content.test.ts` fails
+  until you update the version it was checked against.
 - Let Changesets version core, EmDash, and Astro independently; do not
   manually bump individual manifests. `POLYSTELLA_VERSION` in
   `packages/astro/src/version.ts` reads the Astro manifest at module-load time

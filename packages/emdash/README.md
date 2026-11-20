@@ -120,8 +120,11 @@ lost after confirmation. A save refused by another editor's edit lock names the
 lock holder.
 
 Portable Text paragraphs, headings, lists and tables are always translated.
-Custom blocks are copied unchanged unless the `blockFields` option lists their
-text paths by block `_type`:
+EmDash's own block types (`image`, `gallery`, `video`, `button`, `buttons`,
+`columns`, `cover`, `pullquote`, `embed`, `iframe`) are translated by default;
+`code`, `htmlBlock` and `file` never are. Other custom blocks are copied
+unchanged unless the `blockFields` option lists their text paths by block
+`_type`. An entry for an EmDash type replaces its default, and `[]` turns it off:
 
 ```js
 polystellaEmdash({

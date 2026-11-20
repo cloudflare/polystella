@@ -47,6 +47,7 @@ export interface PolystellaEmdashOptions {
   /**
    * Text paths translated inside custom Portable Text blocks, by block `_type`. `a.b` follows objects, `a[]` walks a list,
    * and a path that ends on a Portable Text array translates it too. Unlisted block types and fields are copied unchanged.
+   * EmDash's own block types (`image`, `buttons`, `columns`, ...) have defaults; an entry replaces one, and `[]` turns it off.
    */
   blockFields?: Readonly<Record<string, readonly string[]>> | undefined;
   /** Catalog locale → BCP 47 tag for codes `Intl` would misread (`jp` → `ja`). Unmapped locales are used as-is. */
@@ -123,7 +124,7 @@ export function validatePolystellaEmdashOptions(value: unknown): asserts value i
     const blockFields = readRecord(options.blockFields, "options.blockFields");
     for (const [type, paths] of Object.entries(blockFields)) {
       if (type === "block" || type === "span") fail(`options.blockFields.${type} is reserved for standard Portable Text`);
-      const typePaths = readStringArray(paths, `options.blockFields.${type}`, false);
+      const typePaths = readStringArray(paths, `options.blockFields.${type}`, true);
       assertUnique(typePaths, `options.blockFields.${type}`);
       for (const [index, path] of typePaths.entries()) {
         if (!BLOCK_FIELD_PATH_PATTERN.test(path)) {

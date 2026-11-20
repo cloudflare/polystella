@@ -185,7 +185,7 @@ describe("polystellaEmdash", () => {
     expect(() => validatePolystellaEmdashOptions({ ...configured, blockFields: { "marketing.hero": ["a..b"] } })).toThrow(
       "options.blockFields.marketing.hero[0]",
     );
-    expect(() => validatePolystellaEmdashOptions({ ...configured, blockFields: { "marketing.hero": [] } })).toThrow("non-empty");
+    expect(() => validatePolystellaEmdashOptions({ ...configured, blockFields: { image: [] } })).not.toThrow();
     expect(() => validatePolystellaEmdashOptions({ ...configured, blockFields: { "marketing.hero": ["title", "title"] } })).toThrow(
       "options.blockFields.marketing.hero cannot contain duplicates",
     );

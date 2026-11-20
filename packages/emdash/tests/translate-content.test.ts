@@ -1,9 +1,10 @@
 import type { Translator } from "@cloudflare/polystella-core";
 import { EMPTY_GLOSSARY } from "@cloudflare/polystella-core";
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import { contentSegmentLabel } from "../src/server/routes/debug-collector.js";
-import { translateContentFields } from "../src/server/translate-content.js";
+import { EMDASH_BLOCK_FIELDS, translateContentFields } from "../src/server/translate-content.js";
 
 function translator(response: string): Translator {
   return { modelId: "test", translate: async () => response };
@@ -322,5 +323,48 @@ describe("translateContentFields", () => {
     expect(contentSegmentLabel("field:1:block:2:span:0", fields)).toBe("body (block 2, span 0)");
     expect(contentSegmentLabel("field:1:block:2:row:1:cell:0:span:0", fields)).toBe("body (block 2, row 1, cell 0, span 0)");
     expect(contentSegmentLabel("field:1:block:3:cards:1:title", fields)).toBe("body (block 3, cards 1 title)");
+  });
+});
+
+describe("EmDash block type defaults", () => {
+  const echo: Translator = {
+    modelId: "echo",
+    translate: async (_system, user) => [...user.matchAll(/^@@([^@\n]+?)@@\s*$/gm)].map((match) => `@@${match[1]}@@\nFR`).join("\n\n"),
+  };
+  const paragraph = (key: string, text: string) => ({
+    _type: "block",
+    _key: key,
+    style: "normal",
+    markDefs: [],
+    children: [{ _type: "span", _key: `${key}s`, text, marks: [] }],
+  });
+  const body = [
+    { _type: "image", _key: "i", asset: { _ref: "m1" }, alt: "A cat", caption: "Our cat" },
+    { _type: "buttons", _key: "b", buttons: [{ _type: "button", _key: "b1", text: "Sign up", url: "/signup" }] },
+    { _type: "columns", _key: "c", columns: [{ _type: "column", _key: "c1", content: [paragraph("p", "Column text")] }] },
+    { _type: "code", _key: "k", code: "const a = 1" },
+  ];
+
+  it("translates EmDash's own block types without configuration, and lets a site replace or turn off a default", async () => {
+    const base = { translator: echo, glossary: EMPTY_GLOSSARY, sourceLocale: "en", targetLocale: "fr" };
+    const { patch } = await translateContentFields({ ...base, values: { body } });
+    expect(patch.body).toEqual([
+      { ...body[0], alt: "FR", caption: "FR" },
+      { ...body[1], buttons: [{ _type: "button", _key: "b1", text: "FR", url: "/signup" }] },
+      { ...body[2], columns: [{ _type: "column", _key: "c1", content: [paragraph("p", "FR")] }] },
+      body[3],
+    ]);
+
+    const overridden = await translateContentFields({ ...base, values: { body }, blockFields: { image: ["alt"], buttons: [] } });
+    expect(overridden.patch.body).toMatchObject([{ alt: "FR", caption: "Our cat" }, { buttons: [{ text: "Sign up" }] }, {}, {}]);
+  });
+
+  it("is re-checked whenever the tested EmDash version changes", () => {
+    const manifest = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as {
+      devDependencies: Record<string, string>;
+    };
+    // Bumping EmDash? Compare EMDASH_BLOCK_FIELDS with EmDash's src/content/converters and src/components, then update this.
+    expect(manifest.devDependencies.emdash, "EMDASH_BLOCK_FIELDS was last checked against EmDash 1.5.0").toBe("1.5.0");
+    expect(Object.keys(EMDASH_BLOCK_FIELDS)).not.toContain("code");
   });
 });

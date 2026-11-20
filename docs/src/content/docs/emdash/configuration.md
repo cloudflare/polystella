@@ -90,6 +90,25 @@ Optional. Text to translate inside custom Portable Text blocks, keyed by
 the block's `_type`. Standard paragraphs, headings, lists and tables are
 always translated; custom blocks are copied unchanged unless listed here.
 
+EmDash's own block types are translated without configuration:
+
+| Block type  | Translated paths                   |
+| :---------- | :--------------------------------- |
+| `image`     | `alt`, `caption`, `title`          |
+| `gallery`   | `images[].alt`, `images[].caption` |
+| `video`     | `caption`                          |
+| `button`    | `text`                             |
+| `buttons`   | `buttons[].text`                   |
+| `columns`   | `columns[].content`                |
+| `cover`     | `content`                          |
+| `pullquote` | `text`, `citation`                 |
+| `embed`     | `caption`                          |
+| `iframe`    | `title`                            |
+
+A `blockFields` entry for one of these types replaces its default, and
+an empty list (`image: []`) copies that type unchanged. `code`,
+`htmlBlock` and `file` blocks are never translated.
+
 ```js
 blockFields: {
   "marketing.hero": ["headline", "banners[].title", "body"],
@@ -195,7 +214,7 @@ replace. Configure collection and field policy in the
   locale.
 - Every `localeTags` key must match a configured catalog locale, and
   every locale must resolve to a tag `Intl` recognises.
-- Every `blockFields` list must be non-empty and unique, use paths like
+- Every `blockFields` list must be unique (an empty list turns a default off), use paths like
   `title`, `cta.label` or `cards[].title`, and not target the reserved
   `block` or `span` types.
 - Provider env/binding names and `batchQueueBinding` must be valid

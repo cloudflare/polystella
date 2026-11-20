@@ -43,6 +43,23 @@ interface Collector {
 /** Custom Portable Text block type → text paths inside it, like `cards[].title`. */
 export type BlockFieldPaths = Readonly<Record<string, readonly string[]>>;
 
+/**
+ * Text in the block types EmDash itself writes: its editor, WordPress import and `emdash/ui` components.
+ * Re-check against EmDash's converters and components whenever the tested EmDash version changes.
+ */
+export const EMDASH_BLOCK_FIELDS: BlockFieldPaths = {
+  image: ["alt", "caption", "title"],
+  gallery: ["images[].alt", "images[].caption"],
+  video: ["caption"],
+  button: ["text"],
+  buttons: ["buttons[].text"],
+  columns: ["columns[].content"],
+  cover: ["content"],
+  pullquote: ["text", "citation"],
+  embed: ["caption"],
+  iframe: ["title"],
+};
+
 export class ContentTranslationInputError extends Error {
   constructor(message: string) {
     super(message);
@@ -79,7 +96,13 @@ export async function translateContentFields(options: TranslateContentFieldsOpti
   }
 
   for (const [fieldIndex, [field, value]] of fields.entries()) {
-    const collector: Collector = { segments, group: [], locations, spanLists, blockFields: options.blockFields ?? {} };
+    const collector: Collector = {
+      segments,
+      group: [],
+      locations,
+      spanLists,
+      blockFields: { ...EMDASH_BLOCK_FIELDS, ...options.blockFields },
+    };
     if (typeof value === "string") {
       addSegment(`field:${fieldIndex}`, value, field, [field], collector);
     } else if (Array.isArray(value)) {
