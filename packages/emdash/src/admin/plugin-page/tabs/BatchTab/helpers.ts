@@ -41,15 +41,15 @@ export interface PublicUrlContext {
 
 const DATE_TOKEN = /\{(?:year|month|day|hour|minute|second)\}/;
 
-/** Mirrors EmDash's admin `contentUrl`. `null` for date-based patterns, which need the publish date. */
-export function publicContentUrl(collection: string, translation: BatchTranslation, context: PublicUrlContext): string | null {
+/**
+ * Mirrors EmDash's admin `contentUrl`. `null` without a URL pattern, where the public path is unknown,
+ * and for date-based patterns, which need the publish date.
+ */
+export function publicContentUrl(translation: BatchTranslation, context: PublicUrlContext): string | null {
   const { urlPattern, i18n } = context;
-  if (translation.slug === null || (urlPattern !== undefined && DATE_TOKEN.test(urlPattern))) return null;
+  if (translation.slug === null || urlPattern === undefined || urlPattern.length === 0 || DATE_TOKEN.test(urlPattern)) return null;
   const slug = translation.slug.replace(/^\/+/, "");
-  const path =
-    urlPattern === undefined || urlPattern.length === 0
-      ? `/${collection}/${slug}`
-      : urlPattern.replaceAll("{id}", translation.id).replaceAll("{slug}", slug);
+  const path = urlPattern.replaceAll("{id}", translation.id).replaceAll("{slug}", slug);
   const prefixed = i18n !== undefined && (translation.locale !== i18n.defaultLocale || i18n.prefixDefaultLocale === true);
   return prefixed ? `/${translation.locale}/${path.replace(/^\/+/, "")}` : path;
 }

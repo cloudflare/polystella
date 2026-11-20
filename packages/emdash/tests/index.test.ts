@@ -177,6 +177,25 @@ describe("polystellaEmdash", () => {
     expect(JSON.stringify(descriptor)).not.toContain('apiToken":"secret');
   });
 
+  it("validates blockFields and round-trips them through serialized runtime options", () => {
+    const configured = validOptions();
+    const blockFields = { "marketing.hero": ["headline", "banners[].title", "cta.label"] };
+    expect(() => validatePolystellaEmdashOptions({ ...configured, blockFields })).not.toThrow();
+    expect(() => validatePolystellaEmdashOptions({ ...configured, blockFields: { block: ["children"] } })).toThrow("reserved");
+    expect(() => validatePolystellaEmdashOptions({ ...configured, blockFields: { "marketing.hero": ["a..b"] } })).toThrow(
+      "options.blockFields.marketing.hero[0]",
+    );
+    expect(() => validatePolystellaEmdashOptions({ ...configured, blockFields: { "marketing.hero": [] } })).toThrow("non-empty");
+    expect(() => validatePolystellaEmdashOptions({ ...configured, blockFields: { "marketing.hero": ["title", "title"] } })).toThrow(
+      "options.blockFields.marketing.hero cannot contain duplicates",
+    );
+
+    const descriptor = polystellaEmdash({ ...configured, blockFields });
+    const runtimeOptions = descriptor.options;
+    if (runtimeOptions === undefined) throw new Error("descriptor options are missing");
+    expect(deserializeOptions(runtimeOptions).blockFields).toEqual(blockFields);
+  });
+
   it("validates localeTags and round-trips them through serialized runtime options", () => {
     const configured: PolystellaEmdashOptions = {
       ...validOptions(),

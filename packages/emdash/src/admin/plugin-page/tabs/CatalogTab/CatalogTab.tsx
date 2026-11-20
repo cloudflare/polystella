@@ -430,23 +430,28 @@ function TokenGuidance({ source }: { source: string | null }): ReactNode {
   if (!sourceContainsTokens(source)) return <span style={mutedStyle}>{source ?? "Missing"}</span>;
   return (
     <>
-      <Tooltip open={open} onOpenChange={setOpen} content="This string contains {{variables}}. Overrides should retain them.">
-        <button
-          type="button"
-          aria-label="Contains {{variables}} placeholders"
-          onClick={() => setOpen((current) => !current)}
-          style={{
-            background: "none",
-            border: "none",
-            color: "inherit",
-            cursor: "help",
-            marginRight: 4,
-            padding: 0,
-            verticalAlign: "middle",
-          }}
-        >
-          <QuestionIcon size={14} />
-        </button>
+      <Tooltip
+        open={open}
+        onOpenChange={setOpen}
+        content="This string contains {{variables}}. Overrides should retain them."
+        render={
+          <button
+            type="button"
+            aria-label="Contains {{variables}} placeholders"
+            onClick={() => setOpen((current) => !current)}
+            style={{
+              background: "none",
+              border: "none",
+              color: "inherit",
+              cursor: "help",
+              marginRight: 4,
+              padding: 0,
+              verticalAlign: "middle",
+            }}
+          />
+        }
+      >
+        <QuestionIcon size={14} />
       </Tooltip>
       <span style={mutedStyle}>{source}</span>
     </>

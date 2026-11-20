@@ -74,11 +74,12 @@ describe("batch translation", () => {
   it("builds public URLs the way EmDash's admin does", () => {
     const translation = { id: "01FR", locale: "fr", slug: "hello", published: true };
     const i18n = { defaultLocale: "en" };
-    expect(publicContentUrl("posts", translation, { urlPattern: "/{slug}/", i18n })).toBe("/fr/hello/");
-    expect(publicContentUrl("posts", translation, { urlPattern: undefined, i18n })).toBe("/fr/posts/hello");
-    expect(publicContentUrl("posts", { ...translation, locale: "en" }, { urlPattern: "/blog/{slug}", i18n })).toBe("/blog/hello");
-    expect(publicContentUrl("posts", translation, { urlPattern: "/{year}/{slug}", i18n })).toBeNull();
-    expect(publicContentUrl("posts", { ...translation, slug: null }, { urlPattern: "/{slug}", i18n })).toBeNull();
+    expect(publicContentUrl(translation, { urlPattern: "/{slug}/", i18n })).toBe("/fr/hello/");
+    expect(publicContentUrl(translation, { urlPattern: undefined, i18n })).toBeNull();
+    expect(publicContentUrl(translation, { urlPattern: "", i18n })).toBeNull();
+    expect(publicContentUrl({ ...translation, locale: "en" }, { urlPattern: "/blog/{slug}", i18n })).toBe("/blog/hello");
+    expect(publicContentUrl(translation, { urlPattern: "/{year}/{slug}", i18n })).toBeNull();
+    expect(publicContentUrl({ ...translation, slug: null }, { urlPattern: "/{slug}", i18n })).toBeNull();
   });
 
   it("hands a run to the new tab through storage and builds its address", () => {

@@ -90,7 +90,7 @@ function TranslationLinks({
   translation: BatchTranslationLink;
   urlContext: PublicUrlContext | undefined;
 }): ReactNode {
-  const liveUrl = translation.published && urlContext !== undefined ? publicContentUrl(collection, translation, urlContext) : null;
+  const liveUrl = translation.published && urlContext !== undefined ? publicContentUrl(translation, urlContext) : null;
   return (
     <div style={rowStyle}>
       <Link
@@ -119,6 +119,6 @@ function TranslationLinks({
 /** Same as EmDash's editor: a signed preview URL, or the public path when previews aren't configured. */
 async function openPreview(collection: string, translation: BatchTranslationLink, urlContext: PublicUrlContext | undefined): Promise<void> {
   const preview = await getPreviewUrl(collection, translation.id);
-  const url = preview?.url ?? (urlContext === undefined ? null : publicContentUrl(collection, translation, urlContext));
+  const url = preview?.url ?? (urlContext === undefined ? null : publicContentUrl(translation, urlContext));
   if (url !== null) window.open(url, "_blank", "noopener,noreferrer");
 }

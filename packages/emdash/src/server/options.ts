@@ -10,6 +10,7 @@ import {
 
 import { USE_CODE_DEFAULT_MODEL } from "../contracts.js";
 
+const BLOCK_FIELD_PATH_PATTERN = /^[A-Za-z_][\w-]*(\[\])?(\.[A-Za-z_][\w-]*(\[\])?)*$/;
 const EMDASH_LOCALE_PATTERN = /^[a-z]{2,3}(-[a-z0-9]{2,8})*$/i;
 
 export interface EmDashCatalogLocale {
@@ -43,6 +44,11 @@ export interface PolystellaEmdashOptions {
   };
   glossaryDefaults?: Readonly<Record<string, Glossary>> | undefined;
   rules?: readonly string[] | undefined;
+  /**
+   * Text paths translated inside custom Portable Text blocks, by block `_type`. `a.b` follows objects, `a[]` walks a list,
+   * and a path that ends on a Portable Text array translates it too. Unlisted block types and fields are copied unchanged.
+   */
+  blockFields?: Readonly<Record<string, readonly string[]>> | undefined;
   /** Catalog locale → BCP 47 tag for codes `Intl` would misread (`jp` → `ja`). Unmapped locales are used as-is. */
   localeTags?: LocaleTags | undefined;
   /** Cloudflare Queue producer binding for server-side batch translation. The Worker must also export the queue consumer. */
@@ -55,7 +61,11 @@ export interface SerializedPolystellaEmdashOptions {
 
 export function validatePolystellaEmdashOptions(value: unknown): asserts value is PolystellaEmdashOptions {
   const options = readRecord(value, "options");
-  rejectUnknownKeys(options, ["provider", "catalogs", "models", "glossaryDefaults", "rules", "localeTags", "batchQueueBinding"], "options");
+  rejectUnknownKeys(
+    options,
+    ["provider", "catalogs", "models", "glossaryDefaults", "rules", "blockFields", "localeTags", "batchQueueBinding"],
+    "options",
+  );
   validateProvider(options.provider);
   if (options.batchQueueBinding !== undefined) readEnvironmentName(options.batchQueueBinding, "options.batchQueueBinding");
 
@@ -108,6 +118,20 @@ export function validatePolystellaEmdashOptions(value: unknown): asserts value i
   }
 
   if (options.rules !== undefined) readStringArray(options.rules, "options.rules", true);
+
+  if (options.blockFields !== undefined) {
+    const blockFields = readRecord(options.blockFields, "options.blockFields");
+    for (const [type, paths] of Object.entries(blockFields)) {
+      if (type === "block" || type === "span") fail(`options.blockFields.${type} is reserved for standard Portable Text`);
+      const typePaths = readStringArray(paths, `options.blockFields.${type}`, false);
+      assertUnique(typePaths, `options.blockFields.${type}`);
+      for (const [index, path] of typePaths.entries()) {
+        if (!BLOCK_FIELD_PATH_PATTERN.test(path)) {
+          fail(`options.blockFields.${type}[${index}] must look like "title", "cta.label" or "cards[].title"`);
+        }
+      }
+    }
+  }
 
   if (options.localeTags !== undefined) {
     const localeTags = readRecord(options.localeTags, "options.localeTags");
@@ -169,6 +193,9 @@ export function serializeOptions(options: PolystellaEmdashOptions): SerializedPo
           ),
         }),
     ...(options.rules === undefined ? {} : { rules: [...options.rules] }),
+    ...(options.blockFields === undefined
+      ? {}
+      : { blockFields: Object.fromEntries(Object.entries(options.blockFields).map(([type, paths]) => [type, [...paths]])) }),
     ...(options.localeTags === undefined ? {} : { localeTags: { ...options.localeTags } }),
     ...(options.batchQueueBinding === undefined ? {} : { batchQueueBinding: options.batchQueueBinding }),
   };
