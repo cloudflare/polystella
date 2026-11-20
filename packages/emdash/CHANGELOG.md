@@ -1,5 +1,33 @@
 # @cloudflare/polystella-emdash
 
+## 0.4.0
+
+### Minor Changes
+
+- [#68](https://github.com/cloudflare/polystella/pull/68) [`ef72d2d`](https://github.com/cloudflare/polystella/commit/ef72d2d6477cfe5121a2f3745a05240d40f6ebb7) Thanks [@diogoascarneiro](https://github.com/diogoascarneiro)! - Translate custom Portable Text blocks. A new `blockFields` option maps a block `_type` to the text paths to translate (`"headline"`, `"cta.label"`, `"cards[].title"`, `"tags[]"`, or a nested Portable Text array such as `"columns[].content"`). Unlisted blocks and fields are still copied unchanged, so existing sites behave as before. Placeholder tokens are checked in block text like any other field, invalid content errors now name the exact location (`body[3].columns[0].content[1]`), and the debug view labels custom block segments.
+
+  The batch tab's **View live** link is hidden when a collection has no URL pattern, instead of guessing `/{collection}/{slug}`, and the catalog tab's placeholder hint no longer nests a button inside a button.
+
+- [#67](https://github.com/cloudflare/polystella/pull/67) [`b38709e`](https://github.com/cloudflare/polystella/commit/b38709e55ace1700cd347c45fd3f260709647b6c) Thanks [@diogoascarneiro](https://github.com/diogoascarneiro)! - New **Batch translation** admin tab: translate a whole collection, or entries you pick from a searchable list, into one or more target locales. Missing locales are created as drafts. Existing translations are skipped unless you turn on **Update existing translations**, which saves with EmDash's `_rev` token so an entry edited during the run is skipped instead of overwritten. The run happens in the browser, three translations at a time, with a result for each entry and locale, a **Stop** button, and **Retry failed**.
+
+  Optional server jobs on Cloudflare Queues: set `batchQueueBinding` and export `handlePolystellaBatchQueue` from `@cloudflare/polystella-emdash/queue` as the Worker's `queue` handler. The tab then offers **Run in: Server queue**, which keeps going after the tab closes, creates only missing translations (as drafts, with the source slug), and lists recent jobs with progress, failures, **Cancel**, and **Retry failed**. The plugin declares two new storage collections, `batch_jobs` and `batch_results`.
+
+  Locale pickers in the Batch tab and the content-editor panel start empty and have **Select all** and **Clear all**. The Batch tab adds **Select untranslated** for selected entries. On a source entry, the editor panel now creates drafts for several locales in one go.
+
+  Administrators can set **Max output tokens** in the Translation settings tab; empty uses `provider.maxTokens` or `8192`.
+
+  Content translation now covers text inside Portable Text tables.
+
+  **Publish translations immediately** in the Batch tab publishes each translation right after it is saved, in the browser and on the server queue. Browser results link to each translation.
+
+  Entries translated by PolyStella are now flagged as AI-translated. Themes read the flag with `getEnrichedEntry` and `getEnrichedCollection` from the new `@cloudflare/polystella-emdash/content` export: same arguments and result as EmDash's getters, plus `entry.polystella.aiTranslated`, `aiTranslatedAt`, and `aiTranslationModel`. The plugin declares a new storage collection, `ai_translations`. Flag reads use EmDash's object cache (per entry, and per page for collections) and are cleared whenever a flag is saved.
+
+  Browser batch runs open in their own tab, which shows the plan, waits for **Start translating**, and warns that it must stay open. Result rows link to **Edit**, **View live**, or **Preview draft** in a new tab, for browser runs and server jobs (**Show results**). Finished or cancelled server jobs can be removed from the list, one at a time or with **Clear finished jobs**.
+
+  Server batch jobs older than 30 days are deleted automatically when the jobs list loads, and a result that arrives after its job was removed is dropped. When a translation saves but its AI-translated flag doesn't, the editor panel and batch result rows show a warning instead of only logging it.
+
+  Whole-collection queue jobs are listed by the queue, 100 entries at a time, instead of inside the start request. Listing stops at 5,000 translations and the job card says so. PolyStella fingerprints each field it writes. When a person changes one, the editor panel shows **Edited since AI translation** with **Keep AI flag** and **Remove AI flag**; the flag stays until then, unless the new Translation setting removes it automatically after every save and publish. The plugin now declares the read-only `content:revisions:read` capability for this.
+
 ## 0.3.0
 
 ### Minor Changes
