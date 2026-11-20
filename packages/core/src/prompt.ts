@@ -112,6 +112,11 @@ export function parseResponse(rawText: string, expectedIds: string[]): Map<strin
   const cleaned = stripCodeFences(rawText.trim());
   const parts = cleaned.split(MARKER_LINE_RE);
 
+  // Models sometimes drop the only marker line; with one segment the whole reply is its translation.
+  const [onlyId] = expectedIds;
+  if (parts.length < 3 && expectedIds.length === 1 && onlyId !== undefined && cleaned.length > 0 && !cleaned.includes(MARKER)) {
+    return new Map([[onlyId, cleaned]]);
+  }
   if (parts.length < 3) {
     throw new Error(
       `[polystella] no segment markers in the model response. Expected ${expectedIds.length} markers of the form "${MARKER}<id>${MARKER}". Total length: ${rawText.length} chars.\nRaw response was:\n${truncateRaw(rawText)}`,

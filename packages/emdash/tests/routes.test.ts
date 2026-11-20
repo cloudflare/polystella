@@ -655,7 +655,7 @@ describe("EmDash plugin routes", () => {
 
     const failingRoutes = createPluginRoutes(options(), {
       ...dependencies(),
-      getEnv: async () => ({ AI: { run: async () => ({ response: "private model response" }) } }),
+      getEnv: async () => ({ AI: { run: async () => ({ response: "private model response @@" }) } }),
     });
     const failed = (await route(failingRoutes, "translate-content").handler(
       context(input, "POST", kv, storage),
@@ -665,7 +665,7 @@ describe("EmDash plugin routes", () => {
       error: expect.stringMatching(/no segment markers.*Diagnostic ID:/),
       debug: {
         error: expect.stringMatching(/Diagnostic ID:/),
-        batches: [{ attempts: [{ response: "private model response", error: expect.stringContaining("no segment markers") }] }],
+        batches: [{ attempts: [{ response: "private model response @@", error: expect.stringContaining("no segment markers") }] }],
       },
     });
     if (failed.patch !== null || !("error" in failed)) throw new Error("expected debug translation failure");
@@ -1265,7 +1265,7 @@ describe("EmDash plugin routes", () => {
   it("sanitizes provider response failures", async () => {
     const routes = createPluginRoutes(options(), {
       ...dependencies(),
-      getEnv: async () => ({ AI: { run: async () => ({ response: "unparseable private draft content" }) } }),
+      getEnv: async () => ({ AI: { run: async () => ({ response: "unparseable private draft content @@" }) } }),
     });
 
     const translateKv = createKv();
@@ -1293,7 +1293,7 @@ describe("EmDash plugin routes", () => {
           createStorage(),
         ),
       ),
-    ).rejects.not.toThrow("unparseable private draft content");
+    ).rejects.not.toThrow("unparseable private draft content @@");
 
     const unavailableContent = context(
       { collection: "posts", entryId: "entry-1", targetLocale: "fr-FR", fields: ["title"] },
@@ -1838,7 +1838,7 @@ describe("EmDash batch queue routes", () => {
   });
 
   it("records translation failures and requeues them on retry", async () => {
-    const { sent, kv, call, batch } = batchSetup({ AI: { run: async () => ({ response: "no markers" }) } });
+    const { sent, kv, call, batch } = batchSetup({ AI: { run: async () => ({ response: "no markers @@" }) } });
     await enablePosts(kv);
     const job = (await call("batch/start", { collection: "posts", locales: ["fr-FR"], entryIds: ["entry-src"] })) as BatchJobView;
     const message = { jobId: job.id, entryId: "entry-src", locale: "fr-FR" };

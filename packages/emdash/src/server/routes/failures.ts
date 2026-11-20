@@ -48,6 +48,10 @@ export function publicTranslationFailure(error: unknown): string {
   if (!(error instanceof Error)) return "PolyStella translation failed";
   const firstLine = error.message.split("\n", 1)[0]?.trim() ?? "";
   if (firstLine.length === 0) return "PolyStella translation failed";
+  // Workers AI only reports a timeout as a "3046: " message prefix, with no separate code.
+  if (error.name === "AiError" && firstLine.startsWith("3046:")) {
+    return "The translation model timed out (Workers AI error 3046). Try again, or translate fewer fields at once or pick a faster model.";
+  }
   if (!safeTranslationFailure(firstLine)) return "PolyStella translation failed";
   return firstLine.length > 500 ? `${firstLine.slice(0, 500)}...` : firstLine;
 }
