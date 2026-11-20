@@ -38,6 +38,7 @@ export function TranslationDebugView({ trace, onDismiss }: { trace: TranslationD
             <summary>
               Batch {batch.batch}: {batch.segmentCount} segments, {batch.sourceCharacters} source characters, approximately{" "}
               {batch.estimatedInputTokens} input tokens
+              {batch.glossaryTerms === undefined ? null : `, ${batch.glossaryTerms.sent} of ${batch.glossaryTerms.total} glossary terms`}
             </summary>
             <div style={{ ...stackStyle, padding: "12px 0 0 16px" }}>
               <small style={mutedStyle}>{batch.segmentLabels.join(", ")}</small>

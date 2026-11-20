@@ -84,6 +84,8 @@ export interface TranslationDebugBatch {
   segmentLabels: string[];
   sourceCharacters: number;
   estimatedInputTokens: number;
+  /** Glossary terms the prompt carried, out of the locale's whole glossary. Absent in traces saved before it existed. */
+  glossaryTerms?: { sent: number; total: number } | undefined;
   attempts: TranslationDebugAttempt[];
 }
 

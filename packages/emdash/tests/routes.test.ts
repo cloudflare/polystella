@@ -655,7 +655,7 @@ describe("EmDash plugin routes", () => {
 
     const failingRoutes = createPluginRoutes(options(), {
       ...dependencies(),
-      getEnv: async () => ({ AI: { run: async () => ({ response: "private model response" }) } }),
+      getEnv: async () => ({ AI: { run: async () => ({ response: "private model response @@" }) } }),
     });
     const failed = (await route(failingRoutes, "translate-content").handler(
       context(input, "POST", kv, storage),
@@ -665,7 +665,7 @@ describe("EmDash plugin routes", () => {
       error: expect.stringMatching(/no segment markers.*Diagnostic ID:/),
       debug: {
         error: expect.stringMatching(/Diagnostic ID:/),
-        batches: [{ attempts: [{ response: "private model response", error: expect.stringContaining("no segment markers") }] }],
+        batches: [{ attempts: [{ response: "private model response @@", error: expect.stringContaining("no segment markers") }] }],
       },
     });
     if (failed.patch !== null || !("error" in failed)) throw new Error("expected debug translation failure");
@@ -808,7 +808,8 @@ describe("EmDash plugin routes", () => {
     )) as CatalogGenerationResponse;
 
     expect(calls[0]?.model).toBe("model-a");
-    expect(calls[0]?.system).toContain("Cloudflare");
+    // "Hello" doesn't contain the code-defined term, so only the term-free parts of the glossary are sent.
+    expect(calls[0]?.system).not.toContain("- Cloudflare");
     expect(calls[0]?.system).toContain("Deployment glossary");
     expect(calls[0]?.system).toContain("Admin glossary");
     expect(calls[0]?.system).toContain("Keep product names unchanged.");
@@ -1264,7 +1265,7 @@ describe("EmDash plugin routes", () => {
   it("sanitizes provider response failures", async () => {
     const routes = createPluginRoutes(options(), {
       ...dependencies(),
-      getEnv: async () => ({ AI: { run: async () => ({ response: "unparseable private draft content" }) } }),
+      getEnv: async () => ({ AI: { run: async () => ({ response: "unparseable private draft content @@" }) } }),
     });
 
     const translateKv = createKv();
@@ -1292,7 +1293,7 @@ describe("EmDash plugin routes", () => {
           createStorage(),
         ),
       ),
-    ).rejects.not.toThrow("unparseable private draft content");
+    ).rejects.not.toThrow("unparseable private draft content @@");
 
     const unavailableContent = context(
       { collection: "posts", entryId: "entry-1", targetLocale: "fr-FR", fields: ["title"] },
@@ -1326,6 +1327,50 @@ describe("EmDash plugin routes", () => {
         context({ collection: "posts", entryId: "entry-1", targetLocale: "fr-FR", fields: ["title"] }, "POST", kv, createStorage()),
       ),
     ).rejects.toMatchObject({ status: 400 });
+  });
+
+  it("saves settings and translates with a large code-defined glossary, sending only the terms used", async () => {
+    const preferredTranslations = Object.fromEntries(
+      Array.from({ length: 1500 }, (_, index) => [`Product term ${index}`, `Terme ${index}`]),
+    );
+    const base = options();
+    const large = { ...base, glossaryDefaults: { "fr-FR": { ...base.glossaryDefaults?.["fr-FR"], preferredTranslations } } };
+    expect(JSON.stringify(large.glossaryDefaults).length).toBeGreaterThan(35_000);
+    const systems: string[] = [];
+    const routes = createPluginRoutes(large as PolystellaEmdashOptions, {
+      ...dependencies(),
+      getEnv: async () => ({
+        AI: {
+          run: async (_model: string, input: { messages: Array<{ role: string; content: string }> }) => {
+            systems.push(input.messages[0]?.content ?? "");
+            return { response: "@@field:0@@\nBonjour" };
+          },
+        },
+      }),
+    });
+    const kv = createKv();
+    await enablePosts(kv);
+    await expect(
+      route(routes, "settings/translation").handler(
+        context(
+          {
+            revision: null,
+            debugEnabled: false,
+            locales: { "fr-FR": { model: null, glossaryMode: "append", glossaryText: "" } },
+            instructions: { mode: "default", text: "" },
+          },
+          "PUT",
+          kv,
+          createStorage(),
+        ),
+      ),
+    ).resolves.toMatchObject({ locales: [{ locale: "fr-FR" }] });
+    const input = { collection: "posts", entryId: "entry-1", targetLocale: "fr-FR", fields: ["title"] };
+    await expect(route(routes, "translate-content").handler(context(input, "POST", kv, createStorage()))).resolves.toMatchObject({
+      patch: { title: "Bonjour" },
+    });
+    expect(systems[0]).not.toContain("Product term");
+    expect(systems[0]?.length).toBeLessThan(5_000);
   });
 
   it("keeps public overrides disabled until explicitly enabled", async () => {
@@ -1793,7 +1838,7 @@ describe("EmDash batch queue routes", () => {
   });
 
   it("records translation failures and requeues them on retry", async () => {
-    const { sent, kv, call, batch } = batchSetup({ AI: { run: async () => ({ response: "no markers" }) } });
+    const { sent, kv, call, batch } = batchSetup({ AI: { run: async () => ({ response: "no markers @@" }) } });
     await enablePosts(kv);
     const job = (await call("batch/start", { collection: "posts", locales: ["fr-FR"], entryIds: ["entry-src"] })) as BatchJobView;
     const message = { jobId: job.id, entryId: "entry-src", locale: "fr-FR" };

@@ -69,7 +69,7 @@ describe("core in workerd", () => {
     const result = await translateBatch({
       translator: {
         modelId: "test",
-        translate: async () => (++attempts === 1 ? "invalid" : "@@body:0@@\nOla"),
+        translate: async () => (++attempts === 1 ? "invalid @@" : "@@body:0@@\nOla"),
       },
       segments: [segment],
       glossary: EMPTY_GLOSSARY,

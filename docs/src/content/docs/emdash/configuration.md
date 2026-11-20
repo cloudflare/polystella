@@ -1,6 +1,6 @@
 ---
 title: EmDash configuration
-description: PolystellaEmdashOptions — provider, catalogs, models, glossaryDefaults, rules, blockFields, localeTags, and batchQueueBinding.
+description: PolystellaEmdashOptions — provider, catalogs, models, glossaryDefaults, glossaryMatchInflections, rules, blockFields, localeTags, and batchQueueBinding.
 aiGenerated: true
 sidebar:
   label: Configuration
@@ -72,6 +72,13 @@ glossaryDefaults: await loadGlossaryDefaults({
 
 The helper also accepts the same `http` and `r2` source forms as the
 Astro integration. Remote sources do not require `projectRoot`.
+
+Glossaries can be large: each translation request carries only the
+terms its text uses, plus the style rules and notes. A locale's
+glossary can be up to 1,000,000 characters. Set
+`glossaryMatchInflections: true` to let any letters follow a term, so
+`Worker` also matches "Workers"; by default a term must end at a word
+boundary.
 
 Every key must match a configured catalog locale. Administrators can
 use each glossary unchanged, append plain-text `notes`, or replace
@@ -243,7 +250,8 @@ replace. Configure collection and field policy in the
 - Every `models.defaults.<locale>` must match a configured catalog
   locale and appear in `models.allowed`.
 - Every `glossaryDefaults` key must match a configured catalog
-  locale.
+  locale, and each glossary must be at most 1,000,000 characters.
+- `glossaryMatchInflections` must be a boolean.
 - Every `localeTags` key must match a configured catalog locale, and
   every locale must resolve to a tag `Intl` recognises.
 - Every `blockFields` list must be unique (an empty list turns a default off), hold

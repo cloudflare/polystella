@@ -42,6 +42,10 @@ export interface TranslateOrLoadOptions {
   promptInstruction?: string | undefined;
   /** Soft cap on per-batch input tokens. Defaults applied in `batch.ts`. */
   inputTokenBudget?: number;
+  /** Ceiling for one whole prompt; see `TranslateSegmentsOptions.maxPromptTokens`. */
+  maxPromptTokens?: number | undefined;
+  /** See `GlossaryMatchOptions`. Not in the cache key, like `documentContext`. */
+  matchInflections?: boolean | undefined;
   /** Surfaces oversize-section warnings from the batcher. */
   logger?: Logger;
   /** Forward-slash path; threads through to the oversize warning. */
@@ -149,6 +153,8 @@ export async function translateOrLoadFromCache(opts: TranslateOrLoadOptions): Pr
     documentContext,
     promptInstruction,
     inputTokenBudget,
+    maxPromptTokens,
+    matchInflections,
     logger,
     sourcePath,
     apply,
@@ -233,6 +239,8 @@ export async function translateOrLoadFromCache(opts: TranslateOrLoadOptions): Pr
         ...(documentContext !== undefined ? { documentContext } : {}),
         ...(promptInstruction !== undefined ? { promptInstruction } : {}),
         ...(inputTokenBudget !== undefined ? { inputTokenBudget } : {}),
+        ...(maxPromptTokens !== undefined ? { maxPromptTokens } : {}),
+        ...(matchInflections !== undefined ? { matchInflections } : {}),
         ...(logger !== undefined ? { logger } : {}),
         ...(sourcePath !== undefined ? { sourcePath } : {}),
         glossary,

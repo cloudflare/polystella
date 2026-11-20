@@ -48,6 +48,10 @@ export function publicTranslationFailure(error: unknown): string {
   if (!(error instanceof Error)) return "PolyStella translation failed";
   const firstLine = error.message.split("\n", 1)[0]?.trim() ?? "";
   if (firstLine.length === 0) return "PolyStella translation failed";
+  // Workers AI only reports a timeout as a "3046: " message prefix, with no separate code.
+  if (error.name === "AiError" && firstLine.startsWith("3046:")) {
+    return "The translation model timed out (Workers AI error 3046). Try again, or translate fewer fields at once or pick a faster model.";
+  }
   if (!safeTranslationFailure(firstLine)) return "PolyStella translation failed";
   return firstLine.length > 500 ? `${firstLine.slice(0, 500)}...` : firstLine;
 }
@@ -62,6 +66,7 @@ function safeTranslationFailure(message: string): boolean {
     message.startsWith("[polystella] unexpected Workers AI binding response shape ") ||
     message.startsWith("[polystella] model ran out of output tokens ") ||
     message.startsWith("[polystella] model changed inline markup in ") ||
+    message.startsWith("[polystella] prompt for segment ") ||
     message.startsWith("[polystella] message validation failed for ") ||
     message.startsWith("[polystella-emdash] missing translation for internal segment ") ||
     message.startsWith("[polystella-emdash] missing translation for sandbox text") ||

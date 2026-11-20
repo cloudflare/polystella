@@ -219,6 +219,7 @@ export async function runTranslateUi(args: TranslateUiArgs, deps: TranslateUiDep
         ...(resolved.prompt.context === undefined ? {} : { context: resolved.prompt.context }),
         maxRetries: resolved.maxRetries,
         inputTokenBudget: provider.batchInputTokenBudget,
+        ...(resolved.glossary?.matchInflections === undefined ? {} : { matchInflections: resolved.glossary.matchInflections }),
         retryMinTimeoutMs: 250,
         retryFactor: 2,
         retryRandomize: true,
