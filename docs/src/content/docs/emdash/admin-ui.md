@@ -138,6 +138,13 @@ selected `string`, `text`, Portable Text and `blocks` fields in an existing
 target-locale draft — the source locale is the code-defined
 `catalogs.defaultLocale`, and the target must differ from it.
 
+After a translation, the panel lists any same-page links (`#…`) in the
+translated fields for review instead of reloading. EmDash gives headings
+no ids, so each site builds its own, often from the heading text. A
+translated heading can then get a different anchor than the copied link,
+and PolyStella can't know the site's rule. Batch results show the same
+note on each created entry.
+
 Long entries are translated in parts of up to 30,000 characters and 500
 text segments, one request per part; the panel shows which part is
 running, and queued batch jobs translate one part per queue message. An

@@ -258,14 +258,14 @@ export async function runBatchJob(job: BatchJob, options: BatchJobOptions): Prom
       const created = { id: result.entry.id, locale: result.entry.locale ?? job.target.locale, slug: result.entry.slug, published: false };
       const publish = await publishIfAsked(collection, created, options.publish);
       translation = { ...created, published: publish.published };
-      return { ...job, outcome: "created", message: joinMessages(result.flagWarning, publish.message), translation };
+      return { ...job, outcome: "created", message: joinMessages(result.flagWarning, result.notice, publish.message), translation };
     }
     if (!options.updateExisting) return { ...job, outcome: "skipped", message: "A translation already exists.", translation };
     const result = await translateExistingEntry({ collection, entryId: existing.id, locale: existing.locale, fields });
     if (result.entry === null) return { ...job, outcome: "failed", message: result.error, translation };
     const publish = await publishIfAsked(collection, existing, options.publish);
     const updated = translation === null ? null : { ...translation, published: translation.published || publish.published };
-    return { ...job, outcome: "updated", message: joinMessages(result.flagWarning, publish.message), translation: updated };
+    return { ...job, outcome: "updated", message: joinMessages(result.flagWarning, result.notice, publish.message), translation: updated };
   } catch (cause) {
     const changedMeanwhile = cause instanceof ApiResponseError && cause.status === 409;
     return {

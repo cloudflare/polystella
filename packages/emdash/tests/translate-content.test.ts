@@ -4,11 +4,33 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import { contentSegmentLabel } from "../src/server/routes/debug-collector.js";
-import { EMDASH_BLOCK_FIELDS, translateContentFields } from "../src/server/translate-content.js";
+import { EMDASH_BLOCK_FIELDS, samePageLinksNotice, translateContentFields } from "../src/server/translate-content.js";
 
 function translator(response: string): Translator {
   return { modelId: "test", translate: async () => response };
 }
+
+describe("samePageLinksNotice", () => {
+  it("counts `#…` link annotations and Markdown links, and ignores other links", () => {
+    const body = [
+      {
+        _type: "block",
+        _key: "b",
+        markDefs: [
+          { _type: "link", _key: "l1", href: "#getting-started" },
+          { _type: "link", _key: "l2", href: "/pricing/#plans" },
+          { _type: "link", _key: "l3", href: "#" },
+        ],
+        children: [],
+      },
+      { _type: "faq", _key: "f", answer: "See [setup](#setup) and [docs](https://example.com/#x)." },
+    ];
+    expect(samePageLinksNotice({ title: "No links", body })).toBe(
+      "Review 2 same-page links (#…) by hand: if a link points at a heading, the translated heading may have a different anchor.",
+    );
+    expect(samePageLinksNotice({ title: "Plain", body: [{ _type: "block", markDefs: [{ href: "/a" }] }] })).toBeNull();
+  });
+});
 
 describe("translateContentFields", () => {
   it("translates strings and standard Portable Text spans without changing structure", async () => {

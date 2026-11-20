@@ -144,8 +144,9 @@ export function ContentEditorPanel({ collection, entry, locale }: ContentEditorP
         storeTranslationDebug(collection, entry.id, targetLocale, currentUser.data.id, result.debug);
       }
       // A reload would hide the warning, so the editor asks for one instead.
-      if (result.flagWarning !== null) {
-        setWarning(`${result.flagWarning} Reload the page to see the translated fields.`);
+      const warning = [result.flagWarning, result.notice].filter((part) => part !== null).join(" ");
+      if (warning !== "") {
+        setWarning(`${warning} Reload the page to see the translated fields.`);
         return;
       }
       window.location.reload();
@@ -166,6 +167,8 @@ export function ContentEditorPanel({ collection, entry, locale }: ContentEditorP
     setCreated([]);
     const failed: string[] = [];
     const unflagged: string[] = [];
+    const noticed: string[] = [];
+    let notice = "";
     let flagWarning = "";
     let lastError = "";
     let lastCreated: { id: string; locale: string } | null = null;
@@ -198,6 +201,10 @@ export function ContentEditorPanel({ collection, entry, locale }: ContentEditorP
             unflagged.push(createdLocale);
             flagWarning = result.flagWarning;
           }
+          if (result.notice !== null) {
+            noticed.push(createdLocale);
+            notice = result.notice;
+          }
           const draft = { id: result.entry.id, locale: createdLocale };
           lastCreated = draft;
           setCreated((current) => [...current, draft]);
@@ -208,10 +215,14 @@ export function ContentEditorPanel({ collection, entry, locale }: ContentEditorP
         }
       }
       setCreateLocales(failed);
-      if (unflagged.length > 0) setWarning(`${flagWarning} Affected locales: ${unflagged.join(", ")}.`);
+      const warnings = [
+        ...(unflagged.length > 0 ? [`${flagWarning} Affected locales: ${unflagged.join(", ")}.`] : []),
+        ...(noticed.length > 0 ? [`${notice} Drafts: ${noticed.join(", ")}.`] : []),
+      ];
+      if (warnings.length > 0) setWarning(warnings.join(" "));
       if (failed.length > 0) {
         setError(panelError(new Error(`${failed.length} of ${createLocales.length} drafts failed (${failed.join(", ")}): ${lastError}`)));
-      } else if (createLocales.length === 1 && lastCreated !== null && unflagged.length === 0) {
+      } else if (createLocales.length === 1 && lastCreated !== null && warnings.length === 0) {
         await navigate({
           to: "/content/$collection/$id",
           params: { collection, id: lastCreated.id },

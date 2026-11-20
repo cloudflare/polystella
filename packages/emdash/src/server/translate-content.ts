@@ -76,6 +76,26 @@ export const EMDASH_BLOCK_FIELDS: BlockFieldPaths = {
   iframe: ["title"],
 };
 
+/**
+ * Sites build heading ids themselves (EmDash adds none), often from the heading text, so a translated
+ * heading can get a new id that copied `#…` links no longer match. PolyStella can't know the site's rule.
+ */
+export function samePageLinksNotice(values: unknown): string | null {
+  let count = 0;
+  const visit = (value: unknown): void => {
+    if (typeof value === "string") count += value.match(/\]\(#[^)\s]+\)/g)?.length ?? 0;
+    else if (Array.isArray(value)) value.forEach(visit);
+    else if (isRecord(value)) {
+      if (typeof value.href === "string" && value.href.length > 1 && value.href.startsWith("#")) count += 1;
+      Object.values(value).forEach(visit);
+    }
+  };
+  visit(values);
+  if (count === 0) return null;
+  const links = count === 1 ? "1 same-page link (#…)" : `${count} same-page links (#…)`;
+  return `Review ${links} by hand: if a link points at a heading, the translated heading may have a different anchor.`;
+}
+
 export class ContentTranslationInputError extends Error {
   constructor(message: string) {
     super(message);

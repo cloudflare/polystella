@@ -19,6 +19,8 @@ export type ContentTranslationResult =
       debug?: TranslationDebugTrace | undefined;
       /** Set when the content saved but the AI-translated flag did not. */
       flagWarning: string | null;
+      /** Something an editor should check by hand, such as same-page links. */
+      notice: string | null;
     }
   | { entry: null; error: string; debug: TranslationDebugTrace };
 
@@ -37,7 +39,8 @@ export async function translateExistingEntry(input: TranslateExistingEntryInput)
   const result = await requestTranslation(input, entryId, locale);
   if (result.patch === null) return { entry: null, error: result.error, debug: result.debug };
   const entry = await updateContent(collection, entryId, { data: result.patch, _rev: saved._rev }, { locale });
-  return { entry, debug: result.debug, flagWarning: await recordAiTranslation(collection, entry.id, input.fields) };
+  const flagWarning = await recordAiTranslation(collection, entry.id, input.fields);
+  return { entry, debug: result.debug, flagWarning, notice: result.notice ?? null };
 }
 
 export interface CreateTranslatedEntryInput extends ContentTranslationHooks {
@@ -61,7 +64,8 @@ export async function createTranslatedEntry(input: CreateTranslatedEntryInput): 
     locale,
     translationOf: sourceEntryId,
   });
-  return { entry, debug: result.debug, flagWarning: await recordAiTranslation(collection, entry.id, input.fields) };
+  const flagWarning = await recordAiTranslation(collection, entry.id, input.fields);
+  return { entry, debug: result.debug, flagWarning, notice: result.notice ?? null };
 }
 
 /** Marks the saved entry as AI-translated for `getEnrichedEntry`. Runs before any publish, so a live page never lacks its flag. */

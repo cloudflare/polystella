@@ -106,7 +106,13 @@ export interface TranslationDebugTrace {
 }
 
 export type TranslateContentResponse =
-  | { patch: Record<string, unknown>; batchCount: number; debug?: TranslationDebugTrace | undefined }
+  | {
+      patch: Record<string, unknown>;
+      batchCount: number;
+      /** Something an editor should check by hand, such as same-page links. */
+      notice?: string | undefined;
+      debug?: TranslationDebugTrace | undefined;
+    }
   | { patch: null; batchCount: number; error: string; debug: TranslationDebugTrace }
   | { patch: null; batchCount: number; next: TranslateContentNextPart; debug?: TranslationDebugTrace | undefined };
 

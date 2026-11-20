@@ -119,6 +119,10 @@ and reloads after success. Unsaved browser changes are not translated and are
 lost after confirmation. A save refused by another editor's edit lock names the
 lock holder.
 
+Same-page links (`#…`) are copied unchanged. EmDash gives headings no ids, so
+sites build their own, often from the heading text, and a translated heading can
+get a different anchor. The panel and batch results list these links for review.
+
 Long entries are translated in parts of up to 30,000 characters and 500 text
 segments, one request per part, so each request stays short. The panel shows
 which part is running; queued batch jobs translate one part per queue message.

@@ -79,6 +79,8 @@ export interface BatchCreatePayload {
 export interface BatchTranslateResponse {
   create: BatchCreatePayload | null;
   publish?: boolean;
+  /** Recorded with the created row, for an editor to check by hand. */
+  notice?: string;
 }
 
 export interface BatchQueue {

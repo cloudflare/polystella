@@ -1697,7 +1697,7 @@ describe("EmDash batch queue routes", () => {
       _type: "block",
       _key: key,
       style: "normal",
-      markDefs: [],
+      markDefs: [{ _type: "link", _key: `${key}m`, href: "#intro" }],
       children: [{ _type: "span", _key: `${key}s`, text, marks: [] }],
     });
     let body = ["a", "b", "c", "d"].map((key) => paragraph(key));
@@ -1719,7 +1719,10 @@ describe("EmDash batch queue routes", () => {
     if (!("next" in first)) throw new Error("expected a next part");
     expect(first.next).toMatchObject({ part: 1, partCount: 2 });
     const last = (await call("translate-content", { ...input, ...first.next }, "POST", longEntry)) as TranslateContentResponse;
-    expect(last.patch).toEqual({ title: "FR", body: translatedBody });
+    expect(last).toMatchObject({
+      patch: { title: "FR", body: translatedBody },
+      notice: expect.stringContaining("Review 4 same-page links"),
+    });
     await expect(call("translate-content", { ...input, ...first.next, fingerprint: "stale" }, "POST", longEntry)).rejects.toMatchObject({
       status: 409,
     });
@@ -1732,7 +1735,10 @@ describe("EmDash batch queue routes", () => {
     expect(sent).toEqual([{ ...message, part: 1 }]);
     await expect(call("batch/translate", message, "POST", longEntry)).resolves.toEqual({ create: null });
     const created = await call("batch/translate", { ...message, part: 1 }, "POST", longEntry);
-    expect(created).toMatchObject({ create: { data: { title: "FR", body: translatedBody } } });
+    expect(created).toMatchObject({
+      create: { data: { title: "FR", body: translatedBody } },
+      notice: expect.stringContaining("Review 4 same-page links"),
+    });
     expect(await batch.results.count({ jobId: job.id })).toBe(0);
 
     await call("batch/translate", message, "POST", longEntry);

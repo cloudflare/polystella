@@ -111,6 +111,7 @@ import {
   applyContentTranslations,
   ContentTranslationInputError,
   planContentTranslation,
+  samePageLinksNotice,
   translateContentPart,
   type ContentPlan,
 } from "../translate-content.js";
@@ -346,7 +347,13 @@ export function createPluginRoutes(
           if (patch === null && next !== null)
             return { patch, batchCount: result.batchCount, next, ...trace } satisfies TranslateContentResponse;
           if (patch === null) throw new Error("[polystella-emdash] no patch for the last part");
-          return { patch, batchCount: result.batchCount, ...trace } satisfies TranslateContentResponse;
+          const notice = samePageLinksNotice(patch);
+          return {
+            patch,
+            batchCount: result.batchCount,
+            ...(notice === null ? {} : { notice }),
+            ...trace,
+          } satisfies TranslateContentResponse;
         } catch (error) {
           if (error instanceof ContentTranslationInputError) throw PluginRouteError.badRequest(error.message);
           if (debug !== undefined && translationStarted) {
@@ -869,6 +876,7 @@ export function createPluginRoutes(
           }
           const patch = applyContentTranslations(plan, translations);
           if (part > 0) await results.delete(batchPartsId(message));
+          const notice = samePageLinksNotice(patch);
           return {
             create: {
               collection,
@@ -879,6 +887,7 @@ export function createPluginRoutes(
               ...(job.createdBy === null ? {} : { authorId: job.createdBy }),
             },
             publish: job.publish,
+            ...(notice === null ? {} : { notice }),
           } satisfies BatchTranslateResponse;
         } catch (error) {
           const failure = batchFailureMessage(error, ctx.log);
