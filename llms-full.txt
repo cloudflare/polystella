@@ -1064,6 +1064,10 @@ A `PermanentProviderError` on any batch short-circuits the entire
 sequentially. Parallelism already exists at the (file, locale) pair
 level via the worker pool; sequential within-file batches keep
 rate-limit math simple (effective in-flight requests = pool size).
+`translateSegments` takes an opt-in `concurrency` (default 1) for
+callers with no outer pool: EmDash content translation sends 3
+batches of one entry at once. The first failure aborts the batches
+still in flight.
 
 **Cache-key invariance (v1 trade-off).** `documentContext` and
 `markdown.contextKeys` are NOT in the cache-key hash. Changing

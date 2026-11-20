@@ -151,7 +151,24 @@ function normalizeValue(value: unknown): string | undefined {
 function unexpectedResponseError(providerName: string, modelId: string, detail: string, data: unknown): Error {
   const serialized = safeStringify(data);
   const preview = serialized.length > 800 ? `${serialized.slice(0, 800)}\n... [truncated, total length ${serialized.length}]` : serialized;
-  return new Error(`[polystella] unexpected ${providerName} response shape (model="${modelId}"): ${detail}. Raw response was:\n${preview}`);
+  return new Error(
+    `[polystella] unexpected ${providerName} response shape (model="${modelId}"): ${detail}. Raw response was:\n${firstChoiceSummary(data)}${preview}`,
+  );
+}
+
+/** Reasoning fields can fill the preview, so the finish reason and field sizes are listed first. */
+function firstChoiceSummary(data: unknown): string {
+  const choices = [property(property(data, "result"), "choices"), property(data, "choices")].find(Array.isArray);
+  const choice: unknown = choices?.[0];
+  if (choice === undefined) return "";
+  const message = property(choice, "message");
+  const fields =
+    message !== null && typeof message === "object"
+      ? Object.entries(message).map(
+          ([key, value]) => `${key}=${typeof value === "string" ? `${value.length} chars` : value === null ? "null" : typeof value}`,
+        )
+      : [];
+  return `choices[0]: finish_reason=${JSON.stringify(property(choice, "finish_reason")) ?? "undefined"}; message: ${fields.join(", ") || "none"}\n`;
 }
 
 function safeStringify(value: unknown): string {

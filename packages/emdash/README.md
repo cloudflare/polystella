@@ -86,6 +86,11 @@ server-side, and never include credentials, authorization headers, account IDs,
 or raw provider HTTP envelopes. Successful content traces survive the existing
 editor reload in browser session storage for one view.
 
+Whether or not debug mode is on, every failure writes its diagnostic ID to the
+server log with the full error message, its code and cause chain, and for an
+unusable model reply the finish reason and reply field sizes. Editors see only a
+short, safe message and the same ID.
+
 The native admin registers one **PolyStella** page with **Catalog**,
 **Collections**, **Translation settings**, and **Translation sandbox** tabs.
 These controls use EmDash's Kumo design system; no generated plugin settings

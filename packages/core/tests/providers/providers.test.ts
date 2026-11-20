@@ -176,6 +176,19 @@ describe("Workers AI binding translator", () => {
     await expect(http.translate("s", "u")).rejects.toThrow("max_tokens=512");
   });
 
+  it("summarizes the first choice before the preview of an unusable reply", async () => {
+    const translator = createWorkersAIBindingTranslator({
+      modelId: "reasoner",
+      maxTokens: 100,
+      run: vi
+        .fn()
+        .mockResolvedValue({ choices: [{ message: { content: null, reasoning_content: "x".repeat(2000) }, finish_reason: "stop" }] }),
+    });
+    await expect(translator.translate("s", "u")).rejects.toThrow(
+      'Raw response was:\nchoices[0]: finish_reason="stop"; message: content=null, reasoning_content=2000 chars\n{"choices"',
+    );
+  });
+
   it("includes a preview for unsupported binding responses", async () => {
     const translator = createWorkersAIBindingTranslator({
       modelId: "model",

@@ -19,8 +19,29 @@ export function translationFailureMessage(
     operation,
     errorType: error instanceof Error ? error.name : typeof error,
     message,
+    raw: rawErrorChain(error),
   });
   return `${message} (Diagnostic ID: ${diagnosticId})`;
+}
+
+const MAX_LOGGED_CAUSES = 5;
+const MAX_LOGGED_MESSAGE_CHARACTERS = 4000;
+
+/** Server log only: the full message (provider response previews included), code, and cause chain. */
+function rawErrorChain(error: unknown): Array<{ name: string; message: string; code?: unknown }> {
+  const chain: Array<{ name: string; message: string; code?: unknown }> = [];
+  let current = error;
+  while (current !== undefined && chain.length < MAX_LOGGED_CAUSES) {
+    const message = current instanceof Error ? current.message : String(current);
+    const code = current instanceof Error && "code" in current ? current.code : undefined;
+    chain.push({
+      name: current instanceof Error ? current.name : typeof current,
+      message: message.length > MAX_LOGGED_MESSAGE_CHARACTERS ? `${message.slice(0, MAX_LOGGED_MESSAGE_CHARACTERS)}...` : message,
+      ...(code === undefined ? {} : { code }),
+    });
+    current = current instanceof Error ? current.cause : undefined;
+  }
+  return chain;
 }
 
 export function publicTranslationFailure(error: unknown): string {

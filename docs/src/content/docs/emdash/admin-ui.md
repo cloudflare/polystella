@@ -113,6 +113,11 @@ diagnostic ID. Traces are returned only to administrators, are not
 stored server-side, and never include credentials, authorization
 headers, account IDs, or raw provider HTTP envelopes.
 
+Whether or not debug mode is on, every failure writes its diagnostic ID to the
+server log with the full error message, its code and cause chain, and for an
+unusable model reply the finish reason and reply field sizes. Editors see only a
+short, safe message and the same ID.
+
 ## Translation sandbox tab
 
 Lets an Administrator translate up to 30,000 characters of freeform

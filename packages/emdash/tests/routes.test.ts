@@ -676,13 +676,26 @@ describe("EmDash plugin routes", () => {
       getEnv: async () => ({
         AI: {
           run: async () => {
-            throw new Error("Authorization: secret-token");
+            throw Object.assign(new Error("Authorization: secret-token", { cause: new Error("socket hang up") }), { code: 3040 });
           },
         },
       }),
     });
-    const secretFailure = await route(secretFailureRoutes, "translate-content").handler(context(input, "POST", kv, storage));
+    const logged: unknown[] = [];
+    const secretContext = context(input, "POST", kv, storage);
+    secretContext.log = { ...secretContext.log, error: (_message: string, data?: unknown) => void logged.push(data) };
+    const secretFailure = (await route(secretFailureRoutes, "translate-content").handler(secretContext)) as TranslateContentResponse;
     expect(JSON.stringify(secretFailure)).not.toContain("secret-token");
+    // The raw error stays in the server log, under the same Diagnostic ID editors see.
+    expect(logged).toEqual([
+      expect.objectContaining({
+        diagnosticId: secretFailure.debug?.id,
+        raw: [
+          { name: "Error", message: "Authorization: secret-token", code: 3040 },
+          { name: "Error", message: "socket hang up" },
+        ],
+      }),
+    ]);
   });
 
   it("attributes content validation failures to their source batch", async () => {
