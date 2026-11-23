@@ -52,6 +52,9 @@ export default {
 }
 ```
 
+- Switching syntax doesn't convert existing strings. A `{{name}}` string is
+  not valid ICU, so `t()` falls back to the key for it. Run `check-ui`
+  after switching: it lists every string to convert.
 - `{name}` gets the same missing/spurious checks, plural-category checks
   and translation retries as `{{name}}`.
 - Apostrophes follow the same rule with single braces: write `''` directly
