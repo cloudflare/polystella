@@ -418,7 +418,7 @@ describe("EmDash block type defaults", () => {
       devDependencies: Record<string, string>;
     };
     // Bumping EmDash? Compare EMDASH_BLOCK_FIELDS with EmDash's src/content/converters and src/components, then update this.
-    expect(manifest.devDependencies.emdash, "EMDASH_BLOCK_FIELDS was last checked against EmDash 1.5.0").toBe("1.5.0");
+    expect(manifest.devDependencies.emdash, "EMDASH_BLOCK_FIELDS was last checked against EmDash 1.6.0").toBe("1.6.0");
     expect(Object.keys(EMDASH_BLOCK_FIELDS)).not.toContain("code");
   });
 });
