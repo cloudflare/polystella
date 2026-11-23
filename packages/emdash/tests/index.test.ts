@@ -53,6 +53,7 @@ describe("polystellaEmdash", () => {
         batch_jobs: { indexes: ["createdAt"] },
         batch_results: { indexes: ["jobId", "outcome"] },
         ai_translations: { indexes: ["locale"] },
+        ai_translation_pending: { indexes: [] },
       },
     });
     expect(plugin.id).toBe(descriptor.id);
@@ -63,6 +64,7 @@ describe("polystellaEmdash", () => {
       "settings/translation",
       "policy",
       "ai-translation",
+      "ai-translation/pending",
       "ai-translation/status",
       "ai-translation/review",
       "translate-content",

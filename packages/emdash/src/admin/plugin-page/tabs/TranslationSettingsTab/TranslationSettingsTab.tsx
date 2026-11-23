@@ -52,6 +52,7 @@ export function TranslationSettingsTab(): ReactNode {
           debugEnabled: settings.debugEnabled,
           maxTokens: settings.maxTokens,
           clearAiFlagOnEdit: settings.clearAiFlagOnEdit,
+          translateSeoWhenPublished: settings.translateSeoWhenPublished,
           locales: Object.fromEntries(
             settings.locales.map((locale) => [
               locale.locale,
@@ -111,6 +112,15 @@ export function TranslationSettingsTab(): ReactNode {
               disabled={working}
               onCheckedChange={(clearAiFlagOnEdit) =>
                 setSettings((current) => (current === null ? null : { ...current, clearAiFlagOnEdit }))
+              }
+            />
+            <Switch
+              label="Translate the SEO title and meta description of published and scheduled entries"
+              labelTooltip="Off: the PolyStella panel translates SEO text only on drafts. On: it also translates it on published and scheduled entries. EmDash saves SEO text as soon as it changes, so on those entries the translation takes effect before anyone reviews it."
+              checked={settings.translateSeoWhenPublished}
+              disabled={working}
+              onCheckedChange={(translateSeoWhenPublished) =>
+                setSettings((current) => (current === null ? null : { ...current, translateSeoWhenPublished }))
               }
             />
             <h3>Shared translation instructions</h3>

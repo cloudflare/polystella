@@ -137,6 +137,7 @@ export async function translationSettingsView(
     maxTokens: stored.maxTokens,
     defaultMaxTokens: defaultMaxTokens(options),
     clearAiFlagOnEdit: stored.clearAiFlagOnEdit,
+    translateSeoWhenPublished: stored.translateSeoWhenPublished,
     allowedModels: [...options.models.allowed],
     locales,
     instructions: {
@@ -155,6 +156,8 @@ export async function saveTranslationSettings(
   const expectedRevision = readRevision(input.revision);
   const debugEnabled = input.debugEnabled === undefined ? false : readBoolean(input.debugEnabled, "debugEnabled");
   const clearAiFlagOnEdit = input.clearAiFlagOnEdit === undefined ? false : readBoolean(input.clearAiFlagOnEdit, "clearAiFlagOnEdit");
+  const translateSeoWhenPublished =
+    input.translateSeoWhenPublished === undefined ? false : readBoolean(input.translateSeoWhenPublished, "translateSeoWhenPublished");
   const maxTokens = input.maxTokens === undefined || input.maxTokens === null ? null : input.maxTokens;
   if (maxTokens !== null && !isMaxTokens(maxTokens)) {
     throw PluginRouteError.badRequest(`maxTokens must be null or an integer from ${MIN_MAX_TOKENS} to ${MAX_MAX_TOKENS}`);
@@ -192,6 +195,7 @@ export async function saveTranslationSettings(
     debugEnabled,
     maxTokens,
     clearAiFlagOnEdit,
+    translateSeoWhenPublished,
     locales: Object.fromEntries(values.map(({ locale, ...localeSettings }) => [locale, localeSettings])),
     instructions: { mode: instructionMode, text: instructionText },
   } satisfies StoredTranslationSettings);
@@ -224,6 +228,8 @@ export interface StoredTranslationSettings {
   maxTokens: number | null;
   /** Remove the AI-translated flag as soon as an AI-written field is saved with other text. */
   clearAiFlagOnEdit: boolean;
+  /** EmDash saves a patched SEO title or description at once, so on a published entry it goes live before review. */
+  translateSeoWhenPublished: boolean;
   locales: Record<string, StoredLocaleSettings>;
   instructions: { mode: CustomizationMode; text: string };
 }
@@ -260,6 +266,7 @@ function parseTranslationSettings(options: PolystellaEmdashOptions, stored: unkn
     debugEnabled: storedRoot.debugEnabled === true,
     maxTokens: isMaxTokens(storedRoot.maxTokens) ? storedRoot.maxTokens : null,
     clearAiFlagOnEdit: storedRoot.clearAiFlagOnEdit === true,
+    translateSeoWhenPublished: storedRoot.translateSeoWhenPublished === true,
     locales,
     instructions: {
       mode: isCustomizationMode(storedInstructions.mode)

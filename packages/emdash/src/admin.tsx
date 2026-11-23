@@ -2,7 +2,7 @@ import type { ContentEditorPanelExtension } from "@emdash-cms/admin";
 
 import { BatchRunPage } from "./admin/plugin-page/BatchRunPage.js";
 import { Page } from "./admin/plugin-page/Page.js";
-import { ContentEditorPanel, panelErrorMessage } from "./admin/panels/ContentEditorPanel.js";
+import { ContentEditorPanel, panelErrorMessage, panelIsVisible } from "./admin/panels/ContentEditorPanel.js";
 import { TranslationProgress } from "./admin/components/TranslationProgress/TranslationProgress.js";
 import {
   catalogOverrideChanged,
@@ -39,6 +39,7 @@ export const contentEditorPanels = [
     id: "polystella",
     title: "PolyStella",
     component: ContentEditorPanel,
+    isVisible: panelIsVisible,
     minRole: 40,
   },
 ] satisfies readonly ContentEditorPanelExtension[];

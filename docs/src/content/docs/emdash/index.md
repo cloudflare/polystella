@@ -144,10 +144,11 @@ The routes do not stream batch-level progress.
 
 ## EmDash limitations
 
-- Panels use the latest saved entry, not unsaved form state.
-- EmDash leaves an empty PolyStella section on collections disabled
-  in plugin settings because panel visibility cannot be resolved
-  asynchronously.
+- Before EmDash 1.6, the panel saves the translation and reloads, so
+  unsaved changes are lost. From 1.6 on, it fills the open form for
+  review instead.
+- Before EmDash 1.5, an empty PolyStella section shows on collections
+  disabled in plugin settings.
 
 ## See also
 
