@@ -3,7 +3,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { EMPTY_GLOSSARY } from "../index.js";
-import { detectCatalogFormat, flattenCatalog, resolveLocaleTag, type IgnoreKey } from "../catalog/index.js";
+import { detectCatalogFormat, flattenCatalog, resolveLocaleTag } from "../catalog/index.js";
 import {
   DEFAULT_UI_STRING_BATCH_SIZE,
   formatTokenValidationIssue,
@@ -18,6 +18,7 @@ import {
   loadPolystellaConfig,
   resolveCatalogConfig,
   resolveCatalogOptions,
+  type CatalogOptions,
 } from "./config.js";
 import { loadGlossaries } from "./glossary.js";
 import { runWithConcurrency } from "../pool.js";
@@ -38,9 +39,11 @@ export const TRANSLATE_UI_USAGE = `polystella translate-ui
 
 Sync UI-string JSON files (key add/remove) and fill empty placeholders
 via the configured AI provider. Keys matching catalog.ignoreKeys are
-never translated and stay untouched. Complete locale JSONs are skipped
-before provider setup. Locales with work run in parallel up to 3 at a
-time (also capped by polystella.config.mjs \`concurrency\`).
+never translated and stay untouched; catalog.messageSyntax selects
+"polystella" ({{name}}) or "icu" ({name}) messages. Complete locale
+JSONs are skipped before provider setup. Locales with work run in
+parallel up to 3 at a time (also capped by polystella.config.mjs
+\`concurrency\`).
 
 Usage:
   polystella translate-ui [flags]
@@ -120,16 +123,17 @@ export async function runTranslateUi(args: TranslateUiArgs, deps: TranslateUiDep
   }
 
   let rawConfig: unknown;
-  let ignoreKey: IgnoreKey | undefined;
+  let catalog: CatalogOptions;
   try {
     rawConfig = await loadOptionalPolystellaConfig(deps.cwd);
-    ignoreKey = resolveCatalogOptions(rawConfig).ignoreKey;
+    catalog = resolveCatalogOptions(rawConfig);
   } catch (error) {
     const message = errorMessage(error);
     deps.err(message.startsWith("[polystella]") ? message : `[polystella] ${message}`);
     return 1;
   }
 
+  const { ignoreKey } = catalog;
   const baseDir = args.base ?? DEFAULT_CATALOG_BASE;
   let syncResult;
   try {
@@ -240,6 +244,7 @@ export async function runTranslateUi(args: TranslateUiArgs, deps: TranslateUiDep
         maxRetries: resolved.maxRetries,
         inputTokenBudget: provider.batchInputTokenBudget,
         ...(resolved.glossary?.matchInflections === undefined ? {} : { matchInflections: resolved.glossary.matchInflections }),
+        messageSyntax: catalog.messageSyntax,
         retryMinTimeoutMs: 250,
         retryFactor: 2,
         retryRandomize: true,

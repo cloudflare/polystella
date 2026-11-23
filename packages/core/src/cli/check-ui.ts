@@ -23,8 +23,9 @@ export const CHECK_UI_USAGE = `polystella check-ui
 Verify every non-default locale's UI-string JSON has the same key set as
 the default locale, and that every string is a valid message whose
 placeholders, plural and select branches match the default locale.
-Runs offline — suitable for a pre-commit hook. Reads localeTags and
-catalog.ignoreKeys from polystella.config.mjs when present.
+Runs offline — suitable for a pre-commit hook. Reads localeTags,
+catalog.ignoreKeys and catalog.messageSyntax from polystella.config.mjs
+when present.
 
 Usage:
   polystella check-ui [flags]
@@ -101,6 +102,7 @@ export async function runCheckUi(args: CheckUiArgs, deps: CheckUiDeps): Promise<
     defaultLocale: i18n.defaultLocale,
     localeTags,
     ignoreKey: catalog.ignoreKey,
+    messageSyntax: catalog.messageSyntax,
   });
   if (result.ok && result.messageIssues.length === 0) {
     deps.log(`[polystella] UI-strings drift check passed (${i18n.locales.length} locales, base: ${path.normalize(baseDir)}).`);
@@ -111,8 +113,13 @@ export async function runCheckUi(args: CheckUiArgs, deps: CheckUiDeps): Promise<
     deps.err("[polystella] invalid UI-string messages:");
     deps.err(formatMessageIssues(result.messageIssues));
     deps.err("");
-    deps.err("Placeholders are {{name}}; plurals are {{count, plural, one {# item} other {# items}}}.");
-    deps.err("Write '' for an apostrophe directly before {{, } or # inside a plural.");
+    if (catalog.messageSyntax === "icu") {
+      deps.err("Placeholders are {name}; plurals are {count, plural, one {# item} other {# items}}.");
+      deps.err("Write '' for an apostrophe directly before {, } or # inside a plural.");
+    } else {
+      deps.err("Placeholders are {{name}}; plurals are {{count, plural, one {# item} other {# items}}}.");
+      deps.err("Write '' for an apostrophe directly before {{, } or # inside a plural.");
+    }
     if (result.ok) return 1;
     deps.err("");
   }
