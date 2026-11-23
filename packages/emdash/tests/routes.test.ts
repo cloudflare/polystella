@@ -1289,6 +1289,173 @@ describe("EmDash plugin routes", () => {
     expect(exported.json).toBe('{\n  "$schema": "s",\n  "greeting": "Coucou",\n  "bye": "Salut"\n}\n');
   });
 
+  it("rejects overrides and generation for ignored keys, and hides ignored groups with their titles", async () => {
+    const configured = options();
+    const variants = [{ match: {} }] as unknown as string;
+    configured.catalog = { ignoreKeys: ["\\$schema", "internal", "nav\\.secret"] };
+    const dictionary = (greeting: string) => ({
+      $schema: "s",
+      greeting,
+      internal: { i18n_group_title: "Internal", flag: variants },
+      nav: { i18n_group_title: "Navigation", secret: variants, label: greeting },
+    });
+    configured.catalogs.locales["en-US"] = { dictionary: dictionary("Hello"), filePath: "src/i18n/en-US.json" };
+    configured.catalogs.locales["fr-FR"] = { dictionary: dictionary("Bonjour"), filePath: "src/i18n/fr-FR.json" };
+    const seen: string[] = [];
+    const routes = createPluginRoutes(configured, {
+      ...dependencies(),
+      getEnv: async () => ({
+        AI: {
+          run: async (_model: string, input: WorkersAIInput) => {
+            seen.push(input.messages.map((message) => message.content).join("\n"));
+            return { response: "@@catalog:0@@\nSalut" };
+          },
+        },
+      }),
+    });
+    const kv = createKv();
+    const storage = createStorage();
+
+    const view = (await route(routes, "catalog").handler(context({}, "GET", kv, storage))) as CatalogViewResponse;
+    expect(view.groups).toEqual([{ key: "nav", title: "Navigation" }]);
+    expect(view.entries.map((entry) => entry.key)).toEqual(["greeting", "nav.label"]);
+
+    for (const key of ["$schema", "internal.flag", "nav.secret"]) {
+      await expect(
+        route(routes, "catalog/overrides").handler(
+          context({ locale: "fr-FR", overrides: { [key]: "x" }, expected: null }, "PUT", kv, storage),
+        ),
+      ).rejects.toMatchObject({ status: 400, message: `unknown catalog key "${key}"` });
+    }
+    for (const key of ["$schema", "internal.flag", "nav.secret"]) {
+      await expect(
+        route(routes, "catalog/generate").handler(context({ locale: "fr-FR", keys: [key] }, "POST", kv, storage)),
+      ).rejects.toMatchObject({ status: 400, message: `key "${key}" has no source value` });
+    }
+    expect(seen).toEqual([]);
+
+    const generated = await route(routes, "catalog/generate").handler(
+      context({ locale: "fr-FR", keys: ["nav.label"] }, "POST", kv, storage),
+    );
+    expect(generated).toMatchObject({ translations: { "nav.label": "Salut" } });
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).not.toContain("match");
+  });
+
+  it("exports nested catalogs with an ignored leaf kept verbatim and the group title intact", async () => {
+    const configured = options();
+    const variants = [{ match: { "n=1": "x" } }] as unknown as string;
+    configured.catalog = { ignoreKeys: ["nav\\.secret"] };
+    configured.catalogs.locales["en-US"] = {
+      dictionary: { nav: { i18n_group_title: "Navigation", greeting: "Hello", secret: variants } },
+      filePath: "src/i18n/en-US.json",
+    };
+    configured.catalogs.locales["fr-FR"] = {
+      dictionary: { nav: { i18n_group_title: "Navigation", greeting: "Bonjour", secret: variants } },
+      filePath: "src/i18n/fr-FR.json",
+    };
+    const routes = createPluginRoutes(configured, dependencies());
+    const kv = createKv();
+    const storage = createStorage();
+    await route(routes, "catalog/overrides").handler(
+      context({ locale: "fr-FR", overrides: { "nav.greeting": "Salut" }, expected: null }, "PUT", kv, storage),
+    );
+    const view = (await route(routes, "catalog").handler(context({}, "GET", kv, storage))) as CatalogViewResponse;
+    expect(view.entries.map((entry) => entry.key)).toEqual(["nav.greeting"]);
+    const exported = (await route(routes, "catalog/export").handler(
+      context({ locale: "fr-FR" }, "GET", kv, storage),
+    )) as CatalogExportResponse;
+    expect(JSON.parse(exported.json)).toEqual({ nav: { i18n_group_title: "Navigation", greeting: "Salut", secret: variants } });
+  });
+
+  describe.each([
+    ["flat", true, "extra", { $schema: "s", greeting: "Hello", extra: "Extra" }, { $schema: "s", greeting: "Bonjour" }, it],
+    [
+      "nested",
+      true,
+      "nav.extra",
+      { $schema: "s", nav: { greeting: "Hello", extra: "Extra" } },
+      { $schema: "s", nav: { greeting: "Bonjour" } },
+      it,
+    ],
+    ["nested without ignoreKeys", false, "nav.extra", { nav: { greeting: "Hello", extra: "Extra" } }, { nav: { greeting: "Bonjour" } }, it],
+  ] as const)("export of a key missing from the locale file (%s)", (_name, ignore, key, sourceDictionary, targetDictionary, test) => {
+    test("keeps the override and the ignored $schema first", async () => {
+      const configured = options();
+      if (ignore) configured.catalog = { ignoreKeys: ["\\$schema"] };
+      configured.catalogs.locales["en-US"] = { dictionary: sourceDictionary, filePath: "src/i18n/en-US.json" };
+      configured.catalogs.locales["fr-FR"] = { dictionary: targetDictionary, filePath: "src/i18n/fr-FR.json" };
+      const routes = createPluginRoutes(configured, dependencies());
+      const kv = createKv();
+      const storage = createStorage();
+      await route(routes, "catalog/overrides").handler(
+        context({ locale: "fr-FR", overrides: { [key]: "Supplément" }, expected: null }, "PUT", kv, storage),
+      );
+      const exported = (await route(routes, "catalog/export").handler(
+        context({ locale: "fr-FR" }, "GET", kv, storage),
+      )) as CatalogExportResponse;
+      expect(exported.json).toContain("Supplément");
+      if (ignore) expect(Object.keys(JSON.parse(exported.json) as object)[0]).toBe("$schema");
+    });
+  });
+
+  it("keeps locale-only keys and the locale's order inside merged nested exports", async () => {
+    const configured = options();
+    configured.catalogs.locales["en-US"] = { dictionary: { nav: { greeting: "Hello", extra: "Extra" } }, filePath: "src/i18n/en-US.json" };
+    configured.catalogs.locales["fr-FR"] = {
+      dictionary: { nav: { i18n_group_title: "Navigation", greeting: "Bonjour", stale: "Ancien" } },
+      filePath: "src/i18n/fr-FR.json",
+    };
+    const routes = createPluginRoutes(configured, dependencies());
+    const exported = (await route(routes, "catalog/export").handler(
+      context({ locale: "fr-FR" }, "GET", createKv(), createStorage()),
+    )) as CatalogExportResponse;
+    expect(exported.json).toBe(
+      '{\n  "nav": {\n    "i18n_group_title": "Navigation",\n    "greeting": "Bonjour",\n    "stale": "Ancien"\n  }\n}\n',
+    );
+  });
+
+  it("hides a group whose children are all ignored, and keeps stored overrides for newly ignored keys out", async () => {
+    const before = options();
+    before.catalogs.locales["en-US"] = { dictionary: { nav: { home: "Home" }, internal: { flag: "x" } }, filePath: "src/i18n/en-US.json" };
+    before.catalogs.locales["fr-FR"] = {
+      dictionary: { nav: { home: "Accueil" }, internal: { flag: "x" } },
+      filePath: "src/i18n/fr-FR.json",
+    };
+    const kv = createKv();
+    const storage = createStorage();
+    await route(createPluginRoutes(before, dependencies()), "catalog/overrides").handler(
+      context({ locale: "fr-FR", overrides: { "internal.flag": "y" }, expected: null }, "PUT", kv, storage),
+    );
+
+    const after = structuredClone(before);
+    after.catalog = { ignoreKeys: ["internal\\..*"] };
+    const routes = createPluginRoutes(after, dependencies());
+    const view = (await route(routes, "catalog").handler(context({ locale: "fr-FR" }, "GET", kv, storage))) as CatalogViewResponse;
+    expect(view.groups).toEqual([{ key: "nav", title: null }]);
+    expect(view.entries.map((entry) => entry.key)).toEqual(["nav.home"]);
+    const exported = (await route(routes, "catalog/export").handler(
+      context({ locale: "fr-FR" }, "GET", kv, storage),
+    )) as CatalogExportResponse;
+    expect(JSON.parse(exported.json)).toEqual({ nav: { home: "Accueil" }, internal: { flag: "x" } });
+  });
+
+  it.each([{}, { ignoreKeys: [] }])("treats catalog %j like no catalog block", async (catalog) => {
+    const configured = options();
+    configured.catalog = catalog;
+    const routes = createPluginRoutes(configured, dependencies());
+    const kv = createKv();
+    const storage = createStorage();
+    const view = (await route(routes, "catalog").handler(context({}, "GET", kv, storage))) as CatalogViewResponse;
+    expect(view.messageSyntax).toBe("polystella");
+    expect(view.entries.map((entry) => entry.key)).toEqual(["greeting"]);
+    await expect(
+      route(routes, "catalog/overrides").handler(
+        context({ locale: "fr-FR", overrides: { greeting: "Bonjour {name}" }, expected: null }, "PUT", kv, storage),
+      ),
+    ).rejects.toMatchObject({ status: 400, message: expect.stringContaining("stray {") });
+  });
+
   it('validates overrides and prompts in catalog.messageSyntax "icu"', async () => {
     const configured = options();
     configured.catalog = { messageSyntax: "icu" };

@@ -153,6 +153,32 @@ describe("runCheckUi", () => {
     expect(err.mock.calls.map((call) => String(call[0])).join("\n")).toMatch(/default-locale UI-strings file not found at .*en\.json/);
   });
 
+  it("returns 1 with the --base path when --base has no default-locale catalog", async () => {
+    const cwd = await tmpProjectWithAstroConfig({
+      defaultLocale: "en",
+      locales: ["en", "de"],
+      files: {
+        "src/content/i18n/en.json": JSON.stringify({ a: "A" }),
+        "locales/de.json": JSON.stringify({ a: "Hallo" }),
+      },
+    });
+    const err = vi.fn();
+    expect(await runCheckUi({ help: false, base: "./locales" }, { cwd, log: vi.fn(), err })).toBe(1);
+    const output = err.mock.calls.map((call) => String(call[0])).join("\n");
+    expect(output).toContain(`default-locale UI-strings file not found at ${path.join(cwd, "locales", "en.json")}`);
+  });
+
+  it("returns 1 as drift, not as a missing default, when only a locale file is missing", async () => {
+    const cwd = await tmpProjectWithAstroConfig({
+      defaultLocale: "en",
+      locales: ["en", "de"],
+      files: { "src/content/i18n/en.json": JSON.stringify({ a: "A" }) },
+    });
+    const err = vi.fn();
+    expect(await runCheckUi({ help: false }, { cwd, log: vi.fn(), err })).toBe(1);
+    expect(err.mock.calls.map((call) => String(call[0])).join("\n")).not.toContain("default-locale UI-strings file not found");
+  });
+
   it("returns 1 when astro i18n.locales does not include defaultLocale", async () => {
     const cwd = await tmpProjectWithAstroConfig({
       defaultLocale: "en-US",

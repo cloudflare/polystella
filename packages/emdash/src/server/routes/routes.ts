@@ -1,5 +1,5 @@
 import { resolveModelId, translateSegments, type Glossary, type Segment, type Translator } from "@cloudflare/polystella-core";
-import type { CatalogSource, MessageSyntax } from "@cloudflare/polystella-core/catalog";
+import type { CatalogSource, IgnoreKey, MessageSyntax } from "@cloudflare/polystella-core/catalog";
 import {
   DEFAULT_UI_STRING_BATCH_SIZE,
   formatTokenValidationIssue,
@@ -156,8 +156,8 @@ export function createPluginRoutes(
   inputOptions: PolystellaEmdashOptions,
   dependencies: PluginRouteDependencies = defaultDependencies,
 ): Record<string, PluginRoute> {
-  const options = flattenEmdashCatalogs(inputOptions);
   const ignoreKey = catalogIgnoreKey(inputOptions);
+  const options = flattenEmdashCatalogs(inputOptions, ignoreKey);
   const messageSyntax = catalogMessageSyntax(inputOptions);
   const sourceContentLocale = () => contentLocale(options.catalogs.defaultLocale, dependencies);
   return {
@@ -380,6 +380,7 @@ export function createPluginRoutes(
           overrideStorage(ctx.storage),
           locale,
           inputOptions.catalogs.locales[inputOptions.catalogs.defaultLocale]?.dictionary,
+          ignoreKey,
         );
       },
     },
@@ -551,7 +552,14 @@ export function createPluginRoutes(
         return {
           filePath: catalog.filePath,
           filename: catalog.filePath.split("/").at(-1) ?? `${locale}.json`,
-          json: serializeCatalog(locale, catalog.dictionary, overrides, inputOptions.catalogs.locales[locale]?.dictionary, ignoreKey),
+          json: serializeCatalog(
+            locale,
+            catalog.dictionary,
+            overrides,
+            inputOptions.catalogs.locales[locale]?.dictionary,
+            ignoreKey,
+            inputOptions.catalogs.locales[inputOptions.catalogs.defaultLocale]?.dictionary,
+          ),
         } satisfies CatalogExportResponse;
       },
     },
@@ -1205,6 +1213,7 @@ async function catalogView(
   storage: StorageCollection,
   locale: string,
   source?: CatalogSource | undefined,
+  ignoreKey?: IgnoreKey | undefined,
 ): Promise<CatalogViewResponse> {
   const catalog = options.catalogs.locales[configuredTargetLocale(options, locale)];
   const flatSource = options.catalogs.locales[options.catalogs.defaultLocale]?.dictionary;
@@ -1234,7 +1243,7 @@ async function catalogView(
         return { locale: code, filePath: value.filePath, runtimeEnabled: enabledLocales.includes(code) };
       })
       .sort((left, right) => left.locale.localeCompare(right.locale)),
-    groups: catalogGroupTitles(source, catalogIgnoreKey(options)),
+    groups: catalogGroupTitles(source, ignoreKey),
     entries,
     messageSyntax: catalogMessageSyntax(options),
   };

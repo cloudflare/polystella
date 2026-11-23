@@ -330,6 +330,32 @@ describe("polystellaEmdash", () => {
     );
   });
 
+  it("omits catalog from serialized runtime options unless it is set, and keeps an empty block empty", () => {
+    const serialized = (catalog?: PolystellaEmdashOptions["catalog"]): Record<string, unknown> => {
+      const runtimeOptions = polystellaEmdash({ ...validOptions(), ...(catalog === undefined ? {} : { catalog }) }).options;
+      if (runtimeOptions === undefined) throw new Error("descriptor options are missing");
+      return JSON.parse((runtimeOptions as { serialized: string }).serialized) as Record<string, unknown>;
+    };
+
+    expect("catalog" in serialized()).toBe(false);
+    expect(serialized({}).catalog).toEqual({});
+    expect(serialized({ ignoreKeys: [] }).catalog).toEqual({ ignoreKeys: [] });
+    expect(serialized({ messageSyntax: "polystella" }).catalog).toEqual({ messageSyntax: "polystella" });
+  });
+
+  it("rejects malformed catalog blocks", () => {
+    const configured = validOptions();
+    const invalid = (catalog: unknown) => validatePolystellaEmdashOptions({ ...configured, catalog });
+    expect(() => invalid(null)).toThrow("options.catalog");
+    expect(() => invalid([])).toThrow("options.catalog");
+    expect(() => invalid({ ignoreKeys: "plural" })).toThrow("options.catalog.ignoreKeys must be an array");
+    expect(() => invalid({ ignoreKeys: [/plural/] })).toThrow("not RegExp objects");
+    expect(() => invalid({ ignoreKeys: [""] })).toThrow("non-empty");
+    expect(() => invalid({ ignoreKeys: ["a)|(.*"] })).toThrow("invalid regular expression");
+    expect(() => invalid({})).not.toThrow();
+    expect(() => invalid({ ignoreKeys: [] })).not.toThrow();
+  });
+
   it("rejects unknown provider properties instead of serializing them", () => {
     const configured = {
       ...validOptions(),

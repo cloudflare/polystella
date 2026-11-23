@@ -4,7 +4,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { validatePolystellaEmdashOptions, type PolystellaEmdashOptions } from "./server/options.js";
+import { catalogIgnoreKey, validatePolystellaEmdashOptions, type PolystellaEmdashOptions } from "./server/options.js";
 import { flattenEmdashCatalogs } from "./catalog.js";
 import type { PolystellaRuntimeConfig } from "./runtime/runtime.js";
 
@@ -28,7 +28,7 @@ export function polystellaEmdashAstro(
   runtimeOptions: PolystellaEmdashAstroOptions = {},
 ): AstroIntegration {
   validatePolystellaEmdashOptions(options);
-  const normalized = flattenEmdashCatalogs(options);
+  const normalized = flattenEmdashCatalogs(options, catalogIgnoreKey(options));
   const runtimeConfig: PolystellaRuntimeConfig = {
     catalogs: {
       defaultLocale: normalized.catalogs.defaultLocale,

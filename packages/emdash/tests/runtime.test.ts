@@ -132,6 +132,42 @@ describe("EmDash Astro runtime", () => {
     expect((await runtime.buildCatalogTranslator("en-US"))("hi", { name: "Ann" })).toBe("Hello Ann");
   });
 
+  it('falls back to the default locale when a visitor string is invalid ICU in messageSyntax "icu"', async () => {
+    const runtime = createPolystellaRuntime(
+      {
+        catalogs: {
+          defaultLocale: "en-US",
+          locales: {
+            "en-US": { dictionary: { hi: "Hello {name}", bye: "Bye {name}" } },
+            "fr-FR": { dictionary: { hi: "Bonjour {name", bye: "Au revoir {name}" } },
+          },
+        },
+        fallbackToDefault: true,
+        messageSyntax: "icu",
+      },
+      { loadOverrides: async () => ({}), now: () => 5 },
+    );
+
+    const translator = await runtime.buildCatalogTranslator("fr-FR");
+    expect(translator("hi", { name: "Ann" })).toBe("Hello Ann");
+    expect(translator("bye", { name: "Ann" })).toBe("Au revoir Ann");
+  });
+
+  it('leaves {name} literal by default and fills it in messageSyntax "icu"', async () => {
+    const build = (messageSyntax?: "icu") =>
+      createPolystellaRuntime(
+        {
+          catalogs: { defaultLocale: "en-US", locales: { "en-US": { dictionary: { hi: "Hello {name}" } } } },
+          fallbackToDefault: true,
+          ...(messageSyntax === undefined ? {} : { messageSyntax }),
+        },
+        { loadOverrides: async () => ({}), now: () => 6 },
+      );
+
+    expect((await build().buildCatalogTranslator("en-US"))("hi", { name: "Ann" })).toBe("Hello {name}");
+    expect((await build("icu").buildCatalogTranslator("en-US"))("hi", { name: "Ann" })).toBe("Hello Ann");
+  });
+
   it("uses deployed catalogs when override storage fails", async () => {
     invalidateRuntimeOverrides("fr-FR");
     const errors: string[] = [];
