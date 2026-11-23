@@ -228,6 +228,16 @@ describe("resolveOptions — option-surface", () => {
     ).toThrowError(/glossary/);
     expect(() => resolveOptions({ glossary: { file: "./{locale}.yaml", http: undefined } }, HAPPY_I18N)).not.toThrow();
   });
+
+  it("accepts glossary.matchInflections and provider.maxPromptTokens", () => {
+    expect(resolveOptions({ glossary: { file: "./{locale}.yaml", matchInflections: true } }, HAPPY_I18N).glossary).toEqual({
+      file: "./{locale}.yaml",
+      matchInflections: true,
+    });
+    const provider = { kind: "anthropic", apiKey: "sk-ant-test", model: "claude-3-5-haiku-latest", maxPromptTokens: 12000 } as const;
+    expect(resolveOptions({ provider }, HAPPY_I18N).provider).toMatchObject({ maxPromptTokens: 12000 });
+    expect(() => resolveOptions({ provider: { ...provider, maxPromptTokens: 0 } }, HAPPY_I18N)).toThrowError(/maxPromptTokens/);
+  });
 });
 
 describe("resolveOptions — routes normalisation", () => {

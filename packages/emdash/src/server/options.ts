@@ -10,6 +10,8 @@ import {
 
 import { USE_CODE_DEFAULT_MODEL } from "../contracts.js";
 
+// Same ceiling as the glossary file loader. Prompts carry only the terms a batch uses, so this is only a sanity bound.
+const MAX_GLOSSARY_DEFAULT_CHARACTERS = 1_000_000;
 const BLOCK_FIELD_PATH_PATTERN = /^[A-Za-z_][\w-]*(\[\])?(\.[A-Za-z_][\w-]*(\[\])?)*$/;
 const EMDASH_LOCALE_PATTERN = /^[a-z]{2,3}(-[a-z0-9]{2,8})*$/i;
 
@@ -32,6 +34,9 @@ export type EmDashWorkersAIProvider =
       maxTokens?: number | undefined;
     };
 
+/** A text path inside a block, or a Markdown string at that path. */
+export type BlockFieldPath = string | { path: string; format: "markdown" };
+
 export interface PolystellaEmdashOptions {
   provider: EmDashWorkersAIProvider;
   catalogs: {
@@ -43,12 +48,16 @@ export interface PolystellaEmdashOptions {
     defaults: ModelSpec;
   };
   glossaryDefaults?: Readonly<Record<string, Glossary>> | undefined;
+  /** Let any letters follow a glossary term when deciding whether a batch uses it, so `Worker` matches "Workers". Default false. */
+  glossaryMatchInflections?: boolean | undefined;
   rules?: readonly string[] | undefined;
   /**
    * Text paths translated inside custom Portable Text blocks, by block `_type`. `a.b` follows objects, `a[]` walks a list,
    * and a path that ends on a Portable Text array translates it too. Unlisted block types and fields are copied unchanged.
+   * EmDash's own block types (`image`, `buttons`, `columns`, ...) have defaults; an entry replaces one, and `[]` turns it off.
+   * `{ path, format: "markdown" }` translates a Markdown string by paragraph and list item, keeping its links and formatting.
    */
-  blockFields?: Readonly<Record<string, readonly string[]>> | undefined;
+  blockFields?: Readonly<Record<string, readonly BlockFieldPath[]>> | undefined;
   /** Catalog locale → BCP 47 tag for codes `Intl` would misread (`jp` → `ja`). Unmapped locales are used as-is. */
   localeTags?: LocaleTags | undefined;
   /** Cloudflare Queue producer binding for server-side batch translation. The Worker must also export the queue consumer. */
@@ -63,7 +72,17 @@ export function validatePolystellaEmdashOptions(value: unknown): asserts value i
   const options = readRecord(value, "options");
   rejectUnknownKeys(
     options,
-    ["provider", "catalogs", "models", "glossaryDefaults", "rules", "blockFields", "localeTags", "batchQueueBinding"],
+    [
+      "provider",
+      "catalogs",
+      "models",
+      "glossaryDefaults",
+      "glossaryMatchInflections",
+      "rules",
+      "blockFields",
+      "localeTags",
+      "batchQueueBinding",
+    ],
     "options",
   );
   validateProvider(options.provider);
@@ -114,7 +133,13 @@ export function validatePolystellaEmdashOptions(value: unknown): asserts value i
     for (const [locale, glossary] of Object.entries(defaults)) {
       if (!configuredLocales.has(locale)) fail(`options.glossaryDefaults.${locale} must match a configured catalog locale`);
       validateGlossary(glossary, `options.glossaryDefaults.${locale}`);
+      if (JSON.stringify(glossary).length > MAX_GLOSSARY_DEFAULT_CHARACTERS) {
+        fail(`options.glossaryDefaults.${locale} cannot exceed ${MAX_GLOSSARY_DEFAULT_CHARACTERS} characters`);
+      }
     }
+  }
+  if (options.glossaryMatchInflections !== undefined && typeof options.glossaryMatchInflections !== "boolean") {
+    fail("options.glossaryMatchInflections must be a boolean");
   }
 
   if (options.rules !== undefined) readStringArray(options.rules, "options.rules", true);
@@ -123,13 +148,16 @@ export function validatePolystellaEmdashOptions(value: unknown): asserts value i
     const blockFields = readRecord(options.blockFields, "options.blockFields");
     for (const [type, paths] of Object.entries(blockFields)) {
       if (type === "block" || type === "span") fail(`options.blockFields.${type} is reserved for standard Portable Text`);
-      const typePaths = readStringArray(paths, `options.blockFields.${type}`, false);
+      if (!Array.isArray(paths)) fail(`options.blockFields.${type} must be an array`);
+      const typePaths = paths.map((entry: unknown, index) => {
+        const label = `options.blockFields.${type}[${index}]`;
+        if (typeof entry === "string") return readBlockFieldPath(entry, label);
+        const record = readRecord(entry, label);
+        rejectUnknownKeys(record, ["path", "format"], label);
+        if (record.format !== "markdown") fail(`${label}.format must be "markdown"`);
+        return readBlockFieldPath(record.path, `${label}.path`);
+      });
       assertUnique(typePaths, `options.blockFields.${type}`);
-      for (const [index, path] of typePaths.entries()) {
-        if (!BLOCK_FIELD_PATH_PATTERN.test(path)) {
-          fail(`options.blockFields.${type}[${index}] must look like "title", "cta.label" or "cards[].title"`);
-        }
-      }
     }
   }
 
@@ -243,6 +271,12 @@ function readLocale(value: unknown, label: string): string {
 function readStringArray(value: unknown, label: string, allowEmpty: boolean): string[] {
   if (!Array.isArray(value) || (!allowEmpty && value.length === 0)) fail(`${label} must be a non-empty string array`);
   return value.map((item, index) => readString(item, `${label}[${index}]`));
+}
+
+function readBlockFieldPath(value: unknown, label: string): string {
+  const path = readString(value, label);
+  if (!BLOCK_FIELD_PATH_PATTERN.test(path)) fail(`${label} must look like "title", "cta.label" or "cards[].title"`);
+  return path;
 }
 
 function assertUnique(values: readonly string[], label: string): void {

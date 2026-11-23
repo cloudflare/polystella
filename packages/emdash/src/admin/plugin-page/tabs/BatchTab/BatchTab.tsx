@@ -67,7 +67,7 @@ export function BatchTab(): ReactNode {
     };
   }, [jobsRefresh]);
 
-  const jobsActive = serverJobs?.jobs.some((job) => job.status === "running" && !batchJobFinished(job)) ?? false;
+  const jobsActive = serverJobs?.jobs.some((job) => job.status === "running") ?? false;
   useEffect(() => {
     if (!jobsActive) return;
     const timer = setInterval(() => setJobsRefresh((current) => current + 1), JOB_POLL_MS);

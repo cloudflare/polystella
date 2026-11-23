@@ -84,7 +84,9 @@ async function processMessage(runtime: PolystellaBatchRuntime, body: unknown): P
     const publish = isRecord(response) && response.publish === true ? await publishCreated(runtime, collection, entryId) : null;
     const translation =
       entryId === undefined ? null : { id: entryId, locale: draft.locale, slug: draft.slug, published: publish?.published === true };
-    await record(runtime, message, "created", publish?.message ?? null, translation);
+    const notice = isRecord(response) && typeof response.notice === "string" ? response.notice : null;
+    const detail = [notice, publish?.message ?? null].filter((part) => part !== null).join(" ");
+    await record(runtime, message, "created", detail === "" ? null : detail.slice(0, MAX_BATCH_MESSAGE_CHARACTERS), translation);
   } else {
     // CONFLICT means the locale was created after the route checked, by an editor or a duplicate delivery.
     const outcome = created.error.code === "CONFLICT" ? "skipped" : "failed";

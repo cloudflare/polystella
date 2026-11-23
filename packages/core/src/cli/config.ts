@@ -50,11 +50,15 @@ export interface R2GlossaryConfig {
   secretAccessKey: string;
   endpoint?: string | undefined;
 }
-export type CatalogGlossaryConfig =
+export type CatalogGlossaryConfig = (
   | { file: string; inline?: undefined; http?: undefined; r2?: undefined }
   | { file?: undefined; inline: Record<string, GlossaryInput>; http?: undefined; r2?: undefined }
   | { file?: undefined; inline?: undefined; http: HttpGlossaryConfig; r2?: undefined }
-  | { file?: undefined; inline?: undefined; http?: undefined; r2: R2GlossaryConfig };
+  | { file?: undefined; inline?: undefined; http?: undefined; r2: R2GlossaryConfig }
+) & {
+  /** Let any letters follow a term when deciding whether a batch uses it. See `GlossaryMatchOptions`. */
+  matchInflections?: boolean | undefined;
+};
 
 export interface CatalogResolvedConfig {
   defaultLocale: string;
@@ -221,7 +225,14 @@ function parseModel(value: unknown): ModelSpec {
 
 function parseGlossaryConfig(value: unknown): CatalogGlossaryConfig {
   const glossary = requireRecord(value, "glossary");
-  rejectUnknownKeys(glossary, ["file", "inline", "http", "r2"], "glossary");
+  rejectUnknownKeys(glossary, ["file", "inline", "http", "r2", "matchInflections"], "glossary");
+  const source = parseGlossarySource(glossary);
+  if (glossary.matchInflections === undefined) return source;
+  if (typeof glossary.matchInflections !== "boolean") throw configurationError("glossary.matchInflections", "must be a boolean");
+  return { ...source, matchInflections: glossary.matchInflections };
+}
+
+function parseGlossarySource(glossary: Record<string, unknown>): CatalogGlossaryConfig {
   const sources = ["file", "inline", "http", "r2"].filter((key) => glossary[key] !== undefined);
   if (sources.length !== 1) {
     throw configurationError("glossary", "must configure exactly one of file, inline, http, or r2");

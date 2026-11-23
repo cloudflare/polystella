@@ -61,11 +61,13 @@ import {
 } from "../../contracts.js";
 import { invalidateRuntimeOverrides } from "../../runtime-cache.js";
 import {
+  batchPartsId,
   batchQueue,
   batchResultId,
   enqueueBatchMessages,
   MAX_BATCH_MESSAGE_CHARACTERS,
   parseStoredJob,
+  parseStoredParts,
   parseStoredResult,
   readBatchJob,
   deleteBatchJob,
@@ -77,6 +79,7 @@ import {
   type BatchMessage,
   type BatchTranslateResponse,
   type StoredBatchJob,
+  type StoredBatchParts,
 } from "../batch.js";
 import {
   AI_TRANSLATIONS_CACHE_NAMESPACE,
@@ -104,7 +107,14 @@ import {
   MAX_GLOSSARY_CHARACTERS,
   MAX_INSTRUCTION_CHARACTERS,
 } from "../settings-storage.js";
-import { ContentTranslationInputError, translateContentFields } from "../translate-content.js";
+import {
+  applyContentTranslations,
+  ContentTranslationInputError,
+  planContentTranslation,
+  samePageLinksNotice,
+  translateContentPart,
+  type ContentPlan,
+} from "../translate-content.js";
 import {
   catalogSegmentLabel,
   contentSegmentLabel,
@@ -131,7 +141,9 @@ const RECENT_BATCH_JOBS = 10;
 const BATCH_RESULTS_PAGE_SIZE = 50;
 const BATCH_LIST_PAGE_SIZE = 100;
 const ADMIN_ROLE = 50;
-const TRANSLATABLE_FIELD_TYPES = new Set(["string", "text", "portableText"]);
+// A translation already running when its job was cancelled still saves; its row says so.
+const FINISHED_AFTER_CANCEL = "Finished after the job was cancelled.";
+const TRANSLATABLE_FIELD_TYPES = new Set(["string", "text", "portableText", "blocks"]);
 
 const defaultDependencies: PluginRouteDependencies = {
   async getEnv() {
@@ -301,26 +313,47 @@ export function createPluginRoutes(
               labelSegment: (id) => contentSegmentLabel(id, Object.keys(values)),
             });
           }
-          translationStarted = true;
-          const result = await translateContentFields({
+          const plan = await planContentTranslation({
             values,
+            blockFields: options.blockFields,
+            blocksFieldSlugs: blocksFieldSlugs(schema),
+          });
+          const part = input.part === undefined ? 0 : readPartIndex(input.part, plan.parts.length);
+          const translations = part === 0 ? new Map<string, string>() : readEarlierParts(input, plan);
+          const onValidationIssue =
+            debug === undefined ? undefined : (segmentIds: string[], message: string) => debug?.markValidationIssue(message, segmentIds);
+          translationStarted = true;
+          const result = await translateContentPart(plan, part, {
             translator: settings.translator,
             glossary: settings.glossary,
-            blockFields: options.blockFields,
+            matchInflections: settings.matchInflections,
             sourceLocale: localeTag(options, options.catalogs.defaultLocale),
             targetLocale: localeTag(options, targetLocale),
             ...(settings.promptInstruction === undefined ? {} : { promptInstruction: settings.promptInstruction }),
-            ...(debug === undefined
-              ? {}
-              : {
-                  onBatchAttempt: debug.record,
-                  onValidationIssue: (segmentIds, message) => debug?.markValidationIssue(message, segmentIds),
-                }),
+            ...(debug === undefined ? {} : { onBatchAttempt: debug.record, onValidationIssue }),
             signal: ctx.request.signal,
           });
+          for (const [id, text] of result.translations) translations.set(id, text);
+          const next =
+            part + 1 < plan.parts.length
+              ? {
+                  part: part + 1,
+                  partCount: plan.parts.length,
+                  fingerprint: plan.fingerprint,
+                  translations: Object.fromEntries(translations),
+                }
+              : null;
+          const patch = next === null ? applyContentTranslations(plan, translations, onValidationIssue) : null;
+          const trace = debug === undefined ? {} : { debug: debug.finish(result.batchCount) };
+          if (patch === null && next !== null)
+            return { patch, batchCount: result.batchCount, next, ...trace } satisfies TranslateContentResponse;
+          if (patch === null) throw new Error("[polystella-emdash] no patch for the last part");
+          const notice = samePageLinksNotice(patch);
           return {
-            ...result,
-            ...(debug === undefined ? {} : { debug: debug.finish(result.batchCount) }),
+            patch,
+            batchCount: result.batchCount,
+            ...(notice === null ? {} : { notice }),
+            ...trace,
           } satisfies TranslateContentResponse;
         } catch (error) {
           if (error instanceof ContentTranslationInputError) throw PluginRouteError.badRequest(error.message);
@@ -384,6 +417,7 @@ export function createPluginRoutes(
             entries,
             translator: settings.translator,
             glossary: settings.glossary,
+            matchInflections: settings.matchInflections,
             sourceLocale: localeTag(options, options.catalogs.defaultLocale),
             targetLocale: localeTag(options, locale),
             maxRetries: 2,
@@ -552,6 +586,7 @@ export function createPluginRoutes(
             translator: settings.translator,
             segments: [segment],
             glossary: settings.glossary,
+            matchInflections: settings.matchInflections,
             sourceLocale: localeTag(options, options.catalogs.defaultLocale),
             targetLocale: localeTag(options, targetLocale),
             ...(settings.promptInstruction === undefined ? {} : { promptInstruction: settings.promptInstruction }),
@@ -799,30 +834,69 @@ export function createPluginRoutes(
             fields,
           );
           if (sourceItem.id !== message.entryId) return await record("failed", "The entry is not in the source locale.");
-          const settings = await translationSettings(options, message.locale, ctx.settings, ctx.log, dependencies);
-          const result = await translateContentFields({
+          const plan = await planContentTranslation({
             values,
+            blockFields: options.blockFields,
+            blocksFieldSlugs: blocksFieldSlugs(schema),
+          });
+          const part = message.part ?? 0;
+          const translations = new Map<string, string>();
+          if (part > 0) {
+            const stored = parseStoredParts(await results.get(batchPartsId(message)));
+            // A redelivered message for a part that already ran has nothing left to do.
+            if (stored !== null && stored.part !== part) return { create: null } satisfies BatchTranslateResponse;
+            if (stored === null || stored.fingerprint !== plan.fingerprint || part >= plan.parts.length) {
+              await results.delete(batchPartsId(message));
+              return await record("failed", SOURCE_CHANGED);
+            }
+            for (const [id, text] of Object.entries(stored.translations)) translations.set(id, text);
+          }
+          const settings = await translationSettings(options, message.locale, ctx.settings, ctx.log, dependencies);
+          const result = await translateContentPart(plan, part, {
             translator: settings.translator,
             glossary: settings.glossary,
-            blockFields: options.blockFields,
+            matchInflections: settings.matchInflections,
             sourceLocale: localeTag(options, options.catalogs.defaultLocale),
             targetLocale: localeTag(options, message.locale),
             ...(settings.promptInstruction === undefined ? {} : { promptInstruction: settings.promptInstruction }),
             signal: ctx.request.signal,
           });
+          for (const [id, text] of result.translations) translations.set(id, text);
+          if (part + 1 < plan.parts.length) {
+            const { jobId, entryId, locale } = message;
+            const stored: StoredBatchParts = {
+              jobId,
+              entryId,
+              locale,
+              part: part + 1,
+              fingerprint: plan.fingerprint,
+              translations: Object.fromEntries(translations),
+            };
+            await results.put(batchPartsId(message), stored);
+            await enqueueBatchMessages(batchQueue(options.batchQueueBinding, await dependencies.getEnv()), [
+              { jobId, entryId, locale, part: part + 1 },
+            ]);
+            return { create: null } satisfies BatchTranslateResponse;
+          }
+          const patch = applyContentTranslations(plan, translations);
+          if (part > 0) await results.delete(batchPartsId(message));
+          const notice = samePageLinksNotice(patch);
           return {
             create: {
               collection,
-              data: { ...sourceItem.data, ...result.patch },
+              data: { ...sourceItem.data, ...patch },
               slug: sourceItem.slug,
               locale: contentLocale(message.locale, dependencies),
               translationOf: sourceItem.id,
               ...(job.createdBy === null ? {} : { authorId: job.createdBy }),
             },
             publish: job.publish,
+            ...(notice === null ? {} : { notice }),
           } satisfies BatchTranslateResponse;
         } catch (error) {
-          return await record("failed", batchFailureMessage(error, ctx.log));
+          const failure = batchFailureMessage(error, ctx.log);
+          await results.delete(batchPartsId(message));
+          return await record("failed", failure);
         }
       },
     },
@@ -845,8 +919,11 @@ export function createPluginRoutes(
         }
         const { jobs, results } = batchStorage(ctx.storage);
         // A message still in flight when its job was removed must not leave a row nothing lists.
-        if ((await readBatchJob(jobs, message.jobId)) === null) return { recorded: false };
-        await recordBatchResult(results, message, outcome, detail, dependencies.now(), translation);
+        const job = await readBatchJob(jobs, message.jobId);
+        if (job === null) return { recorded: false };
+        const note = job.status === "cancelled" && outcome !== "skipped" ? FINISHED_AFTER_CANCEL : null;
+        const recordedDetail = note === null ? detail : detail === null ? note : `${note} ${detail}`;
+        await recordBatchResult(results, message, outcome, recordedDetail, dependencies.now(), translation);
         return { recorded: true };
       },
     },
@@ -997,7 +1074,8 @@ async function batchJobView(results: StorageCollection, id: string, job: StoredB
     collection: job.collection,
     locales: job.locales,
     total: job.total,
-    status: job.status,
+    status:
+      job.status === "cancelled" ? "cancelled" : job.listing === null && created + skipped + failed >= job.total ? "finished" : "running",
     publish: job.publish,
     createdAt: job.createdAt,
     listing: job.listing !== null,
@@ -1028,6 +1106,32 @@ async function collectionSchema(ctx: RouteContext, collection: string): Promise<
   const schema = await ctx.schema.getCollection(collection);
   if (schema === null) throw PluginRouteError.notFound("collection not found");
   return schema;
+}
+
+const SOURCE_CHANGED = "The source entry changed while it was being translated. Start the translation again.";
+
+function readPartIndex(value: unknown, partCount: number): number {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0 || value >= partCount) {
+    throw PluginRouteError.badRequest(`part must be an integer from 0 to ${partCount - 1}`);
+  }
+  return value;
+}
+
+/** Translations of earlier parts, sent back by the browser; only valid for the same source text. */
+function readEarlierParts(input: Record<string, unknown>, plan: ContentPlan): Map<string, string> {
+  if (input.fingerprint !== plan.fingerprint) throw PluginRouteError.conflict(SOURCE_CHANGED);
+  const ids = new Set(plan.segments.map(({ id }) => id));
+  const translations = new Map<string, string>();
+  for (const [id, text] of Object.entries(readRecord(input.translations, "translations"))) {
+    if (!ids.has(id) || typeof text !== "string")
+      throw PluginRouteError.badRequest("translations must map this entry's segment ids to text");
+    translations.set(id, text);
+  }
+  return translations;
+}
+
+function blocksFieldSlugs(schema: CollectionSchemaInfo): string[] {
+  return schema.fields.filter((field) => field.type === "blocks").map((field) => field.slug);
 }
 
 function isTranslatableField(schema: CollectionSchemaInfo, slug: string): boolean {
@@ -1136,6 +1240,7 @@ async function translationSettings(
 ): Promise<{
   translator: Translator;
   glossary: Glossary;
+  matchInflections: boolean;
   debugEnabled: boolean;
   maxTokens: number;
   promptInstruction?: string | undefined;
@@ -1145,15 +1250,15 @@ async function translationSettings(
   if (stored === undefined) throw PluginRouteError.internal(`translation settings for ${locale} are unavailable`);
   const deploymentModel = resolveModelId(options.models.defaults, locale);
   const model = modelOverride ?? stored.model ?? deploymentModel;
+  if (stored.glossaryText.length > MAX_GLOSSARY_CHARACTERS) {
+    throw PluginRouteError.badRequest(`glossary text for ${locale} cannot exceed ${MAX_GLOSSARY_CHARACTERS} characters`);
+  }
   const glossary = resolveGlossary(options.glossaryDefaults?.[locale], stored.glossaryMode, stored.glossaryText.trim());
   const promptInstruction = resolveInstructions(
     options.rules ?? [],
     storedSettings.instructions.mode,
     storedSettings.instructions.text.trim(),
   );
-  if (JSON.stringify(glossary).length > MAX_GLOSSARY_CHARACTERS) {
-    throw PluginRouteError.badRequest(`effective glossary cannot exceed ${MAX_GLOSSARY_CHARACTERS} characters`);
-  }
   if (promptInstruction.length > MAX_INSTRUCTION_CHARACTERS) {
     throw PluginRouteError.badRequest(`translation instructions cannot exceed ${MAX_INSTRUCTION_CHARACTERS} characters`);
   }
@@ -1161,6 +1266,7 @@ async function translationSettings(
   return {
     translator: createTranslator(options, env, model, log, dependencies, maxTokens),
     glossary,
+    matchInflections: options.glossaryMatchInflections === true,
     debugEnabled: storedSettings.debugEnabled,
     maxTokens,
     ...(promptInstruction.length === 0 ? {} : { promptInstruction }),

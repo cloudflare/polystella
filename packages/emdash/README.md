@@ -48,6 +48,11 @@ export default defineConfig({
 glossary source forms. Remote sources load one `{locale}` YAML object
 per configured locale and do not require `projectRoot`.
 
+Each translation request carries only the glossary terms its text uses, plus
+the style rules and notes, so code-defined glossaries can be large (up to
+1,000,000 characters per locale). `glossaryMatchInflections: true` lets any
+letters follow a term, so `Worker` also matches "Workers".
+
 Keep `polystellaEmdashAstro()` after `emdash()`. It binds `Astro.locals.t` and
 `Astro.locals.lhref`, overlays enabled EmDash overrides, and falls back to the
 deployed dictionaries when storage is unavailable. Configure the named Workers
@@ -86,6 +91,11 @@ server-side, and never include credentials, authorization headers, account IDs,
 or raw provider HTTP envelopes. Successful content traces survive the existing
 editor reload in browser session storage for one view.
 
+Whether or not debug mode is on, every failure writes its diagnostic ID to the
+server log with the full error message, its code and cause chain, and for an
+unusable model reply the finish reason and reply field sizes. Editors see only a
+short, safe message and the same ID.
+
 The native admin registers one **PolyStella** page with **Catalog**,
 **Collections**, **Translation settings**, and **Translation sandbox** tabs.
 These controls use EmDash's Kumo design system; no generated plugin settings
@@ -107,16 +117,29 @@ stored policy fails closed. Translation also checks the live collection schema
 non-translatable. Settings saves are conditional on the loaded revision; a
 concurrent save by another Administrator is rejected instead of overwritten.
 
-The panel translates selected `string`, `text`, and Portable Text fields in an
+The panel translates selected `string`, `text`, Portable Text and `blocks` fields in an
 existing target-locale draft. The private route rereads selected values through
 its `content:read` capability, while the panel updates with EmDash's `_rev` token
 and reloads after success. Unsaved browser changes are not translated and are
 lost after confirmation. A save refused by another editor's edit lock names the
 lock holder.
 
+Same-page links (`#…`) are copied unchanged. EmDash gives headings no ids, so
+sites build their own, often from the heading text, and a translated heading can
+get a different anchor. The panel and batch results list these links for review.
+
+Long entries are translated in parts of up to 30,000 characters and 500 text
+segments, one request per part, so each request stays short. The panel shows
+which part is running; queued batch jobs translate one part per queue message.
+An entry can hold up to 500,000 characters and 5,000 segments. If the source
+entry changes between parts, the translation stops and asks to start again.
+
 Portable Text paragraphs, headings, lists and tables are always translated.
-Custom blocks are copied unchanged unless the `blockFields` option lists their
-text paths by block `_type`:
+EmDash's own block types (`image`, `gallery`, `video`, `button`, `buttons`,
+`columns`, `cover`, `pullquote`, `embed`, `iframe`) are translated by default;
+`code`, `htmlBlock` and `file` never are. Other custom blocks are copied
+unchanged unless the `blockFields` option lists their text paths by block
+`_type`. An entry for an EmDash type replaces its default, and `[]` turns it off:
 
 ```js
 polystellaEmdash({
@@ -127,6 +150,18 @@ polystellaEmdash({
   },
 });
 ```
+
+Mark a Markdown string with `{ path: "answer", format: "markdown" }`. It is
+translated one paragraph, heading or list item at a time, with links, emphasis
+and code replaced by placeholders, so URLs never reach the model. Inline tags
+such as `<gradient>` are protected the same way in every string. A reply that
+loses or reorders a placeholder is resent once, then fails.
+
+For [`blocks` fields](https://docs.emdashcms.com/guides/blocks/), list each
+block type's text fields the same way, keyed by the block type slug, such as
+`hero: ["heading", "body", "link_label"]`. Unlisted block types and fields,
+including `_version`, `_key`, URLs and media, are copied unchanged. EmDash's own
+block-type defaults don't apply inside `blocks` fields.
 
 | Path                | Translates                                        |
 | :------------------ | :------------------------------------------------ |

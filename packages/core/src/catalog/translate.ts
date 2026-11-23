@@ -2,6 +2,7 @@ import { isLiteralElement, isPluralElement, isSelectElement, type MessageFormatE
 import pRetry from "p-retry";
 
 import { packGroupsIntoBatches } from "../batch.js";
+import { formatCorrections, type TranslationCorrection } from "../corrections.js";
 import type { Glossary } from "../glossary.js";
 import { assertUniqueSegmentIds, type Segment } from "../segment.js";
 import { translateBatch, type TranslateBatchAttemptEvent, type TranslateBatchRetryEvent } from "../translate-batch.js";
@@ -279,6 +280,8 @@ export interface CatalogTranslationOptions {
   /** BCP 47 tag of the translation; names the language and selects its plural categories. */
   targetLocale: string;
   context?: string | undefined;
+  /** See `GlossaryMatchOptions`. */
+  matchInflections?: boolean | undefined;
   maxRetries?: number | undefined;
   retryMinTimeoutMs?: number | undefined;
   retryFactor?: number | undefined;
@@ -392,6 +395,7 @@ type TranslateUiBatchOptions = Pick<
   | "sourceLocale"
   | "targetLocale"
   | "context"
+  | "matchInflections"
   | "maxRetries"
   | "retryMinTimeoutMs"
   | "retryFactor"
@@ -434,21 +438,6 @@ export function formatTokenValidationIssue(issue: TokenValidationIssue): string 
   return `${issue.key}: ${describeTokenValidationIssue(issue).join("; ")}`;
 }
 
-interface TranslationCorrection {
-  id: string;
-  translation: string;
-  problems: string[];
-}
-
-function formatCorrections(corrections: readonly TranslationCorrection[]): string | undefined {
-  if (corrections.length === 0) return undefined;
-  const lines = ["CORRECTIONS (your previous answer for these segments was invalid; return a corrected translation for each):"];
-  for (const { id, translation, problems } of corrections) {
-    lines.push(`- Segment ${id}`, `  Previous answer: ${translation}`, `  Problem: ${problems.join("; ")}`);
-  }
-  return lines.join("\n");
-}
-
 class RetriableTypeError extends Error {
   constructor(readonly originalError: TypeError) {
     super(originalError.message, { cause: originalError });
@@ -479,6 +468,7 @@ async function translateUiBatchWithRetries(opts: TranslateUiBatchOptions): Promi
             ...(correctionText === undefined ? {} : { promptInstruction: correctionText }),
             ...(opts.onBatchAttempt === undefined ? {} : { onBatchAttempt: opts.onBatchAttempt }),
             ...(opts.context === undefined ? {} : { context: opts.context }),
+            ...(opts.matchInflections === undefined ? {} : { matchInflections: opts.matchInflections }),
             ...(opts.signal === undefined ? {} : { signal: opts.signal }),
           });
           const issues: TokenValidationIssue[] = [];

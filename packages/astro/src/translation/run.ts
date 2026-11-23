@@ -839,6 +839,8 @@ export async function runTranslationPass(opts: RunTranslationOptions): Promise<R
           ...(documentContext !== undefined ? { documentContext } : {}),
           ...(adapter.promptInstruction !== undefined ? { promptInstruction: adapter.promptInstruction } : {}),
           ...(resolved.provider?.batchInputTokenBudget !== undefined ? { inputTokenBudget: resolved.provider.batchInputTokenBudget } : {}),
+          ...(resolved.provider?.maxPromptTokens !== undefined ? { maxPromptTokens: resolved.provider.maxPromptTokens } : {}),
+          ...(resolved.glossary?.matchInflections !== undefined ? { matchInflections: resolved.glossary.matchInflections } : {}),
           logger,
           sourcePath: source.relativePath,
           apply: (translations) =>

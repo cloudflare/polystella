@@ -1,6 +1,7 @@
 import type { Translator } from "../index.js";
 
 import { createProviderHttpError } from "./http-error.js";
+import { outOfTokensError } from "./out-of-tokens.js";
 
 export interface AnthropicTranslatorOptions {
   apiKey: string;
@@ -35,6 +36,7 @@ export function createAnthropicTranslator(options: AnthropicTranslatorOptions): 
 
       const data: unknown = await response.json();
       signal?.throwIfAborted();
+      if (property(data, "stop_reason") === "max_tokens") throw outOfTokensError(modelId, maxTokens);
       const content = property(data, "content");
       if (Array.isArray(content)) {
         const text = property(

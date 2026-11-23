@@ -1,13 +1,36 @@
 import type { Translator } from "@cloudflare/polystella-core";
 import { EMPTY_GLOSSARY } from "@cloudflare/polystella-core";
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import { contentSegmentLabel } from "../src/server/routes/debug-collector.js";
-import { translateContentFields } from "../src/server/translate-content.js";
+import { EMDASH_BLOCK_FIELDS, samePageLinksNotice, translateContentFields } from "../src/server/translate-content.js";
 
 function translator(response: string): Translator {
   return { modelId: "test", translate: async () => response };
 }
+
+describe("samePageLinksNotice", () => {
+  it("counts `#…` link annotations and Markdown links, and ignores other links", () => {
+    const body = [
+      {
+        _type: "block",
+        _key: "b",
+        markDefs: [
+          { _type: "link", _key: "l1", href: "#getting-started" },
+          { _type: "link", _key: "l2", href: "/pricing/#plans" },
+          { _type: "link", _key: "l3", href: "#" },
+        ],
+        children: [],
+      },
+      { _type: "faq", _key: "f", answer: "See [setup](#setup) and [docs](https://example.com/#x)." },
+    ];
+    expect(samePageLinksNotice({ title: "No links", body })).toBe(
+      "Review 2 same-page links (#…) by hand: if a link points at a heading, the translated heading may have a different anchor.",
+    );
+    expect(samePageLinksNotice({ title: "Plain", body: [{ _type: "block", markDefs: [{ href: "/a" }] }] })).toBeNull();
+  });
+});
 
 describe("translateContentFields", () => {
   it("translates strings and standard Portable Text spans without changing structure", async () => {
@@ -322,5 +345,136 @@ describe("translateContentFields", () => {
     expect(contentSegmentLabel("field:1:block:2:span:0", fields)).toBe("body (block 2, span 0)");
     expect(contentSegmentLabel("field:1:block:2:row:1:cell:0:span:0", fields)).toBe("body (block 2, row 1, cell 0, span 0)");
     expect(contentSegmentLabel("field:1:block:3:cards:1:title", fields)).toBe("body (block 3, cards 1 title)");
+  });
+});
+
+describe("EmDash block type defaults", () => {
+  const echo: Translator = {
+    modelId: "echo",
+    translate: async (_system, user) => [...user.matchAll(/^@@([^@\n]+?)@@\s*$/gm)].map((match) => `@@${match[1]}@@\nFR`).join("\n\n"),
+  };
+  const paragraph = (key: string, text: string) => ({
+    _type: "block",
+    _key: key,
+    style: "normal",
+    markDefs: [],
+    children: [{ _type: "span", _key: `${key}s`, text, marks: [] }],
+  });
+  const body = [
+    { _type: "image", _key: "i", asset: { _ref: "m1" }, alt: "A cat", caption: "Our cat" },
+    { _type: "buttons", _key: "b", buttons: [{ _type: "button", _key: "b1", text: "Sign up", url: "/signup" }] },
+    { _type: "columns", _key: "c", columns: [{ _type: "column", _key: "c1", content: [paragraph("p", "Column text")] }] },
+    { _type: "code", _key: "k", code: "const a = 1" },
+  ];
+
+  it("translates EmDash's own block types without configuration, and lets a site replace or turn off a default", async () => {
+    const base = { translator: echo, glossary: EMPTY_GLOSSARY, sourceLocale: "en", targetLocale: "fr" };
+    const { patch } = await translateContentFields({ ...base, values: { body } });
+    expect(patch.body).toEqual([
+      { ...body[0], alt: "FR", caption: "FR" },
+      { ...body[1], buttons: [{ _type: "button", _key: "b1", text: "FR", url: "/signup" }] },
+      { ...body[2], columns: [{ _type: "column", _key: "c1", content: [paragraph("p", "FR")] }] },
+      body[3],
+    ]);
+
+    const overridden = await translateContentFields({ ...base, values: { body }, blockFields: { image: ["alt"], buttons: [] } });
+    expect(overridden.patch.body).toMatchObject([{ alt: "FR", caption: "Our cat" }, { buttons: [{ text: "Sign up" }] }, {}, {}]);
+  });
+
+  it("translates `blocks` fields with the site's blockFields only", async () => {
+    const layout = [
+      { _type: "hero", _version: 1, _key: "h", heading: "Welcome", body: [paragraph("p", "Intro")], link_label: "More", link_url: "/more" },
+      { _type: "image", _version: 1, _key: "i", photo: { id: "m1" }, alt: "Site-defined image block" },
+      { _type: "table", _version: 2, _key: "t", heading: "Not a Portable Text table" },
+    ];
+    const { patch } = await translateContentFields({
+      translator: echo,
+      glossary: EMPTY_GLOSSARY,
+      sourceLocale: "en",
+      targetLocale: "fr",
+      values: { layout },
+      blockFields: { hero: ["heading", "body", "link_label"], table: ["heading"] },
+      blocksFieldSlugs: ["layout"],
+    });
+    expect(patch.layout).toEqual([
+      { ...layout[0], heading: "FR", body: [paragraph("p", "FR")], link_label: "FR" },
+      layout[1],
+      { ...layout[2], heading: "FR" },
+    ]);
+    await expect(
+      translateContentFields({
+        translator: echo,
+        glossary: EMPTY_GLOSSARY,
+        sourceLocale: "en",
+        targetLocale: "fr",
+        values: { layout: [{ heading: "No type" }] },
+        blocksFieldSlugs: ["layout"],
+      }),
+    ).rejects.toThrow('blocks field "layout" contains an invalid block at layout[0]');
+  });
+
+  it("is re-checked whenever the tested EmDash version changes", () => {
+    const manifest = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as {
+      devDependencies: Record<string, string>;
+    };
+    // Bumping EmDash? Compare EMDASH_BLOCK_FIELDS with EmDash's src/content/converters and src/components, then update this.
+    expect(manifest.devDependencies.emdash, "EMDASH_BLOCK_FIELDS was last checked against EmDash 1.5.0").toBe("1.5.0");
+    expect(Object.keys(EMDASH_BLOCK_FIELDS)).not.toContain("code");
+  });
+});
+
+describe("inline markup and Markdown block fields", () => {
+  const calls: string[] = [];
+  const recording = (reply: (id: string, text: string) => string): Translator => ({
+    modelId: "recording",
+    async translate(_system, user) {
+      calls.push(user);
+      return [...user.matchAll(/^@@([^@\n]+?)@@\n([\s\S]*?)(?=\n\n@@|$)/gm)]
+        .map(([, id = "", text = ""]) => `@@${id}@@\n${reply(id, text)}`)
+        .join("\n\n");
+    },
+  });
+  const base = { glossary: EMPTY_GLOSSARY, sourceLocale: "en", targetLocale: "sv" };
+
+  it("hides tags and Markdown from the model and splits Markdown by block", async () => {
+    calls.length = 0;
+    const body = [
+      {
+        _type: "marketing.hero",
+        _key: "h",
+        headline: "Build <gradient>everywhere</gradient>",
+        body: "At [DreamHost](https://dreamhost.com), **open** hosting.\n\n1. Add your site\n2. [Review](/learning/)",
+      },
+    ];
+    const { patch } = await translateContentFields({
+      ...base,
+      translator: recording((_id, text) =>
+        text.replace("Build", "Bygg").replace("everywhere", "överallt").replace("hosting", "webbhotell"),
+      ),
+      values: { body },
+      blockFields: { "marketing.hero": ["headline", { path: "body", format: "markdown" }] },
+    });
+    expect(calls.join("\n")).not.toMatch(/dreamhost\.com|<gradient>|\*\*|\/learning\//);
+    expect(calls.join("\n")).toContain("At {{ps_1}}DreamHost{{ps_2}}, {{ps_3}}open{{ps_4}} hosting.");
+    expect(patch.body).toEqual([
+      {
+        ...body[0],
+        headline: "Bygg <gradient>överallt</gradient>",
+        body: "At [DreamHost](https://dreamhost.com), **open** webbhotell.\n\n1. Add your site\n2. [Review](/learning/)",
+      },
+    ]);
+  });
+
+  it("fails after one resend when the model keeps dropping a link", async () => {
+    calls.length = 0;
+    await expect(
+      translateContentFields({
+        ...base,
+        translator: recording((_id, text) => text.replace(/\{\{ps_\d+\}\}/g, "")),
+        values: { body: [{ _type: "faq", _key: "f", answer: "See [plans](/plans/)." }] },
+        blockFields: { faq: [{ path: "answer", format: "markdown" }] },
+      }),
+    ).rejects.toThrow("[polystella] model changed inline markup in 1 segment(s)");
+    expect(calls).toHaveLength(2);
   });
 });

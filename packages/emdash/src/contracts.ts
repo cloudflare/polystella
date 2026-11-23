@@ -84,6 +84,8 @@ export interface TranslationDebugBatch {
   segmentLabels: string[];
   sourceCharacters: number;
   estimatedInputTokens: number;
+  /** Glossary terms the prompt carried, out of the locale's whole glossary. Absent in traces saved before it existed. */
+  glossaryTerms?: { sent: number; total: number } | undefined;
   attempts: TranslationDebugAttempt[];
 }
 
@@ -106,8 +108,23 @@ export interface TranslationDebugTrace {
 }
 
 export type TranslateContentResponse =
-  | { patch: Record<string, unknown>; batchCount: number; debug?: TranslationDebugTrace | undefined }
-  | { patch: null; batchCount: number; error: string; debug: TranslationDebugTrace };
+  | {
+      patch: Record<string, unknown>;
+      batchCount: number;
+      /** Something an editor should check by hand, such as same-page links. */
+      notice?: string | undefined;
+      debug?: TranslationDebugTrace | undefined;
+    }
+  | { patch: null; batchCount: number; error: string; debug: TranslationDebugTrace }
+  | { patch: null; batchCount: number; next: TranslateContentNextPart; debug?: TranslationDebugTrace | undefined };
+
+/** A long entry is translated one part per request: send this back, with the same fields, to translate the next part. */
+export interface TranslateContentNextPart {
+  part: number;
+  partCount: number;
+  fingerprint: string;
+  translations: Record<string, string>;
+}
 
 export interface CatalogLocaleSummary {
   locale: string;
@@ -185,7 +202,8 @@ export interface BatchJobView {
   collection: string;
   locales: string[];
   total: number;
-  status: "running" | "cancelled";
+  /** `finished` once every queued translation has a result and listing is done. */
+  status: "running" | "cancelled" | "finished";
   createdAt: string;
   publish: boolean;
   /** The queue is still listing the collection, so `total` can still grow. */

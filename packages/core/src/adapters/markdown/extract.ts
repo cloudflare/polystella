@@ -40,8 +40,10 @@ export function collectMarkdownSegments(ast: Root, options: ExtractOptions, sour
     const protectedText = protectInlineMdxJsx(block, source, span, options.mdxRules);
     const text = protectedText?.text ?? source.slice(span.start, span.end);
     if (text.length === 0) return;
+    // MDX inline JSX already has its own `<ph>` placeholders, restored when the file is applied.
+    const markup = options.sourcePath?.toLowerCase().endsWith(".mdx") === true ? {} : { markup: "markdown" as const };
     segments.push({
-      segment: { id, text },
+      segment: { id, text, ...markup },
       kind: "body",
       span,
       ...(protectedText ? { placeholders: protectedText.placeholders } : {}),

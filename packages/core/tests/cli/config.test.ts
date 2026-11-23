@@ -109,4 +109,14 @@ describe("resolveCatalogConfig", () => {
     ).toThrow(/exactly one/);
     expect(() => resolveCatalogConfig({ glossary: { file: "./{locale}.yaml", http: undefined } }, i18n)).not.toThrow();
   });
+
+  it("reads glossary.matchInflections next to the source", () => {
+    expect(resolveCatalogConfig({ glossary: { file: "./{locale}.yaml", matchInflections: true } }, i18n).glossary).toEqual({
+      file: "./{locale}.yaml",
+      matchInflections: true,
+    });
+    expect(() => resolveCatalogConfig({ glossary: { file: "./{locale}.yaml", matchInflections: "yes" } }, i18n)).toThrow(
+      /glossary\.matchInflections/,
+    );
+  });
 });

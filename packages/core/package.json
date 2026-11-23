@@ -2,6 +2,7 @@
   "name": "@cloudflare/polystella-core",
   "version": "0.6.0",
   "type": "module",
+  "sideEffects": false,
   "description": "Platform-neutral translation primitives, portable format adapters, AI provider transports, and shared catalog CLI commands for PolyStella.",
   "license": "MIT",
   "homepage": "https://github.com/cloudflare/polystella",

@@ -5,13 +5,21 @@ import {
   type TranslateBatchAttemptEvent,
   type Translator,
 } from "@cloudflare/polystella-core";
+import { splitMarkdownText, type SplitMarkdownText } from "@cloudflare/polystella-core/adapters";
 import { validateTokenPreservation } from "@cloudflare/polystella-core/catalog/translate";
 
 import { MAX_CONTENT_FIELDS } from "../contracts.js";
+import type { BlockFieldPath } from "./options.js";
 
-const MAX_SEGMENTS = 500;
+// One request translates one part; larger entries take several requests.
+const MAX_PART_SEGMENTS = 500;
+const MAX_PART_CHARACTERS = 30_000;
+const MAX_SEGMENTS = 5_000;
 const MAX_SEGMENT_CHARACTERS = 20_000;
-const MAX_TOTAL_CHARACTERS = 30_000;
+// The queue keeps earlier parts in one storage row, so this also bounds that row (about 1.5 MB in CJK).
+const MAX_TOTAL_CHARACTERS = 500_000;
+// One entry is one request here, so nothing else multiplies these provider calls.
+const BATCH_CONCURRENCY = 3;
 
 type PathPart = string | number;
 
@@ -30,16 +38,63 @@ interface SpanList {
   segmentIds: string[];
 }
 
+/** A Markdown string split into paragraph and list-item segments, rebuilt by core's `splitMarkdownText`. */
+interface MarkdownText {
+  field: string;
+  path: PathPart[];
+  split: SplitMarkdownText;
+  /** Our segment id → the splitter's own id (`body:0`, ...). */
+  adapterIds: Map<string, string>;
+}
+
 interface Collector {
   segments: Segment[];
   group: Segment[];
   locations: Map<string, SegmentLocation>;
   spanLists: SpanList[];
+  markdownTexts: MarkdownText[];
   blockFields: BlockFieldPaths;
 }
 
 /** Custom Portable Text block type → text paths inside it, like `cards[].title`. */
-export type BlockFieldPaths = Readonly<Record<string, readonly string[]>>;
+export type BlockFieldPaths = Readonly<Record<string, readonly BlockFieldPath[]>>;
+
+/**
+ * Text in the block types EmDash itself writes: its editor, WordPress import and `emdash/ui` components.
+ * Re-check against EmDash's converters and components whenever the tested EmDash version changes.
+ */
+export const EMDASH_BLOCK_FIELDS: BlockFieldPaths = {
+  image: ["alt", "caption", "title"],
+  gallery: ["images[].alt", "images[].caption"],
+  video: ["caption"],
+  button: ["text"],
+  buttons: ["buttons[].text"],
+  columns: ["columns[].content"],
+  cover: ["content"],
+  pullquote: ["text", "citation"],
+  embed: ["caption"],
+  iframe: ["title"],
+};
+
+/**
+ * Sites build heading ids themselves (EmDash adds none), often from the heading text, so a translated
+ * heading can get a new id that copied `#…` links no longer match. PolyStella can't know the site's rule.
+ */
+export function samePageLinksNotice(values: unknown): string | null {
+  let count = 0;
+  const visit = (value: unknown): void => {
+    if (typeof value === "string") count += value.match(/\]\(#[^)\s]+\)/g)?.length ?? 0;
+    else if (Array.isArray(value)) value.forEach(visit);
+    else if (isRecord(value)) {
+      if (typeof value.href === "string" && value.href.length > 1 && value.href.startsWith("#")) count += 1;
+      Object.values(value).forEach(visit);
+    }
+  };
+  visit(values);
+  if (count === 0) return null;
+  const links = count === 1 ? "1 same-page link (#…)" : `${count} same-page links (#…)`;
+  return `Review ${links} by hand: if a link points at a heading, the translated heading may have a different anchor.`;
+}
 
 export class ContentTranslationInputError extends Error {
   constructor(message: string) {
@@ -48,38 +103,83 @@ export class ContentTranslationInputError extends Error {
   }
 }
 
-export interface TranslateContentFieldsOptions {
+export interface ContentPlanOptions {
   values: Record<string, unknown>;
+  blockFields?: BlockFieldPaths | undefined;
+  /** Fields of EmDash's `blocks` type. Their block types are the site's own, so only `blockFields` applies to them. */
+  blocksFieldSlugs?: readonly string[] | undefined;
+}
+
+export interface ContentTranslateOptions {
   translator: Translator;
   glossary: Glossary;
+  matchInflections?: boolean | undefined;
   sourceLocale: string;
   targetLocale: string;
   promptInstruction?: string | undefined;
-  blockFields?: BlockFieldPaths | undefined;
   onBatchAttempt?: ((event: TranslateBatchAttemptEvent) => void) | undefined;
   onValidationIssue?: ((segmentIds: string[], message: string) => void) | undefined;
   signal?: AbortSignal | undefined;
 }
+
+export type TranslateContentFieldsOptions = ContentPlanOptions & ContentTranslateOptions;
 
 export interface TranslateContentFieldsResult {
   patch: Record<string, unknown>;
   batchCount: number;
 }
 
+/** An entry's text, cut into parts that each fit one request. */
+export interface ContentPlan {
+  values: Record<string, unknown>;
+  segments: Segment[];
+  /** Each part is a list of segment groups, translated by one request. */
+  parts: Segment[][][];
+  characters: number;
+  /** Changes when any source text changes, so parts translated earlier can be matched to the same source. */
+  fingerprint: string;
+  locations: Map<string, SegmentLocation>;
+  spanLists: SpanList[];
+  markdownTexts: MarkdownText[];
+}
+
+/** Translates every part in one go; routes translate one part per request instead. */
 export async function translateContentFields(options: TranslateContentFieldsOptions): Promise<TranslateContentFieldsResult> {
+  const plan = await planContentTranslation(options);
+  const translations = new Map<string, string>();
+  let batchCount = 0;
+  for (const [index] of plan.parts.entries()) {
+    const part = await translateContentPart(plan, index, options);
+    for (const [id, text] of part.translations) translations.set(id, text);
+    batchCount += part.batchCount;
+  }
+  return { patch: applyContentTranslations(plan, translations, options.onValidationIssue), batchCount };
+}
+
+export async function planContentTranslation(options: ContentPlanOptions): Promise<ContentPlan> {
   const segments: Segment[] = [];
   const groups: Segment[][] = [];
   const locations = new Map<string, SegmentLocation>();
   const spanLists: SpanList[] = [];
+  const markdownTexts: MarkdownText[] = [];
   const fields = Object.entries(options.values);
   if (fields.length > MAX_CONTENT_FIELDS) {
     throw new ContentTranslationInputError(`cannot translate more than ${MAX_CONTENT_FIELDS} fields at once`);
   }
 
   for (const [fieldIndex, [field, value]] of fields.entries()) {
-    const collector: Collector = { segments, group: [], locations, spanLists, blockFields: options.blockFields ?? {} };
+    const collector: Collector = {
+      segments,
+      group: [],
+      locations,
+      spanLists,
+      markdownTexts,
+      blockFields: { ...EMDASH_BLOCK_FIELDS, ...options.blockFields },
+    };
     if (typeof value === "string") {
       addSegment(`field:${fieldIndex}`, value, field, [field], collector);
+    } else if (Array.isArray(value) && options.blocksFieldSlugs?.includes(field) === true) {
+      collectBlocksField(value, `field:${fieldIndex}`, field, options.blockFields ?? {}, collector);
     } else if (Array.isArray(value)) {
       collectBlocks(value, `field:${fieldIndex}`, field, [field], collector);
     } else {
@@ -89,47 +189,118 @@ export async function translateContentFields(options: TranslateContentFieldsOpti
   }
 
   if (segments.length > MAX_SEGMENTS) {
-    throw new ContentTranslationInputError(`cannot translate more than ${MAX_SEGMENTS} text segments at once`);
+    throw new ContentTranslationInputError(`cannot translate more than ${MAX_SEGMENTS} text segments in one entry`);
   }
-  const totalCharacters = segments.reduce((total, segment) => total + segment.text.length, 0);
-  if (totalCharacters > MAX_TOTAL_CHARACTERS) {
-    throw new ContentTranslationInputError(`cannot translate more than ${MAX_TOTAL_CHARACTERS} characters at once`);
+  const characters = segments.reduce((total, segment) => total + segment.text.length, 0);
+  if (characters > MAX_TOTAL_CHARACTERS) {
+    throw new ContentTranslationInputError(`cannot translate more than ${MAX_TOTAL_CHARACTERS} characters in one entry`);
   }
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(JSON.stringify(segments.map(({ id, text }) => [id, text]))),
+  );
+  const fingerprint = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  return { values: options.values, segments, parts: splitIntoParts(groups), characters, fingerprint, locations, spanLists, markdownTexts };
+}
 
-  const result = await translateSegments({
+export async function translateContentPart(
+  plan: ContentPlan,
+  partIndex: number,
+  options: ContentTranslateOptions,
+): Promise<{ translations: Map<string, string>; batchCount: number }> {
+  const groups = plan.parts[partIndex];
+  if (groups === undefined) throw new ContentTranslationInputError(`part ${partIndex} does not exist`);
+  return translateSegments({
     translator: options.translator,
-    segments,
+    segments: groups.flat(),
     groups,
     glossary: options.glossary,
+    matchInflections: options.matchInflections,
     sourceLocale: options.sourceLocale,
     targetLocale: options.targetLocale,
+    concurrency: BATCH_CONCURRENCY,
     ...(options.promptInstruction === undefined ? {} : { promptInstruction: options.promptInstruction }),
     ...(options.onBatchAttempt === undefined ? {} : { onBatchAttempt: options.onBatchAttempt }),
     ...(options.signal === undefined ? {} : { signal: options.signal }),
   });
+}
 
-  const patch = structuredClone(options.values);
+/** Builds the patch from every part's translations and checks placeholder tokens survived. */
+export function applyContentTranslations(
+  plan: ContentPlan,
+  translations: ReadonlyMap<string, string>,
+  onValidationIssue?: ContentTranslateOptions["onValidationIssue"],
+): Record<string, unknown> {
+  const { segments, locations, spanLists, markdownTexts } = plan;
+  const patch = structuredClone(plan.values);
+  const markdownSegmentFields = new Map(markdownTexts.flatMap((text) => [...text.adapterIds.keys()].map((id) => [id, text.field])));
   for (const segment of segments) {
-    const translation = result.translations.get(segment.id);
+    const translation = translations.get(segment.id);
+    const markdownField = markdownSegmentFields.get(segment.id);
+    if (markdownField !== undefined && translation !== undefined) {
+      if (validateTokenPreservation(markdownField, segment.text, translation) !== null) {
+        const message = `[polystella-emdash] translation changed placeholder tokens in field "${markdownField}"`;
+        notifyValidationIssue(onValidationIssue, [segment.id], message);
+        throw new Error(message);
+      }
+      continue;
+    }
     const location = locations.get(segment.id);
     if (translation === undefined || location === undefined) {
       const message = `[polystella-emdash] missing translation for internal segment "${segment.id}"`;
-      notifyValidationIssue(options.onValidationIssue, [segment.id], message);
+      notifyValidationIssue(onValidationIssue, [segment.id], message);
       throw new Error(message);
     }
     const tokenIssue = validateTokenPreservation(location.field, segment.text, translation);
     if (tokenIssue !== null) {
       const message = `[polystella-emdash] translation changed placeholder tokens in field "${location.field}"`;
-      notifyValidationIssue(options.onValidationIssue, [segment.id], message);
+      notifyValidationIssue(onValidationIssue, [segment.id], message);
       throw new Error(message);
     }
     setAtPath(patch, location, `${location.leadingWhitespace}${translation}${location.trailingWhitespace}`);
   }
-  validateSpanListTokens(options.values, patch, spanLists, (segmentIds, message) =>
-    notifyValidationIssue(options.onValidationIssue, segmentIds, message),
+  for (const text of markdownTexts) {
+    const adapterTranslations = new Map<string, string>();
+    for (const [id, adapterId] of text.adapterIds) {
+      const translation = translations.get(id);
+      if (translation === undefined) throw new Error(`[polystella-emdash] missing translation for internal segment "${id}"`);
+      adapterTranslations.set(adapterId, translation);
+    }
+    const location = { field: text.field, path: text.path, leadingWhitespace: "", trailingWhitespace: "" };
+    setAtPath(patch, location, text.split.apply(adapterTranslations));
+  }
+  validateSpanListTokens(plan.values, patch, spanLists, (segmentIds, message) =>
+    notifyValidationIssue(onValidationIssue, segmentIds, message),
   );
+  return patch;
+}
 
-  return { patch, batchCount: result.batchCount };
+/** Fills parts in order up to the per-request limits; a group too big for one part continues in the next. */
+function splitIntoParts(groups: readonly Segment[][]): Segment[][][] {
+  const parts: Segment[][][] = [];
+  let part: Segment[][] = [];
+  let piece: Segment[] = [];
+  let characters = 0;
+  let count = 0;
+  for (const group of groups) {
+    for (const segment of group) {
+      if (count > 0 && (characters + segment.text.length > MAX_PART_CHARACTERS || count >= MAX_PART_SEGMENTS)) {
+        if (piece.length > 0) part.push(piece);
+        parts.push(part);
+        part = [];
+        piece = [];
+        characters = 0;
+        count = 0;
+      }
+      piece.push(segment);
+      characters += segment.text.length;
+      count += 1;
+    }
+    if (piece.length > 0) part.push(piece);
+    piece = [];
+  }
+  if (part.length > 0) parts.push(part);
+  return parts;
 }
 
 function collectBlocks(blocks: readonly unknown[], idPrefix: string, field: string, path: PathPart[], collector: Collector): void {
@@ -147,11 +318,37 @@ function collectBlocks(blocks: readonly unknown[], idPrefix: string, field: stri
     } else if (block._type === "table") {
       collectTable(block, blockId, field, blockPath, collector);
     } else {
-      const fieldPaths = Object.hasOwn(collector.blockFields, block._type) ? collector.blockFields[block._type] : undefined;
-      for (const fieldPath of fieldPaths ?? []) {
-        collectBlockPath(block, fieldPath.split("."), blockId, field, blockPath, collector);
-      }
+      collectCustomBlock(block, collector.blockFields, blockId, field, blockPath, collector);
     }
+  }
+}
+
+function collectBlocksField(
+  blocks: readonly unknown[],
+  idPrefix: string,
+  field: string,
+  blockFields: BlockFieldPaths,
+  collector: Collector,
+): void {
+  for (const [blockIndex, block] of blocks.entries()) {
+    if (!isPortableTextNode(block)) throw inputError(`blocks field "${field}" contains an invalid block`, [field, blockIndex]);
+    collectCustomBlock(block, blockFields, `${idPrefix}:block:${blockIndex}`, field, [field, blockIndex], collector);
+  }
+}
+
+function collectCustomBlock(
+  block: Record<string, unknown> & { _type: string },
+  blockFields: BlockFieldPaths,
+  blockId: string,
+  field: string,
+  blockPath: PathPart[],
+  collector: Collector,
+): void {
+  const fieldPaths = Object.hasOwn(blockFields, block._type) ? blockFields[block._type] : undefined;
+  for (const fieldPath of fieldPaths ?? []) {
+    const { path, markdown } =
+      typeof fieldPath === "string" ? { path: fieldPath, markdown: false } : { path: fieldPath.path, markdown: true };
+    collectBlockPath(block, path.split("."), markdown, blockId, field, blockPath, collector);
   }
 }
 
@@ -183,7 +380,16 @@ function collectSpans(spans: readonly unknown[], idPrefix: string, field: string
 }
 
 /** Follows one `a.b[].c` path. Strings are translated; a Portable Text array is walked like a field. */
-function collectBlockPath(node: unknown, parts: string[], id: string, field: string, path: PathPart[], collector: Collector): void {
+function collectBlockPath(
+  node: unknown,
+  parts: string[],
+  markdown: boolean,
+  id: string,
+  field: string,
+  path: PathPart[],
+  collector: Collector,
+): void {
+  const addText = markdown ? addMarkdownText : addSegment;
   const [head, ...rest] = parts;
   if (head === undefined || !isRecord(node)) return;
   const isList = head.endsWith("[]");
@@ -196,13 +402,13 @@ function collectBlockPath(node: unknown, parts: string[], id: string, field: str
     if (!Array.isArray(value)) return;
     for (const [index, item] of value.entries()) {
       const itemPath = [...valuePath, index];
-      if (rest.length > 0) collectBlockPath(item, rest, `${valueId}:${index}`, field, itemPath, collector);
-      else if (typeof item === "string") addSegment(`${valueId}:${index}`, item, field, itemPath, collector);
+      if (rest.length > 0) collectBlockPath(item, rest, markdown, `${valueId}:${index}`, field, itemPath, collector);
+      else if (typeof item === "string") addText(`${valueId}:${index}`, item, field, itemPath, collector);
     }
   } else if (rest.length > 0) {
-    collectBlockPath(value, rest, valueId, field, valuePath, collector);
+    collectBlockPath(value, rest, markdown, valueId, field, valuePath, collector);
   } else if (typeof value === "string") {
-    addSegment(valueId, value, field, valuePath, collector);
+    addText(valueId, value, field, valuePath, collector);
   } else if (Array.isArray(value)) {
     collectBlocks(value, valueId, field, valuePath, collector);
   }
@@ -246,7 +452,7 @@ function addSegment(id: string, source: string, field: string, path: PathPart[],
     throw inputError(`one text segment exceeds ${MAX_SEGMENT_CHARACTERS} characters`, path);
   }
   const start = source.indexOf(text);
-  const segment = { id, text };
+  const segment: Segment = { id, text, markup: "html" };
   collector.group.push(segment);
   collector.segments.push(segment);
   collector.locations.set(id, {
@@ -255,6 +461,25 @@ function addSegment(id: string, source: string, field: string, path: PathPart[],
     leadingWhitespace: source.slice(0, start),
     trailingWhitespace: source.slice(start + text.length),
   });
+  return true;
+}
+
+/** Splits Markdown into paragraph and list-item segments so the model never sees its block structure. */
+function addMarkdownText(id: string, source: string, field: string, path: PathPart[], collector: Collector): boolean {
+  if (source.trim().length === 0) return false;
+  const split = splitMarkdownText(source);
+  const adapterIds = new Map<string, string>();
+  for (const segment of split.segments) {
+    if (segment.text.length > MAX_SEGMENT_CHARACTERS)
+      throw inputError(`one text segment exceeds ${MAX_SEGMENT_CHARACTERS} characters`, path);
+    const ownId = `${id}:${segment.id}`;
+    adapterIds.set(ownId, segment.id);
+    const ownSegment = { ...segment, id: ownId };
+    collector.group.push(ownSegment);
+    collector.segments.push(ownSegment);
+  }
+  if (adapterIds.size === 0) return false;
+  collector.markdownTexts.push({ field, path, split, adapterIds });
   return true;
 }
 

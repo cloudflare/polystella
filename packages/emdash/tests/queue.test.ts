@@ -91,6 +91,12 @@ describe("PolyStella batch queue consumer", () => {
     expect(message.ack).toHaveBeenCalled();
   });
 
+  it("records the route's notice with the created row", async () => {
+    const { value, routeCalls } = runtime(undefined, { create: draft, publish: true, notice: "Review 1 same-page link (#…) by hand." });
+    await processPolystellaBatch({ messages: [queueMessage()] }, value);
+    expect(routeCalls.at(-1)?.body).toMatchObject({ outcome: "created", message: "Review 1 same-page link (#…) by hand. Published." });
+  });
+
   it("records a locale created meanwhile as skipped", async () => {
     const { value, routeCalls } = runtime({ success: false, error: { code: "CONFLICT", message: "Translation already exists" } });
 
