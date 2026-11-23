@@ -275,7 +275,7 @@ export async function runTranslateUi(args: TranslateUiArgs, deps: TranslateUiDep
         for (const failure of result.tokenFailures) {
           deps.warn(`      - ${formatTokenValidationIssue(failure)}`);
         }
-        deps.warn(`[polystella]   ${progress} — ${job.locale}: these keys were left empty; fix manually then re-run.`);
+        deps.warn(`[polystella]   ${progress} — ${job.locale}: these keys were left empty; fix them (or their source string) and re-run.`);
       }
     } catch (error) {
       job.outcome.error = asError(error);

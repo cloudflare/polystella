@@ -61,8 +61,10 @@ export default {
   add its key to [`catalog.ignoreKeys`](/configuration/#catalog-options).
 - It applies to the CLI, the build's drift checks, `Astro.locals.t`,
   `getTranslations()`, `useTranslations()` and `catalogAstro()`. The EmDash
-  plugin, `i18nSchema()` and the standalone `formatMessage()` stay on
-  `{{name}}` (`formatMessage` takes the syntax as its fourth argument).
+  plugin stays on `{{name}}`.
+- The standalone `formatMessage()` can't read the config. When you format a
+  `t.raw(key)` template yourself, pass the syntax as the fourth argument:
+  `formatMessage(t.raw("greeting"), { name }, t.locale, "icu")`.
 
 The rest of this page uses the default `{{name}}` syntax.
 

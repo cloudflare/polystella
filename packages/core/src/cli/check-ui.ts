@@ -116,6 +116,7 @@ export async function runCheckUi(args: CheckUiArgs, deps: CheckUiDeps): Promise<
     if (catalog.messageSyntax === "icu") {
       deps.err("Placeholders are {name}; plurals are {count, plural, one {# item} other {# items}}.");
       deps.err("Write '' for an apostrophe directly before {, } or # inside a plural.");
+      deps.err("A default-locale string that isn't valid ICU: fix it or add its key to catalog.ignoreKeys.");
     } else {
       deps.err("Placeholders are {{name}}; plurals are {{count, plural, one {# item} other {# items}}}.");
       deps.err("Write '' for an apostrophe directly before {{, } or # inside a plural.");

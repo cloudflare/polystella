@@ -134,7 +134,7 @@ function describeSyntaxError(error: unknown): string {
   throw error;
 }
 
-const ICU_ARGUMENT_RE = /\{(\w+)\}/g;
+const ICU_ARGUMENT_RE = /\{([\p{L}\p{N}_]+)\}/gu;
 
 // The parsed argument set misses a placeholder that is visibly there: an apostrophe quoted it away.
 // In ICU, `'{name}'` is also how a literal is written, so only source placeholders count there.
