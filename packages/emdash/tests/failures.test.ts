@@ -35,18 +35,28 @@ describe("publicTranslationFailure", () => {
 });
 
 describe("createTranslator", () => {
-  it("sends the model's params, with the locale's enable_thinking", async () => {
+  it("sends the model's params, with the locale's enable_thinking while it uses its code model", async () => {
     const inputs: unknown[] = [];
     const options = {
       provider: { kind: "workers-ai-binding", binding: "AI" },
-      models: { allowed: ["glm"], defaults: "glm", params: { glm: { enable_thinking: { default: false, "ja-JP": true } } } },
+      models: {
+        allowed: ["glm", "kimi"],
+        defaults: { default: { model: "glm", enable_thinking: false }, "ja-JP": { model: "glm", enable_thinking: true } },
+        params: { kimi: { reasoning_effort: "high" } },
+      },
     } as unknown as PolystellaEmdashOptions;
     const env = { AI: { run: async (_model: string, input: unknown) => (inputs.push(input), { response: "@@a@@\nHallo" }) } };
     const log = { error: () => undefined } as unknown as Parameters<typeof createTranslator>[4];
-    for (const locale of ["de-DE", "ja-JP"]) {
-      const translator = createTranslator(options, env, "glm", locale, log, { getEnv: async () => env, now: () => new Date() });
-      await translator.translate("system", "user");
-    }
-    expect(inputs).toEqual([false, true].map((enable_thinking) => expect.objectContaining({ chat_template_kwargs: { enable_thinking } })));
+    const dependencies = { getEnv: async () => env, now: () => new Date() };
+    for (const locale of ["de-DE", "ja-JP"])
+      await createTranslator(options, env, "glm", locale, log, dependencies).translate("system", "user");
+    // An editor picked kimi for ja-JP in the admin: ja-JP's thinking setting belongs to glm, so it isn't sent.
+    await createTranslator(options, env, "kimi", "ja-JP", log, dependencies).translate("system", "user");
+    expect(inputs).toEqual([
+      expect.objectContaining({ chat_template_kwargs: { enable_thinking: false } }),
+      expect.objectContaining({ chat_template_kwargs: { enable_thinking: true } }),
+      expect.not.objectContaining({ chat_template_kwargs: expect.anything() }),
+    ]);
+    expect(inputs[2]).toMatchObject({ reasoning_effort: "high" });
   });
 });

@@ -31,7 +31,7 @@ export function createTranslator(
   maxTokens: number = options.provider.maxTokens ?? MAX_TOKENS,
 ): Translator {
   const provider = options.provider;
-  const params = workersAIParamsForLocale(options.models.params?.[modelId], locale);
+  const params = workersAIParamsForLocale(options.models.params?.[modelId], options.models.defaults, locale, modelId);
   if (provider.kind === "workers-ai-binding") {
     const binding = env?.[provider.binding];
     if (!isWorkersAIBinding(binding)) {

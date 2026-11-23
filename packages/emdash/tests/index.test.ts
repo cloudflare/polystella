@@ -179,19 +179,30 @@ describe("polystellaEmdash", () => {
     ).toThrow('options.models.params.model-a cannot set "messages"; PolyStella sets it');
     expect(() =>
       validatePolystellaEmdashOptions({ ...options, models: { ...base.models, params: { "model-a": { enable_thinking: "off" } } } }),
-    ).toThrow("options.models.params.model-a enable_thinking must be true, false, or a map");
+    ).toThrow("options.models.params.model-a enable_thinking must be true or false");
+
+    const defaults = { default: { model: "model-a", enable_thinking: false }, "ja-JP": { model: "model-a", enable_thinking: true } };
+    const withThinking = polystellaEmdash({ ...options, models: { ...base.models, defaults } }).options;
+    if (withThinking === undefined) throw new Error("descriptor options are missing");
+    expect(deserializeOptions(withThinking).models.defaults).toEqual(defaults);
     expect(() =>
       validatePolystellaEmdashOptions({
         ...options,
-        models: { ...base.models, params: { "model-a": { enable_thinking: { default: false, "ja-JP": true } } } },
+        models: { ...base.models, defaults: { default: { model: "model-a", enable_thinking: "on" } } },
       }),
-    ).not.toThrow();
+    ).toThrow("options.models.defaults.default.enable_thinking must be true or false");
     expect(() =>
       validatePolystellaEmdashOptions({
         ...options,
-        models: { ...base.models, params: { "model-a": { enable_thinking: { "ko-KR": true } } } },
+        models: { ...base.models, defaults: { default: { model: "model-a", reasoning: true } } },
       }),
-    ).toThrow("options.models.params.model-a.enable_thinking.ko-KR must match a configured catalog locale");
+    ).toThrow("options.models.defaults.default.reasoning");
+    expect(() =>
+      validatePolystellaEmdashOptions({
+        ...options,
+        models: { ...base.models, defaults, params: { "model-a": { chat_template_kwargs: { enable_thinking: true } } } },
+      }),
+    ).toThrow("options.models.defaults.default sets enable_thinking twice");
     expect(() =>
       validatePolystellaEmdashOptions({ ...options, provider: { kind: "workers-ai-binding", binding: "AI", timeoutMs: 0 } }),
     ).toThrow("options.provider.timeoutMs must be a positive integer");

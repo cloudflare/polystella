@@ -61,24 +61,29 @@ flattened to dotted keys so `t("site.title")` works identically in
 either format; an optional `i18n_group_title` key per group is
 metadata and is never translated.
 
-## Workers AI params
+## Workers AI thinking and params
 
-`polystella.config.mjs` with `provider.kind: "workers-ai"` takes
-`provider.params`, keyed by model id, with the same rules as the EmDash
-plugin's [`models.params`](/emdash/configuration/). For example, think
-only for Japanese:
+With `provider.kind: "workers-ai"`, `polystella.config.mjs` takes the
+same settings as the EmDash plugin's
+[`models`](/emdash/configuration/#thinking): a `provider.model` entry
+can be `{ model, enable_thinking }`, and `provider.params` holds extra
+input per model id. For example, think only for Japanese:
 
 ```js
 provider: {
   kind: "workers-ai",
   accountId: process.env.CLOUDFLARE_ACCOUNT_ID,
   apiToken: process.env.CLOUDFLARE_API_TOKEN,
-  model: TRANSLATION_MODEL,
-  params: { [TRANSLATION_MODEL]: { enable_thinking: { default: false, "ja-JP": true } } },
+  model: {
+    default: { model: TRANSLATION_MODEL, enable_thinking: false },
+    "ja-JP": { model: TRANSLATION_MODEL, enable_thinking: true },
+  },
 },
 ```
 
-Astro builds ignore `provider.params`.
+Astro's `provider.model` takes only model ids, so don't share this
+`provider` object with `astro.config.mjs`. Astro ignores
+`provider.params`.
 
 ## Why no R2 caching
 

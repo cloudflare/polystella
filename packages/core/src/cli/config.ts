@@ -4,7 +4,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { assertLocaleTags, parseLocaleTags, type LocaleTags } from "../catalog/locale-tags.js";
-import type { ModelSpec } from "../index.js";
+import type { ModelChoice, ModelChoiceSpec, ModelSpec } from "../index.js";
 import { workersAIParamsProblem } from "../providers/workers-ai.js";
 
 import { validateGlossary } from "./glossary.js";
@@ -19,7 +19,8 @@ export interface WorkersAiProviderConfig {
   accountId: string;
   apiToken: string;
   endpoint?: string | undefined;
-  model: ModelSpec;
+  /** Locale entries may be `{ model, enable_thinking }`. */
+  model: ModelChoiceSpec;
   maxTokens: number;
   batchInputTokenBudget: number;
   /** Extra Workers AI input per model id, as in the EmDash plugin's `models.params`. */
@@ -184,13 +185,18 @@ export function resolveCatalogConfig(raw: unknown, i18n: AstroI18nConfig): Catal
 
 function parseProvider(value: unknown): CatalogProviderConfig {
   const provider = requireRecord(value, "provider");
-  const model = parseModel(provider.model);
   const maxTokens = parseInteger(provider.maxTokens, "provider.maxTokens", 8192, 1);
   const batchInputTokenBudget = parseInteger(provider.batchInputTokenBudget, "provider.batchInputTokenBudget", 4000, 1);
 
   if (provider.kind === "workers-ai") {
     const endpoint = optionalUrl(provider.endpoint, "provider.endpoint");
+    const model = parseModel(provider.model, true);
     const params = parseWorkersAIParams(provider.params);
+    for (const [locale, choice] of typeof model === "string" ? [] : Object.entries(model)) {
+      if (typeof choice === "string" || choice.enable_thinking === undefined) continue;
+      const problem = workersAIParamsProblem({ ...params?.[choice.model], enable_thinking: choice.enable_thinking });
+      if (problem !== undefined) throw configurationError(`provider.model.${locale}`, problem);
+    }
     return {
       kind: "workers-ai",
       accountId: requireNonEmptyString(provider.accountId, "provider.accountId"),
@@ -206,7 +212,7 @@ function parseProvider(value: unknown): CatalogProviderConfig {
     return {
       kind: "anthropic",
       apiKey: requireNonEmptyString(provider.apiKey, "provider.apiKey"),
-      model,
+      model: parseModel(provider.model, false) as ModelSpec,
       maxTokens,
       batchInputTokenBudget,
     };
@@ -226,18 +232,25 @@ function parseWorkersAIParams(value: unknown): Record<string, Record<string, unk
   return params;
 }
 
-function parseModel(value: unknown): ModelSpec {
+function parseModel(value: unknown, allowChoices: boolean): ModelChoiceSpec {
   if (typeof value === "string" && value.length > 0) return value;
   const models = asRecordOrUndefined(value);
-  if (models === undefined || typeof models.default !== "string" || models.default.length === 0) {
+  if (models === undefined || models.default === undefined) {
     throw configurationError("provider.model", "must be a non-empty string or a locale map with a non-empty default");
   }
-  for (const model of Object.values(models)) {
-    if (typeof model !== "string" || model.length === 0) {
-      throw configurationError("provider.model", "locale map values must be non-empty strings");
-    }
+  for (const [locale, choice] of Object.entries(models)) parseModelChoice(choice, `provider.model.${locale}`, allowChoices);
+  return models as { default: ModelChoice } & Record<string, ModelChoice>;
+}
+
+function parseModelChoice(value: unknown, label: string, allowChoices: boolean): void {
+  if (typeof value === "string" && value.length > 0) return;
+  const choice = asRecordOrUndefined(value);
+  if (!allowChoices || choice === undefined) throw configurationError(label, "must be a non-empty model id string");
+  rejectUnknownKeys(choice, ["model", "enable_thinking"], label);
+  requireNonEmptyString(choice.model, `${label}.model`);
+  if (choice.enable_thinking !== undefined && typeof choice.enable_thinking !== "boolean") {
+    throw configurationError(`${label}.enable_thinking`, "must be true or false");
   }
-  return models as { default: string } & Record<string, string>;
 }
 
 function parseGlossaryConfig(value: unknown): CatalogGlossaryConfig {

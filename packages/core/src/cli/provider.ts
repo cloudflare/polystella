@@ -12,7 +12,7 @@ export function createTranslator(provider: CatalogProviderConfig, locale: string
       apiToken: provider.apiToken,
       modelId,
       maxTokens: provider.maxTokens,
-      params: workersAIParamsForLocale(provider.params?.[modelId], locale),
+      params: workersAIParamsForLocale(provider.params?.[modelId], provider.model, locale, modelId),
       ...(provider.endpoint === undefined ? {} : { endpoint: provider.endpoint }),
     });
   }
