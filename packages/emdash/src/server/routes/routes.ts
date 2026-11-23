@@ -1264,7 +1264,7 @@ async function translationSettings(
   }
   const maxTokens = storedSettings.maxTokens ?? defaultMaxTokens(options);
   return {
-    translator: createTranslator(options, env, model, log, dependencies, maxTokens),
+    translator: createTranslator(options, env, model, locale, log, dependencies, maxTokens),
     glossary,
     matchInflections: options.glossaryMatchInflections === true,
     debugEnabled: storedSettings.debugEnabled,

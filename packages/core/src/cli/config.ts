@@ -5,6 +5,7 @@ import { pathToFileURL } from "node:url";
 
 import { assertLocaleTags, parseLocaleTags, type LocaleTags } from "../catalog/locale-tags.js";
 import type { ModelSpec } from "../index.js";
+import { workersAIParamsProblem } from "../providers/workers-ai.js";
 
 import { validateGlossary } from "./glossary.js";
 
@@ -21,6 +22,8 @@ export interface WorkersAiProviderConfig {
   model: ModelSpec;
   maxTokens: number;
   batchInputTokenBudget: number;
+  /** Extra Workers AI input per model id, as in the EmDash plugin's `models.params`. */
+  params?: Record<string, Record<string, unknown>> | undefined;
 }
 
 export interface AnthropicProviderConfig {
@@ -187,6 +190,7 @@ function parseProvider(value: unknown): CatalogProviderConfig {
 
   if (provider.kind === "workers-ai") {
     const endpoint = optionalUrl(provider.endpoint, "provider.endpoint");
+    const params = parseWorkersAIParams(provider.params);
     return {
       kind: "workers-ai",
       accountId: requireNonEmptyString(provider.accountId, "provider.accountId"),
@@ -195,6 +199,7 @@ function parseProvider(value: unknown): CatalogProviderConfig {
       model,
       maxTokens,
       batchInputTokenBudget,
+      ...(params === undefined ? {} : { params }),
     };
   }
   if (provider.kind === "anthropic") {
@@ -207,6 +212,18 @@ function parseProvider(value: unknown): CatalogProviderConfig {
     };
   }
   throw configurationError("provider.kind", 'must be "workers-ai" or "anthropic"');
+}
+
+function parseWorkersAIParams(value: unknown): Record<string, Record<string, unknown>> | undefined {
+  if (value === undefined) return undefined;
+  const params: Record<string, Record<string, unknown>> = {};
+  for (const [model, modelParams] of Object.entries(requireRecord(value, "provider.params"))) {
+    const record = requireRecord(modelParams, `provider.params.${model}`);
+    const problem = workersAIParamsProblem(record);
+    if (problem !== undefined) throw configurationError(`provider.params.${model}`, problem);
+    params[model] = record;
+  }
+  return params;
 }
 
 function parseModel(value: unknown): ModelSpec {

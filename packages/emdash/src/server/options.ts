@@ -51,7 +51,10 @@ export interface PolystellaEmdashOptions {
   models: {
     allowed: readonly string[];
     defaults: ModelSpec;
-    /** Extra Workers AI input per allowed model, such as `{ chat_template_kwargs: { enable_thinking: false } }`. */
+    /**
+     * Extra Workers AI input per allowed model. `enable_thinking` is `true`, `false`, or per locale like `defaults`:
+     * `{ default: false, "ja-JP": true }`.
+     */
     params?: Readonly<Record<string, Readonly<Record<string, unknown>>>> | undefined;
   };
   glossaryDefaults?: Readonly<Record<string, Glossary>> | undefined;
@@ -137,8 +140,15 @@ export function validatePolystellaEmdashOptions(value: unknown): asserts value i
   if (models.params !== undefined) {
     for (const [model, params] of Object.entries(readRecord(models.params, "options.models.params"))) {
       if (!allowedModels.includes(model)) fail(`options.models.params.${model} must exist in options.models.allowed`);
-      const problem = workersAIParamsProblem(readRecord(params, `options.models.params.${model}`));
+      const modelParams = readRecord(params, `options.models.params.${model}`);
+      const problem = workersAIParamsProblem(modelParams);
       if (problem !== undefined) fail(`options.models.params.${model} ${problem}`);
+      const thinking = modelParams.enable_thinking;
+      for (const locale of thinking !== null && typeof thinking === "object" ? Object.keys(thinking) : []) {
+        if (locale !== "default" && !configuredLocales.has(locale)) {
+          fail(`options.models.params.${model}.enable_thinking.${locale} must match a configured catalog locale`);
+        }
+      }
     }
   }
 

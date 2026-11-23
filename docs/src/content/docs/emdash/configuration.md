@@ -75,6 +75,18 @@ schema says it defaults to `false`. Some models can't turn thinking off,
 and Workers AI rejects `false` for them. Other keys, such as
 `reasoning_effort`, are sent as written.
 
+`enable_thinking` can also differ per locale, with the same shape as
+`models.defaults`: a `default` plus locale overrides. Locales with no
+entry and no `default` send no switch.
+
+```js
+params: {
+  "@cf/deepseek-ai/deepseek-v4.1-flash-1017": {
+    enable_thinking: { default: false, "ja-JP": true, "zh-CN": true },
+  },
+},
+```
+
 Keys must be allowed models. `messages`, `prompt`, `max_tokens`,
 `max_completion_tokens` and `stream` are set by PolyStella and are
 rejected. Params apply to both the binding and HTTP providers.
@@ -288,8 +300,9 @@ replace. Configure collection and field policy in the
   `block` or `span` types.
 - Every `models.params` key must be in `models.allowed`, and its object
   must not set `messages`, `prompt`, `max_tokens`,
-  `max_completion_tokens` or `stream`. `enable_thinking` must be `true`
-  or `false`, and can't be set again in `chat_template_kwargs`.
+  `max_completion_tokens` or `stream`. `enable_thinking` must be `true`,
+  `false`, or a map of configured locales (and `default`) to booleans,
+  and can't be set again in `chat_template_kwargs`.
 - Provider env/binding names and `batchQueueBinding` must be valid
   environment binding names; `endpoint` must be a valid URL;
   `maxTokens` and `timeoutMs` must be positive integers.

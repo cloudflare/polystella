@@ -21,7 +21,8 @@ interface WorkersAITranslatorOptions {
   maxTokens: number;
   /**
    * Extra input sent with every request. `enable_thinking: false` turns off a reasoning model's thinking: it is sent
-   * as `chat_template_kwargs.enable_thinking`, the form Workers AI reads. Other keys pass through unchanged.
+   * as `chat_template_kwargs.enable_thinking`, the form Workers AI reads. Other keys pass through unchanged. A
+   * per-locale `enable_thinking` map must be resolved first with `workersAIParamsForLocale`.
    */
   params?: Readonly<Record<string, unknown>> | undefined;
   /** Stop waiting after this many milliseconds and throw `ProviderTimeoutError`. Default: no limit. */
@@ -113,7 +114,8 @@ export function workersAIParamsProblem(params: Readonly<Record<string, unknown>>
   const reserved = Object.keys(params ?? {}).find((key) => RESERVED_WORKERS_AI_PARAMS.includes(key));
   if (reserved !== undefined) return `cannot set "${reserved}"; PolyStella sets it`;
   if (params === undefined || !Object.hasOwn(params, "enable_thinking")) return undefined;
-  if (typeof params.enable_thinking !== "boolean") return "enable_thinking must be true or false";
+  if (!isThinkingSetting(params.enable_thinking))
+    return "enable_thinking must be true, false, or a map of locales (and default) to true or false";
   const kwargs = params.chat_template_kwargs;
   if (kwargs !== undefined && (kwargs === null || typeof kwargs !== "object" || Array.isArray(kwargs))) {
     return "chat_template_kwargs must be an object";
@@ -122,11 +124,36 @@ export function workersAIParamsProblem(params: Readonly<Record<string, unknown>>
   return undefined;
 }
 
+/**
+ * `params` for one locale: a per-locale `enable_thinking` map (`{ default: false, "ja-JP": true }`) becomes that
+ * locale's boolean, or is dropped when neither the locale nor `default` is set.
+ */
+export function workersAIParamsForLocale(
+  params: Readonly<Record<string, unknown>> | undefined,
+  locale: string,
+): Readonly<Record<string, unknown>> | undefined {
+  const setting = params?.enable_thinking;
+  if (params === undefined || setting === null || typeof setting !== "object") return params;
+  const { enable_thinking: _perLocale, ...rest } = params;
+  const enableThinking = property(setting, locale) ?? property(setting, "default");
+  return enableThinking === undefined ? rest : { ...rest, enable_thinking: enableThinking };
+}
+
+function isThinkingSetting(value: unknown): boolean {
+  if (typeof value === "boolean") return true;
+  return (
+    value !== null && typeof value === "object" && !Array.isArray(value) && Object.values(value).every((item) => typeof item === "boolean")
+  );
+}
+
 // Workers AI accepts a top-level `enable_thinking` and ignores it, so it is moved to where the models read it.
 function resolveParams(params: Readonly<Record<string, unknown>> | undefined): Readonly<Record<string, unknown>> | undefined {
   const problem = workersAIParamsProblem(params);
   if (problem !== undefined) throw new Error(`[polystella] Workers AI params ${problem}`);
   if (params === undefined || !Object.hasOwn(params, "enable_thinking")) return params;
+  if (typeof params.enable_thinking !== "boolean") {
+    throw new Error("[polystella] Workers AI params enable_thinking is a per-locale map; resolve it with workersAIParamsForLocale");
+  }
   const { enable_thinking: enableThinking, ...rest } = params;
   const kwargs = property(rest, "chat_template_kwargs");
   return { ...rest, chat_template_kwargs: { ...(kwargs === undefined ? {} : kwargs), enable_thinking: enableThinking } };

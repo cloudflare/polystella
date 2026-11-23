@@ -6,6 +6,7 @@ import {
   createWorkersAIBindingTranslator,
   createWorkersAIHttpTranslator,
   ProviderTimeoutError,
+  workersAIParamsForLocale,
   workersAIParamsProblem,
 } from "../../src/providers/workers-ai.js";
 
@@ -255,7 +256,14 @@ describe("Workers AI request controls", () => {
 
     const create = (params: Record<string, unknown>) => () =>
       createWorkersAIBindingTranslator({ modelId: "deepseek", maxTokens: 100, params, run });
-    expect(create({ enable_thinking: "no" })).toThrow("enable_thinking must be true or false");
+    expect(create({ enable_thinking: "no" })).toThrow("enable_thinking must be true, false, or a map");
+    expect(create({ enable_thinking: { default: false } })).toThrow("resolve it with workersAIParamsForLocale");
+
+    const perLocale = { enable_thinking: { default: false, "ja-JP": true }, reasoning_effort: "low" };
+    expect(workersAIParamsForLocale(perLocale, "ja-JP")).toEqual({ enable_thinking: true, reasoning_effort: "low" });
+    expect(workersAIParamsForLocale(perLocale, "de-DE")).toEqual({ enable_thinking: false, reasoning_effort: "low" });
+    expect(workersAIParamsForLocale({ enable_thinking: { "ja-JP": true } }, "de-DE")).toEqual({});
+    expect(workersAIParamsProblem({ enable_thinking: { default: "yes" } })).toContain("enable_thinking must be");
     expect(create({ enable_thinking: false, chat_template_kwargs: { enable_thinking: false } })).toThrow("sets enable_thinking twice");
     expect(create({ enable_thinking: false, chat_template_kwargs: "x" })).toThrow("chat_template_kwargs must be an object");
     expect(workersAIParamsProblem({ chat_template_kwargs: { enable_thinking: false } })).toBeUndefined();

@@ -61,6 +61,25 @@ flattened to dotted keys so `t("site.title")` works identically in
 either format; an optional `i18n_group_title` key per group is
 metadata and is never translated.
 
+## Workers AI params
+
+`polystella.config.mjs` with `provider.kind: "workers-ai"` takes
+`provider.params`, keyed by model id, with the same rules as the EmDash
+plugin's [`models.params`](/emdash/configuration/). For example, think
+only for Japanese:
+
+```js
+provider: {
+  kind: "workers-ai",
+  accountId: process.env.CLOUDFLARE_ACCOUNT_ID,
+  apiToken: process.env.CLOUDFLARE_API_TOKEN,
+  model: TRANSLATION_MODEL,
+  params: { [TRANSLATION_MODEL]: { enable_thinking: { default: false, "ja-JP": true } } },
+},
+```
+
+Astro builds ignore `provider.params`.
+
 ## Why no R2 caching
 
 The markdown pipeline caches translations in R2 because they're

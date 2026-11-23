@@ -5,6 +5,15 @@ import { resolveCatalogConfig, resolveLocaleTagsConfig } from "../../src/cli/con
 const i18n = { defaultLocale: "en-US", locales: ["en-US", "pt-BR"] };
 
 describe("resolveCatalogConfig", () => {
+  it("keeps Workers AI params and rejects ones PolyStella can't send", () => {
+    const provider = { kind: "workers-ai", accountId: "a", apiToken: "t", model: "m" };
+    const params = { m: { enable_thinking: { default: false, "pt-BR": true } } };
+    expect(resolveCatalogConfig({ provider: { ...provider, params } }, i18n).provider).toMatchObject({ params });
+    expect(() => resolveCatalogConfig({ provider: { ...provider, params: { m: { max_tokens: 1 } } } }, i18n)).toThrow(
+      'provider.params.m: cannot set "max_tokens"',
+    );
+  });
+
   it("applies catalog defaults and ignores unrelated integration options", () => {
     const resolved = resolveCatalogConfig(
       {

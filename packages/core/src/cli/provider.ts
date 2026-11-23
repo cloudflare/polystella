@@ -1,6 +1,6 @@
 import { resolveModelId, type Translator } from "../index.js";
 import { createAnthropicTranslator } from "../providers/anthropic.js";
-import { createWorkersAIHttpTranslator } from "../providers/workers-ai.js";
+import { createWorkersAIHttpTranslator, workersAIParamsForLocale } from "../providers/workers-ai.js";
 
 import type { CatalogProviderConfig } from "./config.js";
 
@@ -12,6 +12,7 @@ export function createTranslator(provider: CatalogProviderConfig, locale: string
       apiToken: provider.apiToken,
       modelId,
       maxTokens: provider.maxTokens,
+      params: workersAIParamsForLocale(provider.params?.[modelId], locale),
       ...(provider.endpoint === undefined ? {} : { endpoint: provider.endpoint }),
     });
   }

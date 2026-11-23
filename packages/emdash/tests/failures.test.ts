@@ -35,16 +35,18 @@ describe("publicTranslationFailure", () => {
 });
 
 describe("createTranslator", () => {
-  it("sends the model's params", async () => {
+  it("sends the model's params, with the locale's enable_thinking", async () => {
     const inputs: unknown[] = [];
     const options = {
       provider: { kind: "workers-ai-binding", binding: "AI" },
-      models: { allowed: ["glm"], defaults: "glm", params: { glm: { enable_thinking: false } } },
+      models: { allowed: ["glm"], defaults: "glm", params: { glm: { enable_thinking: { default: false, "ja-JP": true } } } },
     } as unknown as PolystellaEmdashOptions;
     const env = { AI: { run: async (_model: string, input: unknown) => (inputs.push(input), { response: "@@a@@\nHallo" }) } };
-    const log = { error: () => undefined } as unknown as Parameters<typeof createTranslator>[3];
-    const translator = createTranslator(options, env, "glm", log, { getEnv: async () => env, now: () => new Date() });
-    await translator.translate("system", "user");
-    expect(inputs).toEqual([expect.objectContaining({ chat_template_kwargs: { enable_thinking: false } })]);
+    const log = { error: () => undefined } as unknown as Parameters<typeof createTranslator>[4];
+    for (const locale of ["de-DE", "ja-JP"]) {
+      const translator = createTranslator(options, env, "glm", locale, log, { getEnv: async () => env, now: () => new Date() });
+      await translator.translate("system", "user");
+    }
+    expect(inputs).toEqual([false, true].map((enable_thinking) => expect.objectContaining({ chat_template_kwargs: { enable_thinking } })));
   });
 });

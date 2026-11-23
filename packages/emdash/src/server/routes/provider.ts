@@ -4,6 +4,7 @@ import {
   createWorkersAIHttpTranslator,
   type WorkersAIBindingRun,
   type WorkersAIInput,
+  workersAIParamsForLocale,
 } from "@cloudflare/polystella-core/providers/workers-ai";
 import { PluginRouteError, type LogAccess } from "emdash";
 
@@ -24,11 +25,13 @@ export function createTranslator(
   options: PolystellaEmdashOptions,
   env: Record<string, unknown> | undefined,
   modelId: string,
+  locale: string,
   log: LogAccess,
   dependencies: PluginRouteDependencies,
   maxTokens: number = options.provider.maxTokens ?? MAX_TOKENS,
 ): Translator {
   const provider = options.provider;
+  const params = workersAIParamsForLocale(options.models.params?.[modelId], locale);
   if (provider.kind === "workers-ai-binding") {
     const binding = env?.[provider.binding];
     if (!isWorkersAIBinding(binding)) {
@@ -38,7 +41,7 @@ export function createTranslator(
     return createWorkersAIBindingTranslator({
       modelId,
       maxTokens,
-      params: options.models.params?.[modelId],
+      params,
       timeoutMs: provider.timeoutMs ?? REQUEST_TIMEOUT_MS,
       run: workersRun(binding),
     });
@@ -58,7 +61,7 @@ export function createTranslator(
     apiToken,
     modelId,
     maxTokens,
-    params: options.models.params?.[modelId],
+    params,
     timeoutMs: provider.timeoutMs ?? REQUEST_TIMEOUT_MS,
     ...(provider.endpoint === undefined ? {} : { endpoint: provider.endpoint }),
     ...(dependencies.fetchImpl === undefined ? {} : { fetchImpl: dependencies.fetchImpl }),

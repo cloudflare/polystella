@@ -179,7 +179,19 @@ describe("polystellaEmdash", () => {
     ).toThrow('options.models.params.model-a cannot set "messages"; PolyStella sets it');
     expect(() =>
       validatePolystellaEmdashOptions({ ...options, models: { ...base.models, params: { "model-a": { enable_thinking: "off" } } } }),
-    ).toThrow("options.models.params.model-a enable_thinking must be true or false");
+    ).toThrow("options.models.params.model-a enable_thinking must be true, false, or a map");
+    expect(() =>
+      validatePolystellaEmdashOptions({
+        ...options,
+        models: { ...base.models, params: { "model-a": { enable_thinking: { default: false, "ja-JP": true } } } },
+      }),
+    ).not.toThrow();
+    expect(() =>
+      validatePolystellaEmdashOptions({
+        ...options,
+        models: { ...base.models, params: { "model-a": { enable_thinking: { "ko-KR": true } } } },
+      }),
+    ).toThrow("options.models.params.model-a.enable_thinking.ko-KR must match a configured catalog locale");
     expect(() =>
       validatePolystellaEmdashOptions({ ...options, provider: { kind: "workers-ai-binding", binding: "AI", timeoutMs: 0 } }),
     ).toThrow("options.provider.timeoutMs must be a positive integer");
