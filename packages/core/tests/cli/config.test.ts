@@ -5,6 +5,22 @@ import { resolveCatalogConfig, resolveLocaleTagsConfig } from "../../src/cli/con
 const i18n = { defaultLocale: "en-US", locales: ["en-US", "pt-BR"] };
 
 describe("resolveCatalogConfig", () => {
+  it("keeps Workers AI params and per-locale enable_thinking, and rejects what PolyStella can't send", () => {
+    const provider = { kind: "workers-ai", accountId: "a", apiToken: "t", model: "m" };
+    const params = { m: { reasoning_effort: "low" } };
+    const model = { default: { model: "m", enable_thinking: false }, "pt-BR": { model: "m", enable_thinking: true } };
+    expect(resolveCatalogConfig({ provider: { ...provider, model, params } }, i18n).provider).toMatchObject({ model, params });
+    expect(() => resolveCatalogConfig({ provider: { ...provider, params: { m: { max_tokens: 1 } } } }, i18n)).toThrow(
+      'provider.params.m: cannot set "max_tokens"',
+    );
+    expect(() => resolveCatalogConfig({ provider: { ...provider, model: { default: { model: "m", thinking: false } } } }, i18n)).toThrow(
+      "provider.model.default.thinking: is not recognized",
+    );
+    expect(() =>
+      resolveCatalogConfig({ provider: { kind: "anthropic", apiKey: "k", model: { default: { model: "claude" } } } }, i18n),
+    ).toThrow("provider.model.default: must be a non-empty model id string");
+  });
+
   it("applies catalog defaults and ignores unrelated integration options", () => {
     const resolved = resolveCatalogConfig(
       {

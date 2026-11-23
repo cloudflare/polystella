@@ -156,7 +156,7 @@ describe("polystellaEmdash", () => {
 
   it("validates model params and timeouts, and keeps them and glossaryMatchInflections through serialization", () => {
     const base = validOptions();
-    const params = { "model-a": { chat_template_kwargs: { enable_thinking: false } } };
+    const params = { "model-a": { enable_thinking: false } };
     const options: PolystellaEmdashOptions = {
       ...base,
       provider: { kind: "workers-ai-binding", binding: "AI", timeoutMs: 120_000 },
@@ -176,7 +176,33 @@ describe("polystellaEmdash", () => {
     );
     expect(() =>
       validatePolystellaEmdashOptions({ ...options, models: { ...base.models, params: { "model-a": { messages: [] } } } }),
-    ).toThrow("options.models.params.model-a.messages is set by PolyStella");
+    ).toThrow('options.models.params.model-a cannot set "messages"; PolyStella sets it');
+    expect(() =>
+      validatePolystellaEmdashOptions({ ...options, models: { ...base.models, params: { "model-a": { enable_thinking: "off" } } } }),
+    ).toThrow("options.models.params.model-a enable_thinking must be true or false");
+
+    const defaults = { default: { model: "model-a", enable_thinking: false }, "ja-JP": { model: "model-a", enable_thinking: true } };
+    const withThinking = polystellaEmdash({ ...options, models: { ...base.models, defaults } }).options;
+    if (withThinking === undefined) throw new Error("descriptor options are missing");
+    expect(deserializeOptions(withThinking).models.defaults).toEqual(defaults);
+    expect(() =>
+      validatePolystellaEmdashOptions({
+        ...options,
+        models: { ...base.models, defaults: { default: { model: "model-a", enable_thinking: "on" } } },
+      }),
+    ).toThrow("options.models.defaults.default.enable_thinking must be true or false");
+    expect(() =>
+      validatePolystellaEmdashOptions({
+        ...options,
+        models: { ...base.models, defaults: { default: { model: "model-a", reasoning: true } } },
+      }),
+    ).toThrow("options.models.defaults.default.reasoning");
+    expect(() =>
+      validatePolystellaEmdashOptions({
+        ...options,
+        models: { ...base.models, defaults, params: { "model-a": { chat_template_kwargs: { enable_thinking: true } } } },
+      }),
+    ).toThrow("options.models.defaults.default sets enable_thinking twice");
     expect(() =>
       validatePolystellaEmdashOptions({ ...options, provider: { kind: "workers-ai-binding", binding: "AI", timeoutMs: 0 } }),
     ).toThrow("options.provider.timeoutMs must be a positive integer");

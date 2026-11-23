@@ -38,7 +38,17 @@ export function isPermanentProviderError(error: unknown): error is PermanentProv
 /** One model for all locales or a default model with locale overrides. */
 export type ModelSpec = string | ({ default: string } & Record<string, string>);
 
-export function resolveModelId(spec: ModelSpec, locale: string): string {
-  if (typeof spec === "string") return spec;
-  return spec[locale] ?? spec.default;
+/** A model id, or a model id with how the locales using it call it. `enable_thinking` is read by Workers AI translators. */
+export type ModelChoice = string | { model: string; enable_thinking?: boolean | undefined };
+
+/** Like `ModelSpec`, but each locale's entry may be a `ModelChoice` object. */
+export type ModelChoiceSpec = string | ({ default: ModelChoice } & Record<string, ModelChoice>);
+
+export function resolveModelId(spec: ModelChoiceSpec, locale: string): string {
+  return resolveModelChoice(spec, locale).model;
+}
+
+export function resolveModelChoice(spec: ModelChoiceSpec, locale: string): { model: string; enable_thinking?: boolean | undefined } {
+  const choice = typeof spec === "string" ? spec : (spec[locale] ?? spec.default);
+  return typeof choice === "string" ? { model: choice } : choice;
 }

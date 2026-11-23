@@ -47,32 +47,64 @@ and is preserved by JSON export.
 
 The model bounds for translation.
 
-| Field      | Type                  | Notes                                                                                                                                  |
-| ---------- | --------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| `allowed`  | string[]              | Non-empty, unique. Administrators cannot select a model outside this list. Cannot contain the reserved `__polystella_code_default__`.  |
-| `defaults` | string or `ModelSpec` | A single model id, or `{ default, <locale>: model }`. Every locale key must match a configured catalog locale and appear in `allowed`. |
+| Field      | Type                  | Notes                                                                                                                                                                                                                       |
+| ---------- | --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `allowed`  | string[]              | Non-empty, unique. Administrators cannot select a model outside this list. Cannot contain the reserved `__polystella_code_default__`.                                                                                       |
+| `defaults` | string or `ModelSpec` | A single model id, or `{ default, <locale>: model }`. A model can be `{ model, enable_thinking }` (see [Thinking](#thinking)). Every locale key must match a configured catalog locale and every model appear in `allowed`. |
 
-`models.params` is optional: extra Workers AI input per allowed model,
-for settings the model's schema documents. For example, turn off
-GLM-4.7-flash's reasoning:
+`models.defaults` may set a `default` fallback and locale-specific
+models. Each target locale receives its own model and glossary
+settings.
+
+### Thinking
+
+Reasoning models think before they answer. Turning thinking off often
+makes them several times faster, but tricky languages may need it. Set
+it per locale, next to the locale's model: an entry in
+`models.defaults` can be `{ model, enable_thinking }` instead of a
+model id.
 
 ```js
+const MODEL = "@cf/deepseek-ai/deepseek-v4.1-flash-1017";
+
 models: {
-  allowed: ["@cf/zai-org/glm-4.7-flash"],
-  defaults: "@cf/zai-org/glm-4.7-flash",
-  params: {
-    "@cf/zai-org/glm-4.7-flash": { chat_template_kwargs: { enable_thinking: false } },
+  allowed: [MODEL],
+  defaults: {
+    default: { model: MODEL, enable_thinking: false },
+    "ja-JP": { model: MODEL, enable_thinking: true },
+    "zh-CN": { model: MODEL, enable_thinking: true },
   },
+},
+```
+
+The setting applies while the locale uses that model. If an
+administrator picks a different model for the locale in the admin, that
+model's own `models.params` apply instead, so a model that can't turn
+thinking off never receives `false`.
+
+PolyStella sends `enable_thinking` as
+`chat_template_kwargs.enable_thinking`, the only form Workers AI reads;
+it ignores a top-level `enable_thinking` without an error. Set it
+explicitly: some models still think when it is left out, even if their
+schema says it defaults to `false`. Some models can't turn thinking off,
+and Workers AI rejects `false` for them.
+
+### `models.params`
+
+Optional: extra Workers AI input per allowed model, for settings the
+model's schema documents, sent as written. `enable_thinking: true` or
+`false` here applies whatever the locale; a locale's own
+`enable_thinking` in `models.defaults` wins over it.
+
+```js
+params: {
+  "@cf/deepseek-ai/deepseek-v4.1-flash-1017": { reasoning_effort: "low" },
 },
 ```
 
 Keys must be allowed models. `messages`, `prompt`, `max_tokens`,
 `max_completion_tokens` and `stream` are set by PolyStella and are
 rejected. Params apply to both the binding and HTTP providers.
-
-`models.defaults` may set a `default` fallback and locale-specific
-models. Each target locale receives its own model and glossary
-settings.
 
 ## `glossaryDefaults`
 
@@ -279,7 +311,9 @@ replace. Configure collection and field policy in the
   `block` or `span` types.
 - Every `models.params` key must be in `models.allowed`, and its object
   must not set `messages`, `prompt`, `max_tokens`,
-  `max_completion_tokens` or `stream`.
+  `max_completion_tokens` or `stream`. `enable_thinking` must be `true`
+  or `false`, here and in `models.defaults` entries, and can't also be
+  set in that model's `chat_template_kwargs`.
 - Provider env/binding names and `batchQueueBinding` must be valid
   environment binding names; `endpoint` must be a valid URL;
   `maxTokens` and `timeoutMs` must be positive integers.

@@ -1,4 +1,4 @@
-import type { Glossary, ModelSpec } from "@cloudflare/polystella-core";
+import type { Glossary, ModelChoice, ModelChoiceSpec } from "@cloudflare/polystella-core";
 import {
   checkLocaleTags,
   flattenCatalog,
@@ -7,7 +7,7 @@ import {
   type CatalogSource,
   type LocaleTags,
 } from "@cloudflare/polystella-core/catalog";
-import { RESERVED_WORKERS_AI_PARAMS } from "@cloudflare/polystella-core/providers/workers-ai";
+import { workersAIParamsProblem } from "@cloudflare/polystella-core/providers/workers-ai";
 
 import { USE_CODE_DEFAULT_MODEL } from "../contracts.js";
 
@@ -50,8 +50,9 @@ export interface PolystellaEmdashOptions {
   };
   models: {
     allowed: readonly string[];
-    defaults: ModelSpec;
-    /** Extra Workers AI input per allowed model, such as `{ chat_template_kwargs: { enable_thinking: false } }`. */
+    /** Locale entries may be `{ model, enable_thinking }`, applied while the locale uses that model. */
+    defaults: ModelChoiceSpec;
+    /** Extra Workers AI input per allowed model, such as `{ enable_thinking: false }`. */
     params?: Readonly<Record<string, Readonly<Record<string, unknown>>>> | undefined;
   };
   glossaryDefaults?: Readonly<Record<string, Glossary>> | undefined;
@@ -128,20 +129,22 @@ export function validatePolystellaEmdashOptions(value: unknown): asserts value i
   }
   const defaultModels = readModelSpec(models.defaults, "options.models.defaults");
   const configuredLocales = new Set(Object.keys(locales));
-  for (const [locale, model] of modelSpecEntries(defaultModels)) {
+  const modelParams = models.params === undefined ? {} : readRecord(models.params, "options.models.params");
+  for (const [model, params] of Object.entries(modelParams)) {
+    if (!allowedModels.includes(model)) fail(`options.models.params.${model} must exist in options.models.allowed`);
+    const problem = workersAIParamsProblem(readRecord(params, `options.models.params.${model}`));
+    if (problem !== undefined) fail(`options.models.params.${model} ${problem}`);
+  }
+  for (const [locale, choice] of modelSpecEntries(defaultModels)) {
     if (locale !== "default" && !configuredLocales.has(locale)) {
       fail(`options.models.defaults.${locale} must match a configured catalog locale`);
     }
+    const model = typeof choice === "string" ? choice : choice.model;
     if (!allowedModels.includes(model)) fail(`options.models.defaults.${locale} must exist in options.models.allowed`);
-  }
-  if (models.params !== undefined) {
-    for (const [model, params] of Object.entries(readRecord(models.params, "options.models.params"))) {
-      if (!allowedModels.includes(model)) fail(`options.models.params.${model} must exist in options.models.allowed`);
-      const reserved = Object.keys(readRecord(params, `options.models.params.${model}`)).find((key) =>
-        RESERVED_WORKERS_AI_PARAMS.includes(key),
-      );
-      if (reserved !== undefined) fail(`options.models.params.${model}.${reserved} is set by PolyStella`);
-    }
+    if (typeof choice === "string" || choice.enable_thinking === undefined) continue;
+    const params = modelParams[model] as Readonly<Record<string, unknown>> | undefined;
+    const problem = workersAIParamsProblem({ ...params, enable_thinking: choice.enable_thinking });
+    if (problem !== undefined) fail(`options.models.defaults.${locale} ${problem}`);
   }
 
   if (options.glossaryDefaults !== undefined) {
@@ -220,7 +223,7 @@ export function serializeOptions(options: PolystellaEmdashOptions): SerializedPo
     },
     models: {
       allowed: [...options.models.allowed],
-      defaults: typeof options.models.defaults === "string" ? options.models.defaults : { ...options.models.defaults },
+      defaults: structuredClone(options.models.defaults),
       ...(options.models.params === undefined ? {} : { params: structuredClone(options.models.params) }),
     },
     ...(options.glossaryDefaults === undefined
@@ -344,18 +347,27 @@ function readEnvironmentName(value: unknown, label: string): string {
   return name;
 }
 
-function readModelSpec(value: unknown, label: string): ModelSpec {
+function readModelSpec(value: unknown, label: string): ModelChoiceSpec {
   if (typeof value === "string") return readString(value, label);
   const models = readRecord(value, label);
-  readString(models.default, `${label}.default`);
-  for (const [locale, model] of Object.entries(models)) {
+  if (models.default === undefined) fail(`${label}.default is required`);
+  for (const [locale, choice] of Object.entries(models)) {
     if (locale !== "default") readLocale(locale, `${label} key`);
-    readString(model, `${label}.${locale}`);
+    if (typeof choice === "string") {
+      readString(choice, `${label}.${locale}`);
+      continue;
+    }
+    const entry = readRecord(choice, `${label}.${locale}`);
+    rejectUnknownKeys(entry, ["model", "enable_thinking"], `${label}.${locale}`);
+    readString(entry.model, `${label}.${locale}.model`);
+    if (entry.enable_thinking !== undefined && typeof entry.enable_thinking !== "boolean") {
+      fail(`${label}.${locale}.enable_thinking must be true or false`);
+    }
   }
-  return models as { default: string } & Record<string, string>;
+  return models as { default: ModelChoice } & Record<string, ModelChoice>;
 }
 
-function modelSpecEntries(models: ModelSpec): Array<[string, string]> {
+function modelSpecEntries(models: ModelChoiceSpec): Array<[string, ModelChoice]> {
   return typeof models === "string" ? [["default", models]] : Object.entries(models);
 }
 
