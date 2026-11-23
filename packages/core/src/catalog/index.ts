@@ -16,7 +16,15 @@ export type MaybePromise<T> = T | Promise<T>;
 
 export type GetCatalogDictionary = (locale: string) => MaybePromise<CatalogDictionary | undefined>;
 
-export { formatMessage, messageArgumentNames, MessageSyntaxError, toIcuMessage, type MessageValue, type MessageValues } from "./message.js";
+export {
+  formatMessage,
+  messageArgumentNames,
+  MessageSyntaxError,
+  toIcuMessage,
+  type MessageSyntax,
+  type MessageValue,
+  type MessageValues,
+} from "./message.js";
 export {
   assertLocaleTags,
   checkLocaleTags,
@@ -31,7 +39,7 @@ export {
 } from "./locale-tags.js";
 
 import { resolveLocaleTag, supportedLocaleTag, type LocaleTags } from "./locale-tags.js";
-import { formatMessage, isPlainText, parseMessage } from "./message.js";
+import { DEFAULT_MESSAGE_SYNTAX, formatMessage, isPlainText, parseMessage, type MessageSyntax } from "./message.js";
 
 export interface ResolveCatalogTranslationsDeps {
   defaultLocale: string;
@@ -40,6 +48,8 @@ export interface ResolveCatalogTranslationsDeps {
   fallbackToDefault?: boolean | undefined;
   /** Site locale code → BCP 47 tag used for plural rules and number/date formatting. */
   localeTags?: LocaleTags | undefined;
+  /** Default `"polystella"`. */
+  messageSyntax?: MessageSyntax | undefined;
 }
 
 export type InterpolateParams = Record<string, string | number | boolean | Date>;
@@ -57,6 +67,8 @@ export interface BuildTranslateFnOptions {
   locale?: string | undefined;
   /** BCP 47 tag for `fallback`; strings taken from it use its plural rules. */
   fallbackLocale?: string | undefined;
+  /** Default `"polystella"`. */
+  messageSyntax?: MessageSyntax | undefined;
 }
 
 const UNDETERMINED_LOCALE = "und";
@@ -71,6 +83,7 @@ export function buildTranslateFn(
   fallback?: CatalogDictionary | undefined,
   options: BuildTranslateFnOptions = {},
 ): TranslateFn {
+  const syntax = options.messageSyntax ?? DEFAULT_MESSAGE_SYNTAX;
   const fallbackTag = supportedLocaleTag(options.fallbackLocale);
   const primaryTag = supportedLocaleTag(options.locale) ?? fallbackTag;
   const sources: Array<[CatalogDictionary, string | undefined]> = [[primary, primaryTag]];
@@ -79,14 +92,14 @@ export function buildTranslateFn(
   const lookup = (key: string): { template: string; tag: string | undefined } | undefined => {
     for (const [dictionary, tag] of sources) {
       const template = Object.hasOwn(dictionary, key) ? dictionary[key] : undefined;
-      if (template !== undefined && isValidMessage(template)) return { template, tag };
+      if (template !== undefined && isValidMessage(template, syntax)) return { template, tag };
     }
     return undefined;
   };
 
   const translate = (key: string, params?: InterpolateParams | undefined): string => {
     const entry = lookup(key);
-    return entry === undefined ? key : formatMessage(entry.template, params ?? {}, entry.tag);
+    return entry === undefined ? key : formatMessage(entry.template, params ?? {}, entry.tag, syntax);
   };
   return Object.assign(translate, {
     raw: (key: string) => lookup(key)?.template ?? key,
@@ -111,13 +124,14 @@ export async function resolveTranslations(locale: string | undefined, deps: Reso
   return buildTranslateFn(primary, fallback, {
     locale: resolveLocaleTag(effectiveLocale, deps.localeTags),
     fallbackLocale: resolveLocaleTag(deps.defaultLocale, deps.localeTags),
+    messageSyntax: deps.messageSyntax,
   });
 }
 
-function isValidMessage(template: string): boolean {
+function isValidMessage(template: string, syntax: MessageSyntax): boolean {
   if (isPlainText(template)) return true;
   try {
-    parseMessage(template);
+    parseMessage(template, syntax);
     return true;
   } catch {
     return false;
