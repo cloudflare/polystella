@@ -92,10 +92,11 @@ describe("catalogAstro", () => {
 });
 
 describe("catalogAstro localeTags and message checks", () => {
-  async function runSetup(options: Parameters<typeof catalogAstro>[0], files: Record<string, string>, locales: string[]) {
+  async function runSetup(options: Parameters<typeof catalogAstro>[0], files: Record<string, string>, locales: string[], config?: string) {
     const rootDir = await mkdtemp(path.join(os.tmpdir(), "polystella-catalog-root-"));
     const cacheDir = await mkdtemp(path.join(os.tmpdir(), "polystella-catalog-cache-"));
     await mkdir(path.join(rootDir, "src", "i18n"), { recursive: true });
+    if (config !== undefined) await writeFile(path.join(rootDir, "polystella.config.mjs"), config, "utf8");
     for (const [name, contents] of Object.entries(files)) await writeFile(path.join(rootDir, "src", "i18n", name), contents, "utf8");
     const warnings: string[] = [];
     const plugins: CapturedVitePlugin[] = [];
@@ -137,5 +138,53 @@ describe("catalogAstro localeTags and message checks", () => {
       ["en", "pt-BR"],
     );
     expect(warnings.join("\n")).toContain('pt-BR.json "a": missing {{name}}; {{nome}} is not in the source');
+  });
+
+  it("applies catalog.ignoreKeys from polystella.config.mjs to the drift check and the virtual module", async () => {
+    const files = {
+      "en.json": JSON.stringify({ $schema: "https://inlang.com/schema/inlang-message-format", a: "Hi", plural: [{ match: {} }] }),
+      "pt-BR.json": JSON.stringify({ a: "Olá" }),
+    };
+    await expect(runSetup({}, files, ["en", "pt-BR"])).rejects.toThrow(/got array/);
+
+    const { plugins, warnings } = await runSetup(
+      {},
+      files,
+      ["en", "pt-BR"],
+      `export default { catalog: { ignoreKeys: ["\\\\$schema", "plural"] } };\n`,
+    );
+    expect(warnings).toEqual([]);
+    const source = plugins.find((plugin) => plugin.name === "polystella:catalog")?.load?.("\0polystella:catalog");
+    expect(source).toContain('const ignoreKey = compileIgnoreKeys(["\\\\$schema","plural"]);');
+    expect(source).toContain("return flattenCatalog(dict, ignoreKey);");
+  });
+
+  it('applies catalog.messageSyntax "icu" to the drift check, the virtual module and the middleware', async () => {
+    const files = { "en.json": JSON.stringify({ a: "Hi {name}" }), "pt-BR.json": JSON.stringify({ a: "Olá {nome}" }) };
+    const plain = await runSetup({}, files, ["en", "pt-BR"]);
+    expect(plain.warnings).toEqual([]);
+    expect(plain.plugins.find((plugin) => plugin.name === "polystella:catalog")?.load?.("\0polystella:catalog")).toContain(
+      'export const messageSyntax = "polystella";',
+    );
+
+    const { plugins, middleware, warnings } = await runSetup(
+      {},
+      files,
+      ["en", "pt-BR"],
+      `export default { catalog: { messageSyntax: "icu" } };\n`,
+    );
+    expect(warnings.join("\n")).toContain('pt-BR.json "a": missing {name}; {nome} is not in the source');
+    expect(plugins.find((plugin) => plugin.name === "polystella:catalog")?.load?.("\0polystella:catalog")).toContain(
+      'export const messageSyntax = "icu";',
+    );
+    const entry = middleware[0];
+    if (entry === undefined) throw new Error("missing generated middleware");
+    expect(await readFile(entry.entrypoint, "utf8")).toContain("  messageSyntax,");
+  });
+
+  it("fails setup on an invalid catalog.ignoreKeys pattern", async () => {
+    await expect(runSetup({}, {}, ["en"], `export default { catalog: { ignoreKeys: ["["] } };\n`)).rejects.toThrow(
+      /catalog\.ignoreKeys: contains an invalid regular expression/,
+    );
   });
 });

@@ -5,7 +5,14 @@
  * against production deps.
  */
 
-import { buildTranslateFn, createPassthroughTranslateFn, resolveLocaleTag, type LocaleTags, type TranslateFn } from "../i18n/translate.js";
+import {
+  buildTranslateFn,
+  createPassthroughTranslateFn,
+  resolveLocaleTag,
+  type LocaleTags,
+  type MessageSyntax,
+  type TranslateFn,
+} from "../i18n/translate.js";
 import { resolveLocalizedCollection } from "./get-localized-collection.js";
 import {
   normaliseGetLocalizedEntryArgs,
@@ -49,6 +56,8 @@ export interface MiddlewareDeps {
   noTranslateBehavior?: NoTranslatePolicy;
   /** Site locale code → BCP 47 tag used for plural rules and number/date formatting. */
   localeTags?: LocaleTags | undefined;
+  /** `catalog.messageSyntax`; default `"polystella"`. */
+  messageSyntax?: MessageSyntax | undefined;
 }
 
 /** Locale-bound `localizedHref` closure for middleware + React hook. */
@@ -71,7 +80,7 @@ export function buildLocalizedHref(
  */
 export async function buildTranslator(
   locale: string | undefined,
-  deps: Pick<MiddlewareDeps, "defaultLocale" | "getEntry" | "localeTags">,
+  deps: Pick<MiddlewareDeps, "defaultLocale" | "getEntry" | "localeTags" | "messageSyntax">,
 ): Promise<TranslateFn> {
   const requestedLocale = locale && locale.length > 0 ? locale : deps.defaultLocale;
   const localeTag = resolveLocaleTag(requestedLocale, deps.localeTags);
@@ -86,7 +95,11 @@ export async function buildTranslator(
     const primary = entry?.data as Record<string, string> | undefined;
     const fallbackDict = fallback?.data as Record<string, string> | undefined;
     if (primary !== undefined || fallbackDict !== undefined) {
-      return buildTranslateFn(primary ?? {}, fallbackDict, { locale: localeTag, fallbackLocale: defaultLocaleTag });
+      return buildTranslateFn(primary ?? {}, fallbackDict, {
+        locale: localeTag,
+        fallbackLocale: defaultLocaleTag,
+        messageSyntax: deps.messageSyntax,
+      });
     }
   } catch {
     // Eaten on purpose — passthrough below.

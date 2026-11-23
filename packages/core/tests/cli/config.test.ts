@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { resolveCatalogConfig, resolveLocaleTagsConfig } from "../../src/cli/config.js";
+import { resolveCatalogConfig, resolveCatalogOptions, resolveLocaleTagsConfig } from "../../src/cli/config.js";
 
 const i18n = { defaultLocale: "en-US", locales: ["en-US", "pt-BR"] };
 
@@ -133,6 +133,34 @@ describe("resolveCatalogConfig", () => {
     });
     expect(() => resolveCatalogConfig({ glossary: { file: "./{locale}.yaml", matchInflections: "yes" } }, i18n)).toThrow(
       /glossary\.matchInflections/,
+    );
+  });
+});
+
+describe("resolveCatalogOptions", () => {
+  it("compiles catalog.ignoreKeys and defaults to none", () => {
+    expect(resolveCatalogOptions(undefined)).toEqual({ ignoreKeys: [], messageSyntax: "polystella" });
+    expect(resolveCatalogOptions({ provider: "unrelated" })).toEqual({ ignoreKeys: [], messageSyntax: "polystella" });
+    const resolved = resolveCatalogOptions({ catalog: { ignoreKeys: ["\\$schema"] } });
+    expect(resolved.ignoreKeys).toEqual(["\\$schema"]);
+    expect(resolved.ignoreKey?.("$schema")).toBe(true);
+  });
+
+  it("rejects invalid catalog blocks at config load", () => {
+    expect(() => resolveCatalogOptions({ catalog: { ignoreKeys: ["["] } })).toThrow(
+      /configuration error:[\s\S]*catalog\.ignoreKeys: contains an invalid regular expression/,
+    );
+    expect(() => resolveCatalogOptions({ catalog: { ignoreKeys: [/\$schema/] } })).toThrow(/catalog\.ignoreKeys: must be an array/);
+    expect(() => resolveCatalogOptions({ catalog: { ignoreKeys: "\\$schema" } })).toThrow(/catalog\.ignoreKeys: must be an array/);
+    expect(() => resolveCatalogOptions({ catalog: { ignoreKey: [] } })).toThrow(/catalog\.ignoreKey: is not recognized/);
+    expect(() => resolveCatalogOptions({ catalog: [] })).toThrow(/catalog: must be an object/);
+  });
+
+  it("reads catalog.messageSyntax, defaulting to polystella", () => {
+    expect(resolveCatalogOptions({ catalog: { messageSyntax: "icu" } }).messageSyntax).toBe("icu");
+    expect(resolveCatalogOptions({ catalog: {} }).messageSyntax).toBe("polystella");
+    expect(() => resolveCatalogOptions({ catalog: { messageSyntax: "inlang" } })).toThrow(
+      /catalog\.messageSyntax: must be "polystella" or "icu"/,
     );
   });
 });

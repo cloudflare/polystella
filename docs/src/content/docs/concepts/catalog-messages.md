@@ -32,6 +32,46 @@ Existing `{{name}}` strings keep working, and `{{ name }}` with spaces works
 too. Placeholder names use letters, digits and `_` only: `{{user.name}}` is an
 invalid message.
 
+## Standard ICU syntax
+
+If your catalogs already use standard single-brace ICU MessageFormat (for
+example inlang's ICU MessageFormat plugin), set `catalog.messageSyntax` in
+`polystella.config.mjs`:
+
+```js
+// polystella.config.mjs
+export default {
+  catalog: { messageSyntax: "icu" },
+};
+```
+
+```json
+{
+  "greeting": "Hello {name}",
+  "roles": "{count, plural, =0 {No open roles} one {# role} other {# roles}}"
+}
+```
+
+- Switching syntax doesn't convert existing strings. A `{{name}}` string is
+  not valid ICU, so `t()` falls back to the key for it. Run `check-ui`
+  after switching: it lists every string to convert.
+- `{name}` gets the same missing/spurious checks, plural-category checks
+  and translation retries as `{{name}}`.
+- Apostrophes follow the same rule with single braces: write `''` directly
+  before `{`, `}` or `#` (`l''{name}`). A literal brace is quoted: `'{'`.
+- A default-locale string that is not valid ICU (inlang markup such as
+  `{#b}`) is reported by `check-ui` and skipped by `translate-ui`. Fix it or
+  add its key to [`catalog.ignoreKeys`](/configuration/#catalog-options).
+- It applies to the CLI, the build's drift checks, `Astro.locals.t`,
+  `getTranslations()`, `useTranslations()` and `catalogAstro()`. The EmDash
+  plugin takes the same block as its own
+  [`catalog` option](/emdash/configuration/#catalog).
+- The standalone `formatMessage()` can't read the config. When you format a
+  `t.raw(key)` template yourself, pass the syntax as the fourth argument:
+  `formatMessage(t.raw("greeting"), { name }, t.locale, "icu")`.
+
+The rest of this page uses the default `{{name}}` syntax.
+
 ## Plural branches per language
 
 Each language uses its own plural categories. Write exactly the categories

@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
 import { checkCatalogMessages, checkI18nDrift, formatDriftIssues, formatMessageIssues, loadAndCheckDrift } from "../../src/i18n/drift.js";
+import { compileIgnoreKeys } from "../../src/catalog/runtime.js";
 
 /**
  * Tests for the drift-detection helpers — both the pure
@@ -278,6 +279,22 @@ describe("formatDriftIssues", () => {
     ]);
     expect(out).toContain("pt-BR.json");
     expect(out).toContain("ja-JP.json");
+  });
+});
+
+describe("loadAndCheckDrift — ignoreKey", () => {
+  it("neither compares nor validates ignored keys", async () => {
+    const rootDir = await mkdtemp(path.join(os.tmpdir(), "polystella-drift-ignore-"));
+    await writeFile(path.join(rootDir, "en.json"), JSON.stringify({ $schema: "https://x.test", a: "A", internal: { b: "{{" } }), "utf8");
+    await writeFile(path.join(rootDir, "de.json"), JSON.stringify({ a: "Ä", plural: [{ match: {} }] }), "utf8");
+    const result = await loadAndCheckDrift({
+      rootDir,
+      baseDir: ".",
+      locales: ["en", "de"],
+      defaultLocale: "en",
+      ignoreKey: compileIgnoreKeys(["\\$schema", "internal", "plural"]),
+    });
+    expect(result).toEqual({ ok: true, issues: [], messageIssues: [] });
   });
 });
 

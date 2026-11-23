@@ -59,7 +59,14 @@ large locale sets show how many catalogs are being handled.
 Both flat and nested catalogs are supported. Nested groups are
 flattened to dotted keys so `t("site.title")` works identically in
 either format; an optional `i18n_group_title` key per group is
-metadata and is never translated.
+metadata and is never translated. Keys matching
+[`catalog.ignoreKeys`](/configuration/#catalog-options) are never sent
+to the model and stay as they are in every locale file.
+
+With `catalog.messageSyntax: "icu"`, prompts and checks use
+[standard ICU](/concepts/catalog-messages/#standard-icu-syntax) (`{name}`).
+A default-locale string that isn't valid ICU is not sent to the model; it
+is listed as a failure (exit 2) with a hint to fix it or ignore its key.
 
 ## Workers AI thinking and params
 

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   buildTranslateFn,
+  compileIgnoreKeys,
   createPassthroughTranslateFn,
   detectCatalogFormat,
   flattenCatalog,
@@ -165,5 +166,96 @@ describe("catalog flattening", () => {
     expect(() => flattenCatalog({ a: ["x"] })).toThrow(/must be a string or an object of strings/);
     expect(() => flattenCatalog({ "a.b": "flat", a: { b: "nested" } })).toThrow(/defined more than once/);
     expect(() => flattenCatalog("not an object")).toThrow(/must be a JSON object/);
+  });
+
+  it("hints at catalog.ignoreKeys for array values", () => {
+    expect(() => flattenCatalog({ items: [{ match: {} }] })).toThrow(
+      /got array\)\. An inlang variant message\? Add its key to catalog\.ignoreKeys/,
+    );
+  });
+});
+
+describe("catalog ignoreKeys", () => {
+  const ignoreKey = compileIgnoreKeys(["\\$schema", "internal\\..*", "plural"]);
+
+  it("matches whole dotted keys only", () => {
+    expect(compileIgnoreKeys([])).toBeUndefined();
+    expect(ignoreKey?.("$schema")).toBe(true);
+    expect(ignoreKey?.("internal.debug.label")).toBe(true);
+    expect(ignoreKey?.("x$schema")).toBe(false);
+    expect(ignoreKey?.("internal")).toBe(false);
+    expect(ignoreKey?.("plurals")).toBe(false);
+    expect(() => compileIgnoreKeys(["["])).toThrow(SyntaxError);
+    expect(() => compileIgnoreKeys(["a)|(.*"])).toThrow(SyntaxError);
+  });
+
+  it("without ignoreKey, drops target-only groups and never reads inherited dict keys", () => {
+    const source = JSON.parse('{"__proto__":"P","constructor":"C","nav":{"toString":"T"}}') as Record<string, unknown>;
+    const existing = { nav: { toString: "x" }, old: { a: "A" } };
+    expect(formatNestedLocaleFile({ dict: { "nav.toString": "T2" }, source, existing })).toBe(
+      '{\n  "nav": {\n    "toString": "T2"\n  }\n}\n',
+    );
+  });
+
+  it("skips ignored leaves and whole ignored subtrees before checking value types", () => {
+    const catalog = {
+      $schema: "https://inlang.com/schema/inlang-message-format",
+      greeting: "Hello",
+      plural: [{ declarations: [], selectors: [], match: {} }],
+      internal: { debug: { label: "Debug", count: 3 } },
+    };
+    expect(flattenCatalog(catalog, ignoreKey)).toEqual({ greeting: "Hello" });
+    expect(flattenCatalog({ internal: { a: "A" } }, compileIgnoreKeys(["internal"]))).toEqual({});
+    expect(detectCatalogFormat({ $meta: { a: "A" }, greeting: "Hello" }, compileIgnoreKeys(["\\$meta"]))).toBe("flat");
+  });
+
+  it("keeps ignored target entries verbatim, never creates them, and copies $schema first", () => {
+    const source = {
+      greeting: "Hello",
+      $schema: "https://inlang.com/schema/inlang-message-format",
+      plural: [{ match: { "count=one": "One" } }],
+      nav: { home: "Home", internal: { a: "A" } },
+    };
+    const existing = {
+      greeting: "Hallo",
+      plural: [{ match: { "count=one": "Eins" } }],
+      nav: { home: "Start", internal: { a: "Alt" } },
+      internal: { b: "Nur hier" },
+      extra: "removed",
+    };
+    const nestedIgnoreKey = compileIgnoreKeys(["\\$schema", "plural", "nav\\.internal", "internal"]);
+    const options = { dict: { greeting: "Hallo", "nav.home": "Start" }, source, existing, ignoreKey: nestedIgnoreKey };
+    const text = formatNestedLocaleFile(options);
+    expect(text).toBe(
+      [
+        "{",
+        '  "$schema": "https://inlang.com/schema/inlang-message-format",',
+        '  "greeting": "Hallo",',
+        '  "plural": [',
+        "    {",
+        '      "match": {',
+        '        "count=one": "Eins"',
+        "      }",
+        "    }",
+        "  ],",
+        "",
+        '  "nav": {',
+        '    "home": "Start",',
+        '    "internal": {',
+        '      "a": "Alt"',
+        "    }",
+        "  },",
+        "",
+        '  "internal": {',
+        '    "b": "Nur hier"',
+        "  }",
+        "}",
+        "",
+      ].join("\n"),
+    );
+    expect(formatNestedLocaleFile({ ...options, existing: JSON.parse(text) as Record<string, unknown> })).toBe(text);
+    expect(formatNestedLocaleFile({ ...options, existing: undefined })).toBe(
+      '{\n  "$schema": "https://inlang.com/schema/inlang-message-format",\n  "greeting": "Hallo",\n\n  "nav": {\n    "home": "Start"\n  }\n}\n',
+    );
   });
 });

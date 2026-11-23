@@ -8,6 +8,19 @@ export type MessageValue = string | number | boolean | Date;
 
 export type MessageValues = Readonly<Record<string, MessageValue>>;
 
+/**
+ * `"polystella"`: ICU with doubled outer braces (`{{name}}`, `{{n, plural, one {# item} other {# items}}}`).
+ * `"icu"`: standard ICU MessageFormat (`{name}`, `{n, plural, one {# item} other {# items}}`).
+ */
+export type MessageSyntax = "polystella" | "icu";
+
+export const DEFAULT_MESSAGE_SYNTAX: MessageSyntax = "polystella";
+
+/** How a placeholder is written in `syntax`, for messages to users and to the model. */
+export function placeholderText(name: string, syntax: MessageSyntax): string {
+  return syntax === "icu" ? `{${name}}` : `{{${name}}}`;
+}
+
 /** A catalog string that is not a valid PolyStella message. `offset` points into the original string. */
 export class MessageSyntaxError extends Error {
   readonly template: string;
@@ -57,6 +70,11 @@ const SYNTAX_REASONS: Readonly<Record<string, string>> = {
   MISSING_OTHER_CLAUSE: "plural/select needs an `other` branch",
 };
 
+const ICU_SYNTAX_REASONS: Readonly<Record<string, string>> = {
+  ...SYNTAX_REASONS,
+  MALFORMED_ARGUMENT: "invalid placeholder (ICU placeholders are {name} or {name, type, style}; quote a literal brace as '{')",
+};
+
 /**
  * Rewrites PolyStella's message dialect (every placeholder wrapped in `{{ }}`, branch bodies in single
  * braces) into strict ICU MessageFormat. Single braces in plain text become quoted literals.
@@ -66,27 +84,32 @@ export function toIcuMessage(template: string): string {
 }
 
 /** Parses a catalog message. Throws `MessageSyntaxError` with an offset into `template`. */
-export function parseMessage(template: string): MessageFormatElement[] {
-  return parsed(template).ast;
+export function parseMessage(template: string, syntax: MessageSyntax = DEFAULT_MESSAGE_SYNTAX): MessageFormatElement[] {
+  return parsed(template, syntax).ast;
 }
 
 /** Placeholder names used anywhere in a message, including inside branches. */
-export function messageArgumentNames(template: string): Set<string> {
-  return new Set(argumentKinds(parsed(template).ast).keys());
+export function messageArgumentNames(template: string, syntax: MessageSyntax = DEFAULT_MESSAGE_SYNTAX): Set<string> {
+  return new Set(argumentKinds(parsed(template, syntax).ast).keys());
 }
 
 /**
  * Formats a catalog message. Missing or unusable values leave their placeholder visible as source
  * text instead of throwing. Throws `MessageSyntaxError` only when the template itself is invalid.
  */
-export function formatMessage(template: string, values: MessageValues = {}, locale?: string | undefined): string {
+export function formatMessage(
+  template: string,
+  values: MessageValues = {},
+  locale?: string | undefined,
+  syntax: MessageSyntax = DEFAULT_MESSAGE_SYNTAX,
+): string {
   if (isPlainText(template)) return template;
-  const message = parsed(template);
+  const message = parsed(template, syntax);
   const tag = supportedLocaleTag(locale);
   const unusable = unusableArguments(message.ast, values);
   try {
-    if (unusable.size === 0) return stringify(cachedFormatter(template, message.ast, tag).format(values));
-    const patched = replaceArguments(message.ast, unusable, (node) => sourceText(template, message, node));
+    if (unusable.size === 0) return stringify(cachedFormatter(template, syntax, message.ast, tag).format(values));
+    const patched = replaceArguments(message.ast, unusable, (node) => sourceText(template, syntax, message, node));
     return stringify(new IntlMessageFormat(patched, tag).format(values));
   } catch {
     return template;
@@ -97,10 +120,14 @@ export function formatMessage(template: string, values: MessageValues = {}, loca
  * Removes plural/selectordinal branches `remove` selects, cutting them from the original text so the
  * rest of the string is untouched. Invalid templates are returned unchanged.
  */
-export function removePluralBranches(template: string, remove: (type: "cardinal" | "ordinal", key: string) => boolean): string {
+export function removePluralBranches(
+  template: string,
+  remove: (type: "cardinal" | "ordinal", key: string) => boolean,
+  syntax: MessageSyntax = DEFAULT_MESSAGE_SYNTAX,
+): string {
   let message: ParsedMessage;
   try {
-    message = parsed(template);
+    message = parsed(template, syntax);
   } catch {
     return template;
   }
@@ -156,33 +183,47 @@ export function walk(nodes: readonly MessageFormatElement[], visit: (node: Messa
   }
 }
 
-function parsed(template: string): ParsedMessage {
-  const cached = parseCache.get(template);
+function parsed(template: string, syntax: MessageSyntax): ParsedMessage {
+  // The same string parses differently per syntax, so both caches key on it.
+  const cacheKey = `${syntax}\u0000${template}`;
+  const cached = parseCache.get(cacheKey);
   if (cached instanceof MessageSyntaxError) throw cached;
   if (cached !== undefined) return cached;
   try {
-    const converted = convert(template);
-    const ast = parseIcu(template, converted);
-    walk(ast, (node) => {
-      if (node.type === TYPE.literal) node.value = restoreBraces(node.value);
-    });
+    const converted = syntax === "icu" ? unconverted(template) : convert(template);
+    const ast = parseIcu(template, converted, syntax);
+    if (syntax === "polystella") {
+      walk(ast, (node) => {
+        if (node.type === TYPE.literal) node.value = restoreBraces(node.value);
+      });
+    }
     const result = { ast, ...converted };
-    remember(parseCache, template, result, PARSE_CACHE_LIMIT);
+    remember(parseCache, cacheKey, result, PARSE_CACHE_LIMIT);
     return result;
   } catch (error) {
-    if (error instanceof MessageSyntaxError) remember(parseCache, template, error, PARSE_CACHE_LIMIT);
+    if (error instanceof MessageSyntaxError) remember(parseCache, cacheKey, error, PARSE_CACHE_LIMIT);
     throw error;
   }
 }
 
-function parseIcu(template: string, converted: Omit<ParsedMessage, "ast">): MessageFormatElement[] {
+/** Standard ICU needs no conversion: every unit maps to itself. */
+function unconverted(template: string): Omit<ParsedMessage, "ast"> {
+  return {
+    icu: template,
+    starts: Array.from({ length: template.length }, (_, index) => index),
+    ends: Array.from({ length: template.length }, (_, index) => index + 1),
+  };
+}
+
+function parseIcu(template: string, converted: Omit<ParsedMessage, "ast">, syntax: MessageSyntax): MessageFormatElement[] {
   try {
     return parse(converted.icu, { ignoreTag: true, requiresOtherClause: true, captureLocation: true });
   } catch (error) {
     const kind = error instanceof Error ? error.message : String(error);
     const icuOffset = readLocationOffset(error);
     const offset = icuOffset === undefined ? undefined : (converted.starts[icuOffset] ?? template.length);
-    throw new MessageSyntaxError(template, SYNTAX_REASONS[kind] ?? kind.toLowerCase().replaceAll("_", " "), offset);
+    const reasons = syntax === "icu" ? ICU_SYNTAX_REASONS : SYNTAX_REASONS;
+    throw new MessageSyntaxError(template, reasons[kind] ?? kind.toLowerCase().replaceAll("_", " "), offset);
   }
 }
 
@@ -351,17 +392,22 @@ function replaceArguments(
   });
 }
 
-function sourceText(template: string, message: ParsedMessage, node: MessageFormatElement): string {
-  if (node.type === TYPE.argument) return `{{${node.value}}}`;
+function sourceText(template: string, syntax: MessageSyntax, message: ParsedMessage, node: MessageFormatElement): string {
+  if (node.type === TYPE.argument) return placeholderText(node.value, syntax);
   const location = node.location;
-  if (location === undefined) return "value" in node ? `{{${node.value}}}` : "";
+  if (location === undefined) return "value" in node ? placeholderText(node.value, syntax) : "";
   const start = message.starts[location.start.offset];
   const end = message.ends[location.end.offset - 1];
   return start === undefined || end === undefined ? "" : template.slice(start, end);
 }
 
-function cachedFormatter(template: string, ast: MessageFormatElement[], locale: string | undefined): IntlMessageFormat {
-  const key = `${locale ?? ""}\u0000${template}`;
+function cachedFormatter(
+  template: string,
+  syntax: MessageSyntax,
+  ast: MessageFormatElement[],
+  locale: string | undefined,
+): IntlMessageFormat {
+  const key = `${syntax}\u0000${locale ?? ""}\u0000${template}`;
   const cached = formatterCache.get(key);
   if (cached !== undefined) return cached;
   const formatter = new IntlMessageFormat(ast, locale);

@@ -736,6 +736,21 @@ immediately before). The output then mirrors that layout for every
 locale. Without this, every sync run would churn diffs by reordering
 keys alphabetically.
 
+**Ignored keys.** `catalog.ignoreKeys` in `polystella.config.mjs` lists
+regex strings, each compiled as `^(?:pattern)$` against the dotted key
+(`compileIgnoreKeys` in `packages/core/src/catalog/flatten.ts`; strings,
+not `RegExp`, because generated code embeds them). It is read only from
+that file, by the three CLI commands, the main integration's drift check
+and `catalogAstro()` (which bakes it into its virtual module); the
+`polystella()` schema accepts the key so a shared config validates.
+`flattenCatalog` skips a match before checking its type, so ignored
+arrays (inlang variant messages) don't throw, and a matched group path
+skips its subtree. Because the writers rebuild files from the flattened
+keys, both formatters copy ignored entries from the target verbatim
+(source position first, target-only ones last), never create them, and
+copy only a top-level `$schema` from the source, placed first. Second
+runs are byte-identical.
+
 <a id="catalog-messages"></a>
 
 **Message syntax.** Catalog strings are ICU MessageFormat written with
@@ -747,6 +762,18 @@ ICU and hands it to `intl-messageformat`. Literal braces in text travel
 through the parser as private-use sentinels, not `'{'` quotes, because
 a quote followed by an apostrophe (`{'s`) reads as an escaped quote.
 Apostrophes follow ICU: `''` directly before `{{`, `}` or a plural `#`.
+
+`catalog.messageSyntax: "icu"` (read like `catalog.ignoreKeys`, plus the
+main integration's `polystella:runtime-config` module) skips the
+conversion: strings go to the parser as written, with identity offset
+maps. Every public parse/format/validate function takes the syntax as an
+optional last argument defaulting to `"polystella"`, so a standalone
+`formatMessage` call stays on it. EmDash can't read the file (its
+factory is synchronous and its routes run in workerd), so it takes the
+same block as `options.catalog`, serialized with its other options. The parse
+and formatter caches key on the syntax. In icu mode the `{{\w+}}`
+fallback and the stray-brace check are off; a source that does not parse
+is reported by `check-ui` and never sent to the model by `translate-ui`.
 
 Runtime contract (`buildTranslateFn` in
 `packages/core/src/catalog/index.ts`): `t` always formats; missing or

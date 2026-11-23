@@ -12,15 +12,22 @@
  *   3. The key itself, returned as a string. Last-resort fallback so
  *      a page never crashes on a missing key.
  *
- * Strings are messages: `{{name}}` placeholders plus ICU plural,
- * select and number/date formats. Missing values stay visible as
+ * Strings are messages: `{{name}}` placeholders (`{name}` with
+ * `catalog.messageSyntax: "icu"`) plus ICU plural, select and
+ * number/date formats. Missing values stay visible as
  * source text so authoring typos surface in the rendered page.
  *
  * The pure helpers are exported so tests can pin behaviour without
  * going through Astro's content layer.
  */
 
-import { buildTranslateFn, resolveLocaleTag, type LocaleTags, type TranslateFn } from "@cloudflare/polystella-core/catalog";
+import {
+  buildTranslateFn,
+  resolveLocaleTag,
+  type LocaleTags,
+  type MessageSyntax,
+  type TranslateFn,
+} from "@cloudflare/polystella-core/catalog";
 
 export {
   buildTranslateFn,
@@ -31,6 +38,7 @@ export {
   resolveLocaleTag,
   type InterpolateParams,
   type LocaleTags,
+  type MessageSyntax,
   type MessageValues,
   type TranslateFn,
 } from "@cloudflare/polystella-core/catalog";
@@ -46,6 +54,8 @@ export interface UseTranslationsDeps {
   getI18nEntry: GetI18nEntry;
   /** Site locale code → BCP 47 tag used for plural rules and number/date formatting. */
   localeTags?: LocaleTags | undefined;
+  /** `catalog.messageSyntax`; default `"polystella"`. */
+  messageSyntax?: MessageSyntax | undefined;
 }
 
 /**
@@ -69,5 +79,6 @@ export async function resolveTranslations(locale: string | undefined, deps: UseT
   return buildTranslateFn(primary, fallback, {
     locale: resolveLocaleTag(effectiveLocale, deps.localeTags),
     fallbackLocale: resolveLocaleTag(deps.defaultLocale, deps.localeTags),
+    messageSyntax: deps.messageSyntax,
   });
 }

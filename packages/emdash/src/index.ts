@@ -19,6 +19,7 @@ export {
 export {
   type BlockFieldPath,
   type EmDashCatalogLocale,
+  type EmDashCatalogOptions,
   type EmDashWorkersAIProvider,
   type PolystellaEmdashOptions,
   validatePolystellaEmdashOptions,

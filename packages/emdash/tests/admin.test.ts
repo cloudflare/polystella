@@ -59,6 +59,9 @@ describe("EmDash admin entry", () => {
     expect(sourceContainsTokens("Hello {{name}}")).toBe(true);
     expect(sourceContainsTokens("Hello {name}")).toBe(false);
     expect(sourceContainsTokens(null)).toBe(false);
+    expect(sourceContainsTokens("Hello {name}", "icu")).toBe(true);
+    expect(sourceContainsTokens("{n, plural, other {# x}}", "icu")).toBe(true);
+    expect(sourceContainsTokens("Use '{'braces'}'", "icu")).toBe(false);
   });
 
   it("classifies override toggle changes", () => {

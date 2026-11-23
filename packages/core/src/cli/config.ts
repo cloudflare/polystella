@@ -3,7 +3,9 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
+import { compileIgnoreKeys, type IgnoreKey } from "../catalog/flatten.js";
 import { assertLocaleTags, parseLocaleTags, type LocaleTags } from "../catalog/locale-tags.js";
+import { DEFAULT_MESSAGE_SYNTAX, type MessageSyntax } from "../catalog/message.js";
 import type { ModelChoice, ModelChoiceSpec, ModelSpec } from "../index.js";
 import { workersAIParamsProblem } from "../providers/workers-ai.js";
 
@@ -139,12 +141,15 @@ export async function loadAstroI18n(cwd: string): Promise<AstroI18nConfig | unde
 
 export async function loadPolystellaConfig(cwd: string): Promise<unknown> {
   const candidatePath = path.resolve(cwd, "polystella.config.mjs");
+  let loaded: unknown;
   try {
-    const loaded: unknown = await import(pathToFileURL(candidatePath).href);
-    return asRecordOrUndefined(loaded)?.default;
-  } catch (error) {
-    throw new Error(`failed to load ${candidatePath}: ${errorMessage(error)}`);
+    loaded = await import(pathToFileURL(candidatePath).href);
+  } catch (nodeError) {
+    if (!existsSync(candidatePath)) throw new Error(`failed to load ${candidatePath}: ${errorMessage(nodeError)}`);
+    // Astro loads astro.config.mjs (and so a config it imports) through Vite; match that here.
+    loaded = await importWithAstroVite(cwd, candidatePath, nodeError);
   }
+  return asRecordOrUndefined(loaded)?.default;
 }
 
 /** Like `loadPolystellaConfig`, but `undefined` when `polystella.config.mjs` does not exist. */
@@ -157,6 +162,47 @@ export function resolveLocaleTagsConfig(raw: unknown, i18n: AstroI18nConfig): Lo
   const localeTags = parseLocaleTags(asRecordOrUndefined(raw)?.localeTags, "polystella");
   assertLocaleTags(i18n.locales, localeTags, "polystella");
   return localeTags;
+}
+
+/** The `catalog` block of `polystella.config.mjs`. */
+export interface CatalogOptions {
+  /** `catalog.ignoreKeys` as written, for generated code. */
+  ignoreKeys: string[];
+  /** `ignoreKeys` compiled; `undefined` when there are none. */
+  ignoreKey?: IgnoreKey | undefined;
+  messageSyntax: MessageSyntax;
+}
+
+/** `catalog` options from `cwd`'s `polystella.config.mjs`; defaults when the file doesn't exist. */
+export async function loadCatalogOptions(cwd: string): Promise<CatalogOptions> {
+  let raw: unknown;
+  try {
+    raw = await loadOptionalPolystellaConfig(cwd);
+  } catch (error) {
+    throw new Error(`[polystella] ${errorMessage(error)}`);
+  }
+  return resolveCatalogOptions(raw);
+}
+
+/** Validated `catalog` block from a raw config; `raw` is `undefined` when there is no config file. */
+export function resolveCatalogOptions(raw: unknown): CatalogOptions {
+  const value = asRecordOrUndefined(raw)?.catalog;
+  if (value === undefined) return { ignoreKeys: [], messageSyntax: DEFAULT_MESSAGE_SYNTAX };
+  const catalog = requireRecord(value, "catalog");
+  rejectUnknownKeys(catalog, ["ignoreKeys", "messageSyntax"], "catalog");
+  const messageSyntax = catalog.messageSyntax ?? DEFAULT_MESSAGE_SYNTAX;
+  if (messageSyntax !== "polystella" && messageSyntax !== "icu") {
+    throw configurationError("catalog.messageSyntax", 'must be "polystella" or "icu"');
+  }
+  const ignoreKeys = catalog.ignoreKeys ?? [];
+  if (!Array.isArray(ignoreKeys) || !ignoreKeys.every((pattern): pattern is string => typeof pattern === "string" && pattern.length > 0)) {
+    throw configurationError("catalog.ignoreKeys", "must be an array of non-empty regular expression strings (not RegExp objects)");
+  }
+  try {
+    return { ignoreKeys, ignoreKey: compileIgnoreKeys(ignoreKeys), messageSyntax };
+  } catch (error) {
+    throw configurationError("catalog.ignoreKeys", `contains an invalid regular expression: ${errorMessage(error)}`);
+  }
 }
 
 /** Resolve only options used by translate-ui; unrelated integration options are ignored. */

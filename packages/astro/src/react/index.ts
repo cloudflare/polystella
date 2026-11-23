@@ -18,7 +18,7 @@
  */
 
 import { useMemo } from "react";
-import { defaultLocale, localeTags, locales, noPrefixUrls } from "polystella:runtime-config";
+import { defaultLocale, localeTags, locales, messageSyntax, noPrefixUrls } from "polystella:runtime-config";
 
 import { buildTranslateFn, formatMessage, interpolate, resolveLocaleTag } from "../i18n/translate.js";
 import type { InterpolateParams, MessageValues, TranslateFn } from "../i18n/translate.js";
@@ -32,7 +32,7 @@ import { resolveLocalizedHref } from "../runtime/localized-href.js";
  */
 export function useTranslations(dictionary: Record<string, string>, locale?: string | undefined): TranslateFn {
   return useMemo(
-    () => buildTranslateFn(dictionary, undefined, { locale: resolveLocaleTag(locale || defaultLocale, localeTags) }),
+    () => buildTranslateFn(dictionary, undefined, { locale: resolveLocaleTag(locale || defaultLocale, localeTags), messageSyntax }),
     [dictionary, locale],
   );
 }

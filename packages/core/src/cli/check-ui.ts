@@ -1,8 +1,15 @@
+import { existsSync } from "node:fs";
 import path from "node:path";
 
 import type { LocaleTags } from "../catalog/locale-tags.js";
 
-import { loadAstroI18n, loadOptionalPolystellaConfig, resolveLocaleTagsConfig } from "./config.js";
+import {
+  loadAstroI18n,
+  loadOptionalPolystellaConfig,
+  resolveCatalogOptions,
+  resolveLocaleTagsConfig,
+  type CatalogOptions,
+} from "./config.js";
 import { formatDriftIssues, formatMessageIssues, loadAndCheckDrift } from "./drift.js";
 
 const DEFAULT_CATALOG_BASE = "./src/content/i18n";
@@ -17,8 +24,9 @@ export const CHECK_UI_USAGE = `polystella check-ui
 Verify every non-default locale's UI-string JSON has the same key set as
 the default locale, and that every string is a valid message whose
 placeholders, plural and select branches match the default locale.
-Runs offline — suitable for a pre-commit hook. Reads localeTags from
-polystella.config.mjs when present.
+Runs offline — suitable for a pre-commit hook. Reads localeTags,
+catalog.ignoreKeys and catalog.messageSyntax from polystella.config.mjs
+when present.
 
 Usage:
   polystella check-ui [flags]
@@ -76,8 +84,11 @@ export async function runCheckUi(args: CheckUiArgs, deps: CheckUiDeps): Promise<
   }
 
   let localeTags: LocaleTags | undefined;
+  let catalog: CatalogOptions;
   try {
-    localeTags = resolveLocaleTagsConfig(await loadOptionalPolystellaConfig(deps.cwd), i18n);
+    const config = await loadOptionalPolystellaConfig(deps.cwd);
+    localeTags = resolveLocaleTagsConfig(config, i18n);
+    catalog = resolveCatalogOptions(config);
   } catch (error) {
     const message = errorMessage(error);
     deps.err(message.startsWith("[polystella]") ? message : `[polystella] ${message}`);
@@ -85,12 +96,20 @@ export async function runCheckUi(args: CheckUiArgs, deps: CheckUiDeps): Promise<
   }
 
   const baseDir = args.base ?? DEFAULT_CATALOG_BASE;
+  // The build's drift check skips a missing default catalog on purpose; the CLI check must not pass.
+  const sourcePath = path.resolve(deps.cwd, baseDir, `${i18n.defaultLocale}.json`);
+  if (!existsSync(sourcePath)) {
+    deps.err(`[polystella] default-locale UI-strings file not found at ${sourcePath}.`);
+    return 1;
+  }
   const result = await loadAndCheckDrift({
     rootDir: deps.cwd,
     baseDir,
     locales: i18n.locales,
     defaultLocale: i18n.defaultLocale,
     localeTags,
+    ignoreKey: catalog.ignoreKey,
+    messageSyntax: catalog.messageSyntax,
   });
   if (result.ok && result.messageIssues.length === 0) {
     deps.log(`[polystella] UI-strings drift check passed (${i18n.locales.length} locales, base: ${path.normalize(baseDir)}).`);
@@ -101,8 +120,14 @@ export async function runCheckUi(args: CheckUiArgs, deps: CheckUiDeps): Promise<
     deps.err("[polystella] invalid UI-string messages:");
     deps.err(formatMessageIssues(result.messageIssues));
     deps.err("");
-    deps.err("Placeholders are {{name}}; plurals are {{count, plural, one {# item} other {# items}}}.");
-    deps.err("Write '' for an apostrophe directly before {{, } or # inside a plural.");
+    if (catalog.messageSyntax === "icu") {
+      deps.err("Placeholders are {name}; plurals are {count, plural, one {# item} other {# items}}.");
+      deps.err("Write '' for an apostrophe directly before {, } or # inside a plural.");
+      deps.err("A default-locale string that isn't valid ICU: fix it or add its key to catalog.ignoreKeys.");
+    } else {
+      deps.err("Placeholders are {{name}}; plurals are {{count, plural, one {# item} other {# items}}}.");
+      deps.err("Write '' for an apostrophe directly before {{, } or # inside a plural.");
+    }
     if (result.ok) return 1;
     deps.err("");
   }

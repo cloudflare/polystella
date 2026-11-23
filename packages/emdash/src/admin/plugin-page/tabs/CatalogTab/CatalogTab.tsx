@@ -374,7 +374,7 @@ export function CatalogTab(): ReactNode {
                                 <strong style={{ overflowWrap: "anywhere" }}>{entry.key}</strong>
                               </Table.Cell>
                               <Table.Cell>
-                                <TokenGuidance source={entry.source} />
+                                <TokenGuidance source={entry.source} messageSyntax={catalog.messageSyntax} />
                               </Table.Cell>
                               <Table.Cell>
                                 <span style={mutedStyle}>{entry.deployed ?? "Missing"}</span>
@@ -425,19 +425,26 @@ export function CatalogTab(): ReactNode {
   );
 }
 
-function TokenGuidance({ source }: { source: string | null }): ReactNode {
+function TokenGuidance({
+  source,
+  messageSyntax,
+}: {
+  source: string | null;
+  messageSyntax: CatalogViewResponse["messageSyntax"];
+}): ReactNode {
   const [open, setOpen] = useState(false);
-  if (!sourceContainsTokens(source)) return <span style={mutedStyle}>{source ?? "Missing"}</span>;
+  const variables = messageSyntax === "icu" ? "{variables}" : "{{variables}}";
+  if (!sourceContainsTokens(source, messageSyntax)) return <span style={mutedStyle}>{source ?? "Missing"}</span>;
   return (
     <>
       <Tooltip
         open={open}
         onOpenChange={setOpen}
-        content="This string contains {{variables}}. Overrides should retain them."
+        content={`This string contains ${variables}. Overrides should retain them.`}
         render={
           <button
             type="button"
-            aria-label="Contains {{variables}} placeholders"
+            aria-label={`Contains ${variables} placeholders`}
             onClick={() => setOpen((current) => !current)}
             style={{
               background: "none",

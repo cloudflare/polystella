@@ -1,7 +1,15 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
-import { detectCatalogFormat, flattenCatalog, resolveLocaleTag, type CatalogFormat, type LocaleTags } from "../catalog/index.js";
+import {
+  detectCatalogFormat,
+  flattenCatalog,
+  resolveLocaleTag,
+  type CatalogFormat,
+  type IgnoreKey,
+  type LocaleTags,
+  type MessageSyntax,
+} from "../catalog/index.js";
 import { describeTokenValidationIssue, validateMessage, validateMessageTranslation } from "../catalog/translate.js";
 
 export interface DriftIssue {
@@ -88,6 +96,8 @@ export interface MessageIssue {
 
 export interface CheckCatalogMessagesInput extends DriftCheckInput {
   localeTags?: LocaleTags | undefined;
+  /** Default `"polystella"`. */
+  messageSyntax?: MessageSyntax | undefined;
 }
 
 /**
@@ -105,9 +115,9 @@ export function checkCatalogMessages(input: CheckCatalogMessagesInput): MessageI
       const source = defaultDict[key];
       let problems: string[];
       if (locale === input.defaultLocale || source === undefined || source.length === 0) {
-        problems = validateMessage(value, tag);
+        problems = validateMessage(value, tag, input.messageSyntax);
       } else {
-        const issue = validateMessageTranslation(key, source, value, tag);
+        const issue = validateMessageTranslation(key, source, value, tag, input.messageSyntax);
         problems = issue === null ? [] : describeTokenValidationIssue(issue);
       }
       if (problems.length > 0) issues.push({ locale, key, problems });
@@ -126,6 +136,10 @@ export interface LoadAndCheckDriftOptions {
   locales: ReadonlyArray<string>;
   defaultLocale: string;
   localeTags?: LocaleTags | undefined;
+  /** From `catalog.ignoreKeys`: matching keys are neither compared nor validated. */
+  ignoreKey?: IgnoreKey | undefined;
+  /** From `catalog.messageSyntax`; default `"polystella"`. */
+  messageSyntax?: MessageSyntax | undefined;
 }
 
 /** `ok` covers key drift only; `messageIssues` lists invalid or mismatched messages separately. */
@@ -158,8 +172,8 @@ export async function loadAndCheckDrift(options: LoadAndCheckDriftOptions): Prom
         }).`,
       );
     }
-    dictionaries[locale] = flattenCatalog(parsed);
-    formats.set(locale, detectCatalogFormat(parsed));
+    dictionaries[locale] = flattenCatalog(parsed, options.ignoreKey);
+    formats.set(locale, detectCatalogFormat(parsed, options.ignoreKey));
   }
 
   const defaultFormat = formats.get(options.defaultLocale);
@@ -176,7 +190,10 @@ export async function loadAndCheckDrift(options: LoadAndCheckDriftOptions): Prom
     }
   }
   const input = { defaultLocale: options.defaultLocale, locales: options.locales, dictionaries };
-  return { ...checkI18nDrift(input), messageIssues: checkCatalogMessages({ ...input, localeTags: options.localeTags }) };
+  return {
+    ...checkI18nDrift(input),
+    messageIssues: checkCatalogMessages({ ...input, localeTags: options.localeTags, messageSyntax: options.messageSyntax }),
+  };
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {

@@ -12,7 +12,14 @@ import {
   type TokenValidationIssue,
 } from "../catalog/translate.js";
 
-import { loadAstroI18n, loadPolystellaConfig, resolveCatalogConfig } from "./config.js";
+import {
+  loadAstroI18n,
+  loadOptionalPolystellaConfig,
+  loadPolystellaConfig,
+  resolveCatalogConfig,
+  resolveCatalogOptions,
+  type CatalogOptions,
+} from "./config.js";
 import { loadGlossaries } from "./glossary.js";
 import { runWithConcurrency } from "../pool.js";
 import { createTranslator } from "./provider.js";
@@ -31,9 +38,12 @@ export interface TranslateUiArgs {
 export const TRANSLATE_UI_USAGE = `polystella translate-ui
 
 Sync UI-string JSON files (key add/remove) and fill empty placeholders
-via the configured AI provider. Complete locale JSONs are skipped
-before provider setup. Locales with work run in parallel up to 3 at a
-time (also capped by polystella.config.mjs \`concurrency\`).
+via the configured AI provider. Keys matching catalog.ignoreKeys are
+never translated and stay untouched; catalog.messageSyntax selects
+"polystella" ({{name}}) or "icu" ({name}) messages. Complete locale
+JSONs are skipped before provider setup. Locales with work run in
+parallel up to 3 at a time (also capped by polystella.config.mjs
+\`concurrency\`).
 
 Usage:
   polystella translate-ui [flags]
@@ -112,6 +122,18 @@ export async function runTranslateUi(args: TranslateUiArgs, deps: TranslateUiDep
     return 1;
   }
 
+  let rawConfig: unknown;
+  let catalog: CatalogOptions;
+  try {
+    rawConfig = await loadOptionalPolystellaConfig(deps.cwd);
+    catalog = resolveCatalogOptions(rawConfig);
+  } catch (error) {
+    const message = errorMessage(error);
+    deps.err(message.startsWith("[polystella]") ? message : `[polystella] ${message}`);
+    return 1;
+  }
+
+  const { ignoreKey } = catalog;
   const baseDir = args.base ?? DEFAULT_CATALOG_BASE;
   let syncResult;
   try {
@@ -120,6 +142,7 @@ export async function runTranslateUi(args: TranslateUiArgs, deps: TranslateUiDep
       baseDir,
       defaultLocale: i18n.defaultLocale,
       locales: i18n.locales,
+      ignoreKey,
     });
   } catch (error) {
     deps.err(`[polystella] ${errorMessage(error)}`);
@@ -134,9 +157,9 @@ export async function runTranslateUi(args: TranslateUiArgs, deps: TranslateUiDep
   const sourcePath = path.resolve(deps.cwd, baseDir, `${i18n.defaultLocale}.json`);
   const sourceRaw = await readFile(sourcePath, "utf8");
   const sourceParsed = JSON.parse(sourceRaw) as unknown;
-  const sourceDict = flattenCatalog(sourceParsed);
+  const sourceDict = flattenCatalog(sourceParsed, ignoreKey);
   const sourceObject = sourceParsed as Record<string, unknown>;
-  const sourceFormat = detectCatalogFormat(sourceParsed);
+  const sourceFormat = detectCatalogFormat(sourceParsed, ignoreKey);
   const layout = sourceFormat === "flat" ? parseSourceLayout(sourceRaw) : undefined;
   const sourceKeyOrder = layout?.keys ?? Object.keys(sourceDict);
   const targets = args.locale === undefined ? i18n.locales.filter((locale) => locale !== i18n.defaultLocale) : [args.locale];
@@ -158,7 +181,7 @@ export async function runTranslateUi(args: TranslateUiArgs, deps: TranslateUiDep
     try {
       localeRaw = await readFile(localePath, "utf8");
       localeParsed = JSON.parse(localeRaw) as Record<string, unknown>;
-      localeDict = flattenCatalog(localeParsed);
+      localeDict = flattenCatalog(localeParsed, ignoreKey);
     } catch (error) {
       outcome.error = asError(error);
       deps.err(`[polystella] translate-ui: ${progress} ${locale} — failed: ${errorMessage(error)}`);
@@ -176,7 +199,8 @@ export async function runTranslateUi(args: TranslateUiArgs, deps: TranslateUiDep
 
   let resolved;
   try {
-    resolved = resolveCatalogConfig(await loadPolystellaConfig(deps.cwd), i18n);
+    // A missing config file is only an error once there is something to translate.
+    resolved = resolveCatalogConfig(rawConfig ?? (await loadPolystellaConfig(deps.cwd)), i18n);
   } catch (error) {
     deps.err(`[polystella] ${errorMessage(error)}`);
     return 1;
@@ -220,6 +244,7 @@ export async function runTranslateUi(args: TranslateUiArgs, deps: TranslateUiDep
         maxRetries: resolved.maxRetries,
         inputTokenBudget: provider.batchInputTokenBudget,
         ...(resolved.glossary?.matchInflections === undefined ? {} : { matchInflections: resolved.glossary.matchInflections }),
+        messageSyntax: catalog.messageSyntax,
         retryMinTimeoutMs: 250,
         retryFactor: 2,
         retryRandomize: true,
@@ -229,10 +254,9 @@ export async function runTranslateUi(args: TranslateUiArgs, deps: TranslateUiDep
         },
       });
       const reconciled = syncLocaleDict({ source: sourceDict, existing: result.dict, sourceKeyOrder });
+      const files = { dict: reconciled.dict, source: sourceObject, existing: job.localeParsed, ignoreKey };
       const nextText =
-        sourceFormat === "nested" || layout === undefined
-          ? formatNestedLocaleFile({ dict: reconciled.dict, source: sourceObject, existing: job.localeParsed })
-          : formatLocaleFile({ dict: reconciled.dict, layout });
+        sourceFormat === "nested" || layout === undefined ? formatNestedLocaleFile(files) : formatLocaleFile({ ...files, layout });
       if (nextText !== job.localeRaw) await writeFile(job.localePath, nextText, "utf8");
       job.outcome.filled = result.filled;
       job.outcome.tokenFailures = result.tokenFailures;
@@ -251,7 +275,7 @@ export async function runTranslateUi(args: TranslateUiArgs, deps: TranslateUiDep
         for (const failure of result.tokenFailures) {
           deps.warn(`      - ${formatTokenValidationIssue(failure)}`);
         }
-        deps.warn(`[polystella]   ${progress} — ${job.locale}: these keys were left empty; fix manually then re-run.`);
+        deps.warn(`[polystella]   ${progress} — ${job.locale}: these keys were left empty; fix them (or their source string) and re-run.`);
       }
     } catch (error) {
       job.outcome.error = asError(error);

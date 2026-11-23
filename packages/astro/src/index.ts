@@ -3,6 +3,7 @@ import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { Glossary, Translator } from "@cloudflare/polystella-core";
+import { loadCatalogOptions, type CatalogOptions } from "@cloudflare/polystella-core/cli/config";
 
 import { resolveOptions, type PolyStellaOptions, type PolyStellaResolvedOptions } from "./config/options.js";
 import { EMPTY_GLOSSARY_HASH, hashGlossary, loadGlossaries } from "./glossary/glossary.js";
@@ -119,6 +120,10 @@ export default function polystella(options: PolyStellaOptions): AstroIntegration
         // virtual-module convention. `mode` is exposed so the
         // middleware can defer to Starlight's `t` when that mode lands.
         const allLocalesIncludingDefault = [resolved.defaultLocale, ...resolved.locales];
+        const catalog = await loadCatalogOptions(rootDirPath);
+        if (options.catalog !== undefined && !sameCatalogOptions(options.catalog, catalog)) {
+          logger.warn("`catalog` in the polystella() options is ignored; set it in polystella.config.mjs.");
+        }
         const runtimeConfigSource = [
           `export const defaultLocale = ${JSON.stringify(resolved.defaultLocale)};`,
           `export const locales = ${JSON.stringify(allLocalesIncludingDefault)};`,
@@ -127,6 +132,7 @@ export default function polystella(options: PolyStellaOptions): AstroIntegration
           `export const noPrefixUrls = ${JSON.stringify(resolved.noPrefixUrls)};`,
           `export const mode = ${JSON.stringify(resolved.mode)};`,
           `export const localeTags = ${JSON.stringify(resolved.localeTags)};`,
+          `export const messageSyntax = ${JSON.stringify(catalog.messageSyntax)};`,
           "",
         ].join("\n");
         updateConfig({
@@ -245,6 +251,8 @@ export default function polystella(options: PolyStellaOptions): AstroIntegration
           locales: allLocalesIncludingDefault,
           defaultLocale: resolved.defaultLocale,
           localeTags: resolved.localeTags,
+          ignoreKey: catalog.ignoreKey,
+          messageSyntax: catalog.messageSyntax,
         });
         if (!driftResult.ok) {
           throw new Error(
@@ -425,4 +433,11 @@ async function publishRuntimeBridge(opts: {
   };
 
   setRuntimeBridge(bridge);
+}
+
+function sameCatalogOptions(inline: NonNullable<PolyStellaOptions["catalog"]>, file: CatalogOptions): boolean {
+  return (
+    JSON.stringify(inline.ignoreKeys ?? []) === JSON.stringify(file.ignoreKeys) &&
+    (inline.messageSyntax ?? "polystella") === file.messageSyntax
+  );
 }

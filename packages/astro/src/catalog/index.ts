@@ -11,12 +11,20 @@ export {
   type GetCatalogDictionary,
   type InterpolateParams,
   type LocaleTags,
+  type MessageSyntax,
   type MessageValues,
   type MaybePromise,
   type ResolveCatalogTranslationsDeps,
   type TranslateFn,
 } from "./runtime.js";
-export { CATALOG_GROUP_TITLE_KEY, detectCatalogFormat, flattenCatalog, type CatalogFormat } from "./runtime.js";
+export {
+  CATALOG_GROUP_TITLE_KEY,
+  compileIgnoreKeys,
+  detectCatalogFormat,
+  flattenCatalog,
+  type CatalogFormat,
+  type IgnoreKey,
+} from "./runtime.js";
 export {
   checkI18nDrift,
   checkI18nDrift as checkCatalogDrift,

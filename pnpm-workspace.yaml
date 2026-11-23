@@ -24,3 +24,11 @@ overrides:
   "http-cache-semantics@<=4.2.0": 4.3.0
 
 minimumReleaseAgeExclude:
+  - "emdash@1.6.0"
+  - "@emdash-cms/admin@1.6.0"
+  - "@emdash-cms/auth@1.6.0"
+  - "@emdash-cms/blocks@1.6.0"
+  - "@emdash-cms/gutenberg-to-portable-text@1.6.0"
+  - "@emdash-cms/registry-client@0.7.3"
+  - "@emdash-cms/registry-moderation@0.3.0"
+  - "@emdash-cms/registry-verification@0.4.0"

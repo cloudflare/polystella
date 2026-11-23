@@ -266,6 +266,19 @@ polystella sync-ui --base ./src/i18n
 polystella translate-ui --base ./src/i18n
 ```
 
+Entries that are not messages (inlang's `$schema`, variant-message
+arrays) go in `catalog.ignoreKeys` in `polystella.config.mjs`, never in
+the `catalogAstro()` or `polystella()` options. Patterns are regex
+strings matched against the whole dotted key:
+`catalog: { ignoreKeys: ["\\$schema"] }`. The CLI, the drift checks and
+`catalogAstro()` skip them and leave them untouched in locale files.
+
+Catalogs written in standard single-brace ICU (`{name}`, inlang's ICU
+plugin) need `catalog: { messageSyntax: "icu" }` in the same file; the
+default `"polystella"` reads `{{name}}`. EmDash can't read that file:
+pass the same block as `catalog` in the `polystellaEmdash()` /
+`polystellaEmdashAstro()` options (`catalog: polystellaConfig.catalog`).
+
 Catalog files accept two formats, auto-detected per file (all locale
 files must use the same format):
 

@@ -5,6 +5,7 @@ import {
   formatNestedLocaleFile,
   type CatalogDictionary,
   type CatalogSource,
+  type IgnoreKey,
 } from "@cloudflare/polystella-core/catalog";
 import { PluginRouteError, type StorageCollection } from "emdash";
 
@@ -21,7 +22,7 @@ export type FlatPolystellaEmdashOptions = Omit<PolystellaEmdashOptions, "catalog
   };
 };
 
-export function flattenEmdashCatalogs(options: PolystellaEmdashOptions): FlatPolystellaEmdashOptions {
+export function flattenEmdashCatalogs(options: PolystellaEmdashOptions, ignoreKey?: IgnoreKey | undefined): FlatPolystellaEmdashOptions {
   return {
     ...options,
     catalogs: {
@@ -29,7 +30,7 @@ export function flattenEmdashCatalogs(options: PolystellaEmdashOptions): FlatPol
       locales: Object.fromEntries(
         Object.entries(options.catalogs.locales).map(([locale, catalog]) => [
           locale,
-          { dictionary: flattenCatalog(catalog.dictionary), filePath: catalog.filePath },
+          { dictionary: flattenCatalog(catalog.dictionary, ignoreKey), filePath: catalog.filePath },
         ]),
       ),
     },
@@ -80,10 +81,12 @@ export function applyCatalogOverrides(
   return output;
 }
 
-export function catalogGroupTitles(source: CatalogSource): CatalogGroupView[] {
+export function catalogGroupTitles(source: CatalogSource, ignoreKey?: IgnoreKey | undefined): CatalogGroupView[] {
   return Object.entries(source)
     .flatMap(([key, value]) => {
       if (value === null || typeof value !== "object" || Array.isArray(value)) return [];
+      // A group whose entries are all ignored has nothing to show.
+      if (ignoreKey !== undefined && Object.keys(flattenCatalog({ [key]: value }, ignoreKey)).length === 0) return [];
       const title = value[CATALOG_GROUP_TITLE_KEY];
       return [{ key, title: typeof title === "string" ? title : null }];
     })
@@ -95,11 +98,46 @@ export function serializeCatalog(
   dictionary: CatalogDictionary,
   overrides: readonly CatalogOverride[],
   source?: CatalogSource | undefined,
+  ignoreKey?: IgnoreKey | undefined,
+  defaultSource?: CatalogSource | undefined,
 ): string {
   const output = applyCatalogOverrides(locale, dictionary, overrides);
-  return source !== undefined && detectCatalogFormat(source) === "nested"
-    ? formatNestedLocaleFile({ dict: output, source, existing: source })
-    : `${JSON.stringify(output, null, 2)}\n`;
+  if (source !== undefined && detectCatalogFormat(source, ignoreKey) === "nested") {
+    // Default-locale keys first, so an override for a key the locale file lacks is still written.
+    const structure = defaultSource === undefined ? source : mergedStructure(defaultSource, source);
+    return formatNestedLocaleFile({ dict: output, source: structure, existing: source, ignoreKey });
+  }
+  return `${JSON.stringify(ignoreKey === undefined || source === undefined ? output : withIgnoredEntries(output, source, ignoreKey), null, 2)}\n`;
+}
+
+// `primary`'s keys in order, then keys only `secondary` has; groups in both merge the same way.
+function mergedStructure(primary: Record<string, unknown>, secondary: Record<string, unknown>): Record<string, unknown> {
+  const merged: Record<string, unknown> = {};
+  const define = (key: string, value: unknown) =>
+    Object.defineProperty(merged, key, { configurable: true, enumerable: true, value, writable: true });
+  for (const [key, value] of Object.entries(primary)) {
+    const other = Object.hasOwn(secondary, key) ? secondary[key] : undefined;
+    define(key, isGroup(value) && isGroup(other) ? mergedStructure(value, other) : value);
+  }
+  for (const [key, value] of Object.entries(secondary)) if (!Object.hasOwn(merged, key)) define(key, value);
+  return merged;
+}
+
+function isGroup(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+// Ignored entries are not in the flattened dictionary; put them back at their place in the deployed file.
+function withIgnoredEntries(output: CatalogDictionary, source: CatalogSource, ignoreKey: IgnoreKey): Record<string, unknown> {
+  const merged: Record<string, unknown> = {};
+  const define = (key: string, value: unknown) =>
+    Object.defineProperty(merged, key, { configurable: true, enumerable: true, value, writable: true });
+  for (const [key, value] of Object.entries(source)) {
+    if (ignoreKey(key)) define(key, value);
+    else if (Object.hasOwn(output, key)) define(key, output[key]);
+  }
+  for (const [key, value] of Object.entries(output)) if (!Object.hasOwn(merged, key)) define(key, value);
+  return merged;
 }
 
 export async function listOverrides(storage: StorageCollection, locale: string): Promise<CatalogOverride[]> {
