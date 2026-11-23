@@ -28,6 +28,16 @@ export interface CollectionPolicyResponse {
   /** `locale` is how EmDash stores new content (Astro path); older rows may use the catalog `code`. */
   targetLocales: Array<{ locale: string; code: string }>;
   fields: string[];
+  /** Whether the panel may translate `seo.title` and `seo.description` on a published entry. */
+  translateSeoWhenPublished: boolean;
+}
+
+/** EmDash editor-draft keys for an entry's SEO text. Not collection fields, so not part of a collection policy. */
+export const SEO_FIELDS = ["seo.title", "seo.description"] as const;
+export type SeoField = (typeof SEO_FIELDS)[number];
+
+export function isSeoField(field: string): field is SeoField {
+  return (SEO_FIELDS as readonly string[]).includes(field);
 }
 
 export interface TranslationLocaleSettings {
@@ -58,6 +68,8 @@ export interface TranslationSettingsResponse {
   defaultMaxTokens: number;
   /** Off by default: edited AI text keeps its flag until an editor keeps or removes it in the panel. */
   clearAiFlagOnEdit: boolean;
+  /** Off by default: SEO text is translated only on entries that aren't published. */
+  translateSeoWhenPublished: boolean;
   allowedModels: string[];
   locales: TranslationLocaleSettings[];
   instructions: {

@@ -118,11 +118,17 @@ non-translatable. Settings saves are conditional on the loaded revision; a
 concurrent save by another Administrator is rejected instead of overwritten.
 
 The panel translates selected `string`, `text`, Portable Text and `blocks` fields in an
-existing target-locale draft. The private route rereads selected values through
-its `content:read` capability, while the panel updates with EmDash's `_rev` token
-and reloads after success. Unsaved browser changes are not translated and are
-lost after confirmation. A save refused by another editor's edit lock names the
-lock holder.
+existing target-locale draft. The private route rereads the source values
+through its `content:read` capability. On EmDash 1.6 and later, the panel puts
+the translation into the open form through `editorDraft`, keeping other unsaved
+changes, and the editor is asked to review it. A patch is refused if a selected
+field changed during translation, and nothing is sent from a read-only editor. The
+entry is marked AI-translated when it is saved. In collections with SEO, the
+panel also translates the SEO title and meta description; on published and scheduled entries
+only when an Administrator allows it in **Translation settings**, because EmDash
+saves SEO text at once. On older EmDash, the panel saves with EmDash's `_rev`
+token and reloads; unsaved changes are lost after confirmation, and a save
+refused by another editor's edit lock names the lock holder.
 
 Same-page links (`#…`) are copied unchanged. EmDash gives headings no ids, so
 sites build their own, often from the heading text, and a translated heading can
@@ -184,8 +190,8 @@ EmDash's content API (copying the source entry and slug, like EmDash's
 **Create translation** button), and opens it. Locales that already have an
 entry are not offered.
 
-Content translation displays named percentage stages while loading the saved
-entry, translating fields, and saving the patch.
+Content translation displays named percentage stages while loading the entry,
+translating fields, and filling the form or saving.
 
 ## Translation Sandbox
 
@@ -250,8 +256,8 @@ const t = await Astro.locals.buildCatalogTranslator(locale);
 
 ## EmDash Limitations
 
-- Panels use the latest saved entry, not unsaved form state.
-- EmDash shows the PolyStella section on every collection because panel
-  visibility cannot be resolved asynchronously. On collections not enabled in
-  plugin settings, the panel says so and links Administrators to the
-  Collections tab.
+- Before EmDash 1.6, the panel saves the translation and reloads, so unsaved
+  changes are lost.
+- Before EmDash 1.5, the PolyStella section shows on every collection. On
+  collections not enabled in plugin settings, the panel says so and links
+  Administrators to the Collections tab.

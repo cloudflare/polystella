@@ -37,6 +37,7 @@ import {
 import {
   MAX_CATALOG_KEYS,
   MAX_CONTENT_FIELDS,
+  isSeoField,
   MAX_SANDBOX_CHARACTERS,
   MAX_BATCH_FAILURES_SHOWN,
   MAX_BATCH_TRANSLATIONS,
@@ -83,11 +84,15 @@ import {
 } from "../batch.js";
 import {
   AI_TRANSLATIONS_CACHE_NAMESPACE,
+  AI_TRANSLATION_PENDING_COLLECTION,
   AI_TRANSLATIONS_COLLECTION,
   changedFields,
   hashFields,
+  mergedFieldHashes,
   readFieldHashes,
   type AiTranslationRecord,
+  readPendingAiTranslation,
+  type PendingAiTranslation,
 } from "../../ai-translations.js";
 import { resolveGlossary, resolveInstructions, runtimeOverrideSettingKey } from "../../settings.js";
 import type { PolystellaEmdashOptions } from "../options.js";
@@ -194,6 +199,7 @@ export function createPluginRoutes(
           targetLocales:
             policy === undefined ? [] : targetLocales(options).map((code) => ({ locale: contentLocale(code, dependencies), code })),
           fields: policy === undefined ? [] : [...policy.fields],
+          translateSeoWhenPublished: (await storedTranslationSettings(options, ctx.settings)).translateSeoWhenPublished,
         } satisfies CollectionPolicyResponse;
       },
     },
@@ -202,28 +208,56 @@ export function createPluginRoutes(
       permission: "content:edit_any",
       methods: ["POST"],
       async handler(ctx) {
-        const input = readRecord(ctx.input, "request body");
-        const { collection, entryId, item, storage, policy } = await aiTranslationTarget(ctx, input);
-        // The queue translates every enabled field, so it sends none.
-        const fields = input.fields === undefined ? policy.fields : [...new Set(readStringArray(input.fields, "fields", false))];
-        if (fields.some((field) => !policy.fields.includes(field)))
-          throw PluginRouteError.badRequest("fields must be enabled for the collection");
-        if (item.locale === null) throw PluginRouteError.badRequest("entry has no locale");
-        const locale = configuredTargetLocale(options, catalogLocale(options, item.locale, dependencies));
-        const stored = await storedTranslationSettings(options, ctx.settings);
+        const { collection, entryId, item, storage, fields, meta } = await aiTranslationInput(ctx, options, dependencies);
         const data = await savedEntryData(contentAccess(ctx), collection, item);
         const previous = readFieldHashes(recordValue(await storage.get(entryId)).fieldHashes);
         const record: AiTranslationRecord = {
-          collection,
-          entryId,
-          locale,
-          model: stored.locales[locale]?.model ?? resolveModelId(options.models.defaults, locale),
-          aiTranslatedAt: dependencies.now().toISOString(),
+          ...meta,
           fieldHashes: data === null ? null : await mergedFieldHashes(data, fields, previous),
         };
         await storage.put(entryId, record);
         invalidateObjectCache(AI_TRANSLATIONS_CACHE_NAMESPACE);
         return { recorded: true };
+      },
+    },
+    // Sent just before the panel patches the open editor (or `cancel` after a refused patch). A later save that
+    // changes one of these fields from its `baseline` confirms it into the AI-translated record.
+    "ai-translation/pending": {
+      permission: "content:edit_any",
+      methods: ["POST"],
+      async handler(ctx) {
+        const { collection, entryId, item, fields, meta, input } = await aiTranslationInput(ctx, options, dependencies);
+        const cancel = input.cancel === undefined ? false : readBoolean(input.cancel, "cancel");
+        const pending = ctx.storage[AI_TRANSLATION_PENDING_COLLECTION];
+        if (pending === undefined) throw PluginRouteError.internal("pending AI translation storage is unavailable");
+        const stored = await pending.getVersioned(entryId);
+        const previous = readPendingAiTranslation(stored?.value);
+        let next: PendingAiTranslation | null;
+        let added: string[] = [];
+        if (cancel) {
+          const remaining = previous?.fields.filter((field) => !fields.includes(field)) ?? [];
+          next = previous === null || remaining.length === 0 ? null : { ...previous, fields: remaining };
+        } else {
+          const data = await savedEntryData(contentAccess(ctx), collection, item);
+          if (data === null) throw PluginRouteError.internal("the saved draft could not be read");
+          added = fields.filter((field) => !(previous?.fields.includes(field) ?? false));
+          next = {
+            ...meta,
+            fields: [...(previous?.fields ?? []), ...added],
+            baseline: { ...previous?.baseline, ...(await hashFields(data, added)) },
+          };
+        }
+        const result =
+          stored === null
+            ? next === null
+              ? { applied: true }
+              : await pending.compareAndSet(entryId, null, next)
+            : next === null
+              ? await pending.compareAndDelete(entryId, stored.revision)
+              : await pending.compareAndSet(entryId, stored.revision, next);
+        if (!result.applied) throw PluginRouteError.conflict("Another translation of this entry is being recorded. Try again.");
+        // A refused patch cancels only these, so an earlier unsaved translation of the same field stays pending.
+        return { recorded: true, added };
       },
     },
     // For the editor panel: whether the entry is flagged, and which AI-written fields were changed since.
@@ -292,15 +326,38 @@ export function createPluginRoutes(
           if (selectedFields.length > MAX_CONTENT_FIELDS) {
             throw PluginRouteError.badRequest(`fields cannot contain more than ${MAX_CONTENT_FIELDS} values`);
           }
-          if (selectedFields.some((field) => !policy.fields.includes(field))) {
+          const dataFields = selectedFields.filter((field) => !isSeoField(field));
+          if (dataFields.some((field) => !policy.fields.includes(field))) {
             throw PluginRouteError.badRequest("fields must be enabled in PolyStella collection settings");
           }
           const schema = await collectionSchema(ctx, collection);
-          const untranslatableField = selectedFields.find((slug) => !isTranslatableField(schema, slug));
+          const untranslatableField = dataFields.find((slug) => !isTranslatableField(schema, slug));
           if (untranslatableField !== undefined) {
             throw PluginRouteError.badRequest(`field "${untranslatableField}" is not a translatable text field in the collection schema`);
           }
-          const { values } = await loadTranslationSource(ctx, options, dependencies, collection, entryId, targetLocale, selectedFields);
+          const seoSelected = dataFields.length < selectedFields.length;
+          if (seoSelected && !schema.hasSeo) throw PluginRouteError.badRequest("the collection has no SEO fields");
+          const { item, isSourceEntry, values } = await loadTranslationSource(
+            ctx,
+            options,
+            dependencies,
+            collection,
+            entryId,
+            targetLocale,
+            selectedFields,
+          );
+          // Only the open editor takes SEO text: a created draft gets `data` only.
+          if (seoSelected && isSourceEntry) throw PluginRouteError.badRequest("SEO fields are translated only on a target-locale entry");
+          // EmDash saves patched SEO text at once, so on a published or scheduled entry it would go live unreviewed.
+          if (
+            seoSelected &&
+            item.status !== "draft" &&
+            !(await storedTranslationSettings(options, ctx.settings)).translateSeoWhenPublished
+          ) {
+            throw PluginRouteError.badRequest(
+              "SEO fields of a published or scheduled entry can't be translated; an administrator can allow it in Translation settings",
+            );
+          }
 
           const settings = await translationSettings(options, targetLocale, ctx.settings, ctx.log, dependencies);
           if (settings.debugEnabled && (ctx.user?.role ?? 0) >= ADMIN_ROLE) {
@@ -1021,20 +1078,6 @@ async function savedEntryData(
   return { ...item.data, ...Object.fromEntries(Object.entries(revision.data).filter(([key]) => !key.startsWith("_"))) };
 }
 
-/** This run's fields, plus fields an earlier AI run wrote that nobody has changed since. */
-async function mergedFieldHashes(
-  data: Record<string, unknown>,
-  fields: readonly string[],
-  previous: Readonly<Record<string, string>> | null,
-): Promise<Record<string, string>> {
-  const untouched: Record<string, string> = {};
-  if (previous !== null) {
-    const changed = new Set(await changedFields(data, previous));
-    for (const [field, hash] of Object.entries(previous)) if (!changed.has(field)) untouched[field] = hash;
-  }
-  return { ...untouched, ...(await hashFields(data, fields)) };
-}
-
 async function aiTranslationTarget(ctx: RouteContext, input: Record<string, unknown>) {
   const collection = readString(input.collection, "collection");
   const entryId = readString(input.entryId, "entryId");
@@ -1044,6 +1087,28 @@ async function aiTranslationTarget(ctx: RouteContext, input: Record<string, unkn
   const storage = ctx.storage[AI_TRANSLATIONS_COLLECTION];
   if (storage === undefined) throw PluginRouteError.internal("AI translation storage is unavailable");
   return { collection, entryId, item, policy, storage };
+}
+
+/** Shared input of the two routes that record an AI translation. The server derives locale and model itself. */
+async function aiTranslationInput(ctx: RouteContext, options: PolystellaEmdashOptions, dependencies: PluginRouteDependencies) {
+  const input = readRecord(ctx.input, "request body");
+  const target = await aiTranslationTarget(ctx, input);
+  const { policy, item } = target;
+  // The queue translates every enabled field, so it sends none.
+  const fields = input.fields === undefined ? policy.fields : [...new Set(readStringArray(input.fields, "fields", false))];
+  if (fields.some((field) => !policy.fields.includes(field)))
+    throw PluginRouteError.badRequest("fields must be enabled for the collection");
+  if (item.locale === null) throw PluginRouteError.badRequest("entry has no locale");
+  const locale = configuredTargetLocale(options, catalogLocale(options, item.locale, dependencies));
+  const stored = await storedTranslationSettings(options, ctx.settings);
+  const meta = {
+    collection: target.collection,
+    entryId: target.entryId,
+    locale,
+    model: stored.locales[locale]?.model ?? resolveModelId(options.models.defaults, locale),
+    aiTranslatedAt: dependencies.now().toISOString(),
+  };
+  return { ...target, input, fields, meta };
 }
 
 function recordValue(value: unknown): Record<string, unknown> {
@@ -1158,7 +1223,7 @@ async function loadTranslationSource(
   entryId: string,
   targetLocale: string,
   fields: readonly string[],
-): Promise<{ sourceItem: PluginContentItem; values: Record<string, unknown> }> {
+): Promise<{ item: PluginContentItem; isSourceEntry: boolean; sourceItem: PluginContentItem; values: Record<string, unknown> }> {
   if (ctx.content === undefined) throw PluginRouteError.internal("content access is unavailable");
   const item = await ctx.content.get(collection, entryId);
   if (item === null) throw PluginRouteError.notFound("content entry not found");
@@ -1176,10 +1241,14 @@ async function loadTranslationSource(
     sourceItem = (sourceId === undefined ? null : await ctx.content.get(collection, sourceId)) ?? item;
   }
   const values = Object.fromEntries(
-    fields.flatMap((field) => (Object.hasOwn(sourceItem.data, field) ? [[field, sourceItem.data[field]]] : [])),
+    fields.flatMap((field) => {
+      if (!isSeoField(field)) return Object.hasOwn(sourceItem.data, field) ? [[field, sourceItem.data[field]]] : [];
+      const text = field === "seo.title" ? sourceItem.seo?.title : sourceItem.seo?.description;
+      return typeof text === "string" && text.trim().length > 0 ? [[field, text]] : [];
+    }),
   );
   if (Object.keys(values).length === 0) throw PluginRouteError.badRequest("selected fields have no saved values");
-  return { sourceItem, values };
+  return { item, isSourceEntry, sourceItem, values };
 }
 
 function overrideMessageProblem(

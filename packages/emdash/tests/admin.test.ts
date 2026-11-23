@@ -15,6 +15,7 @@ import {
   storeTranslationDebug,
   takeTranslationDebug,
 } from "../src/admin.js";
+import { panelIsVisible } from "../src/admin/panels/ContentEditorPanel.js";
 import type { CatalogEntryView, CatalogGroupView, TranslationDebugTrace } from "../src/contracts.js";
 import type { ReactElement } from "react";
 
@@ -25,6 +26,23 @@ describe("EmDash admin entry", () => {
     expect(Object.keys(pages)).toEqual(["/", "/batch-run"]);
     expect(contentEditorPanels).toHaveLength(1);
     expect(contentEditorPanels[0]).toMatchObject({ id: "polystella", title: "PolyStella", minRole: 40 });
+  });
+
+  it("shows the editor panel only for enabled collections, and still on a failed policy read", async () => {
+    const policy = (response: Response) =>
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => response),
+      );
+    const context = { collection: "posts", entry: { id: "e1" } } as Parameters<typeof panelIsVisible>[0];
+
+    expect(contentEditorPanels[0]?.isVisible).toBe(panelIsVisible);
+    policy(Response.json({ data: { enabled: true } }));
+    await expect(panelIsVisible(context)).resolves.toBe(true);
+    policy(Response.json({ data: { enabled: false } }));
+    await expect(panelIsVisible(context)).resolves.toBe(false);
+    policy(Response.json({ error: { message: "boom" } }, { status: 500 }));
+    await expect(panelIsVisible(context)).resolves.toBe(true);
   });
 
   it("groups catalog entries by their first key segment with i18n_group_title labels", () => {

@@ -107,6 +107,13 @@ off by default, so edited AI text keeps its flag until an editor
 decides in the content-editor panel. When on, saving different text in
 any field PolyStella wrote removes the flag right away.
 
+**Translate the SEO title and meta description of published and scheduled entries**
+is off by default. EmDash saves SEO text as soon as it changes, without
+waiting for **Save** or **Publish**, so on a published or scheduled
+entry a translation takes effect before anyone reviews it. Off, the
+panel translates SEO text only on drafts. On, it also translates it on
+published and scheduled entries.
+
 **Debug mode** is a per-project switch. When enabled, content,
 catalog, and sandbox translation traces include the effective model, batch
 metrics, exact prompts, every provider attempt, normalized model
@@ -157,13 +164,35 @@ running, and queued batch jobs translate one part per queue message. An
 entry can hold up to 500,000 characters and 5,000 segments. If the source
 changes between parts, the translation stops and asks to start again.
 
-The private route rereads selected values through its `content:read`
+The private route rereads the source values through its `content:read`
 capability, so the browser never supplies the values being
-translated. The panel updates the draft with EmDash's `_rev` token
-and reloads after success. Unsaved browser changes are not translated
-and are lost after confirmation. If another editor has taken over the
-entry's edit lock, the save is refused and the panel names the lock
-holder.
+translated.
+
+On EmDash 1.6 and later, the panel puts the translation into the open
+form without saving, and keeps your other unsaved changes. Please
+review the translation; EmDash's autosave may save it within seconds.
+If you change one of the selected fields while PolyStella translates,
+the form is left as it was and the panel asks you to translate again.
+Edits to other fields are kept.
+In a read-only editor (another editor holds the lock, or a version is
+open), nothing is sent. In collections with revisions, the first save
+after a translation keeps the draft from before it in **Revisions**, so
+you can restore it. PolyStella marks each translated field AI-written
+when a save first changes it; a field not saved within an hour is not
+marked.
+
+In collections with SEO, the panel also offers the **SEO title** and
+**Meta description**. EmDash saves these at once, so on published and
+scheduled entries they're off unless an Administrator turns on
+**Translate the SEO title and meta description of published and
+scheduled entries**. A source-locale entry doesn't offer them. A translated SEO
+value longer than EmDash allows (200 or 500 characters) is left out, and
+the panel says so. SEO text doesn't count toward the AI-translated flag.
+
+On EmDash before 1.6, the panel saves the translated fields with
+EmDash's `_rev` token and reloads. Unsaved changes are lost after
+confirmation. If another editor has taken over the entry's edit lock,
+the save is refused and the panel names the lock holder.
 
 On a source-locale entry, the panel creates missing translations
 instead. Tick one or more locales that have no entry yet (or
@@ -182,20 +211,23 @@ time and model. Once a person saves different text in a field
 PolyStella wrote, it shows **Edited since AI translation** and the
 changed fields, with **Keep AI flag** and **Remove AI flag**.
 
-Named percentage stages show when the panel is loading the latest
-saved entry, translating selected fields, and saving the patch.
+Named percentage stages show the panel's progress, from loading the
+entry and translating to filling the form or saving.
 
-Successful content traces survive the existing editor reload in
-browser session storage for one view, so an Administrator can inspect
-the trace after the panel reloads.
+On EmDash before 1.6, successful content traces survive the editor
+reload in browser session storage for one view, so an Administrator can
+inspect the trace after the panel reloads.
 
 ## EmDash limitations
 
-- Panels use the latest saved entry, not unsaved form state.
-- EmDash shows the PolyStella section on every collection because
-  panel visibility cannot be resolved asynchronously. On collections
-  not enabled in plugin settings, the panel says so and links
-  Administrators to the Collections tab.
+- The source values always come from the latest saved source-locale
+  entry. Only the open entry's form takes patches.
+- Before EmDash 1.6, panels save the translation and reload, so
+  unsaved changes are lost.
+- Before EmDash 1.5, the PolyStella section shows on every collection.
+  On collections not enabled in plugin settings, the panel says so and
+  links Administrators to the Collections tab. From 1.5 on, the section
+  is hidden there.
 
 ## See also
 

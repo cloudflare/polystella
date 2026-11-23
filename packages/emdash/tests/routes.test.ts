@@ -166,10 +166,17 @@ function context(
   storage: StorageCollection,
   batch: { jobs: StorageCollection; results: StorageCollection } = { jobs: createStorage(), results: createStorage() },
   aiTranslations: StorageCollection = createStorage(),
+  pendingAiTranslations: StorageCollection = createStorage(),
 ): RouteContext {
   return {
     plugin: { id: "polystella", version: "0.0.0" },
-    storage: { catalog_overrides: storage, batch_jobs: batch.jobs, batch_results: batch.results, ai_translations: aiTranslations },
+    storage: {
+      catalog_overrides: storage,
+      batch_jobs: batch.jobs,
+      batch_results: batch.results,
+      ai_translations: aiTranslations,
+      ai_translation_pending: pendingAiTranslations,
+    },
     content: {
       getTranslations: async (_collection, id) => ({
         translationGroup: id,
@@ -334,6 +341,204 @@ describe("EmDash plugin routes", () => {
     expect(await aiTranslations.get("entry-en")).toBeNull();
   });
 
+  describe("pending AI translation", () => {
+    const entry = { collection: "posts", entryId: "entry-1" };
+    const hash = (data: Record<string, unknown>, fields: string[]) => hashFields(data, fields);
+    // `saved` is what the server reads as the entry's saved data for this call.
+    const callPending = (
+      input: unknown,
+      pending: StorageCollection,
+      flags: StorageCollection = createStorage(),
+      saved?: Record<string, unknown>,
+      customize?: (routeContext: RouteContext) => void,
+    ) => {
+      const routeContext = context(input, "POST", createKv(), createStorage(), undefined, flags, pending);
+      const content = routeContext.content;
+      if (content === undefined) throw new Error("missing content access");
+      const get = content.get;
+      if (saved !== undefined) {
+        content.get = async (collection, id) => {
+          const item = await get(collection, id);
+          return item === null ? null : { ...item, data: { ...item.data, ...saved } };
+        };
+      }
+      customize?.(routeContext);
+      return routeContext;
+    };
+    const run = async (input: unknown, pending: StorageCollection, saved?: Record<string, unknown>, flags?: StorageCollection) => {
+      const kv = createKv();
+      await enablePosts(kv);
+      const routeContext = callPending(input, pending, flags, saved);
+      return route(createPluginRoutes(options(), dependencies()), "ai-translation/pending").handler({
+        ...routeContext,
+        kv,
+        settings: settingsFor(kv),
+      });
+    };
+
+    it("stores the saved hash of each field as its baseline, and not the flag record", async () => {
+      const pending = createStorage();
+      const flags = createStorage();
+
+      await expect(run({ ...entry, fields: ["title"] }, pending, undefined, flags)).resolves.toEqual({
+        recorded: true,
+        added: ["title"],
+      });
+
+      expect(await pending.get("entry-1")).toEqual({
+        collection: "posts",
+        entryId: "entry-1",
+        locale: "fr-FR",
+        model: "model-b",
+        aiTranslatedAt: "2026-09-03T00:00:00.000Z",
+        fields: ["title"],
+        baseline: await hash({ title: "Hello" }, ["title"]),
+      });
+      expect(await flags.get("entry-1")).toBeNull();
+    });
+
+    it("unions fields on a later call, keeping the baseline of fields already pending", async () => {
+      const pending = createStorage();
+      await run({ ...entry, fields: ["title"] }, pending);
+
+      await expect(run({ ...entry, fields: ["title", "body"] }, pending, { title: "Edited", body: "Saved body" })).resolves.toEqual({
+        recorded: true,
+        added: ["body"],
+      });
+      await expect(run({ ...entry, fields: ["title", "body"] }, pending)).resolves.toEqual({ recorded: true, added: [] });
+
+      expect(await pending.get("entry-1")).toMatchObject({
+        fields: ["title", "body"],
+        baseline: { ...(await hash({ title: "Hello" }, ["title"])), ...(await hash({ body: "Saved body" }, ["body"])) },
+      });
+    });
+
+    it("removes cancelled fields, and the record once none are left", async () => {
+      const pending = createStorage();
+      await run({ ...entry, fields: ["title", "body"] }, pending);
+
+      await expect(run({ ...entry, fields: ["body"], cancel: true }, pending)).resolves.toEqual({ recorded: true, added: [] });
+      expect(await pending.get("entry-1")).toMatchObject({ fields: ["title"] });
+
+      await expect(run({ ...entry, fields: ["title"], cancel: true }, pending)).resolves.toEqual({ recorded: true, added: [] });
+      expect(await pending.get("entry-1")).toBeNull();
+      await expect(run({ ...entry, fields: ["title"], cancel: true }, pending)).resolves.toEqual({ recorded: true, added: [] });
+    });
+
+    it("fails with 500 when the saved draft can't be read, and 409 when another write wins", async () => {
+      const kv = createKv();
+      await enablePosts(kv);
+      const routes = createPluginRoutes(options(), dependencies());
+      const handler = route(routes, "ai-translation/pending").handler;
+      const unreadable = callPending({ ...entry, fields: ["title"] }, createStorage(), undefined, undefined, (routeContext) => {
+        const content = routeContext.content;
+        if (content === undefined) throw new Error("missing content access");
+        const get = content.get;
+        content.get = async (collection, id) => {
+          const item = await get(collection, id);
+          return item === null ? null : { ...item, draftRevisionId: "rev-1" };
+        };
+        delete content.getRevision;
+      });
+      await expect(handler({ ...unreadable, kv, settings: settingsFor(kv) })).rejects.toMatchObject({ status: 500 });
+
+      const pending = createStorage();
+      pending.compareAndSet = async () => ({ applied: false });
+      await expect(run({ ...entry, fields: ["title"] }, pending)).rejects.toMatchObject({ status: 409 });
+    });
+  });
+
+  describe("SEO fields", () => {
+    const seoRoutes = () => createPluginRoutes(options(), dependencies());
+    const translateSeo = async (
+      kv: KVAccess,
+      customize: {
+        status?: "draft" | "published" | "scheduled";
+        hasSeo?: boolean;
+        locale?: string;
+        seo?: { title: string | null; description: string | null };
+      } = {},
+      fields: string[] = ["seo.title"],
+    ) => {
+      const routeContext = context({ collection: "posts", entryId: "entry-1", targetLocale: "fr-FR", fields }, "POST", kv, createStorage());
+      const { content, schema } = routeContext;
+      if (content === undefined || schema === undefined) throw new Error("missing access");
+      const get = content.get;
+      content.get = async (collection, id) => {
+        const item = await get(collection, id);
+        return item === null
+          ? null
+          : {
+              ...item,
+              status: customize.status ?? "draft",
+              locale: customize.locale ?? item.locale,
+              seo: { title: "Hello SEO", description: null, image: null, canonical: null, noIndex: false, ...customize.seo },
+            };
+      };
+      const getCollection = schema.getCollection;
+      schema.getCollection = async (slug) => {
+        const found = await getCollection(slug);
+        return found === null ? null : { ...found, hasSeo: customize.hasSeo ?? true };
+      };
+      return route(seoRoutes(), "translate-content").handler(routeContext);
+    };
+
+    it("translates the source SEO text and skips empty values", async () => {
+      const kv = createKv();
+      await enablePosts(kv);
+      await expect(translateSeo(kv)).resolves.toMatchObject({ patch: { "seo.title": "Bonjour" } });
+      await expect(translateSeo(kv, { seo: { title: "  ", description: null } })).rejects.toMatchObject({ status: 400 });
+    });
+
+    it("refuses a collection without SEO", async () => {
+      const kv = createKv();
+      await enablePosts(kv);
+      await expect(translateSeo(kv, { hasSeo: false })).rejects.toMatchObject({ status: 400 });
+    });
+
+    it("refuses a published entry until an administrator allows it", async () => {
+      const kv = createKv();
+      await enablePosts(kv);
+      await expect(translateSeo(kv, { status: "published" })).rejects.toMatchObject({ status: 400 });
+      await expect(translateSeo(kv, { status: "published" }, ["title"])).resolves.toMatchObject({ patch: { title: "Bonjour" } });
+
+      const storage = createStorage();
+      const settings = route(seoRoutes(), "settings/translation");
+      const saved = (await settings.handler(
+        context(
+          {
+            revision: null,
+            translateSeoWhenPublished: true,
+            locales: { "fr-FR": { model: null, glossaryMode: "default", glossaryText: "" } },
+            instructions: { mode: "default", text: "" },
+          },
+          "PUT",
+          kv,
+          storage,
+        ),
+      )) as TranslationSettingsResponse;
+      expect(saved.translateSeoWhenPublished).toBe(true);
+      await expect(settings.handler(context({}, "GET", kv, storage))).resolves.toMatchObject({ translateSeoWhenPublished: true });
+      await expect(route(seoRoutes(), "policy").handler(context({ collection: "posts" }, "GET", kv, storage))).resolves.toMatchObject({
+        translateSeoWhenPublished: true,
+      });
+      await expect(translateSeo(kv, { status: "published" })).resolves.toMatchObject({ patch: { "seo.title": "Bonjour" } });
+    });
+
+    it("treats a scheduled entry like a published one", async () => {
+      const kv = createKv();
+      await enablePosts(kv);
+      await expect(translateSeo(kv, { status: "scheduled" })).rejects.toMatchObject({ status: 400 });
+    });
+
+    it("refuses SEO on a source-locale entry, where only a created draft would receive it", async () => {
+      const kv = createKv();
+      await enablePosts(kv);
+      await expect(translateSeo(kv, { locale: "en-US" })).rejects.toMatchObject({ status: 400 });
+      await expect(translateSeo(kv, { locale: "en-US" }, ["title"])).resolves.toMatchObject({ patch: { title: "Bonjour" } });
+    });
+  });
+
   it("shows edited AI fields and lets an editor keep or remove the flag", async () => {
     const routes = createPluginRoutes(options(), dependencies());
     const kv = createKv();
@@ -389,6 +594,7 @@ describe("EmDash plugin routes", () => {
       sourceLocale: null,
       targetLocales: [],
       fields: [],
+      translateSeoWhenPublished: false,
     });
     const saved = (await route(routes, "settings/collections").handler(
       context({ revision: null, policies: { posts: { fields: ["title", "body"] } } }, "PUT", kv, storage),
@@ -404,12 +610,14 @@ describe("EmDash plugin routes", () => {
       sourceLocale: "en-US",
       targetLocales: [{ locale: "fr-FR", code: "fr-FR" }],
       fields: ["body", "title"],
+      translateSeoWhenPublished: false,
     });
     await expect(route(routes, "policy").handler(context({ collection: "toString" }, "GET", kv, storage))).resolves.toEqual({
       enabled: false,
       sourceLocale: null,
       targetLocales: [],
       fields: [],
+      translateSeoWhenPublished: false,
     });
     await expect(
       route(routes, "settings/collections").handler(
@@ -448,6 +656,7 @@ describe("EmDash plugin routes", () => {
       sourceLocale: null,
       targetLocales: [],
       fields: [],
+      translateSeoWhenPublished: false,
     });
   });
 
@@ -461,6 +670,7 @@ describe("EmDash plugin routes", () => {
       sourceLocale: "en-US",
       targetLocales: [{ locale: "fr-FR", code: "fr-FR" }],
       fields: ["title"],
+      translateSeoWhenPublished: false,
     });
   });
 
@@ -1186,6 +1396,7 @@ describe("EmDash plugin routes", () => {
       "settings/translation": ["GET", "PUT"],
       policy: ["GET"],
       "ai-translation": ["POST"],
+      "ai-translation/pending": ["POST"],
       "ai-translation/status": ["GET"],
       "ai-translation/review": ["POST"],
       "translate-content": ["POST"],

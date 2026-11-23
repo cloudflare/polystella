@@ -17,6 +17,38 @@ export interface AiTranslationRecord {
   fieldHashes: Record<string, string> | null;
 }
 
+/**
+ * A translation patched into an open editor but not saved yet, keyed by entry id. A save that
+ * changes a field from its `baseline` (the saved hash before the patch) confirms that field into
+ * the {@link AiTranslationRecord}, so a save of other values, such as SEO, doesn't.
+ */
+export const AI_TRANSLATION_PENDING_COLLECTION = "ai_translation_pending";
+
+export interface PendingAiTranslation extends Omit<AiTranslationRecord, "fieldHashes"> {
+  fields: string[];
+  baseline: Record<string, string>;
+}
+
+export function readPendingAiTranslation(value: unknown): PendingAiTranslation | null {
+  if (typeof value !== "object" || value === null) return null;
+  const record: Record<string, unknown> = { ...value };
+  const { collection, entryId, locale, model, aiTranslatedAt, fields } = record;
+  const baseline = readFieldHashes(record.baseline);
+  if (
+    typeof collection !== "string" ||
+    typeof entryId !== "string" ||
+    typeof locale !== "string" ||
+    typeof model !== "string" ||
+    typeof aiTranslatedAt !== "string" ||
+    !Array.isArray(fields) ||
+    !fields.every((field): field is string => typeof field === "string") ||
+    baseline === null
+  ) {
+    return null;
+  }
+  return { collection, entryId, locale, model, aiTranslatedAt, fields, baseline };
+}
+
 export async function hashFields(data: Record<string, unknown>, fields: readonly string[]): Promise<Record<string, string>> {
   return Object.fromEntries(await Promise.all(fields.map(async (field) => [field, await hashValue(data[field] ?? null)] as const)));
 }
@@ -27,6 +59,20 @@ export async function changedFields(data: Record<string, unknown>, hashes: Reado
   return Object.keys(hashes)
     .filter((field) => current[field] !== hashes[field])
     .sort();
+}
+
+/** This run's fields, plus fields an earlier AI run wrote that nobody has changed since. */
+export async function mergedFieldHashes(
+  data: Record<string, unknown>,
+  fields: readonly string[],
+  previous: Readonly<Record<string, string>> | null,
+): Promise<Record<string, string>> {
+  const untouched: Record<string, string> = {};
+  if (previous !== null) {
+    const changed = new Set(await changedFields(data, previous));
+    for (const [field, hash] of Object.entries(previous)) if (!changed.has(field)) untouched[field] = hash;
+  }
+  return { ...untouched, ...(await hashFields(data, fields)) };
 }
 
 export function readFieldHashes(value: unknown): Record<string, string> | null {

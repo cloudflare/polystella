@@ -12,6 +12,7 @@ const admin = vi.hoisted(() => ({
 
 vi.mock("@emdash-cms/admin", async (importOriginal) => ({ ...(await importOriginal<object>()), ...admin }));
 
+const { translateIntoDraft } = await import("../src/admin/content-translation.js");
 const {
   batchRunUrl,
   clearBatchRun,
@@ -214,5 +215,154 @@ describe("batch translation", () => {
     const result = await runBatchJob(job, options);
     expect(result.outcome).toBe("failed");
     expect(admin.createContent).not.toHaveBeenCalled();
+  });
+});
+
+describe("translating into the open editor", () => {
+  const input = { collection: "posts", entryId: "post-1-fr", locale: "fr", fields: ["title", "seo.title", "seo.description"] };
+  const definitions = [
+    { slug: "seo.title", label: "SEO title", type: "string", required: false, translatable: true, validation: { maxLength: 10 } },
+    { slug: "seo.description", label: "SEO description", type: "string", required: false, translatable: true },
+  ];
+  const translated = { "seo.title": "Short one", "seo.description": "A long description", title: "Bonjour" };
+  const before = { title: "Hello", other: "a" };
+
+  // The first `get()` is the snapshot taken before translating; later ones are taken just before the patch.
+  function editorDraft(options: { readOnly?: boolean; outcome?: unknown; later?: Record<string, unknown> } = {}) {
+    const patch = vi.fn((_operations: unknown, _options: unknown) => options.outcome ?? { ok: true });
+    const get = vi
+      .fn()
+      .mockReturnValueOnce({ revision: "rev-1", readOnly: options.readOnly ?? false, fields: before, fieldDefinitions: definitions })
+      .mockReturnValue({ revision: "rev-2", readOnly: false, fields: options.later ?? before, fieldDefinitions: definitions });
+    return { draft: { get, patch } as unknown as Parameters<typeof translateIntoDraft>[0]["editorDraft"], patch };
+  }
+  const requests = () =>
+    (admin.apiFetch.mock.calls as Array<[string, RequestInit]>).map(([url, init]) => ({
+      url,
+      body: JSON.parse(String(init.body ?? "null")),
+    }));
+  const pendingRequests = () => requests().filter(({ url }) => url.includes("ai-translation/pending"));
+
+  // `added` mimics the server: the fields this request newly put on the pending record.
+  function respond(patch: Record<string, unknown> = translated, pendingStatus = 200, added?: string[]) {
+    admin.apiFetch.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (String(url).includes("translate-content")) return Response.json({ data: { patch } });
+      if (pendingStatus !== 200) return Response.json({ error: { message: "storage down" } }, { status: pendingStatus });
+      const body = JSON.parse(String(init?.body ?? "{}")) as { fields: string[]; cancel?: boolean };
+      return Response.json({ data: { recorded: true, added: body.cancel === true ? [] : (added ?? body.fields) } });
+    });
+  }
+
+  beforeEach(() => respond());
+
+  it("sends nothing from a read-only editor", async () => {
+    const { draft, patch } = editorDraft({ readOnly: true });
+    await expect(translateIntoDraft({ ...input, editorDraft: draft })).resolves.toEqual({
+      status: "refused",
+      code: "EDITOR_DRAFT_READ_ONLY",
+    });
+    expect(admin.apiFetch).not.toHaveBeenCalled();
+    expect(patch).not.toHaveBeenCalled();
+  });
+
+  it("records the non-SEO fields as pending before patching with the latest revision", async () => {
+    const { draft, patch } = editorDraft();
+
+    await expect(translateIntoDraft({ ...input, editorDraft: draft })).resolves.toMatchObject({
+      status: "applied",
+      tooLong: [],
+      flagWarning: null,
+    });
+
+    expect(pendingRequests().map(({ body }) => body)).toEqual([{ collection: "posts", entryId: "post-1-fr", fields: ["title"] }]);
+    expect(patch).toHaveBeenCalledWith(
+      [
+        { op: "set", field: "seo.title", value: "Short one" },
+        { op: "set", field: "seo.description", value: "A long description" },
+        { op: "set", field: "title", value: "Bonjour" },
+      ],
+      { expectedRevision: "rev-2" },
+    );
+    const pendingOrder = admin.apiFetch.mock.invocationCallOrder[1] ?? 0;
+    expect(pendingOrder).toBeLessThan(patch.mock.invocationCallOrder[0] ?? 0);
+  });
+
+  it("leaves out a too-long SEO value and lists it, and records no pending field for SEO-only patches", async () => {
+    respond({ ...translated, "seo.title": "Far too long a title" });
+    const { draft, patch } = editorDraft();
+    await expect(translateIntoDraft({ ...input, editorDraft: draft })).resolves.toMatchObject({
+      status: "applied",
+      tooLong: ["seo.title"],
+    });
+    expect(patch.mock.calls[0]?.[0]).toEqual([
+      { op: "set", field: "seo.description", value: "A long description" },
+      { op: "set", field: "title", value: "Bonjour" },
+    ]);
+
+    admin.apiFetch.mockClear();
+    respond({ "seo.description": "A long description" });
+    await translateIntoDraft({ ...input, editorDraft: editorDraft().draft });
+    expect(pendingRequests()).toEqual([]);
+  });
+
+  it("fails when every translation is too long, before recording anything", async () => {
+    respond({ "seo.title": "Far too long a title" });
+    const { draft, patch } = editorDraft();
+    await expect(translateIntoDraft({ ...input, editorDraft: draft })).resolves.toMatchObject({ status: "failed" });
+    expect(pendingRequests()).toEqual([]);
+    expect(patch).not.toHaveBeenCalled();
+  });
+
+  it("refuses without patching, and cancels the pending record, when a translated field changed meanwhile", async () => {
+    const { draft, patch } = editorDraft({ later: { ...before, title: "Typed by the editor" } });
+
+    await expect(translateIntoDraft({ ...input, editorDraft: draft })).resolves.toEqual({ status: "refused", code: "EDITOR_DRAFT_STALE" });
+
+    expect(patch).not.toHaveBeenCalled();
+    expect(pendingRequests().map(({ body }) => body)).toEqual([
+      { collection: "posts", entryId: "post-1-fr", fields: ["title"] },
+      { collection: "posts", entryId: "post-1-fr", fields: ["title"], cancel: true },
+    ]);
+  });
+
+  it("still patches when only another field changed", async () => {
+    const { draft, patch } = editorDraft({ later: { ...before, other: "b" } });
+    await expect(translateIntoDraft({ ...input, editorDraft: draft })).resolves.toMatchObject({ status: "applied" });
+    expect(patch).toHaveBeenCalledOnce();
+  });
+
+  it("cancels the pending record when the host refuses the patch", async () => {
+    const { draft } = editorDraft({ outcome: { ok: false, code: "EDITOR_DRAFT_INVALID", message: "invalid" } });
+    await expect(translateIntoDraft({ ...input, editorDraft: draft })).resolves.toEqual({
+      status: "refused",
+      code: "EDITOR_DRAFT_INVALID",
+    });
+    expect(pendingRequests().at(-1)?.body).toMatchObject({ cancel: true, fields: ["title"] });
+  });
+
+  it("cancels only the fields this call added, so an earlier pending translation survives", async () => {
+    const stale = { ok: false, code: "EDITOR_DRAFT_STALE", message: "stale" };
+    respond(translated, 200, []);
+    await translateIntoDraft({ ...input, editorDraft: editorDraft({ outcome: stale }).draft });
+    expect(pendingRequests()).toHaveLength(1);
+
+    respond(translated, 200, ["title"]);
+    admin.apiFetch.mockClear();
+    await translateIntoDraft({ ...input, editorDraft: editorDraft({ outcome: stale }).draft });
+    expect(pendingRequests().at(-1)?.body).toMatchObject({ cancel: true, fields: ["title"] });
+  });
+
+  it("warns, and has nothing to cancel, when the pending record could not be stored", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    respond(translated, 500);
+
+    const applied = await translateIntoDraft({ ...input, editorDraft: editorDraft().draft });
+    expect(applied).toMatchObject({ status: "applied", flagWarning: expect.stringContaining("could not mark it as AI-translated") });
+
+    admin.apiFetch.mockClear();
+    const { draft } = editorDraft({ outcome: { ok: false, code: "EDITOR_DRAFT_STALE", message: "stale" } });
+    await translateIntoDraft({ ...input, editorDraft: draft });
+    expect(pendingRequests().filter(({ body }) => (body as { cancel?: boolean }).cancel === true)).toEqual([]);
+    consoleError.mockRestore();
   });
 });
