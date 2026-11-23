@@ -41,6 +41,7 @@ export function polystellaEmdashAstro(
     },
     fallbackToDefault: runtimeOptions.fallbackToDefault ?? true,
     ...(options.localeTags === undefined ? {} : { localeTags: { ...options.localeTags } }),
+    ...(options.catalog?.messageSyntax === undefined ? {} : { messageSyntax: options.catalog.messageSyntax }),
   };
 
   return {

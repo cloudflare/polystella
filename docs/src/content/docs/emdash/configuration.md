@@ -1,6 +1,6 @@
 ---
 title: EmDash configuration
-description: PolystellaEmdashOptions — provider, catalogs, models, glossaryDefaults, glossaryMatchInflections, rules, blockFields, localeTags, and batchQueueBinding.
+description: PolystellaEmdashOptions — provider, catalogs, catalog, models, glossaryDefaults, glossaryMatchInflections, rules, blockFields, localeTags, and batchQueueBinding.
 aiGenerated: true
 sidebar:
   label: Configuration
@@ -42,6 +42,30 @@ Each locale's `filePath` is a repository-relative path (no leading
 shape as the main Astro catalog integration. Nested groups are
 flattened to dotted runtime keys; `i18n_group_title` remains metadata
 and is preserved by JSON export.
+
+## `catalog`
+
+Optional. The same block as `catalog` in `polystella.config.mjs`
+([Catalog options](/configuration/#catalog-options)). The plugin can't
+read that file, so pass the block here. Import the file to keep one copy:
+
+```js
+// astro.config.mjs
+import polystellaConfig from "./polystella.config.mjs";
+
+const polystellaOptions = {
+  // provider, catalogs, models, ...
+  catalog: polystellaConfig.catalog,
+};
+```
+
+| Field           | Type                      | Notes                                                                                                                                    |
+| --------------- | ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `ignoreKeys`    | string[]                  | Regex strings matched against whole dotted keys. Matching entries aren't shown, checked or translated, and JSON export keeps them as-is. |
+| `messageSyntax` | `"polystella"` \| `"icu"` | Default `"polystella"` (`{{name}}`). `"icu"` reads [standard ICU](/concepts/catalog-messages/#standard-icu-syntax) (`{name}`).           |
+
+`messageSyntax` applies to override validation, catalog generation, the
+Catalog tab's placeholder hint and the runtime `t()`.
 
 ## `models`
 
@@ -294,7 +318,9 @@ replace. Configure collection and field policy in the
 
 - `catalogs.defaultLocale` must exist in `catalogs.locales`.
 - `catalogs.locales` must contain at least one locale; every catalog
-  leaf must be a string.
+  leaf must be a string, unless `catalog.ignoreKeys` matches it.
+- `catalog.ignoreKeys` must hold valid regular expression strings, and
+  `catalog.messageSyntax` must be `"polystella"` or `"icu"`.
 - `filePath` must be a repository-relative path.
 - `models.allowed` must be non-empty and unique, and must not
   contain `__polystella_code_default__`.

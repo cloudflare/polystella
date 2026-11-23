@@ -161,6 +161,8 @@ export interface CatalogViewResponse {
   locales: CatalogLocaleSummary[];
   groups: CatalogGroupView[];
   entries: CatalogEntryView[];
+  /** How the catalog writes placeholders: `"polystella"` (`{{name}}`) or `"icu"` (`{name}`). */
+  messageSyntax: "polystella" | "icu";
 }
 
 export type CatalogGenerationResponse =

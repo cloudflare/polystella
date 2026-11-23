@@ -99,9 +99,11 @@ configured `filePath`.
 - Per-key override length is capped at 20,000 characters and the
   total across a locale at 100,000, distributed across keys.
 - The catalog view and generation cap at 100 keys per request.
-- Catalog messages always use the default `{{name}}` syntax. The plugin
-  doesn't read `catalog.messageSyntax` or `catalog.ignoreKeys` from
-  `polystella.config.mjs`.
+- Keys matching [`catalog.ignoreKeys`](/emdash/configuration/#catalog)
+  can't be overridden; JSON export keeps them as they are.
+- Overrides are validated in the configured
+  [`catalog.messageSyntax`](/emdash/configuration/#catalog) (`{{name}}`
+  by default).
 
 ## See also
 

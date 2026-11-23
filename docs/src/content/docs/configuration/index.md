@@ -76,8 +76,10 @@ The `catalog` block holds options for UI-string catalogs
 by the build's drift check, by `Astro.locals.t`, and by `catalogAstro()`.
 `polystella()` accepts the key so you can pass the same config object to
 it, but `catalog` options written inline in `astro.config.mjs` have no
-effect (the integration warns). The EmDash plugin and the standalone
-`i18nSchema()` helper don't read it.
+effect (the integration warns). The standalone `i18nSchema()` helper
+doesn't read it. The EmDash plugin can't read the file either, so it
+takes the same block as its own
+[`catalog` option](/emdash/configuration/#catalog).
 
 `catalog.messageSyntax` picks how placeholders are written:
 `"polystella"` (default) for `{{name}}`, or `"icu"` for standard ICU

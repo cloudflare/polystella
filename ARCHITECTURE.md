@@ -767,8 +767,10 @@ Apostrophes follow ICU: `''` directly before `{{`, `}` or a plural `#`.
 main integration's `polystella:runtime-config` module) skips the
 conversion: strings go to the parser as written, with identity offset
 maps. Every public parse/format/validate function takes the syntax as an
-optional last argument defaulting to `"polystella"`, so EmDash and a
-standalone `formatMessage` call stay on it. The parse
+optional last argument defaulting to `"polystella"`, so a standalone
+`formatMessage` call stays on it. EmDash can't read the file (its
+factory is synchronous and its routes run in workerd), so it takes the
+same block as `options.catalog`, serialized with its other options. The parse
 and formatter caches key on the syntax. In icu mode the `{{\w+}}`
 fallback and the stray-brace check are off; a source that does not parse
 is reported by `check-ui` and never sent to the model by `translate-ui`.

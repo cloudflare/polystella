@@ -1,11 +1,14 @@
 import type { Glossary, ModelChoice, ModelChoiceSpec } from "@cloudflare/polystella-core";
 import {
   checkLocaleTags,
+  compileIgnoreKeys,
   flattenCatalog,
   formatLocaleTagIssues,
   resolveLocaleTag,
   type CatalogSource,
+  type IgnoreKey,
   type LocaleTags,
+  type MessageSyntax,
 } from "@cloudflare/polystella-core/catalog";
 import { workersAIParamsProblem } from "@cloudflare/polystella-core/providers/workers-ai";
 
@@ -39,6 +42,13 @@ export type EmDashWorkersAIProvider =
       timeoutMs?: number | undefined;
     };
 
+export interface EmDashCatalogOptions {
+  /** Regex strings matched against whole dotted keys. Matching entries are not messages: never shown, checked or translated. */
+  ignoreKeys?: readonly string[] | undefined;
+  /** `"polystella"` (default): `{{name}}`. `"icu"`: standard ICU MessageFormat, `{name}`. */
+  messageSyntax?: MessageSyntax | undefined;
+}
+
 /** A text path inside a block, or a Markdown string at that path. */
 export type BlockFieldPath = string | { path: string; format: "markdown" };
 
@@ -48,6 +58,8 @@ export interface PolystellaEmdashOptions {
     defaultLocale: string;
     locales: Record<string, EmDashCatalogLocale>;
   };
+  /** Same shape as `catalog` in `polystella.config.mjs`; import that file to share one block. */
+  catalog?: EmDashCatalogOptions | undefined;
   models: {
     allowed: readonly string[];
     /** Locale entries may be `{ model, enable_thinking }`, applied while the locale uses that model. */
@@ -83,6 +95,7 @@ export function validatePolystellaEmdashOptions(value: unknown): asserts value i
     [
       "provider",
       "catalogs",
+      "catalog",
       "models",
       "glossaryDefaults",
       "glossaryMatchInflections",
@@ -96,6 +109,7 @@ export function validatePolystellaEmdashOptions(value: unknown): asserts value i
   validateProvider(options.provider);
   if (options.batchQueueBinding !== undefined) readEnvironmentName(options.batchQueueBinding, "options.batchQueueBinding");
 
+  const ignoreKey = validateCatalogOptions(options.catalog);
   const catalogs = readRecord(options.catalogs, "options.catalogs");
   const defaultLocale = readLocale(catalogs.defaultLocale, "options.catalogs.defaultLocale");
   const locales = readRecord(catalogs.locales, "options.catalogs.locales");
@@ -106,7 +120,7 @@ export function validatePolystellaEmdashOptions(value: unknown): asserts value i
     const catalog = readRecord(rawCatalog, `options.catalogs.locales.${locale}`);
     const dictionary = readRecord(catalog.dictionary, `options.catalogs.locales.${locale}.dictionary`);
     try {
-      flattenCatalog(dictionary);
+      flattenCatalog(dictionary, ignoreKey);
     } catch (error) {
       fail(`options.catalogs.locales.${locale}.dictionary is invalid: ${error instanceof Error ? error.message : "invalid catalog"}`);
     }
@@ -249,8 +263,43 @@ export function serializeOptions(options: PolystellaEmdashOptions): SerializedPo
       : { blockFields: Object.fromEntries(Object.entries(options.blockFields).map(([type, paths]) => [type, [...paths]])) }),
     ...(options.localeTags === undefined ? {} : { localeTags: { ...options.localeTags } }),
     ...(options.batchQueueBinding === undefined ? {} : { batchQueueBinding: options.batchQueueBinding }),
+    ...(options.catalog === undefined
+      ? {}
+      : {
+          catalog: {
+            ...(options.catalog.ignoreKeys === undefined ? {} : { ignoreKeys: [...options.catalog.ignoreKeys] }),
+            ...(options.catalog.messageSyntax === undefined ? {} : { messageSyntax: options.catalog.messageSyntax }),
+          },
+        }),
   };
   return { serialized: JSON.stringify(normalized) };
+}
+
+/** `catalog.ignoreKeys` compiled; `undefined` when there are none. */
+export function catalogIgnoreKey(options: Pick<PolystellaEmdashOptions, "catalog">): IgnoreKey | undefined {
+  return compileIgnoreKeys(options.catalog?.ignoreKeys ?? []);
+}
+
+export function catalogMessageSyntax(options: Pick<PolystellaEmdashOptions, "catalog">): MessageSyntax {
+  return options.catalog?.messageSyntax ?? "polystella";
+}
+
+function validateCatalogOptions(value: unknown): IgnoreKey | undefined {
+  if (value === undefined) return undefined;
+  const catalog = readRecord(value, "options.catalog");
+  rejectUnknownKeys(catalog, ["ignoreKeys", "messageSyntax"], "options.catalog");
+  if (catalog.messageSyntax !== undefined && catalog.messageSyntax !== "polystella" && catalog.messageSyntax !== "icu") {
+    fail('options.catalog.messageSyntax must be "polystella" or "icu"');
+  }
+  const ignoreKeys = catalog.ignoreKeys ?? [];
+  if (!Array.isArray(ignoreKeys) || !ignoreKeys.every((pattern): pattern is string => typeof pattern === "string" && pattern.length > 0)) {
+    fail("options.catalog.ignoreKeys must be an array of non-empty regular expression strings (not RegExp objects)");
+  }
+  try {
+    return compileIgnoreKeys(ignoreKeys);
+  } catch (error) {
+    fail(`options.catalog.ignoreKeys contains an invalid regular expression: ${error instanceof Error ? error.message : String(error)}`);
+  }
 }
 
 export function deserializeOptions(runtimeOptions: unknown): PolystellaEmdashOptions {

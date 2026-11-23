@@ -275,8 +275,9 @@ strings matched against the whole dotted key:
 
 Catalogs written in standard single-brace ICU (`{name}`, inlang's ICU
 plugin) need `catalog: { messageSyntax: "icu" }` in the same file; the
-default `"polystella"` reads `{{name}}`. EmDash catalogs always use
-`{{name}}`.
+default `"polystella"` reads `{{name}}`. EmDash can't read that file:
+pass the same block as `catalog` in the `polystellaEmdash()` /
+`polystellaEmdashAstro()` options (`catalog: polystellaConfig.catalog`).
 
 Catalog files accept two formats, auto-detected per file (all locale
 files must use the same format):

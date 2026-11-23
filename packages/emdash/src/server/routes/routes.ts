@@ -1,5 +1,5 @@
 import { resolveModelId, translateSegments, type Glossary, type Segment, type Translator } from "@cloudflare/polystella-core";
-import type { CatalogSource } from "@cloudflare/polystella-core/catalog";
+import type { CatalogSource, MessageSyntax } from "@cloudflare/polystella-core/catalog";
 import {
   DEFAULT_UI_STRING_BATCH_SIZE,
   formatTokenValidationIssue,
@@ -91,7 +91,7 @@ import {
 } from "../../ai-translations.js";
 import { resolveGlossary, resolveInstructions, runtimeOverrideSettingKey } from "../../settings.js";
 import type { PolystellaEmdashOptions } from "../options.js";
-import { localeTag, targetLocales } from "../options.js";
+import { catalogIgnoreKey, catalogMessageSyntax, localeTag, targetLocales } from "../options.js";
 import {
   collectionPolicies,
   collectionSettings,
@@ -157,6 +157,8 @@ export function createPluginRoutes(
   dependencies: PluginRouteDependencies = defaultDependencies,
 ): Record<string, PluginRoute> {
   const options = flattenEmdashCatalogs(inputOptions);
+  const ignoreKey = catalogIgnoreKey(inputOptions);
+  const messageSyntax = catalogMessageSyntax(inputOptions);
   const sourceContentLocale = () => contentLocale(options.catalogs.defaultLocale, dependencies);
   return {
     "settings/collections": {
@@ -421,6 +423,7 @@ export function createPluginRoutes(
             sourceLocale: localeTag(options, options.catalogs.defaultLocale),
             targetLocale: localeTag(options, locale),
             maxRetries: 2,
+            messageSyntax,
             ...(settings.promptInstruction === undefined ? {} : { context: settings.promptInstruction }),
             ...(debug === undefined ? {} : { onBatchAttempt: debug.record, onRetry: ({ error }) => debug?.markLastAttemptError(error) }),
             signal: ctx.request.signal,
@@ -481,7 +484,7 @@ export function createPluginRoutes(
           if (value.length > maxCharacters) {
             throw PluginRouteError.badRequest(`override cannot exceed ${maxCharacters} characters`);
           }
-          const problem = overrideMessageProblem(key, source[key], value, localeTag(options, locale));
+          const problem = overrideMessageProblem(key, source[key], value, localeTag(options, locale), messageSyntax);
           if (problem !== undefined) throw PluginRouteError.badRequest(`override is not a valid message: ${problem}`);
         }
         const stored = await storage.getVersioned(id);
@@ -548,7 +551,7 @@ export function createPluginRoutes(
         return {
           filePath: catalog.filePath,
           filename: catalog.filePath.split("/").at(-1) ?? `${locale}.json`,
-          json: serializeCatalog(locale, catalog.dictionary, overrides, inputOptions.catalogs.locales[locale]?.dictionary),
+          json: serializeCatalog(locale, catalog.dictionary, overrides, inputOptions.catalogs.locales[locale]?.dictionary, ignoreKey),
         } satisfies CatalogExportResponse;
       },
     },
@@ -1171,12 +1174,18 @@ async function loadTranslationSource(
   return { sourceItem, values };
 }
 
-function overrideMessageProblem(key: string, source: string | undefined, value: string, tag: string): string | undefined {
+function overrideMessageProblem(
+  key: string,
+  source: string | undefined,
+  value: string,
+  tag: string,
+  syntax: MessageSyntax,
+): string | undefined {
   if (source === undefined || source.length === 0) {
-    const problems = validateMessage(value, tag);
+    const problems = validateMessage(value, tag, syntax);
     return problems.length === 0 ? undefined : problems.join("; ");
   }
-  const issue = validateMessageTranslation(key, source, value, tag);
+  const issue = validateMessageTranslation(key, source, value, tag, syntax);
   return issue === null ? undefined : formatTokenValidationIssue(issue);
 }
 
@@ -1225,8 +1234,9 @@ async function catalogView(
         return { locale: code, filePath: value.filePath, runtimeEnabled: enabledLocales.includes(code) };
       })
       .sort((left, right) => left.locale.localeCompare(right.locale)),
-    groups: catalogGroupTitles(source),
+    groups: catalogGroupTitles(source, catalogIgnoreKey(options)),
     entries,
+    messageSyntax: catalogMessageSyntax(options),
   };
 }
 

@@ -76,7 +76,7 @@ export function flattenCatalog(value: unknown, ignoreKey?: IgnoreKey | undefined
         walk(entry as Record<string, unknown>, path);
       } else if (Array.isArray(entry)) {
         throw new Error(
-          `[polystella] catalog value at "${path}" must be a string or an object of strings (got array). An inlang variant message? Add its key to catalog.ignoreKeys in polystella.config.mjs.`,
+          `[polystella] catalog value at "${path}" must be a string or an object of strings (got array). An inlang variant message? Add its key to catalog.ignoreKeys.`,
         );
       } else {
         throw new Error(`[polystella] catalog value at "${path}" must be a string or an object of strings (got ${typeof entry}).`);

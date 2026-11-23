@@ -64,7 +64,8 @@ export default {
   add its key to [`catalog.ignoreKeys`](/configuration/#catalog-options).
 - It applies to the CLI, the build's drift checks, `Astro.locals.t`,
   `getTranslations()`, `useTranslations()` and `catalogAstro()`. The EmDash
-  plugin stays on `{{name}}`.
+  plugin takes the same block as its own
+  [`catalog` option](/emdash/configuration/#catalog).
 - The standalone `formatMessage()` can't read the config. When you format a
   `t.raw(key)` template yourself, pass the syntax as the fourth argument:
   `formatMessage(t.raw("greeting"), { name }, t.locale, "icu")`.

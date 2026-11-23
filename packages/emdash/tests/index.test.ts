@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { createPlugin, polystellaEmdash, validatePolystellaEmdashOptions, type PolystellaEmdashOptions } from "../src/index.js";
+import {
+  createPlugin,
+  polystellaEmdash,
+  validatePolystellaEmdashOptions,
+  type EmDashCatalogLocale,
+  type PolystellaEmdashOptions,
+} from "../src/index.js";
 import { deserializeOptions } from "../src/server/options.js";
 
 function validOptions(): PolystellaEmdashOptions {
@@ -287,6 +293,41 @@ describe("polystellaEmdash", () => {
     const runtimeOptions = descriptor.options;
     if (runtimeOptions === undefined) throw new Error("descriptor options are missing");
     expect(deserializeOptions(runtimeOptions).localeTags).toEqual({ jp: "ja" });
+  });
+
+  it("validates the catalog block and round-trips it through serialized runtime options", () => {
+    const configured: PolystellaEmdashOptions = {
+      ...validOptions(),
+      catalogs: {
+        defaultLocale: "en-US",
+        locales: {
+          "en-US": { dictionary: { $schema: "https://inlang.com/schema", greeting: "Hello {name}" }, filePath: "src/i18n/en-US.json" },
+          "fr-FR": {
+            dictionary: { greeting: "Bonjour {name}", plural: [{ match: {} }] } as unknown as EmDashCatalogLocale["dictionary"],
+            filePath: "src/i18n/fr-FR.json",
+          },
+        },
+      },
+      models: { allowed: ["model-a"], defaults: "model-a" },
+      glossaryDefaults: undefined,
+    };
+
+    expect(() => validatePolystellaEmdashOptions(configured)).toThrow("got array");
+    const catalog = { ignoreKeys: ["\\$schema", "plural"], messageSyntax: "icu" as const };
+    const descriptor = polystellaEmdash({ ...configured, catalog });
+    const runtimeOptions = descriptor.options;
+    if (runtimeOptions === undefined) throw new Error("descriptor options are missing");
+    expect(deserializeOptions(runtimeOptions).catalog).toEqual(catalog);
+
+    expect(() => validatePolystellaEmdashOptions({ ...configured, catalog: { ignoreKeys: ["["] } })).toThrow(
+      "options.catalog.ignoreKeys contains an invalid regular expression",
+    );
+    expect(() => validatePolystellaEmdashOptions({ ...configured, catalog: { ignoreKeys: ["plural"], messageSyntax: "inlang" } })).toThrow(
+      'options.catalog.messageSyntax must be "polystella" or "icu"',
+    );
+    expect(() => validatePolystellaEmdashOptions({ ...configured, catalog: { ignoreKeys: ["plural"], nope: true } })).toThrow(
+      "options.catalog.nope",
+    );
   });
 
   it("rejects unknown provider properties instead of serializing them", () => {

@@ -1236,6 +1236,106 @@ describe("EmDash plugin routes", () => {
     expect(exported.json).toBe('{\n  "nav": {\n    "i18n_group_title": "Navigation",\n    "greeting": "Salut"\n  }\n}\n');
   });
 
+  it("leaves catalog.ignoreKeys entries out of the view and keeps them in exports", async () => {
+    const configured = options();
+    const schema = "https://inlang.com/schema/inlang-message-format";
+    const variants = [{ match: { "count=one": "x" } }] as unknown as string;
+    configured.catalog = { ignoreKeys: ["\\$schema", "internal"] };
+    configured.catalogs.locales["en-US"] = {
+      dictionary: { $schema: schema, nav: { greeting: "Hello" }, internal: { flag: variants } },
+      filePath: "src/i18n/en-US.json",
+    };
+    configured.catalogs.locales["fr-FR"] = {
+      dictionary: { $schema: schema, nav: { greeting: "Bonjour" }, internal: { flag: variants } },
+      filePath: "src/i18n/fr-FR.json",
+    };
+    const routes = createPluginRoutes(configured, dependencies());
+    const kv = createKv();
+    const storage = createStorage();
+
+    const view = (await route(routes, "catalog").handler(context({}, "GET", kv, storage))) as CatalogViewResponse;
+    expect(view.groups).toEqual([{ key: "nav", title: null }]);
+    expect(view.entries.map((entry) => entry.key)).toEqual(["nav.greeting"]);
+    expect(view.messageSyntax).toBe("polystella");
+
+    await route(routes, "catalog/overrides").handler(
+      context({ locale: "fr-FR", overrides: { "nav.greeting": "Salut" }, expected: null }, "PUT", kv, storage),
+    );
+    const exported = (await route(routes, "catalog/export").handler(
+      context({ locale: "fr-FR" }, "GET", kv, storage),
+    )) as CatalogExportResponse;
+    expect(JSON.parse(exported.json)).toEqual({ $schema: schema, nav: { greeting: "Salut" }, internal: { flag: variants } });
+    expect(Object.keys(JSON.parse(exported.json) as object)[0]).toBe("$schema");
+  });
+
+  it("keeps ignored entries in place when exporting a flat catalog", async () => {
+    const configured = options();
+    configured.catalog = { ignoreKeys: ["\\$schema"] };
+    configured.catalogs.locales["en-US"] = { dictionary: { $schema: "s", greeting: "Hello", bye: "Bye" }, filePath: "src/i18n/en-US.json" };
+    configured.catalogs.locales["fr-FR"] = {
+      dictionary: { $schema: "s", greeting: "Bonjour", bye: "Salut" },
+      filePath: "src/i18n/fr-FR.json",
+    };
+    const routes = createPluginRoutes(configured, dependencies());
+    const kv = createKv();
+    const storage = createStorage();
+
+    await route(routes, "catalog/overrides").handler(
+      context({ locale: "fr-FR", overrides: { greeting: "Coucou" }, expected: null }, "PUT", kv, storage),
+    );
+    const exported = (await route(routes, "catalog/export").handler(
+      context({ locale: "fr-FR" }, "GET", kv, storage),
+    )) as CatalogExportResponse;
+    expect(exported.json).toBe('{\n  "$schema": "s",\n  "greeting": "Coucou",\n  "bye": "Salut"\n}\n');
+  });
+
+  it('validates overrides and prompts in catalog.messageSyntax "icu"', async () => {
+    const configured = options();
+    configured.catalog = { messageSyntax: "icu" };
+    configured.catalogs.locales["en-US"] = {
+      dictionary: { greeting: "Hello {name}", team: "the {company} team" },
+      filePath: "src/i18n/en-US.json",
+    };
+    configured.catalogs.locales["fr-FR"] = { dictionary: { greeting: "Bonjour {name}", team: "" }, filePath: "src/i18n/fr-FR.json" };
+    configured.models = { allowed: ["model-a"], defaults: "model-a" };
+    configured.glossaryDefaults = undefined;
+    const systems: string[] = [];
+    const routes = createPluginRoutes(configured, {
+      ...dependencies(),
+      getEnv: async () => ({
+        AI: {
+          run: async (_model: string, input: WorkersAIInput) => {
+            systems.push(input.messages[0]?.content ?? "");
+            return { response: "@@catalog:0@@\nl''équipe {company}" };
+          },
+        },
+      }),
+    });
+    const kv = createKv();
+    const storage = createStorage();
+    const put = (key: string, value: string) =>
+      route(routes, "catalog/overrides").handler(
+        context({ locale: "fr-FR", overrides: { [key]: value }, expected: null }, "PUT", kv, storage),
+      );
+
+    await expect(put("greeting", "Bonjour {nom}")).rejects.toMatchObject({
+      status: 400,
+      message: expect.stringContaining("missing {name}; {nom} is not in the source"),
+    });
+    await expect(put("team", "l'{company}")).rejects.toMatchObject({
+      status: 400,
+      message: expect.stringContaining("an apostrophe hides {company}"),
+    });
+    await expect(put("greeting", "Salut {name}")).resolves.toEqual({ key: "greeting" });
+
+    const view = (await route(routes, "catalog").handler(context({ locale: "fr-FR" }, "GET", kv, storage))) as CatalogViewResponse;
+    expect(view.messageSyntax).toBe("icu");
+
+    const generated = await route(routes, "catalog/generate").handler(context({ locale: "fr-FR", keys: ["team"] }, "POST", kv, storage));
+    expect(generated).toMatchObject({ translations: { team: "l''équipe {company}" }, tokenFailures: [] });
+    expect(systems[0]).toContain("Preserve every `{token}` placeholder");
+  });
+
   it("exposes top-level group titles from the source dictionary", async () => {
     const configured = options();
     configured.catalogs.locales["en-US"] = {
