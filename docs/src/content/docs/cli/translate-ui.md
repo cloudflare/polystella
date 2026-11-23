@@ -63,6 +63,11 @@ metadata and is never translated. Keys matching
 [`catalog.ignoreKeys`](/configuration/#catalog-options) are never sent
 to the model and stay as they are in every locale file.
 
+With `catalog.messageSyntax: "icu"`, prompts and checks use
+[standard ICU](/concepts/catalog-messages/#standard-icu-syntax) (`{name}`).
+A default-locale string that isn't valid ICU is not sent to the model; it
+is listed as a failure (exit 2) with a hint to fix it or ignore its key.
+
 ## Workers AI thinking and params
 
 With `provider.kind: "workers-ai"`, `polystella.config.mjs` takes the

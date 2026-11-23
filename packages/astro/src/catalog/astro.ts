@@ -1,4 +1,4 @@
-import { assertLocaleTags, type LocaleTags } from "@cloudflare/polystella-core/catalog";
+import { assertLocaleTags, type LocaleTags, type MessageSyntax } from "@cloudflare/polystella-core/catalog";
 import { loadCatalogOptions } from "@cloudflare/polystella-core/cli/config";
 import type { AstroIntegration } from "astro";
 import { mkdir, writeFile } from "node:fs/promises";
@@ -55,6 +55,7 @@ export function catalogAstro(options: CatalogAstroOptions = {}): AstroIntegratio
           fallbackToDefault,
           localeTags,
           ignoreKeys: catalog.ignoreKeys,
+          messageSyntax: catalog.messageSyntax,
         });
 
         updateConfig({
@@ -92,6 +93,7 @@ export function catalogAstro(options: CatalogAstroOptions = {}): AstroIntegratio
             defaultLocale: derived.defaultLocale,
             localeTags,
             ignoreKey: catalog.ignoreKey,
+            messageSyntax: catalog.messageSyntax,
           });
           if (!driftResult.ok) {
             throw new Error(
@@ -168,6 +170,7 @@ interface CatalogVirtualModuleInput {
   fallbackToDefault: boolean;
   localeTags: LocaleTags;
   ignoreKeys: ReadonlyArray<string>;
+  messageSyntax: MessageSyntax;
 }
 
 function generateCatalogVirtualModuleSource(input: CatalogVirtualModuleInput): string {
@@ -186,6 +189,7 @@ function generateCatalogVirtualModuleSource(input: CatalogVirtualModuleInput): s
     `export const noPrefixUrls = ${JSON.stringify(input.noPrefixUrls)};`,
     `export const fallbackToDefault = ${JSON.stringify(input.fallbackToDefault)};`,
     `export const localeTags = ${JSON.stringify(input.localeTags)};`,
+    `export const messageSyntax = ${JSON.stringify(input.messageSyntax)};`,
     "export async function getDictionary(locale) {",
     "  const path = localeToPath[locale];",
     "  if (path === undefined) return undefined;",
@@ -201,7 +205,7 @@ function generateCatalogVirtualModuleSource(input: CatalogVirtualModuleInput): s
 function generateCatalogMiddlewareSource(middlewareUrl: string): string {
   return [
     `import { catalogMiddleware } from ${JSON.stringify(middlewareUrl)};`,
-    `import { defaultLocale, fallbackToDefault, getDictionary, localeTags, locales, noPrefixUrls } from "polystella:catalog";`,
+    `import { defaultLocale, fallbackToDefault, getDictionary, localeTags, locales, messageSyntax, noPrefixUrls } from "polystella:catalog";`,
     "",
     "export const onRequest = catalogMiddleware({",
     "  defaultLocale,",
@@ -209,6 +213,7 @@ function generateCatalogMiddlewareSource(middlewareUrl: string): string {
     "  noPrefixUrls,",
     "  fallbackToDefault,",
     "  localeTags,",
+    "  messageSyntax,",
     "  getDictionary,",
     "});",
     "",

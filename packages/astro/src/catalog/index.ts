@@ -11,6 +11,7 @@ export {
   type GetCatalogDictionary,
   type InterpolateParams,
   type LocaleTags,
+  type MessageSyntax,
   type MessageValues,
   type MaybePromise,
   type ResolveCatalogTranslationsDeps,

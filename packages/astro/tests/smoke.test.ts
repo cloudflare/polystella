@@ -218,6 +218,17 @@ describe("smoke: polystella(options) integration end-to-end", () => {
     // Mode default is "auto" — surfaced verbatim for the runtime.
     expect(source).toContain('export const mode = "auto"');
     expect(source).toContain("export const localeTags = {}");
+    expect(source).toContain('export const messageSyntax = "polystella"');
+  });
+
+  it("exposes catalog.messageSyntax from polystella.config.mjs to the runtime config", async () => {
+    const harness = await makeSmokeFixture({
+      files: { "polystella.config.mjs": `export default { catalog: { messageSyntax: "icu" } };\n` },
+      options: { sourceDir: "./content", dryRun: true, catalog: { messageSyntax: "icu" } },
+    });
+    await harness.configSetup("build");
+    const source = harness.capturedVitePlugins.find((p) => p.name === "polystella:runtime-config")?.load?.("\0polystella:runtime-config");
+    expect(source).toContain('export const messageSyntax = "icu"');
   });
 
   it("auto-registers the middleware by default", async () => {

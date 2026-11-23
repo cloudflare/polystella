@@ -55,6 +55,9 @@ declare module "polystella:runtime-config" {
 
   /** Site locale code → BCP 47 tag used for plural rules and number/date formatting. */
   export const localeTags: Readonly<Record<string, string>>;
+
+  /** `catalog.messageSyntax` from `polystella.config.mjs`: how `t()` reads placeholders. */
+  export const messageSyntax: "polystella" | "icu";
 }
 
 declare module "polystella:catalog" {
@@ -72,6 +75,9 @@ declare module "polystella:catalog" {
 
   /** Site locale code → BCP 47 tag used for plural rules and number/date formatting. */
   export const localeTags: Readonly<Record<string, string>>;
+
+  /** `catalog.messageSyntax` from `polystella.config.mjs`: how `t()` reads placeholders. */
+  export const messageSyntax: "polystella" | "icu";
 
   /** Load a flat string dictionary for a locale from the catalog integration. */
   export function getDictionary(locale: string): Promise<import("@cloudflare/polystella-astro/catalog").CatalogDictionary | undefined>;

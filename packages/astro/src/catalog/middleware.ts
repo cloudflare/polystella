@@ -7,6 +7,7 @@ import {
   resolveTranslations,
   type GetCatalogDictionary,
   type LocaleTags,
+  type MessageSyntax,
   type TranslateFn,
 } from "./runtime.js";
 
@@ -28,6 +29,8 @@ export interface CatalogMiddlewareOptions {
   fallbackToDefault?: boolean | undefined;
   /** Site locale code → BCP 47 tag used for plural rules and number/date formatting. */
   localeTags?: LocaleTags | undefined;
+  /** `catalog.messageSyntax`; default `"polystella"`. */
+  messageSyntax?: MessageSyntax | undefined;
 }
 
 export function buildCatalogHref(locale: string | undefined, options: CatalogMiddlewareOptions): (href: string) => string {
@@ -45,6 +48,7 @@ export async function buildCatalogTranslator(locale: string | undefined, options
       getDictionary: options.getDictionary,
       fallbackToDefault: options.fallbackToDefault,
       localeTags: options.localeTags,
+      messageSyntax: options.messageSyntax,
     });
   } catch {
     return createPassthroughTranslateFn(resolveLocaleTag(locale || options.defaultLocale, options.localeTags));

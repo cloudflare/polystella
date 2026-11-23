@@ -8,6 +8,7 @@ export {
   resolveTranslations,
   type CatalogDictionary,
   type LocaleTags,
+  type MessageSyntax,
   type MessageValues,
   type GetCatalogDictionary,
   type InterpolateParams,

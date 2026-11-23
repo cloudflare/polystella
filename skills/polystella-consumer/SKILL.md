@@ -273,6 +273,11 @@ strings matched against the whole dotted key:
 `catalog: { ignoreKeys: ["\\$schema"] }`. The CLI, the drift checks and
 `catalogAstro()` skip them and leave them untouched in locale files.
 
+Catalogs written in standard single-brace ICU (`{name}`, inlang's ICU
+plugin) need `catalog: { messageSyntax: "icu" }` in the same file; the
+default `"polystella"` reads `{{name}}`. EmDash catalogs always use
+`{{name}}`.
+
 Catalog files accept two formats, auto-detected per file (all locale
 files must use the same format):
 

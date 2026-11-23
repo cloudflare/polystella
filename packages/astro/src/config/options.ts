@@ -560,11 +560,17 @@ export const polystellaOptionsSchema = z
           .describe(
             'Regex strings matched against whole dotted catalog keys (`"\\\\$schema"`, `"internal\\\\..*"`). Matching entries are never synced, checked or translated, and stay untouched in locale files.',
           ),
+        messageSyntax: z
+          .enum(["polystella", "icu"])
+          .optional()
+          .describe(
+            'How catalog strings write placeholders. `"polystella"` (default): `{{name}}`, `{{count, plural, ...}}`. `"icu"`: standard ICU MessageFormat, `{name}`, `{count, plural, ...}`.',
+          ),
       })
       .strict()
       .optional()
       .describe(
-        "UI-string catalog options. Read only from `polystella.config.mjs`, by the catalog CLI commands, the drift checks and `catalogAstro()`.",
+        "UI-string catalog options. Read only from `polystella.config.mjs`, by the catalog CLI commands, the drift checks, `Astro.locals.t` and `catalogAstro()`.",
       ),
   })
   .strict();

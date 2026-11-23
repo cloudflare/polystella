@@ -73,11 +73,16 @@ silent fallbacks. A few specific cross-checks:
 The `catalog` block holds options for UI-string catalogs
 (`src/content/i18n/<locale>.json`). It is read **only from
 `polystella.config.mjs`**: by `sync-ui`, `check-ui` and `translate-ui`,
-by the build's drift check, and by `catalogAstro()`. `polystella()`
-accepts the key so you can pass the same config object to it, but
-`catalog` options written inline in `astro.config.mjs` have no effect
-(the integration warns). The EmDash plugin and the standalone
+by the build's drift check, by `Astro.locals.t`, and by `catalogAstro()`.
+`polystella()` accepts the key so you can pass the same config object to
+it, but `catalog` options written inline in `astro.config.mjs` have no
+effect (the integration warns). The EmDash plugin and the standalone
 `i18nSchema()` helper don't read it.
+
+`catalog.messageSyntax` picks how placeholders are written:
+`"polystella"` (default) for `{{name}}`, or `"icu"` for standard ICU
+MessageFormat (`{name}`). See
+[Standard ICU syntax](/concepts/catalog-messages/#standard-icu-syntax).
 
 `catalog.ignoreKeys` is a list of regex strings for entries that are
 not messages, such as the `$schema` key that inlang / Paraglide message

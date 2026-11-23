@@ -25,6 +25,20 @@ describe("catalogMiddleware", () => {
     expect((context.locals.lhref as (href: string) => string)("/about")).toBe("/pt-BR/about");
   });
 
+  it('formats {name} placeholders with messageSyntax "icu"', async () => {
+    const middleware = catalogMiddleware({
+      defaultLocale: "en",
+      locales: ["en", "de"],
+      messageSyntax: "icu",
+      getDictionary: (locale) => (locale === "de" ? { hi: "Hallo {name}" } : { hi: "Hello {name}", bye: "Bye {name}" }),
+    });
+    const context = { currentLocale: "de", locals: {} as Record<string, unknown> };
+    await middleware(context, () => undefined);
+    const t = context.locals.t as TranslateFn;
+    expect(t("hi", { name: "Ann" })).toBe("Hallo Ann");
+    expect(t("bye", { name: "Ann" })).toBe("Bye Ann");
+  });
+
   it("falls back to the default catalog, then the literal key", async () => {
     const dictionaries: Record<string, Record<string, string> | undefined> = {
       "en-US": { "nav.home": "Home", "nav.about": "About", greeting: "Hi, {{name}}" },

@@ -61,7 +61,10 @@ The default-locale file is checked on its own, for syntax and unused
 plural branches. Locale codes are mapped through `localeTags` from
 `polystella.config.mjs` when that file exists, and keys matching its
 [`catalog.ignoreKeys`](/configuration/#catalog-options) are neither
-compared nor validated.
+compared nor validated. With `catalog.messageSyntax: "icu"`, strings are
+checked as [standard ICU](/concepts/catalog-messages/#standard-icu-syntax)
+(`{name}`), and a default-locale string that isn't valid ICU is reported
+while its translations are not checked.
 
 ## Pre-commit hook
 
