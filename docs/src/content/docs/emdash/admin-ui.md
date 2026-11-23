@@ -91,7 +91,9 @@ code-defined default locale is source-only and is not listed here:
 - **Glossary behavior** — use the code default, append custom plain
   text, or replace the code glossary. Structured YAML stays
   code-defined; only `notes` can be appended or replaced.
-- **Custom glossary** — plain text applied per the behavior above.
+- **Custom glossary** — plain text applied per the behavior above,
+  up to 10,000 characters. Code-defined glossaries have no such cap:
+  each request carries only the terms its text uses.
 - **Shared translation instructions** — use code defaults, append,
   or replace the `rules` from configuration.
 

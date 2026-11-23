@@ -66,17 +66,22 @@ For prose context on individual options, see the
 | `provider (kind = "workers-ai").model` | string \| object | — | Required | Single model id (e.g. `@cf/meta/llama-3.1-8b-instruct`) or per-locale map with a `default` key. Model id is part of the cache key. |
 | `provider (kind = "workers-ai").maxTokens` | number | `8192` | Optional | Max output tokens per call. The Workers AI default (~256) truncates multi-segment translations; 8192 fits under llama-3.1-8b's cap. |
 | `provider (kind = "workers-ai").batchInputTokenBudget` | number | `4000` | Optional | Soft cap on per-batch input tokens. The pipeline packs adapter-grouped segments into batches that fit under this budget. |
+| `provider (kind = "workers-ai").maxPromptTokens` | number | — | Optional | Ceiling for one whole prompt (instructions, matched glossary terms, style rules, notes and segments), default 8000. A batch over it is split; a single segment over it fails. |
 | `provider (kind = "anthropic").kind` | `"anthropic"` | — | Required | Discriminator selecting the Anthropic provider. |
 | `provider (kind = "anthropic").apiKey` | string | — | Required | Anthropic API key. |
 | `provider (kind = "anthropic").model` | string \| object | — | Required | Single model id (e.g. `claude-3-5-sonnet-latest`) or per-locale map with a `default` key. Model id is part of the cache key. |
 | `provider (kind = "anthropic").maxTokens` | number | `8192` | Optional | Max output tokens per call. |
 | `provider (kind = "anthropic").batchInputTokenBudget` | number | `4000` | Optional | Soft cap on per-batch input tokens. See the Workers AI provider's identical field for the rationale. |
+| `provider (kind = "anthropic").maxPromptTokens` | number | — | Optional | Ceiling for one whole prompt (instructions, matched glossary terms, style rules, notes and segments), default 8000. A batch over it is split; a single segment over it fails. |
 | `glossary` | object | — | Optional | Per-locale glossary source. Configure exactly one of `file`, `inline`, `http`, or `r2`. |
 | `glossary (file).file` | string | — | Required | Path template for per-locale glossary files. Use `{locale}` as the placeholder. Example: './i18n/glossary/{locale}.yaml'. |
+| `glossary (file).matchInflections` | boolean | — | Optional | Let any letters follow a glossary term when deciding whether a batch uses it, so "Worker" also matches "Workers". Default false: the term must end at a word boundary. |
 | `glossary (inline).inline` | record (string → object) | — | Required |  |
+| `glossary (inline).matchInflections` | boolean | — | Optional | Let any letters follow a glossary term when deciding whether a batch uses it, so "Worker" also matches "Workers". Default false: the term must end at a word boundary. |
 | `glossary (http).http` | object | — | Required |  |
 | `glossary (http).http.url` | string | — | Required | HTTPS URL template returning raw YAML. Use `{locale}` as the placeholder. |
 | `glossary (http).http.headers` | record (string → string) | — | Optional | Optional request headers for private repositories. |
+| `glossary (http).matchInflections` | boolean | — | Optional | Let any letters follow a glossary term when deciding whether a batch uses it, so "Worker" also matches "Workers". Default false: the term must end at a word boundary. |
 | `glossary (r2).r2` | object | — | Required |  |
 | `glossary (r2).r2.accountId` | string | — | Required | Cloudflare account ID owning the glossary bucket. |
 | `glossary (r2).r2.bucket` | string | — | Required | R2 bucket containing glossary YAML files. |
@@ -84,6 +89,7 @@ For prose context on individual options, see the
 | `glossary (r2).r2.accessKeyId` | string | — | Required | R2 access key id with read access to the glossary bucket. |
 | `glossary (r2).r2.secretAccessKey` | string | — | Required | R2 secret access key for the glossary bucket. |
 | `glossary (r2).r2.endpoint` | string | — | Optional | Override the default R2 endpoint. Useful for testing. |
+| `glossary (r2).matchInflections` | boolean | — | Optional | Let any letters follow a glossary term when deciding whether a batch uses it, so "Worker" also matches "Workers". Default false: the term must end at a word boundary. |
 | `overridesDir` | string | `"./i18n/overrides"` | Optional | Project-relative directory where hand-translated overrides live. Drop files at `<overridesDir>/<locale>/<mirrored-source-path>`. |
 | `prompt` | object | `{}` | Optional | Prompt-tuning hooks for the translator. |
 | `prompt.context` | string | — | Optional | Site-/domain-specific guidance appended to the default 'You are a professional translator.' opener. |

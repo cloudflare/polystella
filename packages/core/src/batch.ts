@@ -2,6 +2,8 @@ import type { Logger } from "./logger.js";
 import type { Segment } from "./segment.js";
 
 export const DEFAULT_INPUT_TOKEN_BUDGET = 4000;
+/** Room for about 2K tokens of style rules and notes, the matched terms and a full 4K-token batch. */
+export const DEFAULT_MAX_PROMPT_TOKENS = 8000;
 
 const TOKEN_CHAR_RATIO = 4;
 const SEGMENT_OVERHEAD_CHARS = 8;
@@ -13,6 +15,11 @@ export function estimateInputTokens(segments: Segment[]): number {
     chars += segment.id.length + segment.text.length + SEGMENT_OVERHEAD_CHARS;
   }
   return Math.ceil(chars / TOKEN_CHAR_RATIO);
+}
+
+/** Rough token count of a whole prompt, with the same characters-per-token ratio as `estimateInputTokens`. */
+export function estimatePromptTokens(prompt: { systemPrompt: string; userPrompt: string }): number {
+  return Math.ceil((prompt.systemPrompt.length + prompt.userPrompt.length) / TOKEN_CHAR_RATIO);
 }
 
 /** Token budget and diagnostics used when packing groups into batches. */

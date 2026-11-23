@@ -280,6 +280,8 @@ export interface CatalogTranslationOptions {
   /** BCP 47 tag of the translation; names the language and selects its plural categories. */
   targetLocale: string;
   context?: string | undefined;
+  /** See `GlossaryMatchOptions`. */
+  matchInflections?: boolean | undefined;
   maxRetries?: number | undefined;
   retryMinTimeoutMs?: number | undefined;
   retryFactor?: number | undefined;
@@ -393,6 +395,7 @@ type TranslateUiBatchOptions = Pick<
   | "sourceLocale"
   | "targetLocale"
   | "context"
+  | "matchInflections"
   | "maxRetries"
   | "retryMinTimeoutMs"
   | "retryFactor"
@@ -465,6 +468,7 @@ async function translateUiBatchWithRetries(opts: TranslateUiBatchOptions): Promi
             ...(correctionText === undefined ? {} : { promptInstruction: correctionText }),
             ...(opts.onBatchAttempt === undefined ? {} : { onBatchAttempt: opts.onBatchAttempt }),
             ...(opts.context === undefined ? {} : { context: opts.context }),
+            ...(opts.matchInflections === undefined ? {} : { matchInflections: opts.matchInflections }),
             ...(opts.signal === undefined ? {} : { signal: opts.signal }),
           });
           const issues: TokenValidationIssue[] = [];

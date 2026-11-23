@@ -1,10 +1,10 @@
-import { packGroupsIntoBatches } from "./batch.js";
+import { DEFAULT_MAX_PROMPT_TOKENS, estimatePromptTokens, packGroupsIntoBatches } from "./batch.js";
 import { formatCorrections, type TranslationCorrection } from "./corrections.js";
 import { INLINE_MARKUP_PROMPT_RULE, maskInlineMarkup, restoreInlineMarkup, type MaskedText } from "./inline-markup.js";
 import type { Logger } from "./logger.js";
 import { runWithConcurrency } from "./pool.js";
 import { assertUniqueSegmentIds, type Segment } from "./segment.js";
-import { translateBatch, type TranslateBatchOptions } from "./translate-batch.js";
+import { buildBatchPrompt, translateBatch, type TranslateBatchOptions } from "./translate-batch.js";
 
 /** Options for grouping a document's segments into provider requests. */
 export interface TranslateSegmentsOptions extends TranslateBatchOptions {
@@ -12,6 +12,11 @@ export interface TranslateSegmentsOptions extends TranslateBatchOptions {
   groups?: Segment[][];
   documentContext?: string | undefined;
   inputTokenBudget?: number;
+  /**
+   * Ceiling for one whole prompt: instructions, matched glossary, document context and segments.
+   * A batch over it is split in half until it fits; default `DEFAULT_MAX_PROMPT_TOKENS`.
+   */
+  maxPromptTokens?: number | undefined;
   logger?: Logger;
   sourcePath?: string;
   /**
@@ -28,7 +33,18 @@ export interface TranslateSegmentsResult {
 }
 
 export async function translateSegments(options: TranslateSegmentsOptions): Promise<TranslateSegmentsResult> {
-  const { segments, groups, documentContext, inputTokenBudget, logger, sourcePath, signal, concurrency = 1, ...rest } = options;
+  const {
+    segments,
+    groups,
+    documentContext,
+    inputTokenBudget,
+    maxPromptTokens = DEFAULT_MAX_PROMPT_TOKENS,
+    logger,
+    sourcePath,
+    signal,
+    concurrency = 1,
+    ...rest
+  } = options;
 
   signal?.throwIfAborted();
   assertUniqueSegmentIds(segments.map((segment) => segment.id));
@@ -69,10 +85,21 @@ export async function translateSegments(options: TranslateSegmentsOptions): Prom
     });
     for (const [id, text] of batchResult) translations.set(id, text);
   };
-  const runBatches = async (toRun: Segment[][], instruction: string | undefined): Promise<void> => {
+  const fitPromptCeiling = (batch: Segment[], instruction: string | undefined): Segment[][] => {
+    const prompt = buildBatchPrompt({ ...rest, segments: batch, documentContext, promptInstruction: instruction });
+    const tokens = estimatePromptTokens(prompt);
+    if (tokens <= maxPromptTokens) return [batch];
+    const [only] = batch;
+    if (batch.length === 1 && only !== undefined) throw new PromptTooLargeError(only.id, tokens, maxPromptTokens);
+    const middle = Math.ceil(batch.length / 2);
+    return [...fitPromptCeiling(batch.slice(0, middle), instruction), ...fitPromptCeiling(batch.slice(middle), instruction)];
+  };
+  /** Runs the batches, split to fit the prompt ceiling first, and returns how many requests that took. */
+  const runBatches = async (packed: Segment[][], instruction: string | undefined): Promise<number> => {
+    const toRun = packed.flatMap((batch) => fitPromptCeiling(batch, instruction));
     if (concurrency <= 1) {
       for (const batch of toRun) await runBatch(batch, signal, instruction);
-      return;
+      return toRun.length;
     }
     // The first failure cancels batches still in flight instead of paying for answers nobody reads.
     const failed = new AbortController();
@@ -85,21 +112,34 @@ export async function translateSegments(options: TranslateSegmentsOptions): Prom
         throw error;
       }
     });
+    return toRun.length;
   };
 
-  await runBatches(batches, promptInstruction);
+  let batchCount = await runBatches(batches, promptInstruction);
   let corrections = restoreMasked(translations, masks);
-  let batchCount = batches.length;
   if (corrections.length > 0) {
     // One resend of only the segments whose markup came back wrong, with what was wrong.
     const failedIds = new Set(corrections.map(({ id }) => id));
     const resend = packGroupsIntoBatches([groupsToUse.flat().filter(({ id }) => failedIds.has(id))], packOptions);
-    await runBatches(resend, joinInstructions(promptInstruction, formatCorrections(corrections)));
-    batchCount += resend.length;
+    batchCount += await runBatches(resend, joinInstructions(promptInstruction, formatCorrections(corrections)));
     corrections = restoreMasked(translations, new Map([...masks].filter(([id]) => failedIds.has(id))));
     if (corrections.length > 0) throw new InlineMarkupError(corrections);
   }
   return { translations, batchCount };
+}
+
+/** One segment's prompt is over `maxPromptTokens` on its own, so splitting can't help. */
+export class PromptTooLargeError extends Error {
+  constructor(
+    readonly segmentId: string,
+    readonly estimatedTokens: number,
+    readonly maxPromptTokens: number,
+  ) {
+    super(
+      `[polystella] prompt for segment "${segmentId}" is about ${estimatedTokens} tokens, over maxPromptTokens (${maxPromptTokens}). Shorten the glossary's style rules and notes, the context or the text, or raise maxPromptTokens.`,
+    );
+    this.name = "PromptTooLargeError";
+  }
 }
 
 /** A translation lost, duplicated or reordered the placeholders standing for its inline markup, twice. */

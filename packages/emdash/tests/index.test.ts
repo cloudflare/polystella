@@ -189,6 +189,10 @@ describe("polystellaEmdash", () => {
     expect(() =>
       validatePolystellaEmdashOptions({ ...configured, blockFields: { faq: ["question", { path: "answer", format: "markdown" }] } }),
     ).not.toThrow();
+    expect(() => validatePolystellaEmdashOptions({ ...configured, glossaryMatchInflections: true })).not.toThrow();
+    expect(() => validatePolystellaEmdashOptions({ ...configured, glossaryMatchInflections: "yes" })).toThrow(
+      "options.glossaryMatchInflections must be a boolean",
+    );
     expect(() => validatePolystellaEmdashOptions({ ...configured, blockFields: { faq: [{ path: "answer", format: "html" }] } })).toThrow(
       'options.blockFields.faq[0].format must be "markdown"',
     );

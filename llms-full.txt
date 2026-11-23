@@ -1075,6 +1075,29 @@ callers with no outer pool: EmDash content translation sends 3
 batches of one entry at once. The first failure aborts the batches
 still in flight.
 
+**Per-batch glossary.** `buildBatchPrompt` (in `translate-batch.ts`)
+sends only the `doNotTranslate` terms and `preferredTranslations` whose
+source term appears in the batch's segments or document context:
+case-insensitive, whitespace-collapsed, starting and ending at a word
+boundary (a term edge that isn't a letter or digit, like `.NET`, is its
+own boundary). `matchInflections` drops the end boundary so `Worker`
+matches "Workers"; it's a config option, not part of `Glossary`, so
+`hashGlossary` ignores it. Style rules and notes aren't term-bound and
+are always sent. Matching runs on the masked text, so link URLs never
+match. The cache key still hashes the whole glossary (**Invariant 1**
+untouched); like `documentContext`, the per-batch selection is not in
+the key, so existing cache entries stay valid.
+
+**Prompt ceiling.** `maxPromptTokens` (default `8000`) bounds a whole
+prompt: instructions, matched terms, style rules, notes, document
+context and segments, estimated at 4 characters per token. After
+packing by `batchInputTokenBudget`, a batch over the ceiling is split
+in half until it fits; a single segment over it throws
+`PromptTooLargeError` instead of sending a prompt the model may not fit.
+The EmDash plugin caps only the administrator-typed glossary text
+(10,000 characters); code-defined `glossaryDefaults` get a 1,000,000-
+character sanity bound, like the file loader.
+
 **Inline markup placeholders.** A segment can set `markup:
 "html"` or `"markdown"`. `translateSegments` then swaps its tags (and,
 for Markdown, links, images, emphasis, code spans and escapes) for

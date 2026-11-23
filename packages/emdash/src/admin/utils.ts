@@ -110,6 +110,8 @@ function isTranslationDebugBatch(value: unknown): boolean {
     isStringArray(value.segmentLabels) &&
     typeof value.sourceCharacters === "number" &&
     typeof value.estimatedInputTokens === "number" &&
+    (value.glossaryTerms === undefined ||
+      (isRecord(value.glossaryTerms) && typeof value.glossaryTerms.sent === "number" && typeof value.glossaryTerms.total === "number")) &&
     Array.isArray(value.attempts) &&
     value.attempts.every(isTranslationDebugAttempt)
   );

@@ -326,6 +326,7 @@ export function createPluginRoutes(
           const result = await translateContentPart(plan, part, {
             translator: settings.translator,
             glossary: settings.glossary,
+            matchInflections: settings.matchInflections,
             sourceLocale: localeTag(options, options.catalogs.defaultLocale),
             targetLocale: localeTag(options, targetLocale),
             ...(settings.promptInstruction === undefined ? {} : { promptInstruction: settings.promptInstruction }),
@@ -416,6 +417,7 @@ export function createPluginRoutes(
             entries,
             translator: settings.translator,
             glossary: settings.glossary,
+            matchInflections: settings.matchInflections,
             sourceLocale: localeTag(options, options.catalogs.defaultLocale),
             targetLocale: localeTag(options, locale),
             maxRetries: 2,
@@ -584,6 +586,7 @@ export function createPluginRoutes(
             translator: settings.translator,
             segments: [segment],
             glossary: settings.glossary,
+            matchInflections: settings.matchInflections,
             sourceLocale: localeTag(options, options.catalogs.defaultLocale),
             targetLocale: localeTag(options, targetLocale),
             ...(settings.promptInstruction === undefined ? {} : { promptInstruction: settings.promptInstruction }),
@@ -852,6 +855,7 @@ export function createPluginRoutes(
           const result = await translateContentPart(plan, part, {
             translator: settings.translator,
             glossary: settings.glossary,
+            matchInflections: settings.matchInflections,
             sourceLocale: localeTag(options, options.catalogs.defaultLocale),
             targetLocale: localeTag(options, message.locale),
             ...(settings.promptInstruction === undefined ? {} : { promptInstruction: settings.promptInstruction }),
@@ -1236,6 +1240,7 @@ async function translationSettings(
 ): Promise<{
   translator: Translator;
   glossary: Glossary;
+  matchInflections: boolean;
   debugEnabled: boolean;
   maxTokens: number;
   promptInstruction?: string | undefined;
@@ -1245,15 +1250,15 @@ async function translationSettings(
   if (stored === undefined) throw PluginRouteError.internal(`translation settings for ${locale} are unavailable`);
   const deploymentModel = resolveModelId(options.models.defaults, locale);
   const model = modelOverride ?? stored.model ?? deploymentModel;
+  if (stored.glossaryText.length > MAX_GLOSSARY_CHARACTERS) {
+    throw PluginRouteError.badRequest(`glossary text for ${locale} cannot exceed ${MAX_GLOSSARY_CHARACTERS} characters`);
+  }
   const glossary = resolveGlossary(options.glossaryDefaults?.[locale], stored.glossaryMode, stored.glossaryText.trim());
   const promptInstruction = resolveInstructions(
     options.rules ?? [],
     storedSettings.instructions.mode,
     storedSettings.instructions.text.trim(),
   );
-  if (JSON.stringify(glossary).length > MAX_GLOSSARY_CHARACTERS) {
-    throw PluginRouteError.badRequest(`effective glossary cannot exceed ${MAX_GLOSSARY_CHARACTERS} characters`);
-  }
   if (promptInstruction.length > MAX_INSTRUCTION_CHARACTERS) {
     throw PluginRouteError.badRequest(`translation instructions cannot exceed ${MAX_INSTRUCTION_CHARACTERS} characters`);
   }
@@ -1261,6 +1266,7 @@ async function translationSettings(
   return {
     translator: createTranslator(options, env, model, log, dependencies, maxTokens),
     glossary,
+    matchInflections: options.glossaryMatchInflections === true,
     debugEnabled: storedSettings.debugEnabled,
     maxTokens,
     ...(promptInstruction.length === 0 ? {} : { promptInstruction }),

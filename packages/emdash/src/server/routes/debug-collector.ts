@@ -42,6 +42,7 @@ export function createTranslationDebugCollector(options: TranslationDebugCollect
           segmentLabels: event.segments.map(({ id }) => options.labelSegment(id)),
           sourceCharacters: event.sourceCharacters,
           estimatedInputTokens: event.estimatedInputTokens,
+          glossaryTerms: { sent: event.glossary.sentTerms, total: event.glossary.totalTerms },
           attempts: [],
         };
         batches.push(batch);
