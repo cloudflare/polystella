@@ -156,7 +156,7 @@ describe("polystellaEmdash", () => {
 
   it("validates model params and timeouts, and keeps them and glossaryMatchInflections through serialization", () => {
     const base = validOptions();
-    const params = { "model-a": { chat_template_kwargs: { enable_thinking: false } } };
+    const params = { "model-a": { enable_thinking: false } };
     const options: PolystellaEmdashOptions = {
       ...base,
       provider: { kind: "workers-ai-binding", binding: "AI", timeoutMs: 120_000 },
@@ -176,7 +176,10 @@ describe("polystellaEmdash", () => {
     );
     expect(() =>
       validatePolystellaEmdashOptions({ ...options, models: { ...base.models, params: { "model-a": { messages: [] } } } }),
-    ).toThrow("options.models.params.model-a.messages is set by PolyStella");
+    ).toThrow('options.models.params.model-a cannot set "messages"; PolyStella sets it');
+    expect(() =>
+      validatePolystellaEmdashOptions({ ...options, models: { ...base.models, params: { "model-a": { enable_thinking: "off" } } } }),
+    ).toThrow("options.models.params.model-a enable_thinking must be true or false");
     expect(() =>
       validatePolystellaEmdashOptions({ ...options, provider: { kind: "workers-ai-binding", binding: "AI", timeoutMs: 0 } }),
     ).toThrow("options.provider.timeoutMs must be a positive integer");

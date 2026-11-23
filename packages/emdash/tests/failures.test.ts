@@ -39,7 +39,7 @@ describe("createTranslator", () => {
     const inputs: unknown[] = [];
     const options = {
       provider: { kind: "workers-ai-binding", binding: "AI" },
-      models: { allowed: ["glm"], defaults: "glm", params: { glm: { chat_template_kwargs: { enable_thinking: false } } } },
+      models: { allowed: ["glm"], defaults: "glm", params: { glm: { enable_thinking: false } } },
     } as unknown as PolystellaEmdashOptions;
     const env = { AI: { run: async (_model: string, input: unknown) => (inputs.push(input), { response: "@@a@@\nHallo" }) } };
     const log = { error: () => undefined } as unknown as Parameters<typeof createTranslator>[3];

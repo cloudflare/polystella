@@ -2,7 +2,12 @@ import { EMPTY_GLOSSARY, PermanentProviderError, translateBatch } from "../../sr
 import { describe, expect, it, vi } from "vitest";
 
 import { createAnthropicTranslator } from "../../src/providers/anthropic.js";
-import { createWorkersAIBindingTranslator, createWorkersAIHttpTranslator, ProviderTimeoutError } from "../../src/providers/workers-ai.js";
+import {
+  createWorkersAIBindingTranslator,
+  createWorkersAIHttpTranslator,
+  ProviderTimeoutError,
+  workersAIParamsProblem,
+} from "../../src/providers/workers-ai.js";
 
 function makeFetchStub(body: unknown, init: { status?: number; statusText?: string; rawText?: string } = {}) {
   const responseBody = init.rawText ?? JSON.stringify(body);
@@ -224,6 +229,36 @@ describe("Workers AI request controls", () => {
     expect(() => createWorkersAIBindingTranslator({ modelId: "glm", maxTokens: 100, params: { max_tokens: 5 }, run })).toThrow(
       'Workers AI params cannot set "max_tokens"',
     );
+  });
+
+  it("sends enable_thinking as chat_template_kwargs.enable_thinking, the form Workers AI reads", async () => {
+    const inputs: unknown[] = [];
+    const run = async (_model: string, input: unknown) => (inputs.push(input), { response: "@@a@@\nHallo" });
+    for (const enable_thinking of [false, true]) {
+      const translator = createWorkersAIBindingTranslator({
+        modelId: "deepseek",
+        maxTokens: 100,
+        params: { enable_thinking, chat_template_kwargs: { clear_thinking: true }, reasoning_effort: "none" },
+        run,
+      });
+      await translator.translate("system", "user");
+    }
+    expect(inputs).toEqual(
+      [false, true].map((enable_thinking) =>
+        expect.objectContaining({
+          chat_template_kwargs: { clear_thinking: true, enable_thinking },
+          reasoning_effort: "none",
+        }),
+      ),
+    );
+    expect(inputs[0]).not.toHaveProperty("enable_thinking");
+
+    const create = (params: Record<string, unknown>) => () =>
+      createWorkersAIBindingTranslator({ modelId: "deepseek", maxTokens: 100, params, run });
+    expect(create({ enable_thinking: "no" })).toThrow("enable_thinking must be true or false");
+    expect(create({ enable_thinking: false, chat_template_kwargs: { enable_thinking: false } })).toThrow("sets enable_thinking twice");
+    expect(create({ enable_thinking: false, chat_template_kwargs: "x" })).toThrow("chat_template_kwargs must be an object");
+    expect(workersAIParamsProblem({ chat_template_kwargs: { enable_thinking: false } })).toBeUndefined();
   });
 
   it("stops waiting after timeoutMs, aborting the HTTP request", async () => {

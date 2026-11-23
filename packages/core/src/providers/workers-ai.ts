@@ -19,7 +19,10 @@ export const RESERVED_WORKERS_AI_PARAMS: readonly string[] = ["messages", "promp
 interface WorkersAITranslatorOptions {
   modelId: string;
   maxTokens: number;
-  /** Extra input sent with every request, such as `{ chat_template_kwargs: { enable_thinking: false } }`. */
+  /**
+   * Extra input sent with every request. `enable_thinking: false` turns off a reasoning model's thinking: it is sent
+   * as `chat_template_kwargs.enable_thinking`, the form Workers AI reads. Other keys pass through unchanged.
+   */
   params?: Readonly<Record<string, unknown>> | undefined;
   /** Stop waiting after this many milliseconds and throw `ProviderTimeoutError`. Default: no limit. */
   timeoutMs?: number | undefined;
@@ -41,7 +44,7 @@ export interface WorkersAIBindingTranslatorOptions extends WorkersAITranslatorOp
 export function createWorkersAIHttpTranslator(options: WorkersAIHttpTranslatorOptions): Translator {
   const { accountId, apiToken, modelId, maxTokens, endpoint, fetchImpl = fetch } = options;
   const url = endpoint ?? `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${modelId}`;
-  assertNoReservedParams(options.params);
+  const params = resolveParams(options.params);
 
   return {
     modelId,
@@ -54,7 +57,7 @@ export function createWorkersAIHttpTranslator(options: WorkersAIHttpTranslatorOp
             Authorization: `Bearer ${apiToken}`,
             "Content-Type": "application/json",
           },
-          body: JSON.stringify(createInput(systemPrompt, userPrompt, maxTokens, options.params)),
+          body: JSON.stringify(createInput(systemPrompt, userPrompt, maxTokens, params)),
           ...(requestSignal !== undefined ? { signal: requestSignal } : {}),
         });
         requestSignal?.throwIfAborted();
@@ -75,12 +78,12 @@ export function createWorkersAIHttpTranslator(options: WorkersAIHttpTranslatorOp
 
 export function createWorkersAIBindingTranslator(options: WorkersAIBindingTranslatorOptions): Translator {
   const { modelId, maxTokens, run } = options;
-  assertNoReservedParams(options.params);
+  const params = resolveParams(options.params);
   return {
     modelId,
     async translate(systemPrompt, userPrompt, signal, onResponse) {
       signal?.throwIfAborted();
-      const input = createInput(systemPrompt, userPrompt, maxTokens, options.params);
+      const input = createInput(systemPrompt, userPrompt, maxTokens, params);
       const data = await withRequestTimeout(options.timeoutMs, signal, async () => await run(modelId, input));
       signal?.throwIfAborted();
       onResponse?.(responseInfo(data));
@@ -105,9 +108,28 @@ function createInput(
   };
 }
 
-function assertNoReservedParams(params: Readonly<Record<string, unknown>> | undefined): void {
+/** Why `params` can't be sent, or `undefined` when it can. */
+export function workersAIParamsProblem(params: Readonly<Record<string, unknown>> | undefined): string | undefined {
   const reserved = Object.keys(params ?? {}).find((key) => RESERVED_WORKERS_AI_PARAMS.includes(key));
-  if (reserved !== undefined) throw new Error(`[polystella] Workers AI params cannot set "${reserved}"; PolyStella sets it`);
+  if (reserved !== undefined) return `cannot set "${reserved}"; PolyStella sets it`;
+  if (params === undefined || !Object.hasOwn(params, "enable_thinking")) return undefined;
+  if (typeof params.enable_thinking !== "boolean") return "enable_thinking must be true or false";
+  const kwargs = params.chat_template_kwargs;
+  if (kwargs !== undefined && (kwargs === null || typeof kwargs !== "object" || Array.isArray(kwargs))) {
+    return "chat_template_kwargs must be an object";
+  }
+  if (property(kwargs, "enable_thinking") !== undefined) return "sets enable_thinking twice; keep only the top-level enable_thinking";
+  return undefined;
+}
+
+// Workers AI accepts a top-level `enable_thinking` and ignores it, so it is moved to where the models read it.
+function resolveParams(params: Readonly<Record<string, unknown>> | undefined): Readonly<Record<string, unknown>> | undefined {
+  const problem = workersAIParamsProblem(params);
+  if (problem !== undefined) throw new Error(`[polystella] Workers AI params ${problem}`);
+  if (params === undefined || !Object.hasOwn(params, "enable_thinking")) return params;
+  const { enable_thinking: enableThinking, ...rest } = params;
+  const kwargs = property(rest, "chat_template_kwargs");
+  return { ...rest, chat_template_kwargs: { ...(kwargs === undefined ? {} : kwargs), enable_thinking: enableThinking } };
 }
 
 /** OpenAI-style `choices[0].finish_reason`, reasoning text and `usage`, as chat models on Workers AI return them. */

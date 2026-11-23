@@ -7,7 +7,7 @@ import {
   type CatalogSource,
   type LocaleTags,
 } from "@cloudflare/polystella-core/catalog";
-import { RESERVED_WORKERS_AI_PARAMS } from "@cloudflare/polystella-core/providers/workers-ai";
+import { workersAIParamsProblem } from "@cloudflare/polystella-core/providers/workers-ai";
 
 import { USE_CODE_DEFAULT_MODEL } from "../contracts.js";
 
@@ -137,10 +137,8 @@ export function validatePolystellaEmdashOptions(value: unknown): asserts value i
   if (models.params !== undefined) {
     for (const [model, params] of Object.entries(readRecord(models.params, "options.models.params"))) {
       if (!allowedModels.includes(model)) fail(`options.models.params.${model} must exist in options.models.allowed`);
-      const reserved = Object.keys(readRecord(params, `options.models.params.${model}`)).find((key) =>
-        RESERVED_WORKERS_AI_PARAMS.includes(key),
-      );
-      if (reserved !== undefined) fail(`options.models.params.${model}.${reserved} is set by PolyStella`);
+      const problem = workersAIParamsProblem(readRecord(params, `options.models.params.${model}`));
+      if (problem !== undefined) fail(`options.models.params.${model} ${problem}`);
     }
   }
 

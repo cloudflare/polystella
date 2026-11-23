@@ -53,18 +53,27 @@ The model bounds for translation.
 | `defaults` | string or `ModelSpec` | A single model id, or `{ default, <locale>: model }`. Every locale key must match a configured catalog locale and appear in `allowed`. |
 
 `models.params` is optional: extra Workers AI input per allowed model,
-for settings the model's schema documents. For example, turn off
-GLM-4.7-flash's reasoning:
+for settings the model's schema documents. `enable_thinking: false`
+turns off a reasoning model's thinking, which often makes it several
+times faster:
 
 ```js
 models: {
   allowed: ["@cf/zai-org/glm-4.7-flash"],
   defaults: "@cf/zai-org/glm-4.7-flash",
   params: {
-    "@cf/zai-org/glm-4.7-flash": { chat_template_kwargs: { enable_thinking: false } },
+    "@cf/zai-org/glm-4.7-flash": { enable_thinking: false },
   },
 },
 ```
+
+PolyStella sends `enable_thinking` as
+`chat_template_kwargs.enable_thinking`, the only form Workers AI reads;
+it ignores a top-level `enable_thinking` without an error. Set it
+explicitly: some models still think when it is left out, even if their
+schema says it defaults to `false`. Some models can't turn thinking off,
+and Workers AI rejects `false` for them. Other keys, such as
+`reasoning_effort`, are sent as written.
 
 Keys must be allowed models. `messages`, `prompt`, `max_tokens`,
 `max_completion_tokens` and `stream` are set by PolyStella and are
@@ -279,7 +288,8 @@ replace. Configure collection and field policy in the
   `block` or `span` types.
 - Every `models.params` key must be in `models.allowed`, and its object
   must not set `messages`, `prompt`, `max_tokens`,
-  `max_completion_tokens` or `stream`.
+  `max_completion_tokens` or `stream`. `enable_thinking` must be `true`
+  or `false`, and can't be set again in `chat_template_kwargs`.
 - Provider env/binding names and `batchQueueBinding` must be valid
   environment binding names; `endpoint` must be a valid URL;
   `maxTokens` and `timeoutMs` must be positive integers.

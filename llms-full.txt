@@ -1012,8 +1012,10 @@ interface Translator {
 `translateBatch` records `onResponse` info on each attempt event and
 attaches it to a failed attempt's error as `providerResponse`, so
 server logs show why a reply failed. Workers AI translators also take
-model `params` (extra input such as `chat_template_kwargs`; keys
-PolyStella sets are rejected) and `timeoutMs`. A timeout aborts the
+model `params` (extra input such as `reasoning_effort`; keys
+PolyStella sets are rejected; `enable_thinking` is moved into
+`chat_template_kwargs`, because Workers AI ignores it at the top level)
+and `timeoutMs`. A timeout aborts the
 HTTP request; the binding takes no signal, so PolyStella stops waiting
 while the upstream call may continue. `ProviderTimeoutError` is
 retriable.
