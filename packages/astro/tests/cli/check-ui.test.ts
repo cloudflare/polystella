@@ -142,6 +142,17 @@ describe("runCheckUi", () => {
     expect(errOutput).toContain("nav.about");
   });
 
+  it("returns 1 when the default-locale catalog is missing", async () => {
+    const cwd = await tmpProjectWithAstroConfig({
+      defaultLocale: "en",
+      locales: ["en", "de"],
+      files: { "src/content/i18n/de.json": JSON.stringify({ a: "Hallo" }) },
+    });
+    const err = vi.fn();
+    expect(await runCheckUi({ help: false }, { cwd, log: vi.fn(), err })).toBe(1);
+    expect(err.mock.calls.map((call) => String(call[0])).join("\n")).toMatch(/default-locale UI-strings file not found at .*en\.json/);
+  });
+
   it("returns 1 when astro i18n.locales does not include defaultLocale", async () => {
     const cwd = await tmpProjectWithAstroConfig({
       defaultLocale: "en-US",

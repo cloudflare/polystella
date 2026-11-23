@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import path from "node:path";
 
 import type { LocaleTags } from "../catalog/locale-tags.js";
@@ -95,6 +96,12 @@ export async function runCheckUi(args: CheckUiArgs, deps: CheckUiDeps): Promise<
   }
 
   const baseDir = args.base ?? DEFAULT_CATALOG_BASE;
+  // The build's drift check skips a missing default catalog on purpose; the CLI check must not pass.
+  const sourcePath = path.resolve(deps.cwd, baseDir, `${i18n.defaultLocale}.json`);
+  if (!existsSync(sourcePath)) {
+    deps.err(`[polystella] default-locale UI-strings file not found at ${sourcePath}.`);
+    return 1;
+  }
   const result = await loadAndCheckDrift({
     rootDir: deps.cwd,
     baseDir,

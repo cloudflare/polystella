@@ -85,4 +85,5 @@ Suggested fix:
 
 - `0` — no drift; every non-default locale's key set matches the
   default.
-- `1` — drift or message problems detected, or a config error.
+- `1` — drift or message problems detected, a config error, or a
+  missing default-locale file.
