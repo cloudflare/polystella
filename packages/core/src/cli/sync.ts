@@ -16,14 +16,19 @@ export function parseSourceLayout(rawText: string): SourceLayout {
   const blankBefore = new Set<string>();
   let lastWasEntry = false;
   let sawBlankSinceLastEntry = false;
+  // Lines inside a multi-line value (an ignored inlang array) belong to the entry they continue.
+  let depth = 0;
   const keyLine = /^\s+"([^"\\]|\\.)*"\s*:/;
   const keyName = /^\s+"((?:[^"\\]|\\.)*)"\s*:/;
 
   for (const line of rawText.split(/\r?\n/)) {
+    const lineDepth = depth;
+    depth += bracketDelta(line);
     if (line.trim() === "") {
-      if (lastWasEntry) sawBlankSinceLastEntry = true;
+      if (lastWasEntry && lineDepth === 1) sawBlankSinceLastEntry = true;
       continue;
     }
+    if (lineDepth > 1) continue;
     if (keyLine.test(line)) {
       const match = keyName.exec(line);
       if (match?.[1] !== undefined) {
@@ -44,6 +49,21 @@ export function parseSourceLayout(rawText: string): SourceLayout {
     sawBlankSinceLastEntry = false;
   }
   return { keys, blankBefore };
+}
+
+function bracketDelta(line: string): number {
+  let delta = 0;
+  let inString = false;
+  for (let index = 0; index < line.length; index++) {
+    const char = line[index];
+    if (inString) {
+      if (char === "\\") index++;
+      else if (char === '"') inString = false;
+    } else if (char === '"') inString = true;
+    else if (char === "{" || char === "[") delta++;
+    else if (char === "}" || char === "]") delta--;
+  }
+  return delta;
 }
 
 export interface SyncLocaleDictInput {

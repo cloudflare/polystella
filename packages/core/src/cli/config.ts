@@ -140,12 +140,15 @@ export async function loadAstroI18n(cwd: string): Promise<AstroI18nConfig | unde
 
 export async function loadPolystellaConfig(cwd: string): Promise<unknown> {
   const candidatePath = path.resolve(cwd, "polystella.config.mjs");
+  let loaded: unknown;
   try {
-    const loaded: unknown = await import(pathToFileURL(candidatePath).href);
-    return asRecordOrUndefined(loaded)?.default;
-  } catch (error) {
-    throw new Error(`failed to load ${candidatePath}: ${errorMessage(error)}`);
+    loaded = await import(pathToFileURL(candidatePath).href);
+  } catch (nodeError) {
+    if (!existsSync(candidatePath)) throw new Error(`failed to load ${candidatePath}: ${errorMessage(nodeError)}`);
+    // Astro loads astro.config.mjs (and so a config it imports) through Vite; match that here.
+    loaded = await importWithAstroVite(cwd, candidatePath, nodeError);
   }
+  return asRecordOrUndefined(loaded)?.default;
 }
 
 /** Like `loadPolystellaConfig`, but `undefined` when `polystella.config.mjs` does not exist. */
@@ -166,6 +169,17 @@ export interface CatalogOptions {
   ignoreKeys: string[];
   /** `ignoreKeys` compiled; `undefined` when there are none. */
   ignoreKey?: IgnoreKey | undefined;
+}
+
+/** `catalog` options from `cwd`'s `polystella.config.mjs`; defaults when the file doesn't exist. */
+export async function loadCatalogOptions(cwd: string): Promise<CatalogOptions> {
+  let raw: unknown;
+  try {
+    raw = await loadOptionalPolystellaConfig(cwd);
+  } catch (error) {
+    throw new Error(`[polystella] ${errorMessage(error)}`);
+  }
+  return resolveCatalogOptions(raw);
 }
 
 /** Validated `catalog` block from a raw config; `raw` is `undefined` when there is no config file. */

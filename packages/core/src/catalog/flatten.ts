@@ -26,7 +26,11 @@ const SCHEMA_KEY = "$schema";
  */
 export function compileIgnoreKeys(patterns: ReadonlyArray<string>): IgnoreKey | undefined {
   if (patterns.length === 0) return undefined;
-  const regexes = patterns.map((pattern) => new RegExp(`^(?:${pattern})$`));
+  const regexes = patterns.map((pattern) => {
+    // Compiling it alone first rejects a pattern like `a)|(.*` that would escape the wrapper.
+    new RegExp(pattern);
+    return new RegExp(`^(?:${pattern})$`);
+  });
   return (key) => regexes.some((regex) => regex.test(key));
 }
 
@@ -165,7 +169,7 @@ function renderEntry(
   const inSource = source !== undefined && Object.hasOwn(source, key);
   const sourceValue = inSource ? source[key] : undefined;
   if (typeof sourceValue === "string") {
-    const value = dict[path];
+    const value = Object.hasOwn(dict, path) ? dict[path] : undefined;
     return value === undefined ? undefined : { text: `${indent}${JSON.stringify(key)}: ${JSON.stringify(value)}`, group: false };
   }
   const existingValue = existing !== undefined && Object.hasOwn(existing, key) ? existing[key] : undefined;

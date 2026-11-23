@@ -726,6 +726,14 @@ describe("applySyncToDisk with ignoreKey", () => {
     expect((await applySyncToDisk(options)).changed).toBe(false);
   });
 
+  it("reads layout around a multi-line ignored value without picking up its inner keys", () => {
+    const layout = parseSourceLayout(
+      '{\n  "$schema": "x",\n  "plural": [\n    {\n      "match": { "a": "b" },\n\n      "a": "c"\n    }\n  ],\n\n  "match": "Top"\n}\n',
+    );
+    expect(layout.keys).toEqual(["$schema", "plural", "match"]);
+    expect([...layout.blankBefore]).toEqual(["match"]);
+  });
+
   it("formats flat files with ignored entries in source order and target-only ones last", () => {
     const text = formatLocaleFile({
       dict: { a: "A2" },

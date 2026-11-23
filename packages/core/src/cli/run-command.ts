@@ -47,5 +47,12 @@ export async function runCatalogCommand(
     dependencies.err(command === "check-ui" ? CHECK_UI_USAGE : command === "sync-ui" ? SYNC_UI_USAGE : TRANSLATE_UI_USAGE);
     return 1;
   }
-  return execute();
+  try {
+    return await execute();
+  } catch (error) {
+    // Unreadable catalog files (bad JSON, an array value) are input errors, not crashes.
+    const message = error instanceof Error ? error.message : String(error);
+    dependencies.err(message.startsWith("[polystella]") ? message : `[polystella] ${message}`);
+    return 1;
+  }
 }

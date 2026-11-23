@@ -1,5 +1,5 @@
 import { assertLocaleTags, type LocaleTags } from "@cloudflare/polystella-core/catalog";
-import { loadOptionalPolystellaConfig, resolveCatalogOptions } from "@cloudflare/polystella-core/cli/config";
+import { loadCatalogOptions } from "@cloudflare/polystella-core/cli/config";
 import type { AstroIntegration } from "astro";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -45,7 +45,7 @@ export function catalogAstro(options: CatalogAstroOptions = {}): AstroIntegratio
         const rootDir = fileURLToPath(config.root);
         const cacheDir = fileURLToPath(config.cacheDir);
         const viteBase = toViteRootAbsoluteBase(baseDir);
-        const catalog = resolveCatalogOptions(await loadOptionalPolystellaConfig(rootDir));
+        const catalog = await loadCatalogOptions(rootDir);
 
         const virtualModuleSource = generateCatalogVirtualModuleSource({
           viteBase,

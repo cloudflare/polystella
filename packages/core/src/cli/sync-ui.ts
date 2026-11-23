@@ -3,7 +3,7 @@ import path from "node:path";
 
 import { detectCatalogFormat, flattenCatalog, type IgnoreKey } from "../catalog/index.js";
 
-import { loadAstroI18n, loadOptionalPolystellaConfig, resolveCatalogOptions, type CatalogOptions } from "./config.js";
+import { loadAstroI18n, loadCatalogOptions, type CatalogOptions } from "./config.js";
 import { applySyncToDisk, formatLocaleFile, formatNestedLocaleFile, formatSyncSummary, parseSourceLayout, syncLocaleDict } from "./sync.js";
 
 const DEFAULT_CATALOG_BASE = "./src/content/i18n";
@@ -83,7 +83,7 @@ export async function runSyncUi(args: SyncUiArgs, deps: SyncUiDeps): Promise<num
 
   let catalog: CatalogOptions;
   try {
-    catalog = resolveCatalogOptions(await loadOptionalPolystellaConfig(deps.cwd));
+    catalog = await loadCatalogOptions(deps.cwd);
   } catch (error) {
     const message = errorMessage(error);
     deps.err(message.startsWith("[polystella]") ? message : `[polystella] ${message}`);

@@ -186,6 +186,15 @@ describe("catalog ignoreKeys", () => {
     expect(ignoreKey?.("internal")).toBe(false);
     expect(ignoreKey?.("plurals")).toBe(false);
     expect(() => compileIgnoreKeys(["["])).toThrow(SyntaxError);
+    expect(() => compileIgnoreKeys(["a)|(.*"])).toThrow(SyntaxError);
+  });
+
+  it("without ignoreKey, drops target-only groups and never reads inherited dict keys", () => {
+    const source = JSON.parse('{"__proto__":"P","constructor":"C","nav":{"toString":"T"}}') as Record<string, unknown>;
+    const existing = { nav: { toString: "x" }, old: { a: "A" } };
+    expect(formatNestedLocaleFile({ dict: { "nav.toString": "T2" }, source, existing })).toBe(
+      '{\n  "nav": {\n    "toString": "T2"\n  }\n}\n',
+    );
   });
 
   it("skips ignored leaves and whole ignored subtrees before checking value types", () => {

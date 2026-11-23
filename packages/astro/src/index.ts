@@ -3,7 +3,7 @@ import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { Glossary, Translator } from "@cloudflare/polystella-core";
-import { loadOptionalPolystellaConfig, resolveCatalogOptions } from "@cloudflare/polystella-core/cli/config";
+import { loadCatalogOptions } from "@cloudflare/polystella-core/cli/config";
 
 import { resolveOptions, type PolyStellaOptions, type PolyStellaResolvedOptions } from "./config/options.js";
 import { EMPTY_GLOSSARY_HASH, hashGlossary, loadGlossaries } from "./glossary/glossary.js";
@@ -240,7 +240,7 @@ export default function polystella(options: PolyStellaOptions): AstroIntegration
         // UI-strings drift detection runs before translation so a
         // missing-key list lands early. Silent no-op when the default-
         // locale JSON doesn't exist (incremental onboarding).
-        const catalog = resolveCatalogOptions(await loadOptionalPolystellaConfig(rootDirPath));
+        const catalog = await loadCatalogOptions(rootDirPath);
         if (options.catalog !== undefined && JSON.stringify(options.catalog.ignoreKeys ?? []) !== JSON.stringify(catalog.ignoreKeys)) {
           logger.warn("`catalog` in the polystella() options is ignored; set it in polystella.config.mjs.");
         }

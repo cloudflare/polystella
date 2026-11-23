@@ -21,4 +21,5 @@ export {
   detectCatalogFormat,
   flattenCatalog,
   type CatalogFormat,
+  type IgnoreKey,
 } from "@cloudflare/polystella-core/catalog";
