@@ -59,7 +59,9 @@ that doesn't apply to that locale).
 
 The default-locale file is checked on its own, for syntax and unused
 plural branches. Locale codes are mapped through `localeTags` from
-`polystella.config.mjs` when that file exists.
+`polystella.config.mjs` when that file exists, and keys matching its
+[`catalog.ignoreKeys`](/configuration/#catalog-options) are neither
+compared nor validated.
 
 ## Pre-commit hook
 

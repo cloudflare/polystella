@@ -212,6 +212,24 @@ describe("runCheckUi", () => {
     expect(err).not.toHaveBeenCalled();
   });
 
+  it("does not report keys matching catalog.ignoreKeys", async () => {
+    const files = {
+      "src/content/i18n/en.json": JSON.stringify({ $schema: "https://inlang.com/schema/inlang-message-format", a: "Hi {{name}}" }),
+      "src/content/i18n/de.json": JSON.stringify({ a: "Hallo {{name}}", internal: { note: "{{broken" } }),
+    };
+    const plain = await tmpProjectWithAstroConfig({ defaultLocale: "en", locales: ["en", "de"], files });
+    await expect(runCheckUi({ help: false }, { cwd: plain, log: vi.fn(), err: vi.fn() })).rejects.toThrow(/format mismatch/);
+
+    const cwd = await tmpProjectWithAstroConfig({
+      defaultLocale: "en",
+      locales: ["en", "de"],
+      files: { ...files, "polystella.config.mjs": `export default { catalog: { ignoreKeys: ["\\\\$schema", "internal"] } };\n` },
+    });
+    const err = vi.fn();
+    expect(await runCheckUi({ help: false }, { cwd, log: vi.fn(), err })).toBe(0);
+    expect(err).not.toHaveBeenCalled();
+  });
+
   it("respects --base override", async () => {
     const cwd = await tmpProjectWithAstroConfig({
       defaultLocale: "en-US",

@@ -1,4 +1,5 @@
 import { assertLocaleTags, type LocaleTags } from "@cloudflare/polystella-core/catalog";
+import { loadOptionalPolystellaConfig, resolveCatalogOptions } from "@cloudflare/polystella-core/cli/config";
 import type { AstroIntegration } from "astro";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -44,6 +45,7 @@ export function catalogAstro(options: CatalogAstroOptions = {}): AstroIntegratio
         const rootDir = fileURLToPath(config.root);
         const cacheDir = fileURLToPath(config.cacheDir);
         const viteBase = toViteRootAbsoluteBase(baseDir);
+        const catalog = resolveCatalogOptions(await loadOptionalPolystellaConfig(rootDir));
 
         const virtualModuleSource = generateCatalogVirtualModuleSource({
           viteBase,
@@ -52,6 +54,7 @@ export function catalogAstro(options: CatalogAstroOptions = {}): AstroIntegratio
           noPrefixUrls,
           fallbackToDefault,
           localeTags,
+          ignoreKeys: catalog.ignoreKeys,
         });
 
         updateConfig({
@@ -88,6 +91,7 @@ export function catalogAstro(options: CatalogAstroOptions = {}): AstroIntegratio
             locales: derived.locales,
             defaultLocale: derived.defaultLocale,
             localeTags,
+            ignoreKey: catalog.ignoreKey,
           });
           if (!driftResult.ok) {
             throw new Error(
@@ -163,6 +167,7 @@ interface CatalogVirtualModuleInput {
   noPrefixUrls: ReadonlyArray<string>;
   fallbackToDefault: boolean;
   localeTags: LocaleTags;
+  ignoreKeys: ReadonlyArray<string>;
 }
 
 function generateCatalogVirtualModuleSource(input: CatalogVirtualModuleInput): string {
@@ -172,7 +177,8 @@ function generateCatalogVirtualModuleSource(input: CatalogVirtualModuleInput): s
   }
 
   return [
-    `import { flattenCatalog } from ${JSON.stringify(new URL("./runtime.js", import.meta.url).href)};`,
+    `import { compileIgnoreKeys, flattenCatalog } from ${JSON.stringify(new URL("./runtime.js", import.meta.url).href)};`,
+    `const ignoreKey = compileIgnoreKeys(${JSON.stringify(input.ignoreKeys)});`,
     `const modules = import.meta.glob(${JSON.stringify(`${input.viteBase}/*.json`)}, { import: "default" });`,
     `const localeToPath = ${JSON.stringify(localeToPath)};`,
     `export const defaultLocale = ${JSON.stringify(input.defaultLocale)};`,
@@ -186,7 +192,7 @@ function generateCatalogVirtualModuleSource(input: CatalogVirtualModuleInput): s
     "  const load = modules[path];",
     "  if (load === undefined) return undefined;",
     "  const dict = await load();",
-    "  return flattenCatalog(dict);",
+    "  return flattenCatalog(dict, ignoreKey);",
     "}",
     "",
   ].join("\n");

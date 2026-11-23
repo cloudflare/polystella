@@ -421,6 +421,19 @@ describe("smoke: polystella(options) integration end-to-end", () => {
     await expect(harness.configSetup("build")).rejects.toThrow(/UI-strings dictionary drift/);
   });
 
+  it("reads catalog.ignoreKeys from polystella.config.mjs for the drift check and accepts it in shared options", async () => {
+    const catalog = { ignoreKeys: ["\\$schema"] };
+    const harness = await makeSmokeFixture({
+      files: {
+        "polystella.config.mjs": `export default { catalog: ${JSON.stringify(catalog)} };\n`,
+        "src/content/i18n/en-US.json": JSON.stringify({ $schema: "https://inlang.com/schema/inlang-message-format", "nav.home": "Home" }),
+      },
+      options: { sourceDir: "./content", dryRun: true, catalog },
+    });
+
+    await expect(harness.configSetup("build")).resolves.toBeUndefined();
+  });
+
   it("validates that defaultLocale exists in i18n.locales", async () => {
     // This is enforced by `resolveOptions`; we exercise it through
     // the integration to ensure the error path stays wired.

@@ -266,6 +266,13 @@ polystella sync-ui --base ./src/i18n
 polystella translate-ui --base ./src/i18n
 ```
 
+Entries that are not messages (inlang's `$schema`, variant-message
+arrays) go in `catalog.ignoreKeys` in `polystella.config.mjs`, never in
+the `catalogAstro()` or `polystella()` options. Patterns are regex
+strings matched against the whole dotted key:
+`catalog: { ignoreKeys: ["\\$schema"] }`. The CLI, the drift checks and
+`catalogAstro()` skip them and leave them untouched in locale files.
+
 Catalog files accept two formats, auto-detected per file (all locale
 files must use the same format):
 

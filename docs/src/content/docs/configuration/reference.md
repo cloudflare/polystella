@@ -103,3 +103,5 @@ For prose context on individual options, see the
 | `mode` | enum: `auto` \| `standalone` \| `starlight` | `"auto"` | Optional | Integration mode. `auto` and `standalone` are equivalent today; `starlight` is planned but not yet supported. |
 | `verbose` | boolean | `false` | Optional | Log one line per (file, locale) pair. Off by default; the closing summary and failures still log. |
 | `middleware` | boolean | `true` | Optional | Auto-register the polystella request middleware. `false` disables auto-registration so you can compose manually via `sequence(...)`. |
+| `catalog` | object | — | Optional | UI-string catalog options. Read only from `polystella.config.mjs`, by the catalog CLI commands, the drift checks and `catalogAstro()`. |
+| `catalog.ignoreKeys` | array of string | — | Optional | Regex strings matched against whole dotted catalog keys (`"\\$schema"`, `"internal\\..*"`). Matching entries are never synced, checked or translated, and stay untouched in locale files. |

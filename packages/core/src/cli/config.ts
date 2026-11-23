@@ -3,6 +3,7 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
+import { compileIgnoreKeys, type IgnoreKey } from "../catalog/flatten.js";
 import { assertLocaleTags, parseLocaleTags, type LocaleTags } from "../catalog/locale-tags.js";
 import type { ModelChoice, ModelChoiceSpec, ModelSpec } from "../index.js";
 import { workersAIParamsProblem } from "../providers/workers-ai.js";
@@ -157,6 +158,31 @@ export function resolveLocaleTagsConfig(raw: unknown, i18n: AstroI18nConfig): Lo
   const localeTags = parseLocaleTags(asRecordOrUndefined(raw)?.localeTags, "polystella");
   assertLocaleTags(i18n.locales, localeTags, "polystella");
   return localeTags;
+}
+
+/** The `catalog` block of `polystella.config.mjs`. */
+export interface CatalogOptions {
+  /** `catalog.ignoreKeys` as written, for generated code. */
+  ignoreKeys: string[];
+  /** `ignoreKeys` compiled; `undefined` when there are none. */
+  ignoreKey?: IgnoreKey | undefined;
+}
+
+/** Validated `catalog` block from a raw config; `raw` is `undefined` when there is no config file. */
+export function resolveCatalogOptions(raw: unknown): CatalogOptions {
+  const value = asRecordOrUndefined(raw)?.catalog;
+  if (value === undefined) return { ignoreKeys: [] };
+  const catalog = requireRecord(value, "catalog");
+  rejectUnknownKeys(catalog, ["ignoreKeys"], "catalog");
+  const ignoreKeys = catalog.ignoreKeys ?? [];
+  if (!Array.isArray(ignoreKeys) || !ignoreKeys.every((pattern): pattern is string => typeof pattern === "string" && pattern.length > 0)) {
+    throw configurationError("catalog.ignoreKeys", "must be an array of non-empty regular expression strings (not RegExp objects)");
+  }
+  try {
+    return { ignoreKeys, ignoreKey: compileIgnoreKeys(ignoreKeys) };
+  } catch (error) {
+    throw configurationError("catalog.ignoreKeys", `contains an invalid regular expression: ${errorMessage(error)}`);
+  }
 }
 
 /** Resolve only options used by translate-ui; unrelated integration options are ignored. */

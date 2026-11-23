@@ -550,6 +550,22 @@ export const polystellaOptionsSchema = z
       .describe(
         "Auto-register the polystella request middleware. `false` disables auto-registration so you can compose manually via `sequence(...)`.",
       ),
+
+    // Read from polystella.config.mjs, not from these options; accepted so a shared config object validates.
+    catalog: z
+      .object({
+        ignoreKeys: z
+          .array(z.string().min(1))
+          .optional()
+          .describe(
+            'Regex strings matched against whole dotted catalog keys (`"\\\\$schema"`, `"internal\\\\..*"`). Matching entries are never synced, checked or translated, and stay untouched in locale files.',
+          ),
+      })
+      .strict()
+      .optional()
+      .describe(
+        "UI-string catalog options. Read only from `polystella.config.mjs`, by the catalog CLI commands, the drift checks and `catalogAstro()`.",
+      ),
   })
   .strict();
 

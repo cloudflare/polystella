@@ -2,7 +2,13 @@ import path from "node:path";
 
 import type { LocaleTags } from "../catalog/locale-tags.js";
 
-import { loadAstroI18n, loadOptionalPolystellaConfig, resolveLocaleTagsConfig } from "./config.js";
+import {
+  loadAstroI18n,
+  loadOptionalPolystellaConfig,
+  resolveCatalogOptions,
+  resolveLocaleTagsConfig,
+  type CatalogOptions,
+} from "./config.js";
 import { formatDriftIssues, formatMessageIssues, loadAndCheckDrift } from "./drift.js";
 
 const DEFAULT_CATALOG_BASE = "./src/content/i18n";
@@ -17,8 +23,8 @@ export const CHECK_UI_USAGE = `polystella check-ui
 Verify every non-default locale's UI-string JSON has the same key set as
 the default locale, and that every string is a valid message whose
 placeholders, plural and select branches match the default locale.
-Runs offline — suitable for a pre-commit hook. Reads localeTags from
-polystella.config.mjs when present.
+Runs offline — suitable for a pre-commit hook. Reads localeTags and
+catalog.ignoreKeys from polystella.config.mjs when present.
 
 Usage:
   polystella check-ui [flags]
@@ -76,8 +82,11 @@ export async function runCheckUi(args: CheckUiArgs, deps: CheckUiDeps): Promise<
   }
 
   let localeTags: LocaleTags | undefined;
+  let catalog: CatalogOptions;
   try {
-    localeTags = resolveLocaleTagsConfig(await loadOptionalPolystellaConfig(deps.cwd), i18n);
+    const config = await loadOptionalPolystellaConfig(deps.cwd);
+    localeTags = resolveLocaleTagsConfig(config, i18n);
+    catalog = resolveCatalogOptions(config);
   } catch (error) {
     const message = errorMessage(error);
     deps.err(message.startsWith("[polystella]") ? message : `[polystella] ${message}`);
@@ -91,6 +100,7 @@ export async function runCheckUi(args: CheckUiArgs, deps: CheckUiDeps): Promise<
     locales: i18n.locales,
     defaultLocale: i18n.defaultLocale,
     localeTags,
+    ignoreKey: catalog.ignoreKey,
   });
   if (result.ok && result.messageIssues.length === 0) {
     deps.log(`[polystella] UI-strings drift check passed (${i18n.locales.length} locales, base: ${path.normalize(baseDir)}).`);

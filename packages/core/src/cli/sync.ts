@@ -1,7 +1,8 @@
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import { detectCatalogFormat, flattenCatalog, formatNestedLocaleFile } from "../catalog/index.js";
+import { keptIgnoredValue, renderJsonValue, schemaFirst } from "../catalog/flatten.js";
+import { detectCatalogFormat, flattenCatalog, formatNestedLocaleFile, type IgnoreKey } from "../catalog/index.js";
 
 export { formatNestedLocaleFile, type FormatNestedLocaleFileOptions } from "../catalog/index.js";
 
@@ -87,19 +88,28 @@ export function syncLocaleDict(input: SyncLocaleDictInput): SyncLocaleDictResult
 export interface FormatLocaleFileOptions {
   dict: Record<string, string>;
   layout: SourceLayout;
+  source?: Record<string, unknown> | undefined;
+  existing?: Record<string, unknown> | undefined;
+  /** Matching entries are kept from `existing` verbatim and never created (except a top-level `$schema`). */
+  ignoreKey?: IgnoreKey | undefined;
 }
 
+/** Entries follow the source layout's key order; target-only ignored entries go last. */
 export function formatLocaleFile(options: FormatLocaleFileOptions): string {
-  const keys = Object.keys(options.dict);
-  if (keys.length === 0) return "{}\n";
+  const rendered = new Map<string, string>();
+  const candidates = [...options.layout.keys, ...Object.keys(options.dict), ...Object.keys(options.existing ?? {})];
+  for (const key of schemaFirst(candidates, options.ignoreKey)) {
+    if (options.ignoreKey?.(key) === true) {
+      const kept = keptIgnoredValue(key, key, options.source, options.existing);
+      if (kept !== undefined) rendered.set(key, renderJsonValue(kept, "  "));
+    } else if (Object.hasOwn(options.dict, key)) rendered.set(key, JSON.stringify(options.dict[key]));
+  }
+  const entries = [...rendered];
+  if (entries.length === 0) return "{}\n";
   const lines: string[] = ["{"];
-  for (let index = 0; index < keys.length; index++) {
-    const key = keys[index];
-    if (key === undefined) continue;
-    const value = options.dict[key];
-    if (value === undefined) continue;
+  for (const [index, [key, value]] of entries.entries()) {
     if (index > 0 && options.layout.blankBefore.has(key)) lines.push("");
-    lines.push(`  ${JSON.stringify(key)}: ${JSON.stringify(value)}${index === keys.length - 1 ? "" : ","}`);
+    lines.push(`  ${JSON.stringify(key)}: ${value}${index === entries.length - 1 ? "" : ","}`);
   }
   lines.push("}");
   return `${lines.join("\n")}\n`;
@@ -110,6 +120,8 @@ export interface ApplySyncOptions {
   baseDir: string;
   defaultLocale: string;
   locales: ReadonlyArray<string>;
+  /** From `catalog.ignoreKeys`: matching entries are never synced and stay untouched in target files. */
+  ignoreKey?: IgnoreKey | undefined;
 }
 
 export interface ApplySyncLocaleResult {
@@ -140,8 +152,9 @@ export async function applySyncToDisk(options: ApplySyncOptions): Promise<ApplyS
     throw error;
   }
   const sourceParsed = parseCatalog(sourceRaw, sourcePath);
-  const sourceFormat = detectCatalogFormat(sourceParsed);
-  const source = flattenCatalogAtPath(sourceParsed, sourcePath);
+  const { ignoreKey } = options;
+  const sourceFormat = detectCatalogFormat(sourceParsed, ignoreKey);
+  const source = flattenCatalogAtPath(sourceParsed, sourcePath, ignoreKey);
   const layout = sourceFormat === "flat" ? parseSourceLayout(sourceRaw) : undefined;
   const sourceKeyOrder = layout?.keys ?? Object.keys(source);
   const results: ApplySyncLocaleResult[] = [];
@@ -161,12 +174,11 @@ export async function applySyncToDisk(options: ApplySyncOptions): Promise<ApplyS
     }
     const created = existingRaw === undefined;
     const existingParsed = existingRaw === undefined ? undefined : parseCatalog(existingRaw, filePath);
-    const existing = existingParsed === undefined ? {} : flattenCatalogAtPath(existingParsed, filePath);
+    const existing = existingParsed === undefined ? {} : flattenCatalogAtPath(existingParsed, filePath, ignoreKey);
     const sync = syncLocaleDict({ source, existing, sourceKeyOrder });
+    const files = { dict: sync.dict, source: sourceParsed, existing: existingParsed, ignoreKey };
     const nextText =
-      sourceFormat === "nested" || layout === undefined
-        ? formatNestedLocaleFile({ dict: sync.dict, source: sourceParsed, existing: existingParsed })
-        : formatLocaleFile({ dict: sync.dict, layout });
+      sourceFormat === "nested" || layout === undefined ? formatNestedLocaleFile(files) : formatLocaleFile({ ...files, layout });
     const localeChanged = created || existingRaw !== nextText;
     if (localeChanged) {
       await writeFile(filePath, nextText, "utf8");
@@ -205,9 +217,13 @@ function parseCatalog(raw: string, filePath: string): Record<string, unknown> {
   }
 }
 
-function flattenCatalogAtPath(catalog: Record<string, unknown>, filePath: string): Record<string, string> {
+function flattenCatalogAtPath(
+  catalog: Record<string, unknown>,
+  filePath: string,
+  ignoreKey: IgnoreKey | undefined,
+): Record<string, string> {
   try {
-    return flattenCatalog(catalog);
+    return flattenCatalog(catalog, ignoreKey);
   } catch (error) {
     throw new Error(`[polystella] failed to parse ${filePath}: ${errorMessage(error)}`);
   }

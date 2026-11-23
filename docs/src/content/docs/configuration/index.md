@@ -68,6 +68,41 @@ silent fallbacks. A few specific cross-checks:
 - `mode: "starlight"` is rejected at parse time; that mode is
   planned but not yet shipped.
 
+## Catalog options
+
+The `catalog` block holds options for UI-string catalogs
+(`src/content/i18n/<locale>.json`). It is read **only from
+`polystella.config.mjs`**: by `sync-ui`, `check-ui` and `translate-ui`,
+by the build's drift check, and by `catalogAstro()`. `polystella()`
+accepts the key so you can pass the same config object to it, but
+`catalog` options written inline in `astro.config.mjs` have no effect
+(the integration warns). The EmDash plugin and the standalone
+`i18nSchema()` helper don't read it.
+
+`catalog.ignoreKeys` is a list of regex strings for entries that are
+not messages, such as the `$schema` key that inlang / Paraglide message
+files carry:
+
+```js
+// polystella.config.mjs
+export default {
+  catalog: {
+    ignoreKeys: ["\\$schema", "internal\\..*"],
+  },
+};
+```
+
+- Each pattern must match the **whole** dotted key: `"\\$schema"`
+  matches only `$schema`, `"internal\\..*"` every key under `internal`.
+  Write strings, not `RegExp` objects.
+- A pattern that matches a group (`"internal"`) skips the whole group.
+- Ignored entries are never synced, checked or translated, and their
+  value can be anything (an inlang variant message is an array).
+- Ignored entries already in a locale file are kept as they are; the
+  commands never add one, except a top-level `$schema` from the
+  default-locale file, which is copied in first.
+- An invalid pattern fails at config load.
+
 ## Branch-aware configuration
 
 PolyStella reads `WORKERS_CI_BRANCH` from the environment. Workers

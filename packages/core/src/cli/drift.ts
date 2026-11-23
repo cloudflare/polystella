@@ -1,7 +1,14 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
-import { detectCatalogFormat, flattenCatalog, resolveLocaleTag, type CatalogFormat, type LocaleTags } from "../catalog/index.js";
+import {
+  detectCatalogFormat,
+  flattenCatalog,
+  resolveLocaleTag,
+  type CatalogFormat,
+  type IgnoreKey,
+  type LocaleTags,
+} from "../catalog/index.js";
 import { describeTokenValidationIssue, validateMessage, validateMessageTranslation } from "../catalog/translate.js";
 
 export interface DriftIssue {
@@ -126,6 +133,8 @@ export interface LoadAndCheckDriftOptions {
   locales: ReadonlyArray<string>;
   defaultLocale: string;
   localeTags?: LocaleTags | undefined;
+  /** From `catalog.ignoreKeys`: matching keys are neither compared nor validated. */
+  ignoreKey?: IgnoreKey | undefined;
 }
 
 /** `ok` covers key drift only; `messageIssues` lists invalid or mismatched messages separately. */
@@ -158,8 +167,8 @@ export async function loadAndCheckDrift(options: LoadAndCheckDriftOptions): Prom
         }).`,
       );
     }
-    dictionaries[locale] = flattenCatalog(parsed);
-    formats.set(locale, detectCatalogFormat(parsed));
+    dictionaries[locale] = flattenCatalog(parsed, options.ignoreKey);
+    formats.set(locale, detectCatalogFormat(parsed, options.ignoreKey));
   }
 
   const defaultFormat = formats.get(options.defaultLocale);

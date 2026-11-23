@@ -59,7 +59,9 @@ large locale sets show how many catalogs are being handled.
 Both flat and nested catalogs are supported. Nested groups are
 flattened to dotted keys so `t("site.title")` works identically in
 either format; an optional `i18n_group_title` key per group is
-metadata and is never translated.
+metadata and is never translated. Keys matching
+[`catalog.ignoreKeys`](/configuration/#catalog-options) are never sent
+to the model and stay as they are in every locale file.
 
 ## Workers AI thinking and params
 
