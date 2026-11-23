@@ -1,7 +1,24 @@
 /** Provider-independent model transport used by the translation pipeline. */
 export interface Translator {
   readonly modelId: string;
-  translate(systemPrompt: string, userPrompt: string, signal?: AbortSignal | undefined): Promise<string>;
+  /** `onResponse`, when given, receives what the provider reported about the reply, before the reply is checked. */
+  translate(
+    systemPrompt: string,
+    userPrompt: string,
+    signal?: AbortSignal | undefined,
+    onResponse?: ((info: ProviderResponseInfo) => void) | undefined,
+  ): Promise<string>;
+}
+
+/** What a provider reported about one reply, for diagnostics. Fields the provider doesn't report are absent. */
+export interface ProviderResponseInfo {
+  finishReason?: string | undefined;
+  /** Length of the model's separate reasoning text, for reasoning models that return one. */
+  reasoningCharacters?: number | undefined;
+  inputTokens?: number | undefined;
+  outputTokens?: number | undefined;
+  /** Output tokens spent on reasoning, when the provider counts them separately. */
+  reasoningTokens?: number | undefined;
 }
 
 /** Provider failure that retries cannot resolve, such as invalid credentials. */

@@ -56,6 +56,7 @@ export function createTranslationDebugCollector(options: TranslationDebugCollect
         response: event.response ?? null,
         translations: event.translations === undefined ? null : Object.fromEntries(event.translations),
         error: event.error === undefined ? null : publicTranslationFailure(event.error),
+        ...(event.providerResponse === undefined ? {} : { providerResponse: { ...event.providerResponse } }),
       });
     },
     markLastAttemptError(error) {

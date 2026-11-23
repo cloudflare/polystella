@@ -4,7 +4,7 @@ import { estimateInputTokens } from "./batch.js";
 import { selectGlossaryForText, type Glossary, type GlossaryStats } from "./glossary.js";
 import { buildPrompt, parseResponse, type BuiltPrompt } from "./prompt.js";
 import type { Segment } from "./segment.js";
-import { isPermanentProviderError, type Translator } from "./translator.js";
+import { isPermanentProviderError, type ProviderResponseInfo, type Translator } from "./translator.js";
 
 /** Options for translating and validating one provider request. */
 export interface TranslateBatchOptions {
@@ -46,6 +46,8 @@ export interface TranslateBatchAttemptEvent {
   userPrompt: string;
   /** The glossary terms this batch's prompt carried, out of all of them. */
   glossary: GlossaryStats;
+  /** What the provider reported about the reply, when it reports anything. */
+  providerResponse?: ProviderResponseInfo | undefined;
   response?: string | undefined;
   translations?: Map<string, string> | undefined;
   durationMs: number;
@@ -98,53 +100,39 @@ export async function translateBatch(options: TranslateBatchOptions): Promise<Ma
   const totalAttempts = Math.max(1, maxRetries + 1);
   let attempt = 0;
 
-  const runAttempt =
-    onBatchAttempt === undefined
-      ? async (): Promise<Map<string, string>> => {
-          signal?.throwIfAborted();
-          return parseResponse(await translator.translate(systemPrompt, userPrompt, signal), expectedIds);
-        }
-      : async (): Promise<Map<string, string>> => {
-          signal?.throwIfAborted();
-          attempt += 1;
-          const startedAt = performance.now();
-          let response: string | undefined;
-          try {
-            response = await translator.translate(systemPrompt, userPrompt, signal);
-            const translations = parseResponse(response, expectedIds);
-            notifyBatchAttempt(onBatchAttempt, {
-              attempt,
-              totalAttempts,
-              modelId: translator.modelId,
-              segments: segments.map((segment) => ({ ...segment })),
-              estimatedInputTokens: estimateInputTokens(segments),
-              sourceCharacters: segments.reduce((total, segment) => total + segment.text.length, 0),
-              systemPrompt,
-              userPrompt,
-              glossary: glossaryStats,
-              response,
-              translations: new Map(translations),
-              durationMs: performance.now() - startedAt,
-            });
-            return translations;
-          } catch (error) {
-            notifyBatchAttempt(onBatchAttempt, {
-              attempt,
-              totalAttempts,
-              modelId: translator.modelId,
-              segments: segments.map((segment) => ({ ...segment })),
-              estimatedInputTokens: estimateInputTokens(segments),
-              sourceCharacters: segments.reduce((total, segment) => total + segment.text.length, 0),
-              systemPrompt,
-              userPrompt,
-              glossary: glossaryStats,
-              ...(response === undefined ? {} : { response }),
-              durationMs: performance.now() - startedAt,
-              error,
-            });
-            throw error;
-          }
-        };
+  const runAttempt = async (): Promise<Map<string, string>> => {
+    signal?.throwIfAborted();
+    attempt += 1;
+    const startedAt = performance.now();
+    let response: string | undefined;
+    let providerResponse: ProviderResponseInfo | undefined;
+    const event = () => ({
+      attempt,
+      totalAttempts,
+      modelId: translator.modelId,
+      segments: segments.map((segment) => ({ ...segment })),
+      estimatedInputTokens: estimateInputTokens(segments),
+      sourceCharacters: segments.reduce((total, segment) => total + segment.text.length, 0),
+      systemPrompt,
+      userPrompt,
+      glossary: glossaryStats,
+      ...(providerResponse === undefined ? {} : { providerResponse }),
+      durationMs: performance.now() - startedAt,
+    });
+    try {
+      response = await translator.translate(systemPrompt, userPrompt, signal, (info) => {
+        providerResponse = info;
+      });
+      const translations = parseResponse(response, expectedIds);
+      if (onBatchAttempt !== undefined) notifyBatchAttempt(onBatchAttempt, { ...event(), response, translations: new Map(translations) });
+      return translations;
+    } catch (error) {
+      if (onBatchAttempt !== undefined) {
+        notifyBatchAttempt(onBatchAttempt, { ...event(), ...(response === undefined ? {} : { response }), error });
+      }
+      throw attachProviderResponse(error, providerResponse);
+    }
+  };
 
   return pRetry(runAttempt, {
     retries: maxRetries,
@@ -159,6 +147,14 @@ export async function translateBatch(options: TranslateBatchOptions): Promise<Ma
       }
     },
   });
+}
+
+/** Server logs read `providerResponse` off the error, to show why a reply failed without the debug trace. */
+function attachProviderResponse(error: unknown, info: ProviderResponseInfo | undefined): unknown {
+  if (info !== undefined && error instanceof Error && !Object.hasOwn(error, "providerResponse")) {
+    Object.defineProperty(error, "providerResponse", { value: info, enumerable: false });
+  }
+  return error;
 }
 
 function notifyBatchAttempt(callback: (event: TranslateBatchAttemptEvent) => void, event: TranslateBatchAttemptEvent): void {

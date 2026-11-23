@@ -494,9 +494,23 @@ to the concrete factories in `packages/core/src/providers/`.
 ```ts
 interface Translator {
   readonly modelId: string; // resolved per-locale; in cache key
-  translate(systemPrompt: string, userPrompt: string, signal?: AbortSignal): Promise<string>; // raw text; caller parses
+  translate(
+    systemPrompt: string,
+    userPrompt: string,
+    signal?: AbortSignal,
+    onResponse?: (info: ProviderResponseInfo) => void, // finish reason, reasoning size, token usage
+  ): Promise<string>; // raw text; caller parses
 }
 ```
+
+`translateBatch` records `onResponse` info on each attempt event and
+attaches it to a failed attempt's error as `providerResponse`, so
+server logs show why a reply failed. Workers AI translators also take
+model `params` (extra input such as `chat_template_kwargs`; keys
+PolyStella sets are rejected) and `timeoutMs`. A timeout aborts the
+HTTP request; the binding takes no signal, so PolyStella stops waiting
+while the upstream call may continue. `ProviderTimeoutError` is
+retriable.
 
 Permanent vs retriable (**Invariant 8**):
 

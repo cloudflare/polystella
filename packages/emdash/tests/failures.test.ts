@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { publicTranslationFailure } from "../src/server/routes/failures.js";
+import { ProviderTimeoutError } from "@cloudflare/polystella-core/providers/workers-ai";
+
+import type { PolystellaEmdashOptions } from "../src/server/options.js";
+import { publicTranslationFailure, translationFailureMessage } from "../src/server/routes/failures.js";
+import { createTranslator } from "../src/server/routes/provider.js";
 
 describe("publicTranslationFailure", () => {
   it("explains Workers AI timeouts and hides other provider errors", () => {
@@ -8,8 +12,39 @@ describe("publicTranslationFailure", () => {
     expect(publicTranslationFailure(timeout)).toBe(
       "The translation model timed out (Workers AI error 3046). Try again, or translate fewer fields at once or pick a faster model.",
     );
+    expect(publicTranslationFailure(new ProviderTimeoutError(200_000))).toBe(
+      "The translation model timed out (no reply within 200 s). Try again, or translate fewer fields at once or pick a faster model.",
+    );
     expect(publicTranslationFailure(Object.assign(new Error("5007: private detail"), { name: "AiError" }))).toBe(
       "PolyStella translation failed",
     );
+  });
+
+  it("logs the provider's reply info with the raw error", () => {
+    const logged: unknown[] = [];
+    const log = { error: (_message: string, data: unknown) => logged.push(data) } as unknown as Parameters<
+      typeof translationFailureMessage
+    >[1];
+    const error = new Error("[polystella] no segment markers in the model response.");
+    Object.defineProperty(error, "providerResponse", { value: { finishReason: "length", reasoningTokens: 8000 } });
+    translationFailureMessage(error, log, "content", true, "id-1");
+    expect(logged).toEqual([
+      expect.objectContaining({ raw: [expect.objectContaining({ providerResponse: { finishReason: "length", reasoningTokens: 8000 } })] }),
+    ]);
+  });
+});
+
+describe("createTranslator", () => {
+  it("sends the model's params", async () => {
+    const inputs: unknown[] = [];
+    const options = {
+      provider: { kind: "workers-ai-binding", binding: "AI" },
+      models: { allowed: ["glm"], defaults: "glm", params: { glm: { chat_template_kwargs: { enable_thinking: false } } } },
+    } as unknown as PolystellaEmdashOptions;
+    const env = { AI: { run: async (_model: string, input: unknown) => (inputs.push(input), { response: "@@a@@\nHallo" }) } };
+    const log = { error: () => undefined } as unknown as Parameters<typeof createTranslator>[3];
+    const translator = createTranslator(options, env, "glm", log, { getEnv: async () => env, now: () => new Date() });
+    await translator.translate("system", "user");
+    expect(inputs).toEqual([expect.objectContaining({ chat_template_kwargs: { enable_thinking: false } })]);
   });
 });

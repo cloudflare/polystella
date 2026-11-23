@@ -17,14 +17,15 @@ The Workers AI transport. Either a named binding on the EmDash
 deployment, or HTTP with runtime environment variable names (never
 literal credentials):
 
-| Field          | Type                                          | Notes                                                                                                                                                                                                              |
-| -------------- | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `kind`         | `"workers-ai-binding"` or `"workers-ai-http"` | Selects the transport.                                                                                                                                                                                             |
-| `binding`      | string                                        | Binding kind only. The named Workers AI binding on the EmDash deployment.                                                                                                                                          |
-| `accountIdEnv` | string                                        | HTTP kind only. Env var name for the account ID.                                                                                                                                                                   |
-| `apiTokenEnv`  | string                                        | HTTP kind only. Env var name for the API token.                                                                                                                                                                    |
-| `endpoint`     | string                                        | HTTP kind only, optional. Overrides the Workers AI endpoint.                                                                                                                                                       |
-| `maxTokens`    | number                                        | Optional. Defaults to `8192`. Do not lower it — the default is already the floor for multi-segment translations; truncation produces invalid JSON. Administrators can override it in the Translation settings tab. |
+| Field          | Type                                          | Notes                                                                                                                                                                                                                                             |
+| -------------- | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `kind`         | `"workers-ai-binding"` or `"workers-ai-http"` | Selects the transport.                                                                                                                                                                                                                            |
+| `binding`      | string                                        | Binding kind only. The named Workers AI binding on the EmDash deployment.                                                                                                                                                                         |
+| `accountIdEnv` | string                                        | HTTP kind only. Env var name for the account ID.                                                                                                                                                                                                  |
+| `apiTokenEnv`  | string                                        | HTTP kind only. Env var name for the API token.                                                                                                                                                                                                   |
+| `endpoint`     | string                                        | HTTP kind only, optional. Overrides the Workers AI endpoint.                                                                                                                                                                                      |
+| `timeoutMs`    | number                                        | Optional. Defaults to `200000` (200 s), under Workers AI's own timeout of about 236 s. A request still running then fails with "The translation model timed out". With the binding, PolyStella stops waiting, but Workers AI may finish the call. |
+| `maxTokens`    | number                                        | Optional. Defaults to `8192`. Do not lower it — the default is already the floor for multi-segment translations; truncation produces invalid JSON. Administrators can override it in the Translation settings tab.                                |
 
 ## `catalogs`
 
@@ -50,6 +51,24 @@ The model bounds for translation.
 | ---------- | --------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
 | `allowed`  | string[]              | Non-empty, unique. Administrators cannot select a model outside this list. Cannot contain the reserved `__polystella_code_default__`.  |
 | `defaults` | string or `ModelSpec` | A single model id, or `{ default, <locale>: model }`. Every locale key must match a configured catalog locale and appear in `allowed`. |
+
+`models.params` is optional: extra Workers AI input per allowed model,
+for settings the model's schema documents. For example, turn off
+GLM-4.7-flash's reasoning:
+
+```js
+models: {
+  allowed: ["@cf/zai-org/glm-4.7-flash"],
+  defaults: "@cf/zai-org/glm-4.7-flash",
+  params: {
+    "@cf/zai-org/glm-4.7-flash": { chat_template_kwargs: { enable_thinking: false } },
+  },
+},
+```
+
+Keys must be allowed models. `messages`, `prompt`, `max_tokens`,
+`max_completion_tokens` and `stream` are set by PolyStella and are
+rejected. Params apply to both the binding and HTTP providers.
 
 `models.defaults` may set a `default` fallback and locale-specific
 models. Each target locale receives its own model and glossary
@@ -258,9 +277,12 @@ replace. Configure collection and field policy in the
   strings or `{ path, format: "markdown" }` objects, use paths like
   `title`, `cta.label` or `cards[].title`, and not target the reserved
   `block` or `span` types.
+- Every `models.params` key must be in `models.allowed`, and its object
+  must not set `messages`, `prompt`, `max_tokens`,
+  `max_completion_tokens` or `stream`.
 - Provider env/binding names and `batchQueueBinding` must be valid
   environment binding names; `endpoint` must be a valid URL;
-  `maxTokens` must be a positive integer.
+  `maxTokens` and `timeoutMs` must be positive integers.
 
 ## Astro integration options
 

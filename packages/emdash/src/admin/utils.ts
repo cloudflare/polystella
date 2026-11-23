@@ -127,7 +127,8 @@ function isTranslationDebugAttempt(value: unknown): boolean {
     (value.response === null || typeof value.response === "string") &&
     (value.translations === null ||
       (isRecord(value.translations) && Object.values(value.translations).every((item) => typeof item === "string"))) &&
-    (value.error === null || typeof value.error === "string")
+    (value.error === null || typeof value.error === "string") &&
+    (value.providerResponse === undefined || isRecord(value.providerResponse))
   );
 }
 

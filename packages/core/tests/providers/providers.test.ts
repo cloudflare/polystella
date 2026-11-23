@@ -2,7 +2,7 @@ import { EMPTY_GLOSSARY, PermanentProviderError, translateBatch } from "../../sr
 import { describe, expect, it, vi } from "vitest";
 
 import { createAnthropicTranslator } from "../../src/providers/anthropic.js";
-import { createWorkersAIBindingTranslator, createWorkersAIHttpTranslator } from "../../src/providers/workers-ai.js";
+import { createWorkersAIBindingTranslator, createWorkersAIHttpTranslator, ProviderTimeoutError } from "../../src/providers/workers-ai.js";
 
 function makeFetchStub(body: unknown, init: { status?: number; statusText?: string; rawText?: string } = {}) {
   const responseBody = init.rawText ?? JSON.stringify(body);
@@ -196,6 +196,76 @@ describe("Workers AI binding translator", () => {
       run: vi.fn().mockResolvedValue(42),
     });
     await expect(translator.translate("s", "u")).rejects.toThrow(/unexpected Workers AI binding response shape.*42/s);
+  });
+});
+
+describe("Workers AI request controls", () => {
+  const reply = {
+    choices: [{ finish_reason: "stop", message: { content: "@@a@@\nHallo", reasoning_content: "x".repeat(42) } }],
+    usage: { prompt_tokens: 120, completion_tokens: 300, completion_tokens_details: { reasoning_tokens: 250 } },
+  };
+
+  it("sends model params with both transports and reports finish reason, reasoning and usage", async () => {
+    const run = vi.fn(async () => reply);
+    const params = { chat_template_kwargs: { enable_thinking: false } };
+    const binding = createWorkersAIBindingTranslator({ modelId: "glm", maxTokens: 100, params, run });
+    const reported: unknown[] = [];
+    await expect(binding.translate("system", "user", undefined, (info) => reported.push(info))).resolves.toBe("@@a@@\nHallo");
+    expect(run).toHaveBeenCalledWith("glm", expect.objectContaining({ ...params, max_tokens: 100 }));
+
+    const fetchImpl = vi.fn(async () => Response.json({ success: true, result: reply }));
+    const http = createWorkersAIHttpTranslator({ accountId: "a", apiToken: "t", modelId: "glm", maxTokens: 100, params, fetchImpl });
+    await http.translate("system", "user", undefined, (info) => reported.push(info));
+    const [, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
+    expect(JSON.parse(String(init.body))).toMatchObject(params);
+
+    const info = { finishReason: "stop", reasoningCharacters: 42, inputTokens: 120, outputTokens: 300, reasoningTokens: 250 };
+    expect(reported).toEqual([info, info]);
+    expect(() => createWorkersAIBindingTranslator({ modelId: "glm", maxTokens: 100, params: { max_tokens: 5 }, run })).toThrow(
+      'Workers AI params cannot set "max_tokens"',
+    );
+  });
+
+  it("stops waiting after timeoutMs, aborting the HTTP request", async () => {
+    const binding = createWorkersAIBindingTranslator({ modelId: "glm", maxTokens: 100, timeoutMs: 20, run: () => new Promise(() => {}) });
+    await expect(binding.translate("system", "user")).rejects.toBeInstanceOf(ProviderTimeoutError);
+
+    let aborted = false;
+    const fetchImpl = vi.fn(
+      (_url: string | URL | Request, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => {
+            aborted = true;
+            reject(init.signal?.reason);
+          });
+        }),
+    );
+    const http = createWorkersAIHttpTranslator({ accountId: "a", apiToken: "t", modelId: "glm", maxTokens: 100, timeoutMs: 20, fetchImpl });
+    await expect(http.translate("system", "user")).rejects.toThrow("[polystella] the model did not answer within 0.02 s");
+    expect(aborted).toBe(true);
+
+    const cancelled = new AbortController();
+    cancelled.abort(new Error("cancelled"));
+    await expect(binding.translate("system", "user", cancelled.signal)).rejects.toThrow("cancelled");
+  });
+
+  it("puts the reply info on the batch attempt event and on the error", async () => {
+    const events: unknown[] = [];
+    const failing = createWorkersAIBindingTranslator({
+      modelId: "glm",
+      maxTokens: 100,
+      run: async () => ({ ...reply, choices: [{ ...reply.choices[0], message: { content: "@@" } }] }),
+    });
+    const batch = translateBatch({
+      translator: failing,
+      segments: [{ id: "a", text: "Hello" }],
+      glossary: EMPTY_GLOSSARY,
+      sourceLocale: "en",
+      targetLocale: "de",
+      onBatchAttempt: (event) => events.push(event.providerResponse),
+    });
+    await expect(batch).rejects.toMatchObject({ providerResponse: { finishReason: "stop", reasoningTokens: 250 } });
+    expect(events).toEqual([expect.objectContaining({ outputTokens: 300 })]);
   });
 });
 
