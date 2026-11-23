@@ -111,13 +111,17 @@ any field PolyStella wrote removes the flag right away.
 catalog, and sandbox translation traces include the effective model, batch
 metrics, exact prompts, every provider attempt, normalized model
 responses, parsed translations, validation issues, timings, and a
-diagnostic ID. Traces are returned only to administrators, are not
+diagnostic ID. Each attempt also shows what Workers AI reported: the
+finish reason, input and output tokens (with reasoning tokens when the
+model counts them) and the size of any reasoning text. Traces are returned only to administrators, are not
 stored server-side, and never include credentials, authorization
 headers, account IDs, or raw provider HTTP envelopes.
 
 Whether or not debug mode is on, every failure writes its diagnostic ID to the
 server log with the full error message, its code and cause chain, and for an
-unusable model reply the finish reason and reply field sizes. Editors see only a
+unusable model reply the finish reason and reply field sizes. When the model
+replied but the reply failed a check, the log also carries the finish reason,
+token usage and reasoning size. Editors see only a
 short, safe message and the same ID.
 
 ## Translation sandbox tab

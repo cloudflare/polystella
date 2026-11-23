@@ -1,16 +1,28 @@
-import type { Translator } from "../index.js";
+import type { ProviderResponseInfo, Translator } from "../index.js";
 
 import { createProviderHttpError } from "./http-error.js";
 import { outOfTokensError } from "./out-of-tokens.js";
+import { withRequestTimeout } from "./timeout.js";
+
+export { ProviderTimeoutError } from "./timeout.js";
 
 export interface WorkersAIInput {
   messages: Array<{ role: "system" | "user"; content: string }>;
   max_tokens: number;
+  /** Model-specific parameters from `params`, such as `chat_template_kwargs`. */
+  [parameter: string]: unknown;
 }
+
+/** Input keys PolyStella sets itself, so `params` can't override them. */
+export const RESERVED_WORKERS_AI_PARAMS: readonly string[] = ["messages", "prompt", "max_tokens", "max_completion_tokens", "stream"];
 
 interface WorkersAITranslatorOptions {
   modelId: string;
   maxTokens: number;
+  /** Extra input sent with every request, such as `{ chat_template_kwargs: { enable_thinking: false } }`. */
+  params?: Readonly<Record<string, unknown>> | undefined;
+  /** Stop waiting after this many milliseconds and throw `ProviderTimeoutError`. Default: no limit. */
+  timeoutMs?: number | undefined;
 }
 
 export interface WorkersAIHttpTranslatorOptions extends WorkersAITranslatorOptions {
@@ -29,29 +41,33 @@ export interface WorkersAIBindingTranslatorOptions extends WorkersAITranslatorOp
 export function createWorkersAIHttpTranslator(options: WorkersAIHttpTranslatorOptions): Translator {
   const { accountId, apiToken, modelId, maxTokens, endpoint, fetchImpl = fetch } = options;
   const url = endpoint ?? `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${modelId}`;
+  assertNoReservedParams(options.params);
 
   return {
     modelId,
-    async translate(systemPrompt, userPrompt, signal) {
+    async translate(systemPrompt, userPrompt, signal, onResponse) {
       signal?.throwIfAborted();
-      const response = await fetchImpl(url, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${apiToken}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(createInput(systemPrompt, userPrompt, maxTokens)),
-        ...(signal !== undefined ? { signal } : {}),
+      const data = await withRequestTimeout(options.timeoutMs, signal, async (requestSignal) => {
+        const response = await fetchImpl(url, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${apiToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(createInput(systemPrompt, userPrompt, maxTokens, options.params)),
+          ...(requestSignal !== undefined ? { signal: requestSignal } : {}),
+        });
+        requestSignal?.throwIfAborted();
+        if (!response.ok) throw await createProviderHttpError("Workers AI", response, requestSignal);
+        const body: unknown = await response.json();
+        return body;
       });
-      signal?.throwIfAborted();
-      if (!response.ok) throw await createProviderHttpError("Workers AI", response, signal);
-
-      const data: unknown = await response.json();
       signal?.throwIfAborted();
       if (property(data, "success") === false) {
         throw new Error(`[polystella] Workers AI returned errors: ${JSON.stringify(property(data, "errors") ?? [])}`);
       }
 
+      onResponse?.(responseInfo(property(data, "result") ?? data));
       return normalizeWorkersAIHttpResponse(data, modelId, maxTokens);
     },
   };
@@ -59,25 +75,60 @@ export function createWorkersAIHttpTranslator(options: WorkersAIHttpTranslatorOp
 
 export function createWorkersAIBindingTranslator(options: WorkersAIBindingTranslatorOptions): Translator {
   const { modelId, maxTokens, run } = options;
+  assertNoReservedParams(options.params);
   return {
     modelId,
-    async translate(systemPrompt, userPrompt, signal) {
+    async translate(systemPrompt, userPrompt, signal, onResponse) {
       signal?.throwIfAborted();
-      const data = await run(modelId, createInput(systemPrompt, userPrompt, maxTokens));
+      const input = createInput(systemPrompt, userPrompt, maxTokens, options.params);
+      const data = await withRequestTimeout(options.timeoutMs, signal, async () => await run(modelId, input));
       signal?.throwIfAborted();
+      onResponse?.(responseInfo(data));
       return normalizeWorkersAIBindingResponse(data, modelId, maxTokens);
     },
   };
 }
 
-function createInput(systemPrompt: string, userPrompt: string, maxTokens: number): WorkersAIInput {
+function createInput(
+  systemPrompt: string,
+  userPrompt: string,
+  maxTokens: number,
+  params: Readonly<Record<string, unknown>> | undefined,
+): WorkersAIInput {
   return {
+    ...params,
     messages: [
       { role: "system", content: systemPrompt },
       { role: "user", content: userPrompt },
     ],
     max_tokens: maxTokens,
   };
+}
+
+function assertNoReservedParams(params: Readonly<Record<string, unknown>> | undefined): void {
+  const reserved = Object.keys(params ?? {}).find((key) => RESERVED_WORKERS_AI_PARAMS.includes(key));
+  if (reserved !== undefined) throw new Error(`[polystella] Workers AI params cannot set "${reserved}"; PolyStella sets it`);
+}
+
+/** OpenAI-style `choices[0].finish_reason`, reasoning text and `usage`, as chat models on Workers AI return them. */
+function responseInfo(data: unknown): ProviderResponseInfo {
+  const choices = property(data, "choices");
+  const choice: unknown = Array.isArray(choices) ? choices[0] : undefined;
+  const message = property(choice, "message");
+  const reasoning = property(message, "reasoning_content") ?? property(message, "reasoning");
+  const usage = property(data, "usage");
+  const info: ProviderResponseInfo = {};
+  const finishReason = property(choice, "finish_reason");
+  if (typeof finishReason === "string") info.finishReason = finishReason;
+  if (typeof reasoning === "string") info.reasoningCharacters = reasoning.length;
+  const count = (value: unknown): number | undefined => (typeof value === "number" && Number.isFinite(value) ? value : undefined);
+  const inputTokens = count(property(usage, "prompt_tokens"));
+  const outputTokens = count(property(usage, "completion_tokens"));
+  const reasoningTokens = count(property(property(usage, "completion_tokens_details"), "reasoning_tokens"));
+  if (inputTokens !== undefined) info.inputTokens = inputTokens;
+  if (outputTokens !== undefined) info.outputTokens = outputTokens;
+  if (reasoningTokens !== undefined) info.reasoningTokens = reasoningTokens;
+  return info;
 }
 
 function normalizeWorkersAIHttpResponse(data: unknown, modelId: string, maxTokens: number): string {

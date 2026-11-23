@@ -75,6 +75,16 @@ export interface TranslationDebugAttempt {
   response: string | null;
   translations: Record<string, string> | null;
   error: string | null;
+  /** What Workers AI reported about the reply. Absent when it reported nothing, or in traces saved before it existed. */
+  providerResponse?:
+    | {
+        finishReason?: string | undefined;
+        reasoningCharacters?: number | undefined;
+        inputTokens?: number | undefined;
+        outputTokens?: number | undefined;
+        reasoningTokens?: number | undefined;
+      }
+    | undefined;
 }
 
 export interface TranslationDebugBatch {

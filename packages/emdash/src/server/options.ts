@@ -7,6 +7,7 @@ import {
   type CatalogSource,
   type LocaleTags,
 } from "@cloudflare/polystella-core/catalog";
+import { RESERVED_WORKERS_AI_PARAMS } from "@cloudflare/polystella-core/providers/workers-ai";
 
 import { USE_CODE_DEFAULT_MODEL } from "../contracts.js";
 
@@ -25,6 +26,8 @@ export type EmDashWorkersAIProvider =
       kind: "workers-ai-binding";
       binding: string;
       maxTokens?: number | undefined;
+      /** Stop waiting for a model reply after this many milliseconds. Default 200,000, under Workers AI's own ~236 s timeout. */
+      timeoutMs?: number | undefined;
     }
   | {
       kind: "workers-ai-http";
@@ -32,6 +35,8 @@ export type EmDashWorkersAIProvider =
       apiTokenEnv: string;
       endpoint?: string | undefined;
       maxTokens?: number | undefined;
+      /** Stop waiting for a model reply after this many milliseconds. Default 200,000, under Workers AI's own ~236 s timeout. */
+      timeoutMs?: number | undefined;
     };
 
 /** A text path inside a block, or a Markdown string at that path. */
@@ -46,6 +51,8 @@ export interface PolystellaEmdashOptions {
   models: {
     allowed: readonly string[];
     defaults: ModelSpec;
+    /** Extra Workers AI input per allowed model, such as `{ chat_template_kwargs: { enable_thinking: false } }`. */
+    params?: Readonly<Record<string, Readonly<Record<string, unknown>>>> | undefined;
   };
   glossaryDefaults?: Readonly<Record<string, Glossary>> | undefined;
   /** Let any letters follow a glossary term when deciding whether a batch uses it, so `Worker` matches "Workers". Default false. */
@@ -127,6 +134,15 @@ export function validatePolystellaEmdashOptions(value: unknown): asserts value i
     }
     if (!allowedModels.includes(model)) fail(`options.models.defaults.${locale} must exist in options.models.allowed`);
   }
+  if (models.params !== undefined) {
+    for (const [model, params] of Object.entries(readRecord(models.params, "options.models.params"))) {
+      if (!allowedModels.includes(model)) fail(`options.models.params.${model} must exist in options.models.allowed`);
+      const reserved = Object.keys(readRecord(params, `options.models.params.${model}`)).find((key) =>
+        RESERVED_WORKERS_AI_PARAMS.includes(key),
+      );
+      if (reserved !== undefined) fail(`options.models.params.${model}.${reserved} is set by PolyStella`);
+    }
+  }
 
   if (options.glossaryDefaults !== undefined) {
     const defaults = readRecord(options.glossaryDefaults, "options.glossaryDefaults");
@@ -180,12 +196,14 @@ export function serializeOptions(options: PolystellaEmdashOptions): SerializedPo
             kind: "workers-ai-binding",
             binding: options.provider.binding,
             ...(options.provider.maxTokens === undefined ? {} : { maxTokens: options.provider.maxTokens }),
+            ...(options.provider.timeoutMs === undefined ? {} : { timeoutMs: options.provider.timeoutMs }),
           }
         : {
             kind: "workers-ai-http",
             accountIdEnv: options.provider.accountIdEnv,
             apiTokenEnv: options.provider.apiTokenEnv,
             ...(options.provider.maxTokens === undefined ? {} : { maxTokens: options.provider.maxTokens }),
+            ...(options.provider.timeoutMs === undefined ? {} : { timeoutMs: options.provider.timeoutMs }),
             ...(options.provider.endpoint === undefined ? {} : { endpoint: options.provider.endpoint }),
           },
     catalogs: {
@@ -203,6 +221,7 @@ export function serializeOptions(options: PolystellaEmdashOptions): SerializedPo
     models: {
       allowed: [...options.models.allowed],
       defaults: typeof options.models.defaults === "string" ? options.models.defaults : { ...options.models.defaults },
+      ...(options.models.params === undefined ? {} : { params: structuredClone(options.models.params) }),
     },
     ...(options.glossaryDefaults === undefined
       ? {}
@@ -220,6 +239,7 @@ export function serializeOptions(options: PolystellaEmdashOptions): SerializedPo
             ]),
           ),
         }),
+    ...(options.glossaryMatchInflections === undefined ? {} : { glossaryMatchInflections: options.glossaryMatchInflections }),
     ...(options.rules === undefined ? {} : { rules: [...options.rules] }),
     ...(options.blockFields === undefined
       ? {}
@@ -285,17 +305,19 @@ function assertUnique(values: readonly string[], label: string): void {
 
 function validateProvider(value: unknown): void {
   const provider = readRecord(value, "options.provider");
-  const maxTokens = provider.maxTokens;
-  if (maxTokens !== undefined && (typeof maxTokens !== "number" || !Number.isInteger(maxTokens) || maxTokens <= 0)) {
-    fail("options.provider.maxTokens must be a positive integer");
+  for (const key of ["maxTokens", "timeoutMs"]) {
+    const value = provider[key];
+    if (value !== undefined && (typeof value !== "number" || !Number.isInteger(value) || value <= 0)) {
+      fail(`options.provider.${key} must be a positive integer`);
+    }
   }
   if (provider.kind === "workers-ai-binding") {
-    rejectUnknownKeys(provider, ["kind", "binding", "maxTokens"], "options.provider");
+    rejectUnknownKeys(provider, ["kind", "binding", "maxTokens", "timeoutMs"], "options.provider");
     readEnvironmentName(provider.binding, "options.provider.binding");
     return;
   }
   if (provider.kind === "workers-ai-http") {
-    rejectUnknownKeys(provider, ["kind", "accountIdEnv", "apiTokenEnv", "maxTokens", "endpoint"], "options.provider");
+    rejectUnknownKeys(provider, ["kind", "accountIdEnv", "apiTokenEnv", "maxTokens", "timeoutMs", "endpoint"], "options.provider");
     readEnvironmentName(provider.accountIdEnv, "options.provider.accountIdEnv");
     readEnvironmentName(provider.apiTokenEnv, "options.provider.apiTokenEnv");
     if (provider.endpoint !== undefined) {

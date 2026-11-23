@@ -10,6 +10,7 @@ import { PluginRouteError, type LogAccess } from "emdash";
 import type { PolystellaEmdashOptions } from "../options.js";
 
 export const MAX_TOKENS = 8192;
+const REQUEST_TIMEOUT_MS = 200_000;
 
 export interface PluginRouteDependencies {
   getEnv(): Promise<Record<string, unknown> | undefined>;
@@ -37,6 +38,8 @@ export function createTranslator(
     return createWorkersAIBindingTranslator({
       modelId,
       maxTokens,
+      params: options.models.params?.[modelId],
+      timeoutMs: provider.timeoutMs ?? REQUEST_TIMEOUT_MS,
       run: workersRun(binding),
     });
   }
@@ -55,6 +58,8 @@ export function createTranslator(
     apiToken,
     modelId,
     maxTokens,
+    params: options.models.params?.[modelId],
+    timeoutMs: provider.timeoutMs ?? REQUEST_TIMEOUT_MS,
     ...(provider.endpoint === undefined ? {} : { endpoint: provider.endpoint }),
     ...(dependencies.fetchImpl === undefined ? {} : { fetchImpl: dependencies.fetchImpl }),
   });

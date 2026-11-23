@@ -154,6 +154,34 @@ describe("polystellaEmdash", () => {
     expect(() => validatePolystellaEmdashOptions(options)).toThrow("[polystella-emdash]");
   });
 
+  it("validates model params and timeouts, and keeps them and glossaryMatchInflections through serialization", () => {
+    const base = validOptions();
+    const params = { "model-a": { chat_template_kwargs: { enable_thinking: false } } };
+    const options: PolystellaEmdashOptions = {
+      ...base,
+      provider: { kind: "workers-ai-binding", binding: "AI", timeoutMs: 120_000 },
+      models: { ...base.models, params },
+      glossaryMatchInflections: true,
+    };
+    const runtimeOptions = polystellaEmdash(options).options;
+    if (runtimeOptions === undefined) throw new Error("descriptor options are missing");
+    expect(deserializeOptions(runtimeOptions)).toMatchObject({
+      provider: { timeoutMs: 120_000 },
+      models: { params },
+      glossaryMatchInflections: true,
+    });
+
+    expect(() => validatePolystellaEmdashOptions({ ...options, models: { ...base.models, params: { "model-c": {} } } })).toThrow(
+      "options.models.params.model-c must exist in options.models.allowed",
+    );
+    expect(() =>
+      validatePolystellaEmdashOptions({ ...options, models: { ...base.models, params: { "model-a": { messages: [] } } } }),
+    ).toThrow("options.models.params.model-a.messages is set by PolyStella");
+    expect(() =>
+      validatePolystellaEmdashOptions({ ...options, provider: { kind: "workers-ai-binding", binding: "AI", timeoutMs: 0 } }),
+    ).toThrow("options.provider.timeoutMs must be a positive integer");
+  });
+
   it("keeps the batch queue binding through serialization", () => {
     const runtimeOptions = polystellaEmdash({ ...validOptions(), batchQueueBinding: "POLYSTELLA_BATCH" }).options;
     if (runtimeOptions === undefined) throw new Error("descriptor options are missing");
