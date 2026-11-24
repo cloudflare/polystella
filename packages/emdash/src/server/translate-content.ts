@@ -16,7 +16,13 @@ const MAX_TOTAL_CHARACTERS = 30_000;
 /** `cell` is `[row, cell]` for spans inside a table block, `null` for a text block's children. */
 type SpanContainer = { blockIndex: number; cell: readonly [number, number] | null };
 
-type SegmentTarget = { kind: "field"; field: string } | ({ kind: "span"; field: string; childIndex: number } & SpanContainer);
+/** Image values keep their media metadata; only these text properties are translated. */
+const IMAGE_TEXT_PROPERTIES = ["alt", "caption"] as const;
+
+type SegmentTarget =
+  | { kind: "field"; field: string }
+  | ({ kind: "span"; field: string; childIndex: number } & SpanContainer)
+  | { kind: "item"; field: string; item: number; subField: string; property: (typeof IMAGE_TEXT_PROPERTIES)[number] | null };
 
 type SegmentLocation = SegmentTarget & { leadingWhitespace: string; trailingWhitespace: string };
 
@@ -37,6 +43,8 @@ export interface TranslateContentFieldsOptions {
   onBatchAttempt?: ((event: TranslateBatchAttemptEvent) => void) | undefined;
   onValidationIssue?: ((segmentIds: string[], message: string) => void) | undefined;
   signal?: AbortSignal | undefined;
+  /** Repeater field slug → subfields to translate: text values, or an image's alt and caption. Other subfields stay as they are. */
+  repeaterSubFields?: Readonly<Record<string, readonly string[]>> | undefined;
 }
 
 export interface TranslateContentFieldsResult {
@@ -55,7 +63,31 @@ export async function translateContentFields(options: TranslateContentFieldsOpti
 
   for (const [fieldIndex, [field, value]] of fields.entries()) {
     const group: Segment[] = [];
-    if (typeof value === "string") {
+    const subFields =
+      options.repeaterSubFields !== undefined && Object.hasOwn(options.repeaterSubFields, field)
+        ? options.repeaterSubFields[field]
+        : undefined;
+    if (subFields !== undefined) {
+      // An emptied optional repeater may be saved as null; it has nothing to translate.
+      if (value === null) continue;
+      if (!Array.isArray(value)) throw new ContentTranslationInputError(`repeater field "${field}" is not a list`);
+      for (const [item, row] of value.entries()) {
+        if (!isRecord(row)) throw new ContentTranslationInputError(`repeater field "${field}" contains an invalid item`);
+        for (const subField of subFields) {
+          const subValue = Object.hasOwn(row, subField) ? row[subField] : undefined;
+          const id = `field:${fieldIndex}:item:${item}:${subField}`;
+          if (typeof subValue === "string") {
+            addSegment(id, subValue, { kind: "item", field, item, subField, property: null }, group, segments, locations);
+          } else if (isRecord(subValue)) {
+            for (const property of IMAGE_TEXT_PROPERTIES) {
+              const text = subValue[property];
+              if (typeof text !== "string") continue;
+              addSegment(`${id}:${property}`, text, { kind: "item", field, item, subField, property }, group, segments, locations);
+            }
+          }
+        }
+      }
+    } else if (typeof value === "string") {
       addSegment(`field:${fieldIndex}`, value, { kind: "field", field }, group, segments, locations);
     } else if (Array.isArray(value)) {
       for (const [blockIndex, block] of value.entries()) {
@@ -124,7 +156,7 @@ export async function translateContentFields(options: TranslateContentFieldsOpti
     }
     applyTranslation(patch, location, `${location.leadingWhitespace}${translation}${location.trailingWhitespace}`);
   }
-  validatePortableTextTokens(options.values, patch, (field, container, message) => {
+  validatePortableTextTokens(options.values, patch, options.repeaterSubFields ?? {}, (field, container, message) => {
     notifyValidationIssue(
       options.onValidationIssue,
       segments
@@ -180,10 +212,11 @@ function sameContainer(left: SpanContainer, right: SpanContainer): boolean {
 function validatePortableTextTokens(
   source: Record<string, unknown>,
   patch: Record<string, unknown>,
+  repeaterSubFields: Readonly<Record<string, readonly string[]>>,
   onValidationIssue: (field: string, container: SpanContainer, message: string) => void,
 ): void {
   for (const [field, value] of Object.entries(source)) {
-    if (!Array.isArray(value)) continue;
+    if (!Array.isArray(value) || Object.hasOwn(repeaterSubFields, field)) continue;
     const translated = patch[field];
     if (!Array.isArray(translated)) continue;
     for (const [blockIndex, block] of value.entries()) {
@@ -241,6 +274,19 @@ function addSegment(
 function applyTranslation(patch: Record<string, unknown>, location: SegmentLocation, translation: string): void {
   if (location.kind === "field") {
     patch[location.field] = translation;
+    return;
+  }
+  if (location.kind === "item") {
+    const rows = patch[location.field];
+    const row = Array.isArray(rows) ? rows[location.item] : undefined;
+    if (!isRecord(row)) throw new Error(`[polystella-emdash] repeater field "${location.field}" changed shape`);
+    if (location.property === null) {
+      row[location.subField] = translation;
+      return;
+    }
+    const image = row[location.subField];
+    if (!isRecord(image)) throw new Error(`[polystella-emdash] repeater field "${location.field}" changed shape`);
+    image[location.property] = translation;
     return;
   }
 

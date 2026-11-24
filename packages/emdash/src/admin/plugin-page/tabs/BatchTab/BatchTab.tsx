@@ -9,7 +9,7 @@ import {
   type CollectionPolicyResponse,
   type CollectionSettingsResponse,
 } from "../../../../contracts.js";
-import { COLLECTIONS_SAVED_EVENT, errorMessage, isTranslatable, pluginRequest, supportsTranslation } from "../../../utils.js";
+import { COLLECTIONS_SAVED_EVENT, errorMessage, isPolicyField, localeLabel, pluginRequest } from "../../../utils.js";
 import { cardStyle, mutedStyle, rowStyle, sectionStyle, stackStyle } from "../../../styles.js";
 import { ErrorMessage } from "../../../components/ErrorMessage/ErrorMessage.js";
 import { LocalePicker } from "../../../components/LocalePicker/LocalePicker.js";
@@ -38,7 +38,7 @@ export function BatchTab(): ReactNode {
   const [collection, setCollection] = useState("");
   const [loaded, setLoaded] = useState<LoadedCollection | null>(null);
   const [locales, setLocales] = useState<string[]>([]);
-  const [scope, setScope] = useState<Scope>("all");
+  const [scope, setScope] = useState<Scope>("selected");
   const [updateExisting, setUpdateExisting] = useState(false);
   const [publish, setPublish] = useState(false);
   const [search, setSearch] = useState("");
@@ -115,7 +115,7 @@ export function BatchTab(): ReactNode {
       .then(([policy, schema]) => {
         if (!active) return;
         const fields = schema.fields
-          .filter((field) => policy.fields.includes(field.slug) && supportsTranslation(field) && isTranslatable(field))
+          .filter((field) => isPolicyField(field, policy))
           .map((field) => field.slug)
           .slice(0, MAX_CONTENT_FIELDS);
         const available = policy.targetLocales.map(({ locale }) => locale);
@@ -132,9 +132,14 @@ export function BatchTab(): ReactNode {
 
   useEffect(() => {
     if (loaded === null || scope !== "selected") return;
+    const { sourceLocale, targetLocales } = loaded.policy;
+    if (sourceLocale === null) {
+      setError("This collection has no source locale, so its entries can't be listed.");
+      return;
+    }
     let active = true;
     const timer = setTimeout(() => {
-      loadItems(collection, loaded.policy.sourceLocale, search, undefined)
+      loadItems(collection, sourceLocale, targetLocales, search, undefined)
         .then((next) => {
           if (active) setPage(next);
         })
@@ -149,9 +154,10 @@ export function BatchTab(): ReactNode {
   }, [collection, loaded, scope, search]);
 
   async function loadMore(): Promise<void> {
-    if (loaded === null || page?.nextCursor === undefined) return;
+    const sourceLocale = loaded?.policy.sourceLocale ?? null;
+    if (loaded === null || sourceLocale === null || page?.nextCursor === undefined) return;
     try {
-      const next = await loadItems(collection, loaded.policy.sourceLocale, search, page.nextCursor);
+      const next = await loadItems(collection, sourceLocale, loaded.policy.targetLocales, search, page.nextCursor);
       setPage((current) => ({ items: [...(current?.items ?? []), ...next.items], nextCursor: next.nextCursor }));
     } catch (cause) {
       setError(errorMessage(cause));
@@ -222,6 +228,20 @@ export function BatchTab(): ReactNode {
     loaded.fields.length > 0 &&
     locales.length > 0 &&
     (scope === "all" || selected.size > 0);
+
+  const runButton = (
+    <div style={rowStyle}>
+      <Button
+        variant="primary"
+        loading={running}
+        disabled={!canRun}
+        onClick={() => (runner === "queue" ? void startServerJob() : openBrowserRun())}
+      >
+        {runner === "queue" ? "Queue" : "Translate"} {scope === "all" ? "collection" : `${selected.size} selected`}
+        {runner === "browser" ? " in a new tab" : ""}
+      </Button>
+    </div>
+  );
 
   return (
     <section style={sectionStyle}>
@@ -297,7 +317,7 @@ export function BatchTab(): ReactNode {
                   legend="Target locales"
                   options={policy.targetLocales.map(({ locale, code }) => ({
                     locale,
-                    label: locale === code ? locale : `${locale} (${code})`,
+                    label: localeLabel(locale, code),
                   }))}
                   value={locales}
                   disabled={running || checkingLocales}
@@ -339,6 +359,7 @@ export function BatchTab(): ReactNode {
           </div>
         </LayerCard>
       )}
+      {scope === "selected" && policy !== undefined ? runButton : null}
       {scope === "selected" && policy !== undefined ? (
         <LayerCard style={cardStyle}>
           <div style={stackStyle}>
@@ -407,17 +428,7 @@ export function BatchTab(): ReactNode {
           </div>
         </LayerCard>
       ) : null}
-      <div style={rowStyle}>
-        <Button
-          variant="primary"
-          loading={running}
-          disabled={!canRun}
-          onClick={() => (runner === "queue" ? void startServerJob() : openBrowserRun())}
-        >
-          {runner === "queue" ? "Queue" : "Translate"} {scope === "all" ? "collection" : `${selected.size} selected`}
-          {runner === "browser" ? " in a new tab" : ""}
-        </Button>
-      </div>
+      {runButton}
       <BatchJobs jobs={serverJobs?.jobs ?? []} urlContexts={urlContexts} onChange={() => setJobsRefresh((current) => current + 1)} />
     </section>
   );

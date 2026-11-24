@@ -107,7 +107,7 @@ stored policy fails closed. Translation also checks the live collection schema
 non-translatable. Settings saves are conditional on the loaded revision; a
 concurrent save by another Administrator is rejected instead of overwritten.
 
-The panel translates selected `string`, `text`, and Portable Text fields in an
+The panel translates selected `string`, `text`, Portable Text, and repeater fields in an
 existing target-locale draft. The private route rereads selected values through
 its `content:read` capability, while the panel updates with EmDash's `_rev` token
 and reloads after success. Unsaved browser changes are not translated and are

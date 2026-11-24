@@ -51,9 +51,45 @@ The model bounds for translation.
 | `allowed`  | string[]              | Non-empty, unique. Administrators cannot select a model outside this list. Cannot contain the reserved `__polystella_code_default__`.  |
 | `defaults` | string or `ModelSpec` | A single model id, or `{ default, <locale>: model }`. Every locale key must match a configured catalog locale and appear in `allowed`. |
 
+| `reasoning` | string or `{ default?, <locale>: effort }` | Optional. Thinking effort for the code-default models, such as `"none"` (off) or `"high"`. Omitted leaves the model's own default. |
+| `reasoningInput` | `{ <model>: { <effort>: input } }` | Optional. The exact input fields to send for each effort of a model, instead of what the Workers AI catalog says. Keys must be in `allowed`; `messages`, `max_tokens`, `prompt`, and `stream` cannot be set. |
+
 `models.defaults` may set a `default` fallback and locale-specific
 models. Each target locale receives its own model and glossary
 settings.
+
+### Thinking
+
+PolyStella reads each model's `reasoning_effort` entry from the
+Workers AI model catalog (`env.AI.models()` for the binding, the
+model search API for HTTP, whose token then needs Workers AI Read).
+Listed efforts are sent as `reasoning_effort`. A model whose thinking
+isn't mandatory also gets `"none"` (off), sent as
+`chat_template_kwargs.enable_thinking: false` when `"none"` isn't a
+listed effort. A model without the entry has no thinking choice.
+
+With a custom `provider.endpoint`, the catalog is not read (the token
+may belong to another host), so only models listed in
+`models.reasoningInput` get a thinking choice. Catalog lookups time
+out after five seconds and a failed lookup is retried after a minute.
+
+`models.reasoning` applies only while a locale uses its code-default
+model. An administrator who picks a model, even the same one, chooses
+its thinking in the admin instead. An effort the model doesn't accept, or a catalog that can't be
+read, is logged and skipped, so translations still run with the
+model's default. Thinking uses output tokens, so raise
+**Max output tokens** if thinking translations come back truncated.
+
+```ts
+models: {
+  allowed: ["@cf/zai-org/glm-4.7-flash", "@cf/openai/gpt-oss-120b"],
+  defaults: "@cf/zai-org/glm-4.7-flash",
+  reasoning: "none",
+  reasoningInput: {
+    "@cf/openai/gpt-oss-120b": { low: { reasoning: { effort: "low" } }, high: { reasoning: { effort: "high" } } },
+  },
+},
+```
 
 ## `glossaryDefaults`
 

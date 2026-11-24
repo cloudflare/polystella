@@ -12,6 +12,8 @@ export type CustomizationMode = "default" | "append" | "replace";
 
 export interface CollectionPolicy {
   fields: string[];
+  /** Repeater field slug → the subfields PolyStella translates. Other subfields are copied from the source row. */
+  subFields?: Record<string, string[]> | undefined;
 }
 
 export interface CollectionSettingsResponse {
@@ -28,15 +30,27 @@ export interface CollectionPolicyResponse {
   /** `locale` is how EmDash stores new content (Astro path); older rows may use the catalog `code`. */
   targetLocales: Array<{ locale: string; code: string }>;
   fields: string[];
+  subFields: Record<string, string[]>;
 }
 
 export interface TranslationLocaleSettings {
   locale: string;
   defaultModel: string;
   model: string | null;
+  /** Thinking effort for the overridden model; `null` uses the model's default. */
+  reasoning: string | null;
+  /** Thinking effort for the code-default model, from `models.reasoning`; `null` when unset. */
+  defaultReasoning: string | null;
   defaultGlossary: string;
   glossaryMode: CustomizationMode;
   glossaryText: string;
+}
+
+export interface ModelReasoningResponse {
+  /** Efforts the model accepts (`"none"` turns thinking off); `null` when it has no switch. */
+  efforts: string[] | null;
+  /** Set when the Workers AI catalog couldn't be read. */
+  error?: string | undefined;
 }
 
 export interface AiTranslationStatus {
@@ -192,6 +206,8 @@ export interface BatchJobView {
   listing: boolean;
   /** Listing stopped at `MAX_BATCH_TRANSLATIONS`; later entries were not queued. */
   truncated: boolean;
+  /** Selected source entries, `"all"` for the whole collection, `null` for jobs started before PolyStella recorded this. */
+  entryCount: number | "all" | null;
   counts: Record<BatchJobOutcome, number>;
   failures: Array<{ entryId: string; locale: string; message: string | null }>;
 }
@@ -217,6 +233,11 @@ export interface BatchJobResultView {
 
 export interface BatchJobResultsResponse {
   results: BatchJobResultView[];
+  nextCursor: string | null;
+}
+
+export interface BatchJobEntriesResponse {
+  entries: Array<{ id: string; title: string }>;
   nextCursor: string | null;
 }
 

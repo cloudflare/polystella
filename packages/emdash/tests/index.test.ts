@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { createPlugin, polystellaEmdash, validatePolystellaEmdashOptions, type PolystellaEmdashOptions } from "../src/index.js";
-import { deserializeOptions } from "../src/server/options.js";
+import { deserializeOptions, resolveReasoning } from "../src/server/options.js";
 
 function validOptions(): PolystellaEmdashOptions {
   return {
@@ -56,6 +56,7 @@ describe("polystellaEmdash", () => {
       "settings/collections",
       "settings/translation",
       "policy",
+      "models/reasoning",
       "ai-translation",
       "ai-translation/status",
       "ai-translation/review",
@@ -76,6 +77,7 @@ describe("polystellaEmdash", () => {
       "batch/translate",
       "batch/record",
       "batch/results",
+      "batch/entries",
       "overrides",
     ]);
     expect(plugin.admin.entry).toBe(descriptor.adminEntry);
@@ -152,6 +154,45 @@ describe("polystellaEmdash", () => {
     ],
   ])("rejects invalid %s configuration", (_name, options) => {
     expect(() => validatePolystellaEmdashOptions(options)).toThrow("[polystella-emdash]");
+  });
+
+  describe("thinking effort options", () => {
+    const withModels = (extra: Record<string, unknown>) => ({
+      ...validOptions(),
+      models: { allowed: ["model-a", "model-b"], defaults: "model-a", ...extra },
+    });
+
+    it("accepts and serializes a reasoning value or per-locale record plus reasoningInput", () => {
+      const models = { reasoning: { default: "none", "ja-JP": "high" }, reasoningInput: { "model-a": { off: { think: false } } } };
+      expect(() => validatePolystellaEmdashOptions(withModels({ reasoning: "none" }))).not.toThrow();
+      const runtimeOptions = polystellaEmdash(withModels(models)).options;
+      if (runtimeOptions === undefined) throw new Error("descriptor options are missing");
+      expect(deserializeOptions(runtimeOptions).models).toMatchObject(models);
+    });
+
+    it.each<[string, Record<string, unknown>]>([
+      ["a non-lowercase effort", { reasoning: "High" }],
+      ["an unknown locale", { reasoning: { "fr-FR": "high" } }],
+      ["a non-string effort", { reasoning: { default: 1 } }],
+      ["a model that is not allowed", { reasoningInput: { "model-z": { off: {} } } }],
+      ["an invalid effort key", { reasoningInput: { "model-a": { "Off!": {} } } }],
+      ["a non-object input", { reasoningInput: { "model-a": { off: "x" } } }],
+      ...["messages", "max_tokens", "prompt", "stream"].map((key): [string, Record<string, unknown>] => [
+        `a reserved ${key} field`,
+        { reasoningInput: { "model-a": { off: { [key]: 1 } } } },
+      ]),
+    ])("rejects %s", (_name, models) => {
+      expect(() => validatePolystellaEmdashOptions(withModels(models))).toThrow("[polystella-emdash]");
+    });
+
+    it("resolves the effort for a locale", () => {
+      expect(resolveReasoning(undefined, "ja-JP")).toBeUndefined();
+      expect(resolveReasoning("none", "ja-JP")).toBe("none");
+      expect(resolveReasoning({ default: "low", "ja-JP": "high" }, "ja-JP")).toBe("high");
+      expect(resolveReasoning({ default: "low", "ja-JP": "high" }, "en-US")).toBe("low");
+      expect(resolveReasoning({ "ja-JP": "high" }, "en-US")).toBeUndefined();
+      expect(resolveReasoning({}, "toString")).toBeUndefined();
+    });
   });
 
   it("keeps the batch queue binding through serialization", () => {

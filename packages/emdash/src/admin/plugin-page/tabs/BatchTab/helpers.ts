@@ -191,25 +191,34 @@ export interface ItemPage {
 
 const PAGE_SIZE = 50;
 
-export async function loadItems(collection: string, locale: string | null, search: string, cursor: string | undefined): Promise<ItemPage> {
+/** Source-locale entries only. Rows in a target locale are dropped too, in case EmDash returns them anyway. */
+export async function loadItems(
+  collection: string,
+  sourceLocale: string,
+  targets: readonly BatchTargetLocale[],
+  search: string,
+  cursor: string | undefined,
+): Promise<ItemPage> {
   const query = search.trim();
   const result = await fetchContentList(collection, {
     limit: PAGE_SIZE,
-    ...(locale === null ? {} : { locale }),
+    locale: sourceLocale,
     ...(query.length === 0 ? {} : { search: query }),
     ...(cursor === undefined ? {} : { cursor }),
   });
   return {
-    items: result.items.map((item) => ({ id: item.id, title: entryTitle(item), slug: item.slug })),
+    items: result.items
+      .filter(({ locale }) => locale === null || targets.every((target) => findExistingTranslation([{ locale }], target) === undefined))
+      .map((item) => ({ id: item.id, title: entryTitle(item), slug: item.slug })),
     nextCursor: result.nextCursor,
   };
 }
 
-export async function loadAllItems(collection: string, locale: string | null): Promise<BatchItem[]> {
+export async function loadAllItems(collection: string, sourceLocale: string, targets: readonly BatchTargetLocale[]): Promise<BatchItem[]> {
   const items: BatchItem[] = [];
   let cursor: string | undefined;
   do {
-    const next = await loadItems(collection, locale, "", cursor);
+    const next = await loadItems(collection, sourceLocale, targets, "", cursor);
     items.push(...next.items);
     cursor = next.nextCursor;
   } while (cursor !== undefined);

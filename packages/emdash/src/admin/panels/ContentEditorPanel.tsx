@@ -15,14 +15,14 @@ import { createTranslatedEntry, translateExistingEntry } from "../content-transl
 import {
   errorMessage,
   formatErrorDetails,
-  isTranslatable,
+  isPolicyField,
+  localeLabel,
   pluginRequest,
   removeTranslationDebug,
   storeTranslationDebug,
-  supportsTranslation,
   takeTranslationDebug,
 } from "../utils.js";
-import type { CollectionSchema, SchemaField, TranslationProgressState } from "../types.js";
+import type { CollectionSchema, TranslationProgressState } from "../types.js";
 import { codeStyle, mutedStyle, rowStyle, stackStyle } from "../styles.js";
 import { LocalePicker } from "../components/LocalePicker/LocalePicker.js";
 import { TranslationDebugView } from "../components/TranslationDebugView/TranslationDebugView.js";
@@ -86,7 +86,7 @@ export function ContentEditorPanel({ collection, entry, locale }: ContentEditorP
         setSchema(nextSchema);
         setSelected(
           nextSchema.fields
-            .filter((field) => nextPolicy.fields.includes(field.slug) && supportsTranslation(field) && isTranslatable(field))
+            .filter((field) => isPolicyField(field, nextPolicy))
             .map((field) => field.slug)
             .slice(0, MAX_CONTENT_FIELDS),
         );
@@ -99,7 +99,7 @@ export function ContentEditorPanel({ collection, entry, locale }: ContentEditorP
     };
   }, [collection, entry.id, loadAttempt]);
 
-  const eligibleFields = policy === null || schema === null ? [] : schema.fields.filter((field) => fieldIsEligible(field, policy));
+  const eligibleFields = policy === null || schema === null ? [] : schema.fields.filter((field) => isPolicyField(field, policy));
 
   async function translate(): Promise<void> {
     if (targetLocale === undefined || targetLocale === null || targetLocale.length === 0) {
@@ -263,7 +263,7 @@ export function ContentEditorPanel({ collection, entry, locale }: ContentEditorP
                 void navigate({ to: "/content/$collection/$id", params: { collection, id: draft.id }, search: { locale: draft.locale } })
               }
             >
-              Open {draft.locale}
+              Open {localeLabel(draft.locale)}
             </Button>
           ))}
         </div>
@@ -303,7 +303,7 @@ export function ContentEditorPanel({ collection, entry, locale }: ContentEditorP
           {createdDrafts}
           <LocalePicker
             legend="Untranslated locales"
-            options={creatableLocales.map((locale) => ({ locale, label: locale }))}
+            options={creatableLocales.map((locale) => ({ locale, label: localeLabel(locale) }))}
             value={createLocales}
             disabled={translating}
             onChange={setCreateLocales}
@@ -375,13 +375,9 @@ function PanelErrorMessage({ error, onDismiss, onRetry }: { error: PanelError; o
   );
 }
 
-function fieldIsEligible(field: SchemaField, policy: CollectionPolicyResponse): boolean {
-  return policy.fields.includes(field.slug) && supportsTranslation(field) && isTranslatable(field);
-}
-
 function createButtonLabel(locales: readonly string[]): string {
   if (locales.length === 0) return "Select locales to translate";
-  return locales.length === 1 ? `Create ${locales[0]} draft` : `Create ${locales.length} drafts`;
+  return locales.length === 1 && locales[0] !== undefined ? `Create ${localeLabel(locales[0])} draft` : `Create ${locales.length} drafts`;
 }
 
 function missingLocales(policy: CollectionPolicyResponse, existingLocales: readonly string[]): string[] {

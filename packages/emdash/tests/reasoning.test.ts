@@ -1,0 +1,160 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import type { PolystellaEmdashOptions } from "../src/index.js";
+import { clearReasoningCapabilities, parseCapability, reasoningCapability } from "../src/server/reasoning.js";
+import type { PluginRouteDependencies } from "../src/server/routes/provider.js";
+
+const entry = (name: string, value?: unknown) => ({
+  name,
+  properties: value === undefined ? [] : [{ property_id: "reasoning_effort", value }],
+});
+
+const glm = entry("glm", { supported_efforts: ["max", "high", "none"], mandatory: false });
+const flash = entry("flash", { mandatory: false, default_enabled: true });
+const gptOss = entry("oss", { supported_efforts: ["low", "medium", "high"], mandatory: true });
+const kimi = entry("kimi", { mandatory: true });
+const plain = entry("plain");
+
+const bindingOptions = (extra: Partial<PolystellaEmdashOptions["models"]> = {}): PolystellaEmdashOptions => ({
+  provider: { kind: "workers-ai-binding", binding: "AI" },
+  catalogs: { defaultLocale: "en-US", locales: { "en-US": { dictionary: {}, filePath: "en-US.json" } } },
+  models: { allowed: ["glm", "flash", "oss", "kimi", "plain"], defaults: "glm", ...extra },
+});
+
+const httpOptions = (): PolystellaEmdashOptions => ({
+  ...bindingOptions(),
+  provider: { kind: "workers-ai-http", accountIdEnv: "ACCOUNT", apiTokenEnv: "TOKEN" },
+});
+
+const dependencies: PluginRouteDependencies = { getEnv: async () => ({}), now: () => new Date(0) };
+
+describe("parseCapability", () => {
+  beforeEach(clearReasoningCapabilities);
+
+  it("maps listed efforts to reasoning_effort", () => {
+    expect(parseCapability(glm)).toEqual(
+      new Map([
+        ["max", { reasoning_effort: "max" }],
+        ["high", { reasoning_effort: "high" }],
+        ["none", { reasoning_effort: "none" }],
+      ]),
+    );
+  });
+
+  it("offers a none/on switch for a model with only an optional flag", () => {
+    expect(parseCapability(flash)).toEqual(
+      new Map([
+        ["none", { chat_template_kwargs: { enable_thinking: false } }],
+        ["on", { chat_template_kwargs: { enable_thinking: true } }],
+      ]),
+    );
+  });
+
+  it("never offers none when thinking is mandatory", () => {
+    expect([...(parseCapability(gptOss)?.keys() ?? [])]).toEqual(["low", "medium", "high"]);
+  });
+
+  it("reads a property value sent as JSON text", () => {
+    expect(parseCapability(entry("x", JSON.stringify({ supported_efforts: ["low"], mandatory: true })))?.get("low")).toEqual({
+      reasoning_effort: "low",
+    });
+  });
+
+  it.each([
+    ["mandatory without efforts", kimi],
+    ["no property", plain],
+    ["undefined", undefined],
+    ["a non-object", "text"],
+    ["a non-object value", entry("x", "high")],
+    ["empty efforts", entry("x", { supported_efforts: [] })],
+    ["non-string efforts", entry("x", { supported_efforts: [1, ""], mandatory: true })],
+  ])("returns null for %s", (_name, value) => {
+    expect(parseCapability(value)).toBeNull();
+  });
+});
+
+describe("reasoningCapability", () => {
+  beforeEach(clearReasoningCapabilities);
+
+  it("lets models.reasoningInput override the catalog without calling it", async () => {
+    const models = vi.fn();
+    const options = bindingOptions({ reasoningInput: { glm: { off: { think: false } } } });
+    const capability = await reasoningCapability(options, { AI: { models } }, "glm", dependencies);
+    expect(capability).toEqual(new Map([["off", { think: false }]]));
+    expect(models).not.toHaveBeenCalled();
+  });
+
+  it("reads the binding catalog, picks the exact model name, and caches it", async () => {
+    const models = vi.fn().mockResolvedValue([entry("glm-other", { mandatory: false }), glm]);
+    const env = { AI: { models } };
+    const first = await reasoningCapability(bindingOptions(), env, "glm", dependencies);
+    expect([...(first?.keys() ?? [])]).toEqual(["max", "high", "none"]);
+    await reasoningCapability(bindingOptions(), env, "glm", dependencies);
+    expect(models).toHaveBeenCalledOnce();
+    expect(models).toHaveBeenCalledWith({ search: "glm" });
+  });
+
+  it("returns null when the catalog has no exact match", async () => {
+    const env = { AI: { models: async () => [glm] } };
+    await expect(reasoningCapability(bindingOptions(), env, "kimi", dependencies)).resolves.toBeNull();
+  });
+
+  it("throws when the binding cannot list models or returns a bad list", async () => {
+    await expect(reasoningCapability(bindingOptions(), { AI: {} }, "glm", dependencies)).rejects.toThrow("cannot list models");
+    clearReasoningCapabilities();
+    await expect(reasoningCapability(bindingOptions(), undefined, "glm", dependencies)).rejects.toThrow("cannot list models");
+    clearReasoningCapabilities();
+    const models = vi.fn().mockResolvedValue("nope");
+    await expect(reasoningCapability(bindingOptions(), { AI: { models } }, "glm", dependencies)).rejects.toThrow("unexpected model list");
+  });
+
+  it("searches the HTTP catalog with the bearer token", async () => {
+    const fetchImpl = vi.fn(async () => Response.json({ result: [glm] }));
+    const capability = await reasoningCapability(httpOptions(), { ACCOUNT: "acct", TOKEN: "secret" }, "glm", {
+      ...dependencies,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    expect(capability?.has("high")).toBe(true);
+    expect(fetchImpl).toHaveBeenCalledWith("https://api.cloudflare.com/client/v4/accounts/acct/ai/models/search?search=glm", {
+      headers: { Authorization: "Bearer secret" },
+      signal: expect.any(AbortSignal),
+    });
+  });
+
+  it("throws on HTTP catalog failures, remembers them for a minute, then retries", async () => {
+    const env = { ACCOUNT: "acct", TOKEN: "secret" };
+    await expect(reasoningCapability(httpOptions(), {}, "glm", dependencies)).rejects.toThrow("credentials are unavailable");
+    clearReasoningCapabilities();
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(new Response("no", { status: 500 }))
+      .mockResolvedValueOnce(Response.json({ nope: true }))
+      .mockResolvedValueOnce(Response.json({ result: [glm] }));
+    const deps = { ...dependencies, fetchImpl: fetchImpl as unknown as typeof fetch };
+    const now = vi.spyOn(Date, "now");
+    try {
+      now.mockReturnValue(1_000);
+      await expect(reasoningCapability(httpOptions(), env, "glm", deps)).rejects.toThrow("HTTP 500");
+      now.mockReturnValue(30_000);
+      await expect(reasoningCapability(httpOptions(), env, "glm", deps)).rejects.toThrow("HTTP 500");
+      expect(fetchImpl).toHaveBeenCalledOnce();
+      now.mockReturnValue(62_000);
+      await expect(reasoningCapability(httpOptions(), env, "glm", deps)).rejects.toThrow("unexpected response");
+      now.mockReturnValue(130_000);
+      await expect(reasoningCapability(httpOptions(), env, "glm", deps)).resolves.not.toBeNull();
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  it("never reads the catalog for a custom endpoint", async () => {
+    const fetchImpl = vi.fn();
+    const options: PolystellaEmdashOptions = {
+      ...httpOptions(),
+      provider: { kind: "workers-ai-http", accountIdEnv: "ACCOUNT", apiTokenEnv: "TOKEN", endpoint: "https://gateway.example/run" },
+    };
+    const deps = { ...dependencies, fetchImpl: fetchImpl as unknown as typeof fetch };
+    await expect(reasoningCapability(options, { ACCOUNT: "a", TOKEN: "t" }, "glm", deps)).resolves.toBeNull();
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+});

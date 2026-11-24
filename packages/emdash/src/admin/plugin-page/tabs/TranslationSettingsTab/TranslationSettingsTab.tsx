@@ -6,11 +6,12 @@ import {
   MIN_MAX_TOKENS,
   USE_CODE_DEFAULT_MODEL,
   type CustomizationMode,
+  type ModelReasoningResponse,
   type TranslationLocaleSettings,
   type TranslationSettingsResponse,
 } from "../../../../contracts.js";
-import { errorMessage, pluginRequest } from "../../../utils.js";
-import { cardStyle, codeStyle, mutedStyle, sectionStyle, stackStyle } from "../../../styles.js";
+import { errorMessage, localeLabel, pluginRequest } from "../../../utils.js";
+import { cardStyle, codeStyle, mutedStyle, rowStyle, sectionStyle, stackStyle } from "../../../styles.js";
 import { ErrorMessage } from "../../../components/ErrorMessage/ErrorMessage.js";
 
 export function TranslationSettingsTab(): ReactNode {
@@ -55,7 +56,12 @@ export function TranslationSettingsTab(): ReactNode {
           locales: Object.fromEntries(
             settings.locales.map((locale) => [
               locale.locale,
-              { model: locale.model, glossaryMode: locale.glossaryMode, glossaryText: locale.glossaryText },
+              {
+                model: locale.model,
+                reasoning: locale.reasoning,
+                glossaryMode: locale.glossaryMode,
+                glossaryText: locale.glossaryText,
+              },
             ]),
           ),
           instructions: { mode: settings.instructions.mode, text: settings.instructions.text },
@@ -152,7 +158,7 @@ export function TranslationSettingsTab(): ReactNode {
         <LayerCard key={locale.locale}>
           <details>
             <summary style={{ cursor: "pointer", padding: 20 }}>
-              <strong>{locale.locale}</strong>
+              <strong>{localeLabel(locale.locale)}</strong>
             </summary>
             <div style={{ ...stackStyle, padding: "0 20px 20px" }}>
               <Select
@@ -164,7 +170,7 @@ export function TranslationSettingsTab(): ReactNode {
                 disabled={working}
                 onValueChange={(value) => {
                   if (typeof value === "string") {
-                    updateLocale(locale.locale, { model: value === USE_CODE_DEFAULT_MODEL ? null : value });
+                    updateLocale(locale.locale, { model: value === USE_CODE_DEFAULT_MODEL ? null : value, reasoning: null });
                   }
                 }}
               >
@@ -175,6 +181,18 @@ export function TranslationSettingsTab(): ReactNode {
                   </Select.Option>
                 ))}
               </Select>
+              {locale.model === null ? (
+                locale.defaultReasoning === null ? null : (
+                  <span style={mutedStyle}>Thinking: code default ({effortLabel(locale.defaultReasoning)})</span>
+                )
+              ) : (
+                <ThinkingSelect
+                  model={locale.model}
+                  value={locale.reasoning}
+                  disabled={working}
+                  onChange={(reasoning) => updateLocale(locale.locale, { reasoning })}
+                />
+              )}
               <Select
                 label="Glossary behavior"
                 value={locale.glossaryMode}
@@ -212,6 +230,96 @@ export function TranslationSettingsTab(): ReactNode {
       </div>
     </section>
   );
+}
+
+const MODEL_DEFAULT_REASONING = "__polystella_model_default__";
+const reasoningRequests = new Map<string, Promise<ModelReasoningResponse>>();
+
+/** The thinking efforts Workers AI lists for `model`, loaded once per page. */
+function ThinkingSelect({
+  model,
+  value,
+  disabled,
+  onChange,
+}: {
+  model: string;
+  value: string | null;
+  disabled: boolean;
+  onChange(value: string | null): void;
+}): ReactNode {
+  const [options, setOptions] = useState<ModelReasoningResponse | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    setOptions(null);
+    let request = reasoningRequests.get(model);
+    if (request === undefined) {
+      request = pluginRequest<ModelReasoningResponse>(`models/reasoning?${new URLSearchParams({ model }).toString()}`);
+      reasoningRequests.set(model, request);
+      request.then(
+        (response) => {
+          if (response.error !== undefined) reasoningRequests.delete(model);
+        },
+        () => reasoningRequests.delete(model),
+      );
+    }
+    request
+      .then((next) => {
+        if (active) setOptions(next);
+      })
+      .catch((cause: unknown) => {
+        if (active) setOptions({ efforts: null, error: errorMessage(cause) });
+      });
+    return () => {
+      active = false;
+    };
+  }, [model]);
+
+  if (options === null) return <span style={mutedStyle}>Loading thinking options...</span>;
+  if (options.efforts === null) {
+    return (
+      <div style={rowStyle}>
+        <span style={mutedStyle}>
+          {options.error === undefined
+            ? "This model's thinking can't be changed; it uses its own default."
+            : `Thinking options are unavailable: ${options.error}`}
+          {value === null ? "" : ` Saved setting: ${effortLabel(value)}.`}
+        </span>
+        {value === null ? null : (
+          <Button size="sm" variant="secondary" disabled={disabled} onClick={() => onChange(null)}>
+            Reset to model default
+          </Button>
+        )}
+      </div>
+    );
+  }
+  return (
+    <Select
+      label="Thinking"
+      labelTooltip="Off makes translations faster and cheaper. More thinking can help with tricky text, but it also uses output tokens."
+      value={value ?? MODEL_DEFAULT_REASONING}
+      renderValue={(selected) =>
+        selected === MODEL_DEFAULT_REASONING || typeof selected !== "string" ? "Model default" : effortLabel(selected)
+      }
+      disabled={disabled}
+      onValueChange={(selected) => {
+        if (typeof selected === "string") onChange(selected === MODEL_DEFAULT_REASONING ? null : selected);
+      }}
+    >
+      <Select.Option value={MODEL_DEFAULT_REASONING}>Model default</Select.Option>
+      {options.efforts.map((effort) => (
+        <Select.Option key={effort} value={effort}>
+          {effortLabel(effort)}
+        </Select.Option>
+      ))}
+    </Select>
+  );
+}
+
+function effortLabel(effort: string): string {
+  if (effort === "none") return "Off";
+  if (effort === "on") return "On";
+  return effort.charAt(0).toUpperCase() + effort.slice(1);
 }
 
 function isCustomizationMode(value: unknown): value is CustomizationMode {

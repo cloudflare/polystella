@@ -15,6 +15,8 @@ import {
   storeTranslationDebug,
   takeTranslationDebug,
 } from "../src/admin.js";
+import { isPolicyField, localeLabel, translatableSubFields } from "../src/admin/utils.js";
+import type { SchemaField } from "../src/admin/types.js";
 import type { CatalogEntryView, CatalogGroupView, TranslationDebugTrace } from "../src/contracts.js";
 import type { ReactElement } from "react";
 
@@ -119,6 +121,44 @@ describe("EmDash admin entry", () => {
     expect(label.type).toBe("small");
     const labelText = (label.props.children as unknown[]).map(String).join("");
     expect(labelText).toBe("45%: Translating selected fields");
+  });
+
+  it("labels locales with the language name and code", () => {
+    expect(localeLabel("fr")).toContain("(fr)");
+    expect(localeLabel("fr", "fr-FR")).toMatch(/\(fr, fr-FR\)$/);
+    expect(localeLabel("not a tag!")).toBe("not a tag!");
+  });
+
+  describe("repeater subfields", () => {
+    const repeater = {
+      slug: "faq",
+      type: "repeater",
+      validation: {
+        subFields: [
+          { slug: "question", type: "string", label: "Question" },
+          { slug: "answer", type: "text" },
+          { slug: "image", type: "image", label: "Image" },
+          { slug: "link", type: "url", label: "Link" },
+        ],
+      },
+    } as unknown as SchemaField;
+
+    it("picks the text and image subfields", () => {
+      expect(translatableSubFields(repeater)).toEqual([
+        { slug: "question", label: "Question" },
+        { slug: "answer", label: "answer" },
+        { slug: "image", label: "Image" },
+      ]);
+      expect(translatableSubFields({ slug: "t", type: "string" } as unknown as SchemaField)).toEqual([]);
+      expect(translatableSubFields({ slug: "faq", type: "repeater" } as unknown as SchemaField)).toEqual([]);
+    });
+
+    it("needs a chosen translatable subfield before a repeater counts as a policy field", () => {
+      expect(isPolicyField(repeater, { fields: ["faq"] })).toBe(false);
+      expect(isPolicyField(repeater, { fields: ["faq"], subFields: { faq: ["link", "gone"] } })).toBe(false);
+      expect(isPolicyField(repeater, { fields: ["faq"], subFields: { faq: ["question"] } })).toBe(true);
+      expect(isPolicyField(repeater, { fields: [], subFields: { faq: ["question"] } })).toBe(false);
+    });
   });
 });
 

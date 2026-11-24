@@ -1,8 +1,14 @@
 import { Button, LayerCard, Table } from "@cloudflare/kumo";
 import { useEffect, useState, type ReactNode } from "react";
 
-import { MAX_BATCH_TRANSLATIONS, type BatchJobResultsResponse, type BatchJobResultView, type BatchJobView } from "../../../../contracts.js";
-import { errorMessage, pluginRequest } from "../../../utils.js";
+import {
+  MAX_BATCH_TRANSLATIONS,
+  type BatchJobEntriesResponse,
+  type BatchJobResultsResponse,
+  type BatchJobResultView,
+  type BatchJobView,
+} from "../../../../contracts.js";
+import { errorMessage, localeLabel, pluginRequest } from "../../../utils.js";
 import { cardStyle, mutedStyle, rowStyle, stackStyle } from "../../../styles.js";
 import { ErrorMessage } from "../../../components/ErrorMessage/ErrorMessage.js";
 import { TranslationProgress } from "../../../components/TranslationProgress/TranslationProgress.js";
@@ -67,9 +73,15 @@ export function BatchJobs({
           <LayerCard key={job.id} style={cardStyle}>
             <div style={stackStyle}>
               <span>
-                <strong>{job.collection}</strong> → {job.locales.join(", ")}{" "}
+                <strong>{job.collection}</strong> → {job.locales.map((locale) => localeLabel(locale)).join(", ")}{" "}
                 <small style={mutedStyle}>
-                  {state}, {job.publish ? "publishing" : "as drafts"}, started {job.createdAt}
+                  {state},{" "}
+                  {job.entryCount === "all"
+                    ? "whole collection"
+                    : typeof job.entryCount === "number"
+                      ? `${job.entryCount} selected entries`
+                      : "entries not recorded"}
+                  , {job.publish ? "publishing" : "as drafts"}, started {job.createdAt}
                 </small>
               </span>
               <TranslationProgress
@@ -82,6 +94,7 @@ export function BatchJobs({
                   were not queued; select them and start another job.
                 </small>
               ) : null}
+              {typeof job.entryCount === "number" ? <JobEntries jobId={job.id} count={job.entryCount} /> : null}
               {done === 0 ? null : <JobResults job={job} done={done} urlContext={urlContexts[job.collection]} />}
               {job.failures.length === 0 ? null : (
                 <details>
@@ -100,7 +113,7 @@ export function BatchJobs({
                           <Table.Cell>
                             <code>{failure.entryId}</code>
                           </Table.Cell>
-                          <Table.Cell>{failure.locale}</Table.Cell>
+                          <Table.Cell>{localeLabel(failure.locale)}</Table.Cell>
                           <Table.Cell>
                             <span style={mutedStyle}>{failure.message ?? ""}</span>
                           </Table.Cell>
@@ -194,6 +207,72 @@ function JobResults({ job, done, urlContext }: { job: BatchJobView; done: number
       </div>
     </details>
   );
+}
+
+/** Loads the job's selected source entries when opened. */
+function JobEntries({ jobId, count }: { jobId: string; count: number }): ReactNode {
+  const [open, setOpen] = useState(false);
+  const [entries, setEntries] = useState<BatchJobEntriesResponse["entries"] | null>(null);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open || entries !== null) return;
+    let active = true;
+    loadJobEntries(jobId, null)
+      .then((page) => {
+        if (!active) return;
+        setEntries(page.entries);
+        setNextCursor(page.nextCursor);
+      })
+      .catch((cause: unknown) => {
+        if (active) setError(errorMessage(cause));
+      });
+    return () => {
+      active = false;
+    };
+  }, [open, jobId, entries]);
+
+  async function loadMore(): Promise<void> {
+    if (nextCursor === null) return;
+    try {
+      const page = await loadJobEntries(jobId, nextCursor);
+      setEntries((current) => [...(current ?? []), ...page.entries]);
+      setNextCursor(page.nextCursor);
+    } catch (cause) {
+      setError(errorMessage(cause));
+    }
+  }
+
+  return (
+    <details onToggle={(event) => setOpen(event.currentTarget.open)}>
+      <summary>Show entries ({count})</summary>
+      <div style={stackStyle}>
+        {error === null ? null : <ErrorMessage>{error}</ErrorMessage>}
+        {entries === null ? (
+          <span style={mutedStyle}>Loading entries...</span>
+        ) : (
+          <ul>
+            {entries.map((entry) => (
+              <li key={entry.id}>{entry.title}</li>
+            ))}
+          </ul>
+        )}
+        {nextCursor === null ? null : (
+          <div>
+            <Button size="sm" variant="secondary" onClick={() => void loadMore()}>
+              Load more
+            </Button>
+          </div>
+        )}
+      </div>
+    </details>
+  );
+}
+
+function loadJobEntries(jobId: string, cursor: string | null): Promise<BatchJobEntriesResponse> {
+  const query = new URLSearchParams({ jobId, ...(cursor === null ? {} : { cursor }) });
+  return pluginRequest<BatchJobEntriesResponse>(`batch/entries?${query.toString()}`);
 }
 
 function loadJobResults(jobId: string, cursor: string | null): Promise<BatchJobResultsResponse> {

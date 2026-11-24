@@ -26,6 +26,7 @@ export function createTranslator(
   log: LogAccess,
   dependencies: PluginRouteDependencies,
   maxTokens: number = options.provider.maxTokens ?? MAX_TOKENS,
+  extraInput?: Readonly<Record<string, unknown>> | undefined,
 ): Translator {
   const provider = options.provider;
   if (provider.kind === "workers-ai-binding") {
@@ -37,6 +38,7 @@ export function createTranslator(
     return createWorkersAIBindingTranslator({
       modelId,
       maxTokens,
+      extraInput,
       run: workersRun(binding),
     });
   }
@@ -55,6 +57,7 @@ export function createTranslator(
     apiToken,
     modelId,
     maxTokens,
+    extraInput,
     ...(provider.endpoint === undefined ? {} : { endpoint: provider.endpoint }),
     ...(dependencies.fetchImpl === undefined ? {} : { fetchImpl: dependencies.fetchImpl }),
   });

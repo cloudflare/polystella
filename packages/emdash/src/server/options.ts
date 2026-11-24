@@ -40,6 +40,10 @@ export interface PolystellaEmdashOptions {
   models: {
     allowed: readonly string[];
     defaults: ModelSpec;
+    /** Thinking effort for the code-default models, as a value or per locale. `"none"` turns thinking off; omitted uses the model's default. */
+    reasoning?: ReasoningSpec | undefined;
+    /** Model id → effort → the exact input fields to send. Overrides the Workers AI catalog for that model. */
+    reasoningInput?: Readonly<Record<string, Readonly<Record<string, Readonly<Record<string, unknown>>>>>> | undefined;
   };
   glossaryDefaults?: Readonly<Record<string, Glossary>> | undefined;
   rules?: readonly string[] | undefined;
@@ -48,6 +52,12 @@ export interface PolystellaEmdashOptions {
   /** Cloudflare Queue producer binding for server-side batch translation. The Worker must also export the queue consumer. */
   batchQueueBinding?: string | undefined;
 }
+
+export type ReasoningSpec = string | Readonly<Record<string, string>>;
+
+export const REASONING_EFFORT_PATTERN = /^[a-z][a-z_]*$/;
+/** Fields PolyStella always sets itself, so `reasoningInput` cannot replace them. */
+const RESERVED_INPUT_KEYS = ["messages", "max_tokens", "prompt", "stream"];
 
 export interface SerializedPolystellaEmdashOptions {
   serialized: string;
@@ -97,6 +107,35 @@ export function validatePolystellaEmdashOptions(value: unknown): asserts value i
       fail(`options.models.defaults.${locale} must match a configured catalog locale`);
     }
     if (!allowedModels.includes(model)) fail(`options.models.defaults.${locale} must exist in options.models.allowed`);
+  }
+  if (models.reasoning !== undefined) {
+    const reasoning = models.reasoning;
+    const entries =
+      typeof reasoning === "string" ? [["default", reasoning] as const] : Object.entries(readRecord(reasoning, "options.models.reasoning"));
+    for (const [locale, effort] of entries) {
+      if (locale !== "default" && !configuredLocales.has(locale)) {
+        fail(`options.models.reasoning.${locale} must match a configured catalog locale`);
+      }
+      readReasoningEffort(effort, `options.models.reasoning.${locale}`);
+    }
+  }
+  if (models.reasoningInput !== undefined) {
+    for (const [model, rawEfforts] of Object.entries(readRecord(models.reasoningInput, "options.models.reasoningInput"))) {
+      if (!allowedModels.includes(model)) fail(`options.models.reasoningInput.${model} must exist in options.models.allowed`);
+      const efforts = readRecord(rawEfforts, `options.models.reasoningInput.${model}`);
+      for (const [effort, input] of Object.entries(efforts)) {
+        const label = `options.models.reasoningInput.${model}.${effort}`;
+        readReasoningEffort(effort, `${label} key`);
+        const fields = readRecord(input, label);
+        const reserved = Object.keys(fields).find((key) => RESERVED_INPUT_KEYS.includes(key));
+        if (reserved !== undefined) fail(`${label}.${reserved} is set by PolyStella and cannot be overridden`);
+        try {
+          JSON.stringify(fields);
+        } catch {
+          fail(`${label} must be JSON-serializable`);
+        }
+      }
+    }
   }
 
   if (options.glossaryDefaults !== undefined) {
@@ -151,6 +190,10 @@ export function serializeOptions(options: PolystellaEmdashOptions): SerializedPo
     models: {
       allowed: [...options.models.allowed],
       defaults: typeof options.models.defaults === "string" ? options.models.defaults : { ...options.models.defaults },
+      ...(options.models.reasoning === undefined
+        ? {}
+        : { reasoning: typeof options.models.reasoning === "string" ? options.models.reasoning : { ...options.models.reasoning } }),
+      ...(options.models.reasoningInput === undefined ? {} : { reasoningInput: options.models.reasoningInput }),
     },
     ...(options.glossaryDefaults === undefined
       ? {}
@@ -270,6 +313,22 @@ function readModelSpec(value: unknown, label: string): ModelSpec {
     readString(model, `${label}.${locale}`);
   }
   return models as { default: string } & Record<string, string>;
+}
+
+function readReasoningEffort(value: unknown, label: string): string {
+  const effort = readString(value, label);
+  if (!isReasoningEffort(effort)) fail(`${label} must be a lowercase effort name such as "none" or "high"`);
+  return effort;
+}
+
+export function isReasoningEffort(value: string): boolean {
+  return value.length <= 32 && REASONING_EFFORT_PATTERN.test(value);
+}
+
+/** The code-default thinking effort for a locale; `undefined` leaves it to the model. */
+export function resolveReasoning(spec: ReasoningSpec | undefined, locale: string): string | undefined {
+  if (spec === undefined || typeof spec === "string") return spec;
+  return Object.hasOwn(spec, locale) ? spec[locale] : Object.hasOwn(spec, "default") ? spec.default : undefined;
 }
 
 function modelSpecEntries(models: ModelSpec): Array<[string, string]> {

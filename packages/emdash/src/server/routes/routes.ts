@@ -42,11 +42,13 @@ import {
   MAX_BATCH_TRANSLATIONS,
   type AiTranslationStatus,
   type BatchJobOutcome,
+  type BatchJobEntriesResponse,
   type BatchJobResultsResponse,
   type BatchJobsResponse,
   type BatchTranslationLink,
   type BatchJobView,
   type CatalogClearSyncedResponse,
+  type ModelReasoningResponse,
   type CatalogEntryView,
   type CatalogExportResponse,
   type CatalogGenerationResponse,
@@ -88,7 +90,8 @@ import {
 } from "../../ai-translations.js";
 import { resolveGlossary, resolveInstructions, runtimeOverrideSettingKey } from "../../settings.js";
 import type { PolystellaEmdashOptions } from "../options.js";
-import { localeTag, targetLocales } from "../options.js";
+import { localeTag, resolveReasoning, targetLocales } from "../options.js";
+import { reasoningCapability, type ReasoningCapability } from "../reasoning.js";
 import {
   collectionPolicies,
   collectionSettings,
@@ -132,6 +135,8 @@ const BATCH_RESULTS_PAGE_SIZE = 50;
 const BATCH_LIST_PAGE_SIZE = 100;
 const ADMIN_ROLE = 50;
 const TRANSLATABLE_FIELD_TYPES = new Set(["string", "text", "portableText"]);
+const MAX_ENTRY_ID_LENGTH = 128;
+const TRANSLATABLE_SUBFIELD_TYPES = new Set(["string", "text", "image"]);
 
 const defaultDependencies: PluginRouteDependencies = {
   async getEnv() {
@@ -163,7 +168,11 @@ export function createPluginRoutes(
       methods: ["GET", "PUT"],
       async handler(ctx) {
         if (ctx.request.method === "GET") return translationSettingsView(options, ctx.settings);
-        await saveTranslationSettings(options, ctx.settings, readRecord(ctx.input, "request body"));
+        const env = await dependencies.getEnv();
+        await saveTranslationSettings(options, ctx.settings, readRecord(ctx.input, "request body"), async (model, effort, label) => {
+          const capability = await readReasoningCapability(options, env, model, dependencies, ctx.log);
+          if (capability?.has(effort) !== true) throw PluginRouteError.badRequest(`${label} is not a thinking effort ${model} accepts`);
+        });
         return translationSettingsView(options, ctx.settings);
       },
     },
@@ -180,7 +189,23 @@ export function createPluginRoutes(
           targetLocales:
             policy === undefined ? [] : targetLocales(options).map((code) => ({ locale: contentLocale(code, dependencies), code })),
           fields: policy === undefined ? [] : [...policy.fields],
+          subFields: policy?.subFields ?? {},
         } satisfies CollectionPolicyResponse;
+      },
+    },
+    "models/reasoning": {
+      permission: "plugins:manage",
+      methods: ["GET"],
+      async handler(ctx) {
+        const model = readString(readRecord(ctx.input, "query").model, "model");
+        if (!options.models.allowed.includes(model)) throw PluginRouteError.badRequest("model must be allowed by deployment configuration");
+        try {
+          const capability = await readReasoningCapability(options, await dependencies.getEnv(), model, dependencies, ctx.log);
+          return { efforts: capability === null ? null : [...capability.keys()] } satisfies ModelReasoningResponse;
+        } catch (error) {
+          if (!(error instanceof PluginRouteError)) throw error;
+          return { efforts: null, error: error.message } satisfies ModelReasoningResponse;
+        }
       },
     },
     // Called after the admin (or the queue consumer) saves AI-translated content. The server derives locale and model itself.
@@ -282,7 +307,7 @@ export function createPluginRoutes(
             throw PluginRouteError.badRequest("fields must be enabled in PolyStella collection settings");
           }
           const schema = await collectionSchema(ctx, collection);
-          const untranslatableField = selectedFields.find((slug) => !isTranslatableField(schema, slug));
+          const untranslatableField = selectedFields.find((slug) => !isTranslatableField(schema, policy, slug));
           if (untranslatableField !== undefined) {
             throw PluginRouteError.badRequest(`field "${untranslatableField}" is not a translatable text field in the collection schema`);
           }
@@ -304,6 +329,7 @@ export function createPluginRoutes(
           translationStarted = true;
           const result = await translateContentFields({
             values,
+            repeaterSubFields: repeaterSubFields(schema, policy, selectedFields),
             translator: settings.translator,
             glossary: settings.glossary,
             sourceLocale: localeTag(options, options.catalogs.defaultLocale),
@@ -613,6 +639,9 @@ export function createPluginRoutes(
         ];
         const publish = input.publish === undefined ? false : readBoolean(input.publish, "publish");
         const selectedIds = input.entryIds === undefined ? undefined : [...new Set(readStringArray(input.entryIds, "entryIds", false))];
+        if (selectedIds?.some((id) => id.length > MAX_ENTRY_ID_LENGTH) === true) {
+          throw PluginRouteError.badRequest(`entryIds cannot be longer than ${MAX_ENTRY_ID_LENGTH} characters`);
+        }
         await enabledCollectionPolicy(ctx.settings, collection);
         const queue = batchQueue(options.batchQueueBinding, await dependencies.getEnv());
         if (selectedIds === undefined) {
@@ -635,6 +664,7 @@ export function createPluginRoutes(
           // A whole collection is listed by the queue, a page at a time, so this request stays small.
           listing: selectedIds === undefined ? { page: 0, cursor: null } : null,
           truncated: false,
+          entryIds: selectedIds ?? "all",
         };
         await jobs.put(jobId, job);
         await enqueueBatchMessages(
@@ -776,7 +806,7 @@ export function createPluginRoutes(
           const collection = job.collection;
           const policy = await enabledCollectionPolicy(ctx.settings, collection);
           const schema = await collectionSchema(ctx, collection);
-          const fields = policy.fields.filter((slug) => isTranslatableField(schema, slug)).slice(0, MAX_CONTENT_FIELDS);
+          const fields = policy.fields.filter((slug) => isTranslatableField(schema, policy, slug)).slice(0, MAX_CONTENT_FIELDS);
           if (fields.length === 0) return await record("failed", "No translatable fields are enabled for this collection.");
           const siblings = await ctx.content?.getTranslations?.(collection, message.entryId);
           const existing = siblings?.translations.find((sibling) => sameContentLocale(sibling.locale, message.locale, dependencies));
@@ -801,6 +831,7 @@ export function createPluginRoutes(
           const settings = await translationSettings(options, message.locale, ctx.settings, ctx.log, dependencies);
           const result = await translateContentFields({
             values,
+            repeaterSubFields: repeaterSubFields(schema, policy, fields),
             translator: settings.translator,
             glossary: settings.glossary,
             sourceLocale: localeTag(options, options.catalogs.defaultLocale),
@@ -879,6 +910,26 @@ export function createPluginRoutes(
           })),
           nextCursor: page.hasMore && page.cursor !== undefined ? page.cursor : null,
         } satisfies BatchJobResultsResponse;
+      },
+    },
+    // The entries a selected-entries job was started for, a page at a time.
+    "batch/entries": {
+      permission: "plugins:manage",
+      methods: ["GET"],
+      async handler(ctx) {
+        const query = readRecord(ctx.input, "query");
+        const jobId = readString(query.jobId, "jobId");
+        const offset = query.cursor === undefined ? 0 : Number(readString(query.cursor, "cursor"));
+        if (!Number.isSafeInteger(offset) || offset < 0) throw PluginRouteError.badRequest("cursor is invalid");
+        const job = await readBatchJob(batchStorage(ctx.storage).jobs, jobId);
+        if (job === null) throw PluginRouteError.notFound("batch job not found");
+        const ids = Array.isArray(job.entryIds) ? job.entryIds.slice(offset, offset + BATCH_RESULTS_PAGE_SIZE) : [];
+        const titles = await sourceTitles(ctx, job.collection, ids);
+        const next = offset + ids.length;
+        return {
+          entries: ids.map((id) => ({ id, title: titles.get(id) ?? id })),
+          nextCursor: Array.isArray(job.entryIds) && next < job.entryIds.length ? String(next) : null,
+        } satisfies BatchJobEntriesResponse;
       },
     },
     overrides: {
@@ -1000,6 +1051,7 @@ async function batchJobView(results: StorageCollection, id: string, job: StoredB
     createdAt: job.createdAt,
     listing: job.listing !== null,
     truncated: job.truncated,
+    entryCount: Array.isArray(job.entryIds) ? job.entryIds.length : job.entryIds,
     counts: { created, skipped, failed },
     failures: failures.items.flatMap(({ data }) => {
       const row = parseStoredResult(data);
@@ -1028,9 +1080,30 @@ async function collectionSchema(ctx: RouteContext, collection: string): Promise<
   return schema;
 }
 
-function isTranslatableField(schema: CollectionSchemaInfo, slug: string): boolean {
+function isTranslatableField(schema: CollectionSchemaInfo, policy: CollectionPolicy, slug: string): boolean {
   const field = schema.fields.find((candidate) => candidate.slug === slug);
-  return field !== undefined && field.translatable && TRANSLATABLE_FIELD_TYPES.has(field.type);
+  if (field === undefined || !field.translatable) return false;
+  return field.type === "repeater" ? translatableSubFields(schema, policy, slug).length > 0 : TRANSLATABLE_FIELD_TYPES.has(field.type);
+}
+
+/** The policy's subfields for a repeater that the schema still has with a text or image type. */
+function translatableSubFields(schema: CollectionSchemaInfo, policy: CollectionPolicy, slug: string): string[] {
+  const field = schema.fields.find((candidate) => candidate.slug === slug);
+  const chosen = policy.subFields !== undefined && Object.hasOwn(policy.subFields, slug) ? policy.subFields[slug] : undefined;
+  if (field?.type !== "repeater" || chosen === undefined) return [];
+  const supported = new Set(
+    (field.validation?.subFields ?? []).filter((subField) => TRANSLATABLE_SUBFIELD_TYPES.has(subField.type)).map(({ slug }) => slug),
+  );
+  return chosen.filter((subField) => supported.has(subField));
+}
+
+function repeaterSubFields(schema: CollectionSchemaInfo, policy: CollectionPolicy, fields: readonly string[]): Record<string, string[]> {
+  return Object.fromEntries(
+    fields.flatMap((slug) => {
+      const subFields = translatableSubFields(schema, policy, slug);
+      return subFields.length === 0 ? [] : [[slug, subFields]];
+    }),
+  );
 }
 
 async function loadTranslationSource(
@@ -1156,13 +1229,68 @@ async function translationSettings(
     throw PluginRouteError.badRequest(`translation instructions cannot exceed ${MAX_INSTRUCTION_CHARACTERS} characters`);
   }
   const maxTokens = storedSettings.maxTokens ?? defaultMaxTokens(options);
+  // An admin's effort goes with their model override; the code default goes with the code-default model.
+  const effort =
+    stored.model !== null
+      ? model === stored.model
+        ? stored.reasoning
+        : null
+      : model === deploymentModel
+        ? (resolveReasoning(options.models.reasoning, locale) ?? null)
+        : null;
   return {
-    translator: createTranslator(options, env, model, log, dependencies, maxTokens),
+    translator: createTranslator(
+      options,
+      env,
+      model,
+      log,
+      dependencies,
+      maxTokens,
+      await reasoningInput(options, env, model, effort, dependencies, log),
+    ),
     glossary,
     debugEnabled: storedSettings.debugEnabled,
     maxTokens,
     ...(promptInstruction.length === 0 ? {} : { promptInstruction }),
   };
+}
+
+/** Catalog failures become a 503 so callers can tell them apart from "no switch". */
+async function readReasoningCapability(
+  options: PolystellaEmdashOptions,
+  env: Record<string, unknown> | undefined,
+  model: string,
+  dependencies: PluginRouteDependencies,
+  log: LogAccess,
+): Promise<ReasoningCapability | null> {
+  try {
+    return await reasoningCapability(options, env, model, dependencies);
+  } catch (error) {
+    log.warn("PolyStella could not read the Workers AI model catalog", {
+      model,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    throw new PluginRouteError("MODEL_CATALOG_UNAVAILABLE", "PolyStella could not read this model's thinking options from Workers AI", 503);
+  }
+}
+
+/** Fails soft: a translation runs with the model's default thinking rather than not at all. */
+async function reasoningInput(
+  options: PolystellaEmdashOptions,
+  env: Record<string, unknown> | undefined,
+  model: string,
+  effort: string | null,
+  dependencies: PluginRouteDependencies,
+  log: LogAccess,
+): Promise<Readonly<Record<string, unknown>> | undefined> {
+  if (effort === null) return undefined;
+  try {
+    const input = (await readReasoningCapability(options, env, model, dependencies, log))?.get(effort);
+    if (input === undefined) log.warn("PolyStella ignored a thinking effort the model does not accept", { model, effort });
+    return input;
+  } catch {
+    return undefined;
+  }
 }
 
 function preferredCatalogLocale(options: PolystellaEmdashOptions): string {

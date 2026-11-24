@@ -13,7 +13,7 @@ import {
   type CatalogViewResponse,
   type TranslationDebugTrace,
 } from "../../../../contracts.js";
-import { errorMessage, pluginRequest } from "../../../utils.js";
+import { errorMessage, localeLabel, pluginRequest } from "../../../utils.js";
 import type { TranslationProgressState } from "../../../types.js";
 import { cardStyle, inputStyle, mutedStyle, rowStyle, sectionStyle, stackStyle } from "../../../styles.js";
 import { ErrorMessage } from "../../../components/ErrorMessage/ErrorMessage.js";
@@ -287,7 +287,7 @@ export function CatalogTab(): ReactNode {
                 >
                   {catalog.locales.map((item) => (
                     <Select.Option key={item.locale} value={item.locale}>
-                      {item.locale}
+                      {localeLabel(item.locale)}
                     </Select.Option>
                   ))}
                 </Select>

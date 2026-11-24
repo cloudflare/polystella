@@ -90,6 +90,11 @@ export function createTranslationDebugCollector(options: TranslationDebugCollect
 }
 
 export function contentSegmentLabel(id: string, fields: string[]): string {
+  const item = /^field:(\d+):item:(\d+):([a-z][a-z0-9_]*)(?::(alt|caption))?$/.exec(id);
+  if (item !== null) {
+    const field = fields[Number(item[1])];
+    return field === undefined ? id : `${field} (item ${Number(item[2]) + 1}, ${item[3]}${item[4] === undefined ? "" : ` ${item[4]}`})`;
+  }
   const match = /^field:(\d+)(?::block:(\d+)(?::row:(\d+):cell:(\d+))?:span:(\d+))?$/.exec(id);
   if (match === null) return id;
   const field = fields[Number(match[1])];

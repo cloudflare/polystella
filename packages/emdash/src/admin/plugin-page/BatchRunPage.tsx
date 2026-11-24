@@ -1,7 +1,7 @@
 import { Banner, Button, LayerCard } from "@cloudflare/kumo";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
-import { errorMessage } from "../utils.js";
+import { errorMessage, localeLabel } from "../utils.js";
 import { cardStyle, mutedStyle, pageStyle, rowStyle, sectionStyle, stackStyle, titleStyle } from "../styles.js";
 import { ErrorMessage } from "../components/ErrorMessage/ErrorMessage.js";
 import { TranslationProgress } from "../components/TranslationProgress/TranslationProgress.js";
@@ -37,8 +37,13 @@ export function BatchRunPage(): ReactNode {
 
   useEffect(() => {
     if (plan === null || plan.scope !== "all") return;
+    const { sourceLocale } = plan.options;
+    if (sourceLocale === undefined) {
+      setError("PolyStella could not tell which locale holds the source entries. Reload the Batch tab and start again.");
+      return;
+    }
     let active = true;
-    loadAllItems(plan.collection, plan.options.sourceLocale ?? null)
+    loadAllItems(plan.collection, sourceLocale, plan.targets)
       .then((loaded) => {
         if (active) setItems(loaded);
       })
@@ -130,7 +135,7 @@ export function BatchRunPage(): ReactNode {
         <LayerCard style={cardStyle}>
           <div style={stackStyle}>
             <span>
-              <strong>{plan.collection}</strong> → {plan.targets.map(({ locale }) => locale).join(", ")}
+              <strong>{plan.collection}</strong> → {plan.targets.map(({ locale, code }) => localeLabel(locale, code)).join(", ")}
             </span>
             <span style={mutedStyle}>
               {items === null

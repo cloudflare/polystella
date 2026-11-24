@@ -5,11 +5,14 @@ import { createProviderHttpError } from "./http-error.js";
 export interface WorkersAIInput {
   messages: Array<{ role: "system" | "user"; content: string }>;
   max_tokens: number;
+  [key: string]: unknown;
 }
 
 interface WorkersAITranslatorOptions {
   modelId: string;
   maxTokens: number;
+  /** Model-specific input fields, such as `reasoning_effort`. `messages` and `max_tokens` always win. */
+  extraInput?: Readonly<Record<string, unknown>> | undefined;
 }
 
 export interface WorkersAIHttpTranslatorOptions extends WorkersAITranslatorOptions {
@@ -26,7 +29,7 @@ export interface WorkersAIBindingTranslatorOptions extends WorkersAITranslatorOp
 }
 
 export function createWorkersAIHttpTranslator(options: WorkersAIHttpTranslatorOptions): Translator {
-  const { accountId, apiToken, modelId, maxTokens, endpoint, fetchImpl = fetch } = options;
+  const { accountId, apiToken, modelId, maxTokens, extraInput, endpoint, fetchImpl = fetch } = options;
   const url = endpoint ?? `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${modelId}`;
 
   return {
@@ -39,7 +42,7 @@ export function createWorkersAIHttpTranslator(options: WorkersAIHttpTranslatorOp
           Authorization: `Bearer ${apiToken}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(createInput(systemPrompt, userPrompt, maxTokens)),
+        body: JSON.stringify(createInput(systemPrompt, userPrompt, maxTokens, extraInput)),
         ...(signal !== undefined ? { signal } : {}),
       });
       signal?.throwIfAborted();
@@ -57,20 +60,26 @@ export function createWorkersAIHttpTranslator(options: WorkersAIHttpTranslatorOp
 }
 
 export function createWorkersAIBindingTranslator(options: WorkersAIBindingTranslatorOptions): Translator {
-  const { modelId, maxTokens, run } = options;
+  const { modelId, maxTokens, extraInput, run } = options;
   return {
     modelId,
     async translate(systemPrompt, userPrompt, signal) {
       signal?.throwIfAborted();
-      const data = await run(modelId, createInput(systemPrompt, userPrompt, maxTokens));
+      const data = await run(modelId, createInput(systemPrompt, userPrompt, maxTokens, extraInput));
       signal?.throwIfAborted();
       return normalizeWorkersAIBindingResponse(data, modelId);
     },
   };
 }
 
-function createInput(systemPrompt: string, userPrompt: string, maxTokens: number): WorkersAIInput {
+function createInput(
+  systemPrompt: string,
+  userPrompt: string,
+  maxTokens: number,
+  extraInput: Readonly<Record<string, unknown>> | undefined,
+): WorkersAIInput {
   return {
+    ...extraInput,
     messages: [
       { role: "system", content: systemPrompt },
       { role: "user", content: userPrompt },

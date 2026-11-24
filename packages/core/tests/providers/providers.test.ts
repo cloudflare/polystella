@@ -47,6 +47,27 @@ describe("Workers AI HTTP translator", () => {
     });
   });
 
+  it("merges extraInput into the body without letting it replace messages or max_tokens", async () => {
+    const fetchImpl = makeFetchStub({ result: { response: "OK" } });
+    const translator = createWorkersAIHttpTranslator({
+      accountId: "ACCT",
+      apiToken: "TOKEN",
+      modelId: "model",
+      maxTokens: 50,
+      extraInput: { reasoning_effort: "high", messages: [], max_tokens: 1 },
+      fetchImpl,
+    });
+    await translator.translate("s", "u");
+    expect(JSON.parse(String(fetchImpl.mock.calls[0]![1]?.body))).toEqual({
+      reasoning_effort: "high",
+      messages: [
+        { role: "system", content: "s" },
+        { role: "user", content: "u" },
+      ],
+      max_tokens: 50,
+    });
+  });
+
   it("uses a custom endpoint", async () => {
     const fetchImpl = makeFetchStub({ result: { response: "OK" } });
     const translator = createWorkersAIHttpTranslator({
@@ -106,6 +127,25 @@ describe("Workers AI binding translator", () => {
         { role: "user", content: "user" },
       ],
       max_tokens: 4096,
+    });
+  });
+
+  it("merges extraInput into the binding input without letting it replace messages or max_tokens", async () => {
+    const run = vi.fn().mockResolvedValue("OK");
+    const translator = createWorkersAIBindingTranslator({
+      modelId: "model",
+      maxTokens: 50,
+      extraInput: { chat_template_kwargs: { enable_thinking: false }, messages: [], max_tokens: 1 },
+      run,
+    });
+    await translator.translate("s", "u");
+    expect(run).toHaveBeenCalledWith("model", {
+      chat_template_kwargs: { enable_thinking: false },
+      messages: [
+        { role: "system", content: "s" },
+        { role: "user", content: "u" },
+      ],
+      max_tokens: 50,
     });
   });
 

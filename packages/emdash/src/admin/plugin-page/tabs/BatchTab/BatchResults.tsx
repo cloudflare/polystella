@@ -4,6 +4,7 @@ import { useEffect, useState, type ReactNode } from "react";
 
 import type { BatchTranslationLink } from "../../../../contracts.js";
 import { mutedStyle, rowStyle, stackStyle } from "../../../styles.js";
+import { localeLabel } from "../../../utils.js";
 import { publicContentUrl, type PublicUrlContext } from "./helpers.js";
 
 export interface BatchResultRow {
@@ -62,7 +63,7 @@ export function BatchResultsTable({
           {rows.map((row) => (
             <Table.Row key={row.key}>
               <Table.Cell>{row.title}</Table.Cell>
-              <Table.Cell>{row.locale}</Table.Cell>
+              <Table.Cell>{localeLabel(row.locale)}</Table.Cell>
               <Table.Cell>{row.outcome}</Table.Cell>
               <Table.Cell>
                 <div style={stackStyle}>

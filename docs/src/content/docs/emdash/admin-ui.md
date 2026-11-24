@@ -17,7 +17,23 @@ Lets an Administrator enable project collections and choose their
 translatable fields. The source is always the code-defined
 `catalogs.defaultLocale`; plugin settings display it but cannot change
 it. Only fields the collection schema marks as translatable and of a
-supported type (`string`, `text`, Portable Text) are offered.
+supported type (`string`, `text`, Portable Text, repeater) are offered.
+
+A repeater lists its `string`, `text`, and `image` subfields, all ticked
+when the repeater is enabled. Only ticked subfields are translated; an
+image translates its alt text and caption. Every other subfield (links,
+numbers, unticked text) is copied from the source row. Unticking every
+subfield turns the repeater off. The source entry is the source of
+truth: retranslating an existing translation replaces its whole
+repeater list with the translated source list, including items added or
+removed in the source. Use EmDash revisions to restore an earlier
+version. Images, blocks, SEO metadata, and
+images inside Portable Text are not translated yet; select, URL, slug,
+number, boolean, date, file, reference, and JSON fields hold no
+translatable text.
+
+Locales are shown by name and code, for example "French (fr)", in the
+browser's language.
 
 No collection is enabled until an Administrator saves a valid policy.
 Missing or malformed stored policy fails closed — the collection is
@@ -35,9 +51,10 @@ same way.
 Translates many entries of one enabled collection at once, using the
 same route and saves as the content-editor panel. Choose:
 
-- **Entries** — the whole collection, or entries you tick in a list
-  of source-locale entries that shows each slug and searches by
-  title or slug.
+- **Entries** — entries you tick (the default) in a list of
+  source-locale entries that shows each slug and searches by title or
+  slug, or the whole collection. The run button appears above and
+  below the list.
 - **Target locales** — any of the configured non-default locales.
   None are ticked at first. **Select all** and **Clear all** change
   them together. With selected entries, **Select untranslated** ticks
@@ -71,8 +88,9 @@ When the deployment sets
 Cloudflare Queues and keeps running after you close the tab. Server
 jobs only create missing translations; existing ones are skipped.
 They follow **Publish translations immediately** too.
-The tab lists the last ten jobs with their progress, the first
-failures, **Show results** (every row with the same links as browser
+The tab lists the last ten jobs with their progress, whether they cover
+the whole collection or selected entries (**Show entries** lists them),
+the first failures, **Show results** (every row with the same links as browser
 runs), **Cancel** (queued entries finish without translating), and
 **Retry failed**. **Remove** takes a finished or cancelled job off the
 list, and **Clear finished jobs** removes all of them; the
@@ -88,6 +106,12 @@ code-defined default locale is source-only and is not listed here:
 - **Translation model** — pick from `models.allowed`, or keep the
   code default (`models.defaults`). A model outside `allowed` cannot
   be selected.
+- **Thinking** — shown when a locale overrides the model. _Model
+  default_, _Off_ when the model can turn thinking off, and each effort
+  the model lists in the Workers AI catalog (or in
+  `models.reasoningInput`). Changing the model resets it. With the code
+  default model, the code's `models.reasoning` applies and is shown
+  read-only.
 - **Glossary behavior** — use the code default, append custom plain
   text, or replace the code glossary. Structured YAML stays
   code-defined; only `notes` can be appended or replaced.
@@ -129,7 +153,7 @@ stages; EmDash plugin routes do not stream provider or batch progress.
 ## Content-editor panel
 
 The panel appears for Editors and Administrators. It translates
-selected `string`, `text`, and Portable Text fields in an existing
+selected `string`, `text`, Portable Text, and repeater fields in an existing
 target-locale draft — the source locale is the code-defined
 `catalogs.defaultLocale`, and the target must differ from it.
 

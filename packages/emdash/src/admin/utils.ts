@@ -1,6 +1,6 @@
 import { ApiResponseError, apiFetch, parseApiResponse } from "@emdash-cms/admin";
 
-import { POLYSTELLA_API_BASE, type TranslationDebugTrace } from "../contracts.js";
+import { POLYSTELLA_API_BASE, type CollectionPolicy, type TranslationDebugTrace } from "../contracts.js";
 import type { SchemaField } from "./types.js";
 
 /** Dispatched on `window` after collection policies are saved, so other tabs can reload them. */
@@ -32,8 +32,52 @@ export function formatErrorDetails(value: unknown): string {
   return String(value);
 }
 
+const languageNames = new Intl.DisplayNames(undefined, { type: "language" });
+
+/** "French (fr)" in the admin's browser language; `code` adds the catalog code when it differs ("French (fr, fr-FR)"). */
+export function localeLabel(locale: string, code: string = locale): string {
+  const codes = locale.toLowerCase() === code.toLowerCase() ? locale : `${locale}, ${code}`;
+  let name: string | undefined;
+  try {
+    name = languageNames.of(code);
+  } catch {
+    // Not a valid BCP 47 tag; show the code alone.
+  }
+  return name === undefined || name.toLowerCase() === code.toLowerCase() ? codes : `${name} (${codes})`;
+}
+
 export function supportsTranslation(field: SchemaField): boolean {
-  return field.type === "string" || field.type === "text" || field.type === "portableText";
+  return field.type === "string" || field.type === "text" || field.type === "portableText" || translatableSubFields(field).length > 0;
+}
+
+/** Enabled in the policy and translatable now; a repeater also needs one of its chosen subfields to still exist. */
+export function isPolicyField(field: SchemaField, policy: CollectionPolicy): boolean {
+  if (!policy.fields.includes(field.slug) || !supportsTranslation(field) || !isTranslatable(field)) return false;
+  if (field.type !== "repeater") return true;
+  const chosen = policy.subFields !== undefined && Object.hasOwn(policy.subFields, field.slug) ? policy.subFields[field.slug] : undefined;
+  return translatableSubFields(field).some(({ slug }) => chosen?.includes(slug) === true);
+}
+
+export interface RepeaterSubField {
+  slug: string;
+  label: string;
+}
+
+const TRANSLATABLE_SUBFIELD_TYPES = new Set(["string", "text", "image"]);
+
+/** A repeater's text and image subfields. EmDash sends `validation.subFields`, though its admin types omit it. */
+export function translatableSubFields(field: SchemaField): RepeaterSubField[] {
+  if (field.type !== "repeater") return [];
+  const validation: unknown = field.validation;
+  const subFields = isRecord(validation) && Array.isArray(validation.subFields) ? validation.subFields : [];
+  return subFields.flatMap((subField: unknown) =>
+    isRecord(subField) &&
+    typeof subField.slug === "string" &&
+    typeof subField.type === "string" &&
+    TRANSLATABLE_SUBFIELD_TYPES.has(subField.type)
+      ? [{ slug: subField.slug, label: typeof subField.label === "string" ? subField.label : subField.slug }]
+      : [],
+  );
 }
 
 export function isTranslatable(field: SchemaField): boolean {
