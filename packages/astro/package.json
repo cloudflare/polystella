@@ -103,7 +103,7 @@
   "dependencies": {
     "@cloudflare/polystella-core": "workspace:^",
     "acorn": "^8.19.0",
-    "p-retry": "^8.0.0",
+    "p-retry": "^9.0.0",
     "picomatch": "^4.0.7",
     "s3mini": "^0.9.4",
     "satteri": "^0.11.7",

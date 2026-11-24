@@ -109,7 +109,7 @@
     "@formatjs/icu-messageformat-parser": "^3.5.23",
     "@types/mdast": "^4.0.4",
     "intl-messageformat": "^12.2.0",
-    "p-retry": "^8.0.0",
+    "p-retry": "^9.0.0",
     "picomatch": "^4.0.7",
     "remark-frontmatter": "^5.0.0",
     "remark-gfm": "^4.0.1",
