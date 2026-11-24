@@ -40,7 +40,7 @@ jobs:
       - run: pnpm check:baseline
       - run: pnpm check:packages
       - name: Create release PR or publish
-        uses: changesets/action@a45c4d594aa4e2c509dc14a9f2b3b67ba3780d0d # v1
+        uses: changesets/action@ae32849d5ba541f9ae29e40e22a623bc13562f51 # v1
         with:
           version: pnpm run release:version
           publish: pnpm run release:publish
