@@ -40,6 +40,6 @@
     "pkg-pr-new": "^0.0.94",
     "prettier": "3.10.1",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.9"
+    "vitest": "^4.1.12"
   }
 }
