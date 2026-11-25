@@ -399,7 +399,7 @@ export function CatalogTab(): ReactNode {
 }
 
 const catalogLayoutStyle: CSSProperties = { alignItems: "flex-start", display: "flex", flexWrap: "wrap", gap: 20 };
-const groupListStyle: CSSProperties = { display: "grid", gap: 2, maxHeight: "65vh", overflowY: "auto" };
+const groupListStyle: CSSProperties = { display: "grid", gap: 2, maxHeight: "65vh", overflowY: "auto", paddingRight: 8 };
 const groupButtonStyle: CSSProperties = {
   background: "none",
   border: "none",
@@ -535,9 +535,9 @@ const CatalogRow = memo(function CatalogRow({
         onCheckedChange={(next) => onToggleSelected([entry.key], next)}
       />
       <Table.Cell>
-        <strong style={{ overflowWrap: "anywhere" }} title={entry.key}>
+        <code style={{ fontWeight: 500, overflowWrap: "anywhere" }} title={entry.key}>
           {keyLabel}
-        </strong>
+        </code>
       </Table.Cell>
       <Table.Cell>
         <TokenGuidance source={entry.source} messageSyntax={messageSyntax} />

@@ -14,7 +14,7 @@ import { errorMessage, localeLabel, pluginPageUrl, pluginRequest } from "../../.
 import { cardStyle, mutedStyle, rowStyle, sectionStyle, stackStyle, subheadingStyle } from "../../../styles.js";
 import { ErrorMessage } from "../../../components/ErrorMessage/ErrorMessage.js";
 import { NewWindowLink } from "../../../components/NewWindowLink/NewWindowLink.js";
-import { InfoTooltip, SectionHeader } from "../../../components/PageHeader/PageHeader.js";
+import { InfoLabel, InfoTooltip, SectionHeader } from "../../../components/PageHeader/PageHeader.js";
 import { cardGridStyle, CollapsibleCard } from "../../../components/CollapsibleCard/CollapsibleCard.js";
 
 export function TranslationSettingsTab(): ReactNode {
@@ -50,29 +50,7 @@ export function TranslationSettingsTab(): ReactNode {
     setWorking(true);
     setError(null);
     try {
-      const value = await pluginRequest<TranslationSettingsResponse>("settings/translation", {
-        method: "PUT",
-        body: JSON.stringify({
-          revision: settings.revision,
-          debugEnabled: settings.debugEnabled,
-          maxTokens: settings.maxTokens,
-          clearAiFlagOnEdit: settings.clearAiFlagOnEdit,
-          translateSeoWhenPublished: settings.translateSeoWhenPublished,
-          locales: Object.fromEntries(
-            settings.locales.map((locale) => [
-              locale.locale,
-              {
-                model: locale.model,
-                reasoning: locale.reasoning,
-                glossaryMode: locale.glossaryMode,
-                glossaryText: locale.glossaryText,
-              },
-            ]),
-          ),
-          instructions: { mode: settings.instructions.mode, text: settings.instructions.text },
-        }),
-      });
-      setSettings(value);
+      setSettings(await saveTranslationSettings(settings));
     } catch (cause) {
       setError(errorMessage(cause));
     } finally {
@@ -87,25 +65,34 @@ export function TranslationSettingsTab(): ReactNode {
       <SectionHeader title="Translation settings" description="Choose a model and customize code-defined guidance without redeploying." />
       {error === null ? null : <ErrorMessage>{error}</ErrorMessage>}
       {settings === null ? null : (
-        <div style={cardGridStyle}>
+        <div style={{ ...cardGridStyle, alignItems: "stretch" }}>
           <LayerCard style={cardStyle}>
             <div style={stackStyle}>
               <h3 style={cardHeadingStyle}>General</h3>
               <Switch
-                label="Debug mode"
-                labelTooltip="Administrators receive request-scoped prompts, normalized model responses, and batch diagnostics. Debug traces are not stored on the server."
+                aria-label="Debug mode"
+                label={
+                  <InfoLabel
+                    label="Debug mode"
+                    info="Administrators receive request-scoped prompts, normalized model responses, and batch diagnostics. Debug traces are not stored on the server."
+                  />
+                }
                 checked={settings.debugEnabled}
                 disabled={working}
                 onCheckedChange={(debugEnabled) => setSettings((current) => (current === null ? null : { ...current, debugEnabled }))}
               />
               <Input
-                label="Max output tokens"
+                label={
+                  <InfoLabel
+                    label="Max output tokens"
+                    info={`Raise this if long entries fail with truncated responses. Leave empty to use the default (${settings.defaultMaxTokens}).`}
+                  />
+                }
                 type="number"
                 min={MIN_MAX_TOKENS}
                 max={MAX_MAX_TOKENS}
                 step={1}
                 placeholder={`Default (${settings.defaultMaxTokens})`}
-                labelTooltip={`Raise this if long entries fail with truncated responses. Leave empty to use the default (${settings.defaultMaxTokens}).`}
                 value={settings.maxTokens?.toString() ?? ""}
                 disabled={working}
                 onChange={(event) => {
@@ -115,8 +102,13 @@ export function TranslationSettingsTab(): ReactNode {
                 }}
               />
               <Switch
-                label="Remove the AI-translated flag when an editor changes AI text"
-                labelTooltip="Off: the flag stays, and the PolyStella panel on the entry shows which AI-written fields were edited, with Keep AI flag and Remove AI flag. On: saving different text in an AI-written field removes the flag right away."
+                aria-label="Remove the AI-translated flag when an editor changes AI text"
+                label={
+                  <InfoLabel
+                    label="Remove the AI-translated flag when an editor changes AI text"
+                    info="Off: the flag stays, and the PolyStella panel on the entry shows which AI-written fields were edited, with Keep AI flag and Remove AI flag. On: saving different text in an AI-written field removes the flag right away."
+                  />
+                }
                 checked={settings.clearAiFlagOnEdit}
                 disabled={working}
                 onCheckedChange={(clearAiFlagOnEdit) =>
@@ -124,8 +116,13 @@ export function TranslationSettingsTab(): ReactNode {
                 }
               />
               <Switch
-                label="Translate the SEO title and meta description of published and scheduled entries"
-                labelTooltip="Off: the PolyStella panel translates SEO text only on drafts. On: it also translates it on published and scheduled entries. EmDash saves SEO text as soon as it changes, so on those entries the translation takes effect before anyone reviews it."
+                aria-label="Translate the SEO title and meta description of published and scheduled entries"
+                label={
+                  <InfoLabel
+                    label="Translate the SEO title and meta description of published and scheduled entries"
+                    info="Off: the PolyStella panel translates SEO text only on drafts. On: it also translates it on published and scheduled entries. EmDash saves SEO text as soon as it changes, so on those entries the translation takes effect before anyone reviews it."
+                  />
+                }
                 checked={settings.translateSeoWhenPublished}
                 disabled={working}
                 onCheckedChange={(translateSeoWhenPublished) =>
@@ -198,7 +195,14 @@ export function TranslationSettingsTab(): ReactNode {
             header={
               <>
                 <strong>{localeLabel(locale.locale)}</strong>
-                <small style={mutedStyle}>{locale.model ?? `Code default (${locale.defaultModel})`}</small>
+                {locale.model === null ? (
+                  <small style={{ ...mutedStyle, alignItems: "center", display: "inline-flex", gap: 4 }}>
+                    Code default
+                    <InfoTooltip label={`${localeLabel(locale.locale)} code-default model`} content={locale.defaultModel} />
+                  </small>
+                ) : (
+                  <small style={mutedStyle}>{locale.model}</small>
+                )}
               </>
             }
           >
@@ -339,8 +343,12 @@ function ThinkingSelect({
   }
   return (
     <Select
-      label="Thinking"
-      labelTooltip="Off makes translations faster and cheaper. More thinking can help with tricky text, but it also uses output tokens. No override sends what the code sets for this model, or nothing."
+      label={
+        <InfoLabel
+          label="Thinking"
+          info="Off makes translations faster and cheaper. More thinking can help with tricky text, but it also uses output tokens. No override sends what the code sets for this model, or nothing."
+        />
+      }
       value={value ?? MODEL_DEFAULT_REASONING}
       renderValue={(selected) =>
         selected === MODEL_DEFAULT_REASONING || typeof selected !== "string" ? "No override" : effortLabel(selected)
@@ -367,18 +375,39 @@ function effortLabel(effort: string): string {
   return label.charAt(0).toUpperCase() + label.slice(1);
 }
 
-const CUSTOMIZATION_MODES: readonly CustomizationMode[] = ["default", "append", "replace"];
-const INSTRUCTION_MODE_LABELS: Record<CustomizationMode, string> = {
+/** Saves every editable field of `settings`; the stored revision must still match. */
+export function saveTranslationSettings(settings: TranslationSettingsResponse): Promise<TranslationSettingsResponse> {
+  return pluginRequest<TranslationSettingsResponse>("settings/translation", {
+    method: "PUT",
+    body: JSON.stringify({
+      revision: settings.revision,
+      debugEnabled: settings.debugEnabled,
+      maxTokens: settings.maxTokens,
+      clearAiFlagOnEdit: settings.clearAiFlagOnEdit,
+      translateSeoWhenPublished: settings.translateSeoWhenPublished,
+      locales: Object.fromEntries(
+        settings.locales.map((locale) => [
+          locale.locale,
+          { model: locale.model, reasoning: locale.reasoning, glossaryMode: locale.glossaryMode, glossaryText: locale.glossaryText },
+        ]),
+      ),
+      instructions: { mode: settings.instructions.mode, text: settings.instructions.text },
+    }),
+  });
+}
+
+export const CUSTOMIZATION_MODES: readonly CustomizationMode[] = ["default", "append", "replace"];
+export const INSTRUCTION_MODE_LABELS: Record<CustomizationMode, string> = {
   default: "Use code defaults",
   append: "Append custom instructions",
   replace: "Replace code instructions",
 };
-const GLOSSARY_MODE_LABELS: Record<CustomizationMode, string> = {
+export const GLOSSARY_MODE_LABELS: Record<CustomizationMode, string> = {
   default: "Use code default",
   append: "Append custom glossary",
   replace: "Replace code glossary",
 };
 
-function isCustomizationMode(value: unknown): value is CustomizationMode {
+export function isCustomizationMode(value: unknown): value is CustomizationMode {
   return typeof value === "string" && (CUSTOMIZATION_MODES as readonly string[]).includes(value);
 }

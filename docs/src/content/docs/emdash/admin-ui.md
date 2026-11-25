@@ -140,7 +140,8 @@ The code-defined default locale is source-only and is not listed here:
   translation in every language, together with that language's glossary.
 
 **View code-defined additional translation instructions** and **View
-code-defined glossary** open the code's text read-only in a new window.
+code-defined glossary** open the code's text in a new window, with the
+same append or replace controls and a **Save** button.
 
 **Max output tokens** caps how much text the model may return per
 request, for every translation. Leave it empty to use `provider.maxTokens`

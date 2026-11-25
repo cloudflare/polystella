@@ -33,6 +33,9 @@ import type { CatalogEntryView, CatalogGroupView, TranslationDebugTrace } from "
 import { createElement, type ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { CollapsibleCard } from "../src/admin/components/CollapsibleCard/CollapsibleCard.js";
+import { InfoLabel } from "../src/admin/components/PageHeader/PageHeader.js";
+import { saveTranslationSettings } from "../src/admin/plugin-page/tabs/TranslationSettingsTab/TranslationSettingsTab.js";
+import type { TranslationSettingsResponse } from "../src/contracts.js";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -188,6 +191,58 @@ describe("EmDash admin entry", () => {
     expect(card(false, body)).not.toContain("Body text");
     expect(card(true, body)).toContain('aria-label="Collapse Pages"');
     expect(card(true, body)).toContain("Body text");
+  });
+
+  it("renders an info label with its text and an 'About' button", () => {
+    const html = renderToStaticMarkup(createElement(InfoLabel, { label: "Max tokens", info: "Output limit" }));
+
+    expect(html).toContain("Max tokens");
+    expect(html).toContain('aria-label="About Max tokens"');
+    expect(html).toContain("<button");
+  });
+
+  it("saves only the editable translation settings fields", async () => {
+    const settings: TranslationSettingsResponse = {
+      defaultLocale: "en",
+      localeTags: {},
+      revision: "rev-1",
+      debugEnabled: true,
+      maxTokens: 4096,
+      defaultMaxTokens: 8192,
+      clearAiFlagOnEdit: true,
+      translateSeoWhenPublished: false,
+      allowedModels: ["m1"],
+      locales: [
+        {
+          locale: "fr",
+          defaultModel: "m0",
+          model: "m1",
+          reasoning: "low",
+          defaultReasoning: null,
+          defaultGlossary: "code glossary",
+          glossaryMode: "append",
+          glossaryText: "mine",
+        },
+      ],
+      instructions: { defaultText: "code instructions", mode: "replace", text: "custom" },
+    };
+    const fetchMock = vi.fn(async (_url: RequestInfo | URL, _init?: RequestInit) => Response.json({ data: settings }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(saveTranslationSettings(settings)).resolves.toEqual(settings);
+
+    const [url, init] = fetchMock.mock.calls[0] ?? [];
+    expect(String(url)).toContain("settings/translation");
+    expect(init?.method).toBe("PUT");
+    expect(JSON.parse(String(init?.body))).toEqual({
+      revision: "rev-1",
+      debugEnabled: true,
+      maxTokens: 4096,
+      clearAiFlagOnEdit: true,
+      translateSeoWhenPublished: false,
+      locales: { fr: { model: "m1", reasoning: "low", glossaryMode: "append", glossaryText: "mine" } },
+      instructions: { mode: "replace", text: "custom" },
+    });
   });
 
   it("renders a named native percentage progress indicator", () => {

@@ -5,7 +5,7 @@ import type { ReactNode } from "react";
 export function NewWindowIcon(): ReactNode {
   return (
     <>
-      <ArrowSquareOutIcon size={14} aria-hidden="true" style={{ marginLeft: 4, verticalAlign: "-2px" }} />
+      <ArrowSquareOutIcon size={14} aria-hidden="true" style={{ display: "inline-block", marginLeft: 4, verticalAlign: "-2px" }} />
       <span style={visuallyHidden}> (opens in a new window)</span>
     </>
   );

@@ -130,18 +130,14 @@ export function SandboxTab({ visible = true }: { visible?: boolean | undefined }
           </div>
         </div>
       </LayerCard>
-      <div style={cardGridStyle}>
+      <div style={{ ...cardGridStyle, alignItems: "stretch" }}>
         <LayerCard style={cardStyle}>
           <div style={stackStyle}>
-            <Textarea
-              label="Source text"
-              description={`${sourceText.length}/${MAX_SANDBOX_CHARACTERS} characters`}
-              rows={8}
-              value={sourceText}
-              disabled={working}
-              onValueChange={setSourceText}
-            />
-            <div>
+            <Textarea label="Source text" rows={8} value={sourceText} disabled={working} onValueChange={setSourceText} />
+            <div style={{ ...rowStyle, justifyContent: "flex-end" }}>
+              <small style={mutedStyle}>
+                {sourceText.length}/{MAX_SANDBOX_CHARACTERS} characters
+              </small>
               <Button
                 variant="primary"
                 loading={working}

@@ -11,7 +11,7 @@ import {
 } from "../../../../contracts.js";
 import { errorMessage, isPolicyField, localeLabel, plural, pluginPageUrl, pluginRequest } from "../../../utils.js";
 import { NewWindowIcon } from "../../../components/NewWindowLink/NewWindowLink.js";
-import { SectionHeader } from "../../../components/PageHeader/PageHeader.js";
+import { InfoLabel, SectionHeader } from "../../../components/PageHeader/PageHeader.js";
 import { cardStyle, mutedStyle, rowStyle, sectionStyle, stackStyle } from "../../../styles.js";
 import { ErrorMessage } from "../../../components/ErrorMessage/ErrorMessage.js";
 import { LocalePicker } from "../../../components/LocalePicker/LocalePicker.js";
@@ -348,16 +348,26 @@ export function BatchTab(): ReactNode {
                       }
                     />
                     <Switch
-                      label="Publish translations immediately"
-                      labelTooltip="When off, translations are saved as drafts. If publishing fails, the draft is kept and its result says why."
+                      aria-label="Publish translations immediately"
+                      label={
+                        <InfoLabel
+                          label="Publish translations immediately"
+                          info="When off, translations are saved as drafts. If publishing fails, the draft is kept and its result says why."
+                        />
+                      }
                       checked={publish}
                       disabled={running}
                       onCheckedChange={setPublish}
                     />
                     {runner === "browser" ? (
                       <Switch
-                        label="Update existing translations"
-                        labelTooltip="Replaces the selected fields in translations that already exist. Entries edited during the run are skipped."
+                        aria-label="Update existing translations"
+                        label={
+                          <InfoLabel
+                            label="Update existing translations"
+                            info="Replaces the selected fields in translations that already exist. Entries edited during the run are skipped."
+                          />
+                        }
                         checked={updateExisting}
                         disabled={running}
                         onCheckedChange={setUpdateExisting}

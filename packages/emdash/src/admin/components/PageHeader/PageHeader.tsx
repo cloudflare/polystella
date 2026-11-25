@@ -4,13 +4,14 @@ import { useState, type ReactNode } from "react";
 
 import { mutedStyle, pageTitleStyle, sectionHeaderStyle, sectionTitleStyle } from "../../styles.js";
 
-/** An ⓘ that explains the heading it sits next to on hover or focus. */
+/** An ⓘ that explains what it sits next to on hover, focus, or click (Kumo's `labelTooltip` ignores clicks). */
 export function InfoTooltip({ label, content }: { label: string; content: string }): ReactNode {
   const [open, setOpen] = useState(false);
   return (
     <Tooltip
       open={open}
       onOpenChange={setOpen}
+      delay={150}
       content={content}
       render={
         <button
@@ -23,6 +24,16 @@ export function InfoTooltip({ label, content }: { label: string; content: string
     >
       <InfoIcon size={16} />
     </Tooltip>
+  );
+}
+
+/** A control's label followed by an ⓘ; a button inside a `<label>` doesn't toggle the control. */
+export function InfoLabel({ label, info }: { label: string; info: string }): ReactNode {
+  return (
+    <span style={{ alignItems: "center", display: "inline-flex", gap: 4 }}>
+      {label}
+      <InfoTooltip label={`About ${label}`} content={info} />
+    </span>
   );
 }
 
