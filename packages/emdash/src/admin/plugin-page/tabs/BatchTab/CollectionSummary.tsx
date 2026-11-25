@@ -58,7 +58,8 @@ export function CollectionSummary({
           <>
             <span>
               <strong>{plural(stats.sourceEntries, "source entry", "source entries")}</strong> in {localeLabel(sourceLocale ?? "")}:{" "}
-              {stats.publishedSourceEntries} published, {stats.sourceEntries - stats.publishedSourceEntries} not published.
+              {stats.publishedSourceEntries.toLocaleString()} published,{" "}
+              {(stats.sourceEntries - stats.publishedSourceEntries).toLocaleString()} not published.
             </span>
             <span>
               Translated fields: <span style={mutedStyle}>{fields.length === 0 ? "none" : fields.join(", ")}</span>
@@ -77,8 +78,8 @@ export function CollectionSummary({
                   return (
                     <Table.Row key={locale}>
                       <Table.Cell>{localeLabel(locale, code)}</Table.Cell>
-                      <Table.Cell>{untranslated}</Table.Cell>
-                      <Table.Cell>{stats.sourceEntries - untranslated}</Table.Cell>
+                      <Table.Cell>{untranslated.toLocaleString()}</Table.Cell>
+                      <Table.Cell>{(stats.sourceEntries - untranslated).toLocaleString()}</Table.Cell>
                     </Table.Row>
                   );
                 })}
@@ -87,7 +88,7 @@ export function CollectionSummary({
             <span style={mutedStyle}>
               {locales.length === 0
                 ? "Choose target locales to see how many translations a run would make."
-                : `A run creates ${plural(toCreate, "translation")}${updateExisting ? ` and updates ${toUpdate}` : `; ${toUpdate} existing ${toUpdate === 1 ? "is" : "are"} skipped`}.`}
+                : `A run creates ${plural(toCreate, "translation")}${updateExisting ? ` and updates ${toUpdate.toLocaleString()}` : `; ${toUpdate.toLocaleString()} existing ${toUpdate === 1 ? "is" : "are"} skipped`}.`}
             </span>
           </>
         )}
