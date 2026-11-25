@@ -1,7 +1,8 @@
 {
   "name": "@cloudflare/polystella-core",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "type": "module",
+  "sideEffects": false,
   "description": "Platform-neutral translation primitives, portable format adapters, AI provider transports, and shared catalog CLI commands for PolyStella.",
   "license": "MIT",
   "homepage": "https://github.com/cloudflare/polystella",
@@ -105,11 +106,11 @@
     "build": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\" && tsc -p tsconfig.build.json"
   },
   "dependencies": {
-    "@formatjs/icu-messageformat-parser": "^3.5.22",
+    "@formatjs/icu-messageformat-parser": "^3.5.23",
     "@types/mdast": "^4.0.4",
-    "intl-messageformat": "^12.1.4",
+    "intl-messageformat": "^12.2.0",
     "p-retry": "^8.0.0",
-    "picomatch": "^4.0.4",
+    "picomatch": "^4.0.7",
     "remark-frontmatter": "^5.0.0",
     "remark-gfm": "^4.0.1",
     "remark-mdx": "^3.1.1",
@@ -117,12 +118,12 @@
     "s3mini": "^0.9.4",
     "smol-toml": "^1.9.1",
     "unified": "^11.0.5",
-    "yaml": "^2.8.3"
+    "yaml": "^2.9.1"
   },
   "devDependencies": {
-    "@types/node": "^26.0.0",
+    "@types/node": "^26.6.6",
     "@types/picomatch": "^4.0.0",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.9"
+    "vitest": "^4.1.12"
   }
 }

@@ -144,7 +144,7 @@ describe("applyTranslations — end-to-end with formatted translations", () => {
     const segments = extractSegments(ast, noOpts, source);
 
     // First body segment should be the heading text.
-    expect(segments[0]).toEqual({ id: "body:0", text: "Original Title" });
+    expect(segments[0]).toEqual({ id: "body:0", text: "Original Title", markup: "markdown" });
 
     const output = applyTranslations(ast, new Map([["body:0", "Translated Title"]]), source);
 

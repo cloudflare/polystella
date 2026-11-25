@@ -53,6 +53,7 @@ export function TranslationSettingsTab(): ReactNode {
           debugEnabled: settings.debugEnabled,
           maxTokens: settings.maxTokens,
           clearAiFlagOnEdit: settings.clearAiFlagOnEdit,
+          translateSeoWhenPublished: settings.translateSeoWhenPublished,
           locales: Object.fromEntries(
             settings.locales.map((locale) => [
               locale.locale,
@@ -119,10 +120,20 @@ export function TranslationSettingsTab(): ReactNode {
                 setSettings((current) => (current === null ? null : { ...current, clearAiFlagOnEdit }))
               }
             />
+            <Switch
+              label="Translate the SEO title and meta description of published and scheduled entries"
+              labelTooltip="Off: the PolyStella panel translates SEO text only on drafts. On: it also translates it on published and scheduled entries. EmDash saves SEO text as soon as it changes, so on those entries the translation takes effect before anyone reviews it."
+              checked={settings.translateSeoWhenPublished}
+              disabled={working}
+              onCheckedChange={(translateSeoWhenPublished) =>
+                setSettings((current) => (current === null ? null : { ...current, translateSeoWhenPublished }))
+              }
+            />
             <h3>Shared translation instructions</h3>
             <Select
               label="Instruction behavior"
               value={settings.instructions.mode}
+              renderValue={(value) => (isCustomizationMode(value) ? INSTRUCTION_MODE_LABELS[value] : "")}
               disabled={working}
               onValueChange={(value) => {
                 if (isCustomizationMode(value)) {
@@ -132,9 +143,11 @@ export function TranslationSettingsTab(): ReactNode {
                 }
               }}
             >
-              <Select.Option value="default">Use code defaults</Select.Option>
-              <Select.Option value="append">Append custom instructions</Select.Option>
-              <Select.Option value="replace">Replace code instructions</Select.Option>
+              {CUSTOMIZATION_MODES.map((mode) => (
+                <Select.Option key={mode} value={mode}>
+                  {INSTRUCTION_MODE_LABELS[mode]}
+                </Select.Option>
+              ))}
             </Select>
             {settings.instructions.mode === "default" ? null : (
               <Textarea
@@ -196,14 +209,17 @@ export function TranslationSettingsTab(): ReactNode {
               <Select
                 label="Glossary behavior"
                 value={locale.glossaryMode}
+                renderValue={(value) => (isCustomizationMode(value) ? GLOSSARY_MODE_LABELS[value] : "")}
                 disabled={working}
                 onValueChange={(value) => {
                   if (isCustomizationMode(value)) updateLocale(locale.locale, { glossaryMode: value });
                 }}
               >
-                <Select.Option value="default">Use code default</Select.Option>
-                <Select.Option value="append">Append custom glossary</Select.Option>
-                <Select.Option value="replace">Replace code glossary</Select.Option>
+                {CUSTOMIZATION_MODES.map((mode) => (
+                  <Select.Option key={mode} value={mode}>
+                    {GLOSSARY_MODE_LABELS[mode]}
+                  </Select.Option>
+                ))}
               </Select>
               {locale.glossaryMode === "default" ? null : (
                 <Textarea
@@ -287,7 +303,7 @@ function ThinkingSelect({
         </span>
         {value === null ? null : (
           <Button size="sm" variant="secondary" disabled={disabled} onClick={() => onChange(null)}>
-            Reset to model default
+            Remove override
           </Button>
         )}
       </div>
@@ -296,17 +312,17 @@ function ThinkingSelect({
   return (
     <Select
       label="Thinking"
-      labelTooltip="Off makes translations faster and cheaper. More thinking can help with tricky text, but it also uses output tokens."
+      labelTooltip="Off makes translations faster and cheaper. More thinking can help with tricky text, but it also uses output tokens. No override sends what the code sets for this model, or nothing."
       value={value ?? MODEL_DEFAULT_REASONING}
       renderValue={(selected) =>
-        selected === MODEL_DEFAULT_REASONING || typeof selected !== "string" ? "Model default" : effortLabel(selected)
+        selected === MODEL_DEFAULT_REASONING || typeof selected !== "string" ? "No override" : effortLabel(selected)
       }
       disabled={disabled}
       onValueChange={(selected) => {
         if (typeof selected === "string") onChange(selected === MODEL_DEFAULT_REASONING ? null : selected);
       }}
     >
-      <Select.Option value={MODEL_DEFAULT_REASONING}>Model default</Select.Option>
+      <Select.Option value={MODEL_DEFAULT_REASONING}>No override</Select.Option>
       {options.efforts.map((effort) => (
         <Select.Option key={effort} value={effort}>
           {effortLabel(effort)}
@@ -316,12 +332,25 @@ function ThinkingSelect({
   );
 }
 
+const EFFORT_LABELS: Record<string, string> = { none: "Off", on: "On", xhigh: "Extra high" };
+
 function effortLabel(effort: string): string {
-  if (effort === "none") return "Off";
-  if (effort === "on") return "On";
-  return effort.charAt(0).toUpperCase() + effort.slice(1);
+  const label = EFFORT_LABELS[effort] ?? effort.replaceAll("_", " ");
+  return label.charAt(0).toUpperCase() + label.slice(1);
 }
 
+const CUSTOMIZATION_MODES: readonly CustomizationMode[] = ["default", "append", "replace"];
+const INSTRUCTION_MODE_LABELS: Record<CustomizationMode, string> = {
+  default: "Use code defaults",
+  append: "Append custom instructions",
+  replace: "Replace code instructions",
+};
+const GLOSSARY_MODE_LABELS: Record<CustomizationMode, string> = {
+  default: "Use code default",
+  append: "Append custom glossary",
+  replace: "Replace code glossary",
+};
+
 function isCustomizationMode(value: unknown): value is CustomizationMode {
-  return value === "default" || value === "append" || value === "replace";
+  return typeof value === "string" && (CUSTOMIZATION_MODES as readonly string[]).includes(value);
 }

@@ -7,8 +7,9 @@ export type ReasoningCapability = ReadonlyMap<string, Readonly<Record<string, un
 const CATALOG_TIMEOUT_MS = 5000;
 const FAILURE_RETRY_MS = 60_000;
 
-// Keyed by provider kind and model only: the Workers AI catalog is the same for every account.
-const capabilities = new Map<string, { pending: Promise<ReasoningCapability | null>; expiresAt: number }>();
+// Keyed by provider kind and model only: the Workers AI catalog is the same for every account. Only settled lookups
+// are kept: on workerd a request that awaits a promise another request's I/O settles can hang.
+const capabilities = new Map<string, { result: { capability: ReasoningCapability | null } | { error: unknown }; expiresAt: number }>();
 
 /**
  * What the model accepts for thinking, from `models.reasoningInput` or the Workers AI catalog.
@@ -23,19 +24,19 @@ export async function reasoningCapability(
   const custom = options.models.reasoningInput;
   if (custom !== undefined && Object.hasOwn(custom, modelId)) return new Map(Object.entries(custom[modelId] ?? {}));
   const key = `${options.provider.kind}:${modelId}`;
-  const cached = capabilities.get(key);
-  if (cached !== undefined && cached.expiresAt > Date.now()) return cached.pending;
-  const entry = {
-    pending: withTimeout(catalogEntries(options, env, modelId, dependencies), CATALOG_TIMEOUT_MS).then((entries) =>
-      parseCapability(entries.find((item) => isRecord(item) && item.name === modelId)),
-    ),
-    expiresAt: Number.POSITIVE_INFINITY,
-  };
-  capabilities.set(key, entry);
-  entry.pending.catch(() => {
-    entry.expiresAt = Date.now() + FAILURE_RETRY_MS;
-  });
-  return entry.pending;
+  let cached = capabilities.get(key);
+  if (cached === undefined || cached.expiresAt <= Date.now()) {
+    try {
+      const entries = await withTimeout(catalogEntries(options, env, modelId, dependencies), CATALOG_TIMEOUT_MS);
+      const capability = parseCapability(entries.find((item) => isRecord(item) && item.name === modelId));
+      cached = { result: { capability }, expiresAt: Number.POSITIVE_INFINITY };
+    } catch (error) {
+      cached = { result: { error }, expiresAt: Date.now() + FAILURE_RETRY_MS };
+    }
+    capabilities.set(key, cached);
+  }
+  if ("error" in cached.result) throw cached.result.error;
+  return cached.result.capability;
 }
 
 /** Test hook: forget cached catalog lookups. */
@@ -86,8 +87,8 @@ export function parseCapability(entry: unknown): ReasoningCapability | null {
     }
   }
   if (value.mandatory === false && !capability.has("none")) {
-    capability.set("none", { chat_template_kwargs: { enable_thinking: false } });
-    if (capability.size === 1) capability.set("on", { chat_template_kwargs: { enable_thinking: true } });
+    capability.set("none", { enable_thinking: false });
+    if (capability.size === 1) capability.set("on", { enable_thinking: true });
   }
   return capability.size === 0 ? null : capability;
 }

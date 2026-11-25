@@ -211,4 +211,42 @@ describe("runSyncUi", () => {
     expect(code).toBe(0);
     expect(log.mock.calls[0]?.[0]).toMatch(/polystella sync-ui/);
   });
+
+  it("leaves catalog.ignoreKeys entries untouched in nested catalogs, and --check then passes", async () => {
+    const schema = "https://inlang.com/schema/inlang-message-format";
+    const deText = `{\n  "$schema": "${schema}",\n  "nav": {\n    "home": "Start",\n    "internal": {\n      "x": "Behalten"\n    }\n  }\n}\n`;
+    const cwd = await tmpProjectWithAstroConfig({
+      defaultLocale: "en",
+      locales: ["en", "de"],
+      files: {
+        "polystella.config.mjs": `export default { catalog: { ignoreKeys: ["\\\\$schema", "nav\\\\.internal"] } };\n`,
+        "src/content/i18n/en.json": JSON.stringify({ $schema: schema, nav: { home: "Home", about: "About", internal: { y: "Y" } } }),
+        "src/content/i18n/de.json": deText,
+      },
+    });
+    const run = (check: boolean) => runSyncUi({ check, help: false }, { cwd, log: vi.fn(), err: vi.fn() });
+
+    expect(await run(true)).toBe(2);
+    expect(await run(false)).toBe(0);
+    expect(await readFile(path.resolve(cwd, "src/content/i18n/de.json"), "utf8")).toBe(
+      `{\n  "$schema": "${schema}",\n\n  "nav": {\n    "home": "Start",\n    "about": "",\n    "internal": {\n      "x": "Behalten"\n    }\n  }\n}\n`,
+    );
+    expect(await run(true)).toBe(0);
+  });
+
+  it("exits 1 on an invalid catalog.ignoreKeys pattern", async () => {
+    const cwd = await tmpProjectWithAstroConfig({
+      defaultLocale: "en",
+      locales: ["en", "de"],
+      files: {
+        "polystella.config.mjs": `export default { catalog: { ignoreKeys: ["["] } };\n`,
+        "src/content/i18n/en.json": `{ "a": "A" }`,
+      },
+    });
+    const err = vi.fn();
+    expect(await runSyncUi({ check: false, help: false }, { cwd, log: vi.fn(), err })).toBe(1);
+    expect(err.mock.calls[0]?.[0]).toMatch(
+      /^\[polystella\] configuration error:[\s\S]*catalog\.ignoreKeys: contains an invalid regular expression/,
+    );
+  });
 });

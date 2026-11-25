@@ -41,6 +41,10 @@ that layout intact across runs:
 - **Nested catalogs** are supported alongside flat string→string
   files. Format is auto-detected per file; groups reconcile as
   flattened dotted keys and stay nested on write.
+- **Ignored keys.** Entries matching
+  [`catalog.ignoreKeys`](/configuration/#catalog-options) in
+  `polystella.config.mjs` are left as they are and never added, except
+  a top-level `$schema`, which is copied from the default-locale file.
 
 This means `sync-ui` is safe to re-run as often as you like; the
 output is deterministic for a given source.

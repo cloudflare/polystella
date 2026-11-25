@@ -108,6 +108,15 @@ describe("buildTranslator — locale fallback chain", () => {
     expect(t.locale).toBe("ja");
   });
 
+  it('formats {name} placeholders with messageSyntax "icu"', async () => {
+    const getEntry = makeGetEntry({ "i18n:en": { hi: "Hello {name}", items: "{n, plural, one {# item} other {# items}}" } });
+    const icu = await buildTranslator("en", { defaultLocale: "en", getEntry, messageSyntax: "icu" });
+    expect(icu("hi", { name: "Ann" })).toBe("Hello Ann");
+    expect(icu("items", { n: 2 })).toBe("2 items");
+    const polystella = await buildTranslator("en", { defaultLocale: "en", getEntry });
+    expect(polystella("hi", { name: "Ann" })).toBe("Hello {name}");
+  });
+
   it("returns a passthrough tagged with the visitor's locale when nothing loads", async () => {
     const t = await buildTranslator("jp", { defaultLocale: "en", localeTags: { jp: "ja" }, getEntry: makeGetEntry({}) });
     expect(t("nav.home")).toBe("nav.home");

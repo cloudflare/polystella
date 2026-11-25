@@ -3,8 +3,11 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
+import { compileIgnoreKeys, type IgnoreKey } from "../catalog/flatten.js";
 import { assertLocaleTags, parseLocaleTags, type LocaleTags } from "../catalog/locale-tags.js";
-import type { ModelSpec } from "../index.js";
+import { DEFAULT_MESSAGE_SYNTAX, type MessageSyntax } from "../catalog/message.js";
+import type { ModelChoice, ModelChoiceSpec, ModelSpec } from "../index.js";
+import { workersAIParamsProblem } from "../providers/workers-ai.js";
 
 import { validateGlossary } from "./glossary.js";
 
@@ -18,9 +21,12 @@ export interface WorkersAiProviderConfig {
   accountId: string;
   apiToken: string;
   endpoint?: string | undefined;
-  model: ModelSpec;
+  /** Locale entries may be `{ model, enable_thinking }`. */
+  model: ModelChoiceSpec;
   maxTokens: number;
   batchInputTokenBudget: number;
+  /** Extra Workers AI input per model id, as in the EmDash plugin's `models.params`. */
+  params?: Record<string, Record<string, unknown>> | undefined;
 }
 
 export interface AnthropicProviderConfig {
@@ -50,11 +56,15 @@ export interface R2GlossaryConfig {
   secretAccessKey: string;
   endpoint?: string | undefined;
 }
-export type CatalogGlossaryConfig =
+export type CatalogGlossaryConfig = (
   | { file: string; inline?: undefined; http?: undefined; r2?: undefined }
   | { file?: undefined; inline: Record<string, GlossaryInput>; http?: undefined; r2?: undefined }
   | { file?: undefined; inline?: undefined; http: HttpGlossaryConfig; r2?: undefined }
-  | { file?: undefined; inline?: undefined; http?: undefined; r2: R2GlossaryConfig };
+  | { file?: undefined; inline?: undefined; http?: undefined; r2: R2GlossaryConfig }
+) & {
+  /** Let any letters follow a term when deciding whether a batch uses it. See `GlossaryMatchOptions`. */
+  matchInflections?: boolean | undefined;
+};
 
 export interface CatalogResolvedConfig {
   defaultLocale: string;
@@ -131,12 +141,15 @@ export async function loadAstroI18n(cwd: string): Promise<AstroI18nConfig | unde
 
 export async function loadPolystellaConfig(cwd: string): Promise<unknown> {
   const candidatePath = path.resolve(cwd, "polystella.config.mjs");
+  let loaded: unknown;
   try {
-    const loaded: unknown = await import(pathToFileURL(candidatePath).href);
-    return asRecordOrUndefined(loaded)?.default;
-  } catch (error) {
-    throw new Error(`failed to load ${candidatePath}: ${errorMessage(error)}`);
+    loaded = await import(pathToFileURL(candidatePath).href);
+  } catch (nodeError) {
+    if (!existsSync(candidatePath)) throw new Error(`failed to load ${candidatePath}: ${errorMessage(nodeError)}`);
+    // Astro loads astro.config.mjs (and so a config it imports) through Vite; match that here.
+    loaded = await importWithAstroVite(cwd, candidatePath, nodeError);
   }
+  return asRecordOrUndefined(loaded)?.default;
 }
 
 /** Like `loadPolystellaConfig`, but `undefined` when `polystella.config.mjs` does not exist. */
@@ -149,6 +162,47 @@ export function resolveLocaleTagsConfig(raw: unknown, i18n: AstroI18nConfig): Lo
   const localeTags = parseLocaleTags(asRecordOrUndefined(raw)?.localeTags, "polystella");
   assertLocaleTags(i18n.locales, localeTags, "polystella");
   return localeTags;
+}
+
+/** The `catalog` block of `polystella.config.mjs`. */
+export interface CatalogOptions {
+  /** `catalog.ignoreKeys` as written, for generated code. */
+  ignoreKeys: string[];
+  /** `ignoreKeys` compiled; `undefined` when there are none. */
+  ignoreKey?: IgnoreKey | undefined;
+  messageSyntax: MessageSyntax;
+}
+
+/** `catalog` options from `cwd`'s `polystella.config.mjs`; defaults when the file doesn't exist. */
+export async function loadCatalogOptions(cwd: string): Promise<CatalogOptions> {
+  let raw: unknown;
+  try {
+    raw = await loadOptionalPolystellaConfig(cwd);
+  } catch (error) {
+    throw new Error(`[polystella] ${errorMessage(error)}`);
+  }
+  return resolveCatalogOptions(raw);
+}
+
+/** Validated `catalog` block from a raw config; `raw` is `undefined` when there is no config file. */
+export function resolveCatalogOptions(raw: unknown): CatalogOptions {
+  const value = asRecordOrUndefined(raw)?.catalog;
+  if (value === undefined) return { ignoreKeys: [], messageSyntax: DEFAULT_MESSAGE_SYNTAX };
+  const catalog = requireRecord(value, "catalog");
+  rejectUnknownKeys(catalog, ["ignoreKeys", "messageSyntax"], "catalog");
+  const messageSyntax = catalog.messageSyntax ?? DEFAULT_MESSAGE_SYNTAX;
+  if (messageSyntax !== "polystella" && messageSyntax !== "icu") {
+    throw configurationError("catalog.messageSyntax", 'must be "polystella" or "icu"');
+  }
+  const ignoreKeys = catalog.ignoreKeys ?? [];
+  if (!Array.isArray(ignoreKeys) || !ignoreKeys.every((pattern): pattern is string => typeof pattern === "string" && pattern.length > 0)) {
+    throw configurationError("catalog.ignoreKeys", "must be an array of non-empty regular expression strings (not RegExp objects)");
+  }
+  try {
+    return { ignoreKeys, ignoreKey: compileIgnoreKeys(ignoreKeys), messageSyntax };
+  } catch (error) {
+    throw configurationError("catalog.ignoreKeys", `contains an invalid regular expression: ${errorMessage(error)}`);
+  }
 }
 
 /** Resolve only options used by translate-ui; unrelated integration options are ignored. */
@@ -177,12 +231,18 @@ export function resolveCatalogConfig(raw: unknown, i18n: AstroI18nConfig): Catal
 
 function parseProvider(value: unknown): CatalogProviderConfig {
   const provider = requireRecord(value, "provider");
-  const model = parseModel(provider.model);
   const maxTokens = parseInteger(provider.maxTokens, "provider.maxTokens", 8192, 1);
   const batchInputTokenBudget = parseInteger(provider.batchInputTokenBudget, "provider.batchInputTokenBudget", 4000, 1);
 
   if (provider.kind === "workers-ai") {
     const endpoint = optionalUrl(provider.endpoint, "provider.endpoint");
+    const model = parseModel(provider.model, true);
+    const params = parseWorkersAIParams(provider.params);
+    for (const [locale, choice] of typeof model === "string" ? [] : Object.entries(model)) {
+      if (typeof choice === "string" || choice.enable_thinking === undefined) continue;
+      const problem = workersAIParamsProblem({ ...params?.[choice.model], enable_thinking: choice.enable_thinking });
+      if (problem !== undefined) throw configurationError(`provider.model.${locale}`, problem);
+    }
     return {
       kind: "workers-ai",
       accountId: requireNonEmptyString(provider.accountId, "provider.accountId"),
@@ -191,13 +251,14 @@ function parseProvider(value: unknown): CatalogProviderConfig {
       model,
       maxTokens,
       batchInputTokenBudget,
+      ...(params === undefined ? {} : { params }),
     };
   }
   if (provider.kind === "anthropic") {
     return {
       kind: "anthropic",
       apiKey: requireNonEmptyString(provider.apiKey, "provider.apiKey"),
-      model,
+      model: parseModel(provider.model, false) as ModelSpec,
       maxTokens,
       batchInputTokenBudget,
     };
@@ -205,23 +266,49 @@ function parseProvider(value: unknown): CatalogProviderConfig {
   throw configurationError("provider.kind", 'must be "workers-ai" or "anthropic"');
 }
 
-function parseModel(value: unknown): ModelSpec {
+function parseWorkersAIParams(value: unknown): Record<string, Record<string, unknown>> | undefined {
+  if (value === undefined) return undefined;
+  const params: Record<string, Record<string, unknown>> = {};
+  for (const [model, modelParams] of Object.entries(requireRecord(value, "provider.params"))) {
+    const record = requireRecord(modelParams, `provider.params.${model}`);
+    const problem = workersAIParamsProblem(record);
+    if (problem !== undefined) throw configurationError(`provider.params.${model}`, problem);
+    params[model] = record;
+  }
+  return params;
+}
+
+function parseModel(value: unknown, allowChoices: boolean): ModelChoiceSpec {
   if (typeof value === "string" && value.length > 0) return value;
   const models = asRecordOrUndefined(value);
-  if (models === undefined || typeof models.default !== "string" || models.default.length === 0) {
+  if (models === undefined || models.default === undefined) {
     throw configurationError("provider.model", "must be a non-empty string or a locale map with a non-empty default");
   }
-  for (const model of Object.values(models)) {
-    if (typeof model !== "string" || model.length === 0) {
-      throw configurationError("provider.model", "locale map values must be non-empty strings");
-    }
+  for (const [locale, choice] of Object.entries(models)) parseModelChoice(choice, `provider.model.${locale}`, allowChoices);
+  return models as { default: ModelChoice } & Record<string, ModelChoice>;
+}
+
+function parseModelChoice(value: unknown, label: string, allowChoices: boolean): void {
+  if (typeof value === "string" && value.length > 0) return;
+  const choice = asRecordOrUndefined(value);
+  if (!allowChoices || choice === undefined) throw configurationError(label, "must be a non-empty model id string");
+  rejectUnknownKeys(choice, ["model", "enable_thinking"], label);
+  requireNonEmptyString(choice.model, `${label}.model`);
+  if (choice.enable_thinking !== undefined && typeof choice.enable_thinking !== "boolean") {
+    throw configurationError(`${label}.enable_thinking`, "must be true or false");
   }
-  return models as { default: string } & Record<string, string>;
 }
 
 function parseGlossaryConfig(value: unknown): CatalogGlossaryConfig {
   const glossary = requireRecord(value, "glossary");
-  rejectUnknownKeys(glossary, ["file", "inline", "http", "r2"], "glossary");
+  rejectUnknownKeys(glossary, ["file", "inline", "http", "r2", "matchInflections"], "glossary");
+  const source = parseGlossarySource(glossary);
+  if (glossary.matchInflections === undefined) return source;
+  if (typeof glossary.matchInflections !== "boolean") throw configurationError("glossary.matchInflections", "must be a boolean");
+  return { ...source, matchInflections: glossary.matchInflections };
+}
+
+function parseGlossarySource(glossary: Record<string, unknown>): CatalogGlossaryConfig {
   const sources = ["file", "inline", "http", "r2"].filter((key) => glossary[key] !== undefined);
   if (sources.length !== 1) {
     throw configurationError("glossary", "must configure exactly one of file, inline, http, or r2");

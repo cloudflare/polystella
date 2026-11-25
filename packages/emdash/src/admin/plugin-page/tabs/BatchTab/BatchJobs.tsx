@@ -79,7 +79,7 @@ export function BatchJobs({
                   {job.entryCount === "all"
                     ? "whole collection"
                     : typeof job.entryCount === "number"
-                      ? `${job.entryCount} selected entries`
+                      ? `${job.entryCount} selected ${job.entryCount === 1 ? "entry" : "entries"}`
                       : "entries not recorded"}
                   , {job.publish ? "publishing" : "as drafts"}, started {job.createdAt}
                 </small>
@@ -124,7 +124,7 @@ export function BatchJobs({
                 </details>
               )}
               <div style={rowStyle}>
-                {job.status === "running" && !finished ? (
+                {job.status === "running" ? (
                   <Button size="sm" variant="secondary" loading={working === job.id} onClick={() => void act([job.id], "cancel", job.id)}>
                     Cancel
                   </Button>

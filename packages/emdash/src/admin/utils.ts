@@ -11,7 +11,9 @@ export async function pluginRequest<T>(path: string, init?: RequestInit): Promis
     ...init,
     headers: { "Content-Type": "application/json", ...init?.headers },
   });
-  return parseApiResponse<T>(response, "PolyStella request failed");
+  const value = await parseApiResponse<T>(response, "PolyStella request failed");
+  if (isRecord(value) && isRecord(value.localeTags)) rememberLocaleTags(value.localeTags);
+  return value;
 }
 
 export function errorMessage(value: unknown): string {
@@ -33,21 +35,34 @@ export function formatErrorDetails(value: unknown): string {
 }
 
 const languageNames = new Intl.DisplayNames(undefined, { type: "language" });
+const knownLocaleTags = new Map<string, string>();
+
+/** Keeps the server's `localeTags` so labels name `es-la` as Latin American Spanish, not the code's literal reading. */
+export function rememberLocaleTags(tags: Readonly<Record<string, unknown>>): void {
+  for (const [locale, tag] of Object.entries(tags)) if (typeof tag === "string") knownLocaleTags.set(locale.toLowerCase(), tag);
+}
 
 /** "French (fr)" in the admin's browser language; `code` adds the catalog code when it differs ("French (fr, fr-FR)"). */
 export function localeLabel(locale: string, code: string = locale): string {
   const codes = locale.toLowerCase() === code.toLowerCase() ? locale : `${locale}, ${code}`;
+  const tag = knownLocaleTags.get(code.toLowerCase()) ?? knownLocaleTags.get(locale.toLowerCase()) ?? code;
   let name: string | undefined;
   try {
-    name = languageNames.of(code);
+    name = languageNames.of(tag);
   } catch {
     // Not a valid BCP 47 tag; show the code alone.
   }
-  return name === undefined || name.toLowerCase() === code.toLowerCase() ? codes : `${name} (${codes})`;
+  return name === undefined || name.toLowerCase() === tag.toLowerCase() ? codes : `${name} (${codes})`;
 }
 
 export function supportsTranslation(field: SchemaField): boolean {
-  return field.type === "string" || field.type === "text" || field.type === "portableText" || translatableSubFields(field).length > 0;
+  return (
+    field.type === "string" ||
+    field.type === "text" ||
+    field.type === "portableText" ||
+    field.type === "blocks" ||
+    translatableSubFields(field).length > 0
+  );
 }
 
 /** Enabled in the policy and translatable now; a repeater also needs one of its chosen subfields to still exist. */
@@ -64,6 +79,25 @@ export interface RepeaterSubField {
 }
 
 const TRANSLATABLE_SUBFIELD_TYPES = new Set(["string", "text", "image"]);
+
+// Slugs that end in these words hold an address or identifier, which a translation would break.
+const COPIED_SUBFIELD_ENDINGS = new Set(["url", "uri", "href", "slug", "id", "email", "handle", "username"]);
+const COPIED_SUBFIELD_SLUGS = new Set(["link", "author", "author_name"]);
+
+/** The subfields a newly enabled repeater starts with: all but links, ids and author names. */
+export function defaultSubFields(field: SchemaField): string[] {
+  const snake = (slug: string) =>
+    slug
+      .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+      .toLowerCase()
+      .replaceAll("-", "_");
+  return translatableSubFields(field)
+    .map(({ slug }) => slug)
+    .filter((slug) => {
+      const name = snake(slug);
+      return !COPIED_SUBFIELD_SLUGS.has(name) && !COPIED_SUBFIELD_ENDINGS.has(name.split("_").at(-1) ?? "");
+    });
+}
 
 /** A repeater's text and image subfields. EmDash sends `validation.subFields`, though its admin types omit it. */
 export function translatableSubFields(field: SchemaField): RepeaterSubField[] {
@@ -154,6 +188,8 @@ function isTranslationDebugBatch(value: unknown): boolean {
     isStringArray(value.segmentLabels) &&
     typeof value.sourceCharacters === "number" &&
     typeof value.estimatedInputTokens === "number" &&
+    (value.glossaryTerms === undefined ||
+      (isRecord(value.glossaryTerms) && typeof value.glossaryTerms.sent === "number" && typeof value.glossaryTerms.total === "number")) &&
     Array.isArray(value.attempts) &&
     value.attempts.every(isTranslationDebugAttempt)
   );
@@ -169,7 +205,8 @@ function isTranslationDebugAttempt(value: unknown): boolean {
     (value.response === null || typeof value.response === "string") &&
     (value.translations === null ||
       (isRecord(value.translations) && Object.values(value.translations).every((item) => typeof item === "string"))) &&
-    (value.error === null || typeof value.error === "string")
+    (value.error === null || typeof value.error === "string") &&
+    (value.providerResponse === undefined || isRecord(value.providerResponse))
   );
 }
 

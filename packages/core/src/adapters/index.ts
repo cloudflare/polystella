@@ -9,3 +9,4 @@ export * from "./markdown/parser.js";
 export * from "./toml.js";
 export * from "./yaml.js";
 export * from "./key-paths.js";
+export * from "./markdown/text.js";

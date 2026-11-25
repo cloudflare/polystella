@@ -1,10 +1,26 @@
 import { describe, expect, it } from "vitest";
 
-import { resolveCatalogConfig, resolveLocaleTagsConfig } from "../../src/cli/config.js";
+import { resolveCatalogConfig, resolveCatalogOptions, resolveLocaleTagsConfig } from "../../src/cli/config.js";
 
 const i18n = { defaultLocale: "en-US", locales: ["en-US", "pt-BR"] };
 
 describe("resolveCatalogConfig", () => {
+  it("keeps Workers AI params and per-locale enable_thinking, and rejects what PolyStella can't send", () => {
+    const provider = { kind: "workers-ai", accountId: "a", apiToken: "t", model: "m" };
+    const params = { m: { reasoning_effort: "low" } };
+    const model = { default: { model: "m", enable_thinking: false }, "pt-BR": { model: "m", enable_thinking: true } };
+    expect(resolveCatalogConfig({ provider: { ...provider, model, params } }, i18n).provider).toMatchObject({ model, params });
+    expect(() => resolveCatalogConfig({ provider: { ...provider, params: { m: { max_tokens: 1 } } } }, i18n)).toThrow(
+      'provider.params.m: cannot set "max_tokens"',
+    );
+    expect(() => resolveCatalogConfig({ provider: { ...provider, model: { default: { model: "m", thinking: false } } } }, i18n)).toThrow(
+      "provider.model.default.thinking: is not recognized",
+    );
+    expect(() =>
+      resolveCatalogConfig({ provider: { kind: "anthropic", apiKey: "k", model: { default: { model: "claude" } } } }, i18n),
+    ).toThrow("provider.model.default: must be a non-empty model id string");
+  });
+
   it("applies catalog defaults and ignores unrelated integration options", () => {
     const resolved = resolveCatalogConfig(
       {
@@ -108,5 +124,43 @@ describe("resolveCatalogConfig", () => {
       resolveCatalogConfig({ glossary: { file: "./{locale}.yaml", http: { url: "https://example.com/{locale}.yaml" } } }, i18n),
     ).toThrow(/exactly one/);
     expect(() => resolveCatalogConfig({ glossary: { file: "./{locale}.yaml", http: undefined } }, i18n)).not.toThrow();
+  });
+
+  it("reads glossary.matchInflections next to the source", () => {
+    expect(resolveCatalogConfig({ glossary: { file: "./{locale}.yaml", matchInflections: true } }, i18n).glossary).toEqual({
+      file: "./{locale}.yaml",
+      matchInflections: true,
+    });
+    expect(() => resolveCatalogConfig({ glossary: { file: "./{locale}.yaml", matchInflections: "yes" } }, i18n)).toThrow(
+      /glossary\.matchInflections/,
+    );
+  });
+});
+
+describe("resolveCatalogOptions", () => {
+  it("compiles catalog.ignoreKeys and defaults to none", () => {
+    expect(resolveCatalogOptions(undefined)).toEqual({ ignoreKeys: [], messageSyntax: "polystella" });
+    expect(resolveCatalogOptions({ provider: "unrelated" })).toEqual({ ignoreKeys: [], messageSyntax: "polystella" });
+    const resolved = resolveCatalogOptions({ catalog: { ignoreKeys: ["\\$schema"] } });
+    expect(resolved.ignoreKeys).toEqual(["\\$schema"]);
+    expect(resolved.ignoreKey?.("$schema")).toBe(true);
+  });
+
+  it("rejects invalid catalog blocks at config load", () => {
+    expect(() => resolveCatalogOptions({ catalog: { ignoreKeys: ["["] } })).toThrow(
+      /configuration error:[\s\S]*catalog\.ignoreKeys: contains an invalid regular expression/,
+    );
+    expect(() => resolveCatalogOptions({ catalog: { ignoreKeys: [/\$schema/] } })).toThrow(/catalog\.ignoreKeys: must be an array/);
+    expect(() => resolveCatalogOptions({ catalog: { ignoreKeys: "\\$schema" } })).toThrow(/catalog\.ignoreKeys: must be an array/);
+    expect(() => resolveCatalogOptions({ catalog: { ignoreKey: [] } })).toThrow(/catalog\.ignoreKey: is not recognized/);
+    expect(() => resolveCatalogOptions({ catalog: [] })).toThrow(/catalog: must be an object/);
+  });
+
+  it("reads catalog.messageSyntax, defaulting to polystella", () => {
+    expect(resolveCatalogOptions({ catalog: { messageSyntax: "icu" } }).messageSyntax).toBe("icu");
+    expect(resolveCatalogOptions({ catalog: {} }).messageSyntax).toBe("polystella");
+    expect(() => resolveCatalogOptions({ catalog: { messageSyntax: "inlang" } })).toThrow(
+      /catalog\.messageSyntax: must be "polystella" or "icu"/,
+    );
   });
 });

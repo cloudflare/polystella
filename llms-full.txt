@@ -119,6 +119,12 @@ to the explanatory section when adding code that touches one.
   `pnpm changeset add --empty` only when the change deliberately does
   not require a package release (for example, docs-site-only or CI-only
   maintenance).
+- When the tested EmDash version changes (the `emdash` devDependency in
+  `packages/emdash/package.json`), re-check `EMDASH_BLOCK_FIELDS` in
+  `packages/emdash/src/server/translate-content.ts` against EmDash's
+  `src/content/converters` and `src/components` for new or changed block
+  types. A test in `packages/emdash/tests/translate-content.test.ts` fails
+  until you update the version it was checked against.
 - Let Changesets version core, EmDash, and Astro independently; do not
   manually bump individual manifests. `POLYSTELLA_VERSION` in
   `packages/astro/src/version.ts` reads the Astro manifest at module-load time
@@ -994,9 +1000,25 @@ to the concrete factories in `packages/core/src/providers/`.
 ```ts
 interface Translator {
   readonly modelId: string; // resolved per-locale; in cache key
-  translate(systemPrompt: string, userPrompt: string, signal?: AbortSignal): Promise<string>; // raw text; caller parses
+  translate(
+    systemPrompt: string,
+    userPrompt: string,
+    signal?: AbortSignal,
+    onResponse?: (info: ProviderResponseInfo) => void, // finish reason, reasoning size, token usage
+  ): Promise<string>; // raw text; caller parses
 }
 ```
+
+`translateBatch` records `onResponse` info on each attempt event and
+attaches it to a failed attempt's error as `providerResponse`, so
+server logs show why a reply failed. Workers AI translators also take
+model `params` (extra input such as `reasoning_effort`; keys
+PolyStella sets are rejected; `enable_thinking` is moved into
+`chat_template_kwargs`, because Workers AI ignores it at the top level)
+and `timeoutMs`. A timeout aborts the
+HTTP request; the binding takes no signal, so PolyStella stops waiting
+while the upstream call may continue. `ProviderTimeoutError` is
+retriable.
 
 Permanent vs retriable (**Invariant 8**):
 
@@ -1064,6 +1086,51 @@ A `PermanentProviderError` on any batch short-circuits the entire
 sequentially. Parallelism already exists at the (file, locale) pair
 level via the worker pool; sequential within-file batches keep
 rate-limit math simple (effective in-flight requests = pool size).
+`translateSegments` takes an opt-in `concurrency` (default 1) for
+callers with no outer pool: EmDash content translation sends 3
+batches of one entry at once. The first failure aborts the batches
+still in flight.
+
+**Per-batch glossary.** `buildBatchPrompt` (in `translate-batch.ts`)
+sends only the `doNotTranslate` terms and `preferredTranslations` whose
+source term appears in the batch's segments or document context:
+case-insensitive, whitespace-collapsed, starting and ending at a word
+boundary (a term edge that isn't a letter or digit, like `.NET`, is its
+own boundary). `matchInflections` drops the end boundary so `Worker`
+matches "Workers"; it's a config option, not part of `Glossary`, so
+`hashGlossary` ignores it. Style rules and notes aren't term-bound and
+are always sent. Matching runs on the masked text, so link URLs never
+match. The cache key still hashes the whole glossary (**Invariant 1**
+untouched); like `documentContext`, the per-batch selection is not in
+the key, so existing cache entries stay valid.
+
+**Prompt ceiling.** `maxPromptTokens` (default `8000`) bounds a whole
+prompt: instructions, matched terms, style rules, notes, document
+context and segments, estimated at 4 characters per token. After
+packing by `batchInputTokenBudget`, a batch over the ceiling is split
+in half until it fits; a single segment over it throws
+`PromptTooLargeError` instead of sending a prompt the model may not fit.
+The EmDash plugin caps only the administrator-typed glossary text
+(10,000 characters); code-defined `glossaryDefaults` get a 1,000,000-
+character sanity bound, like the file loader.
+
+**Inline markup placeholders.** A segment can set `markup:
+"html"` or `"markdown"`. `translateSegments` then swaps its tags (and,
+for Markdown, links, images, emphasis, code spans and escapes) for
+numbered `{{ps_N}}` placeholders before the model call, so URLs and
+markup never reach the model. After the call, `restoreInlineMarkup`
+checks that every placeholder came back once, that each closing
+placeholder still follows its opening one without crossing another
+pair, and that a pair that wrapped text still does. Segments that fail
+are resent once, alone, with the problems listed (the catalog's
+corrections pattern); a second failure throws `InlineMarkupError`. This
+is a single validation resend, not a provider retry layer. The Markdown
+adapter sets `markup: "markdown"` on `.md` body segments; MDX keeps its
+own `<ph>` placeholders for inline JSX. EmDash sets `"html"` on every
+text segment, and splits Markdown block fields with `splitMarkdownText`,
+the adapter's body walker without frontmatter or MDX, to keep the
+Worker bundle small. Placeholders don't change the cache key: cached output is
+the restored text.
 
 **Cache-key invariance (v1 trade-off).** `documentContext` and
 `markdown.contextKeys` are NOT in the cache-key hash. Changing
@@ -1175,6 +1242,21 @@ immediately before). The output then mirrors that layout for every
 locale. Without this, every sync run would churn diffs by reordering
 keys alphabetically.
 
+**Ignored keys.** `catalog.ignoreKeys` in `polystella.config.mjs` lists
+regex strings, each compiled as `^(?:pattern)$` against the dotted key
+(`compileIgnoreKeys` in `packages/core/src/catalog/flatten.ts`; strings,
+not `RegExp`, because generated code embeds them). It is read only from
+that file, by the three CLI commands, the main integration's drift check
+and `catalogAstro()` (which bakes it into its virtual module); the
+`polystella()` schema accepts the key so a shared config validates.
+`flattenCatalog` skips a match before checking its type, so ignored
+arrays (inlang variant messages) don't throw, and a matched group path
+skips its subtree. Because the writers rebuild files from the flattened
+keys, both formatters copy ignored entries from the target verbatim
+(source position first, target-only ones last), never create them, and
+copy only a top-level `$schema` from the source, placed first. Second
+runs are byte-identical.
+
 <a id="catalog-messages"></a>
 
 **Message syntax.** Catalog strings are ICU MessageFormat written with
@@ -1186,6 +1268,18 @@ ICU and hands it to `intl-messageformat`. Literal braces in text travel
 through the parser as private-use sentinels, not `'{'` quotes, because
 a quote followed by an apostrophe (`{'s`) reads as an escaped quote.
 Apostrophes follow ICU: `''` directly before `{{`, `}` or a plural `#`.
+
+`catalog.messageSyntax: "icu"` (read like `catalog.ignoreKeys`, plus the
+main integration's `polystella:runtime-config` module) skips the
+conversion: strings go to the parser as written, with identity offset
+maps. Every public parse/format/validate function takes the syntax as an
+optional last argument defaulting to `"polystella"`, so a standalone
+`formatMessage` call stays on it. EmDash can't read the file (its
+factory is synchronous and its routes run in workerd), so it takes the
+same block as `options.catalog`, serialized with its other options. The parse
+and formatter caches key on the syntax. In icu mode the `{{\w+}}`
+fallback and the stray-brace check are off; a source that does not parse
+is reported by `check-ui` and never sent to the model by `translate-ui`.
 
 Runtime contract (`buildTranslateFn` in
 `packages/core/src/catalog/index.ts`): `t` always formats; missing or
@@ -1604,6 +1698,19 @@ polystella check-ui --base ./src/i18n
 polystella sync-ui --base ./src/i18n
 polystella translate-ui --base ./src/i18n
 ```
+
+Entries that are not messages (inlang's `$schema`, variant-message
+arrays) go in `catalog.ignoreKeys` in `polystella.config.mjs`, never in
+the `catalogAstro()` or `polystella()` options. Patterns are regex
+strings matched against the whole dotted key:
+`catalog: { ignoreKeys: ["\\$schema"] }`. The CLI, the drift checks and
+`catalogAstro()` skip them and leave them untouched in locale files.
+
+Catalogs written in standard single-brace ICU (`{name}`, inlang's ICU
+plugin) need `catalog: { messageSyntax: "icu" }` in the same file; the
+default `"polystella"` reads `{{name}}`. EmDash can't read that file:
+pass the same block as `catalog` in the `polystellaEmdash()` /
+`polystellaEmdashAstro()` options (`catalog: polystellaConfig.catalog`).
 
 Catalog files accept two formats, auto-detected per file (all locale
 files must use the same format):

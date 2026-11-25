@@ -11,6 +11,7 @@ import {
   parseSourceLayout,
   syncLocaleDict,
 } from "../../src/i18n/sync.js";
+import { compileIgnoreKeys } from "../../src/catalog/runtime.js";
 
 /**
  * Tests for the UI-strings sync layer:
@@ -698,6 +699,50 @@ describe("applySyncToDisk", () => {
         locales: ["en-US"],
       }),
     ).rejects.toThrow(/failed to parse/);
+  });
+});
+
+describe("applySyncToDisk with ignoreKey", () => {
+  const schema = "https://inlang.com/schema/inlang-message-format";
+  const ignoreKey = compileIgnoreKeys(["\\$schema", "plural"]);
+
+  it("keeps ignored entries verbatim, copies $schema first, and is a no-op on the second run", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "polystella-sync-ignore-"));
+    const write = (locale: string, text: string) => writeFile(path.join(root, `${locale}.json`), text, "utf8");
+    await write(
+      "en",
+      `{\n  "$schema": "${schema}",\n  "greeting": "Hello {name}",\n\n  "plural": [{ "match": { "count=one": "One" } }]\n}\n`,
+    );
+    const deText = `{\n  "greeting": "Hallo {name}",\n  "plural": [\n    {\n      "match": {\n        "count=one": "Eins"\n      }\n    }\n  ],\n  "extra": "x"\n}\n`;
+    await write("de", deText);
+    const options = { rootDir: root, baseDir: ".", defaultLocale: "en", locales: ["en", "de", "fr"], ignoreKey };
+
+    const first = await applySyncToDisk(options);
+    expect(first.results.find((result) => result.locale === "de")).toMatchObject({ added: [], removed: ["extra"] });
+    expect(await readFile(path.join(root, "de.json"), "utf8")).toBe(
+      `{\n  "$schema": "${schema}",\n  "greeting": "Hallo {name}",\n\n  "plural": [\n    {\n      "match": {\n        "count=one": "Eins"\n      }\n    }\n  ]\n}\n`,
+    );
+    expect(await readFile(path.join(root, "fr.json"), "utf8")).toBe(`{\n  "$schema": "${schema}",\n  "greeting": ""\n}\n`);
+    expect((await applySyncToDisk(options)).changed).toBe(false);
+  });
+
+  it("reads layout around a multi-line ignored value without picking up its inner keys", () => {
+    const layout = parseSourceLayout(
+      '{\n  "$schema": "x",\n  "plural": [\n    {\n      "match": { "a": "b" },\n\n      "a": "c"\n    }\n  ],\n\n  "match": "Top"\n}\n',
+    );
+    expect(layout.keys).toEqual(["$schema", "plural", "match"]);
+    expect([...layout.blankBefore]).toEqual(["match"]);
+  });
+
+  it("formats flat files with ignored entries in source order and target-only ones last", () => {
+    const text = formatLocaleFile({
+      dict: { a: "A2" },
+      layout: { keys: ["a", "plural"], blankBefore: new Set(["plural"]) },
+      source: { a: "A", plural: [] },
+      existing: { internal: true, plural: ["kept"], a: "A2" },
+      ignoreKey: compileIgnoreKeys(["plural", "internal"]),
+    });
+    expect(text).toBe('{\n  "a": "A2",\n\n  "plural": [\n    "kept"\n  ],\n  "internal": true\n}\n');
   });
 });
 

@@ -7,7 +7,7 @@ import {
   type TranslationSandboxResponse,
   type TranslationSettingsResponse,
 } from "../../../../contracts.js";
-import { errorMessage, pluginRequest } from "../../../utils.js";
+import { errorMessage, localeLabel, pluginRequest } from "../../../utils.js";
 import type { TranslationProgressState } from "../../../types.js";
 import { cardStyle, mutedStyle, rowStyle, sectionStyle, stackStyle } from "../../../styles.js";
 import { ErrorMessage } from "../../../components/ErrorMessage/ErrorMessage.js";
@@ -91,6 +91,7 @@ export function SandboxTab(): ReactNode {
               <Select
                 label="Target locale"
                 value={targetLocale}
+                renderValue={(value) => (typeof value === "string" ? localeLabel(value) : "")}
                 disabled={working}
                 onValueChange={(value) => {
                   if (typeof value === "string") {
@@ -102,7 +103,7 @@ export function SandboxTab(): ReactNode {
               >
                 {settings?.locales.map((locale) => (
                   <Select.Option key={locale.locale} value={locale.locale}>
-                    {locale.locale}
+                    {localeLabel(locale.locale)}
                   </Select.Option>
                 ))}
               </Select>

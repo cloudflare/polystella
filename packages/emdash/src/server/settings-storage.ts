@@ -10,9 +10,9 @@ import {
   type CustomizationMode,
   type TranslationSettingsResponse,
 } from "../contracts.js";
-import { isCustomizationMode, resolveGlossary, resolveInstructions, runtimeOverrideSettingKey } from "../settings.js";
+import { isCustomizationMode, resolveInstructions, runtimeOverrideSettingKey } from "../settings.js";
 import type { PolystellaEmdashOptions } from "./options.js";
-import { isReasoningEffort, resolveReasoning, targetLocales } from "./options.js";
+import { codeDefaultThinking, isReasoningEffort, targetLocales } from "./options.js";
 import { MAX_TOKENS } from "./routes/provider.js";
 import {
   isAllowedCollectionSlug,
@@ -34,7 +34,10 @@ const MAX_COLLECTIONS = 100;
 export const MAX_GLOSSARY_CHARACTERS = 10_000;
 export const MAX_INSTRUCTION_CHARACTERS = 10_000;
 
-export async function collectionSettings(options: PolystellaEmdashOptions, settings: SettingsAccess): Promise<CollectionSettingsResponse> {
+export async function collectionSettings(
+  options: PolystellaEmdashOptions,
+  settings: SettingsAccess,
+): Promise<Omit<CollectionSettingsResponse, "localeTags">> {
   const stored = await settings.getVersioned<unknown>(COLLECTION_POLICIES_KEY);
   return {
     defaultLocale: options.catalogs.defaultLocale,
@@ -146,7 +149,7 @@ export function readCollectionPolicies(value: unknown): Record<string, Collectio
 export async function translationSettingsView(
   options: PolystellaEmdashOptions,
   settings: SettingsAccess,
-): Promise<TranslationSettingsResponse> {
+): Promise<Omit<TranslationSettingsResponse, "localeTags">> {
   const versioned = await settings.getVersioned<unknown>(TRANSLATION_SETTINGS_KEY);
   const stored = parseTranslationSettings(options, versioned?.value);
   const locales = targetLocales(options).map((locale) => {
@@ -158,7 +161,7 @@ export async function translationSettingsView(
       defaultModel: resolveModelId(options.models.defaults, locale),
       model: settings.model,
       reasoning: settings.reasoning,
-      defaultReasoning: resolveReasoning(options.models.reasoning, locale) ?? null,
+      defaultReasoning: codeDefaultThinking(options, locale),
       defaultGlossary: defaultGlossary === undefined ? "" : JSON.stringify(defaultGlossary, null, 2),
       glossaryMode: settings.glossaryMode,
       glossaryText: settings.glossaryText,
@@ -171,6 +174,7 @@ export async function translationSettingsView(
     maxTokens: stored.maxTokens,
     defaultMaxTokens: defaultMaxTokens(options),
     clearAiFlagOnEdit: stored.clearAiFlagOnEdit,
+    translateSeoWhenPublished: stored.translateSeoWhenPublished,
     allowedModels: [...options.models.allowed],
     locales,
     instructions: {
@@ -191,6 +195,8 @@ export async function saveTranslationSettings(
   const expectedRevision = readRevision(input.revision);
   const debugEnabled = input.debugEnabled === undefined ? false : readBoolean(input.debugEnabled, "debugEnabled");
   const clearAiFlagOnEdit = input.clearAiFlagOnEdit === undefined ? false : readBoolean(input.clearAiFlagOnEdit, "clearAiFlagOnEdit");
+  const translateSeoWhenPublished =
+    input.translateSeoWhenPublished === undefined ? false : readBoolean(input.translateSeoWhenPublished, "translateSeoWhenPublished");
   const maxTokens = input.maxTokens === undefined || input.maxTokens === null ? null : input.maxTokens;
   if (maxTokens !== null && !isMaxTokens(maxTokens)) {
     throw PluginRouteError.badRequest(`maxTokens must be null or an integer from ${MIN_MAX_TOKENS} to ${MAX_MAX_TOKENS}`);
@@ -212,13 +218,8 @@ export async function saveTranslationSettings(
       throw PluginRouteError.badRequest(`locales.${locale}.model must be allowed by deployment configuration`);
     }
     const glossaryMode = readCustomizationMode(localeSettings.glossaryMode, `locales.${locale}.glossaryMode`);
+    // Only the typed text is capped: code-defined defaults are trusted, and prompts carry only the terms a batch uses.
     const glossaryText = readText(localeSettings.glossaryText, `locales.${locale}.glossaryText`, MAX_GLOSSARY_CHARACTERS);
-    if (
-      JSON.stringify(resolveGlossary(options.glossaryDefaults?.[locale], glossaryMode, glossaryText.trim())).length >
-      MAX_GLOSSARY_CHARACTERS
-    ) {
-      throw PluginRouteError.badRequest(`effective glossary for ${locale} cannot exceed ${MAX_GLOSSARY_CHARACTERS} characters`);
-    }
     const rawReasoning = localeSettings.reasoning;
     const reasoning =
       model === null || rawReasoning === undefined || rawReasoning === null
@@ -246,6 +247,7 @@ export async function saveTranslationSettings(
     debugEnabled,
     maxTokens,
     clearAiFlagOnEdit,
+    translateSeoWhenPublished,
     locales: Object.fromEntries(values.map(({ locale, ...localeSettings }) => [locale, localeSettings])),
     instructions: { mode: instructionMode, text: instructionText },
   } satisfies StoredTranslationSettings);
@@ -280,6 +282,8 @@ export interface StoredTranslationSettings {
   maxTokens: number | null;
   /** Remove the AI-translated flag as soon as an AI-written field is saved with other text. */
   clearAiFlagOnEdit: boolean;
+  /** EmDash saves a patched SEO title or description at once, so on a published entry it goes live before review. */
+  translateSeoWhenPublished: boolean;
   locales: Record<string, StoredLocaleSettings>;
   instructions: { mode: CustomizationMode; text: string };
 }
@@ -321,6 +325,7 @@ function parseTranslationSettings(options: PolystellaEmdashOptions, stored: unkn
     debugEnabled: storedRoot.debugEnabled === true,
     maxTokens: isMaxTokens(storedRoot.maxTokens) ? storedRoot.maxTokens : null,
     clearAiFlagOnEdit: storedRoot.clearAiFlagOnEdit === true,
+    translateSeoWhenPublished: storedRoot.translateSeoWhenPublished === true,
     locales,
     instructions: {
       mode: isCustomizationMode(storedInstructions.mode)

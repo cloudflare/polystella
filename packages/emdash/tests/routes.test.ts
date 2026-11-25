@@ -20,6 +20,8 @@ import {
 } from "../src/contracts.js";
 import { createPluginRoutes, type PluginRouteDependencies } from "../src/server/routes/routes.js";
 import { clearReasoningCapabilities } from "../src/server/reasoning.js";
+import { withThinking } from "../src/server/routes/provider.js";
+import { workersAIParamsProblem } from "@cloudflare/polystella-core/providers/workers-ai";
 
 const objectCache = vi.hoisted(() => ({ invalidateObjectCache: vi.fn() }));
 vi.mock("emdash", async (importOriginal) => ({ ...(await importOriginal<object>()), ...objectCache }));
@@ -168,10 +170,17 @@ function context(
   storage: StorageCollection,
   batch: { jobs: StorageCollection; results: StorageCollection } = { jobs: createStorage(), results: createStorage() },
   aiTranslations: StorageCollection = createStorage(),
+  pendingAiTranslations: StorageCollection = createStorage(),
 ): RouteContext {
   return {
     plugin: { id: "polystella", version: "0.0.0" },
-    storage: { catalog_overrides: storage, batch_jobs: batch.jobs, batch_results: batch.results, ai_translations: aiTranslations },
+    storage: {
+      catalog_overrides: storage,
+      batch_jobs: batch.jobs,
+      batch_results: batch.results,
+      ai_translations: aiTranslations,
+      ai_translation_pending: pendingAiTranslations,
+    },
     content: {
       getTranslations: async (_collection, id) => ({
         translationGroup: id,
@@ -336,6 +345,204 @@ describe("EmDash plugin routes", () => {
     expect(await aiTranslations.get("entry-en")).toBeNull();
   });
 
+  describe("pending AI translation", () => {
+    const entry = { collection: "posts", entryId: "entry-1" };
+    const hash = (data: Record<string, unknown>, fields: string[]) => hashFields(data, fields);
+    // `saved` is what the server reads as the entry's saved data for this call.
+    const callPending = (
+      input: unknown,
+      pending: StorageCollection,
+      flags: StorageCollection = createStorage(),
+      saved?: Record<string, unknown>,
+      customize?: (routeContext: RouteContext) => void,
+    ) => {
+      const routeContext = context(input, "POST", createKv(), createStorage(), undefined, flags, pending);
+      const content = routeContext.content;
+      if (content === undefined) throw new Error("missing content access");
+      const get = content.get;
+      if (saved !== undefined) {
+        content.get = async (collection, id) => {
+          const item = await get(collection, id);
+          return item === null ? null : { ...item, data: { ...item.data, ...saved } };
+        };
+      }
+      customize?.(routeContext);
+      return routeContext;
+    };
+    const run = async (input: unknown, pending: StorageCollection, saved?: Record<string, unknown>, flags?: StorageCollection) => {
+      const kv = createKv();
+      await enablePosts(kv);
+      const routeContext = callPending(input, pending, flags, saved);
+      return route(createPluginRoutes(options(), dependencies()), "ai-translation/pending").handler({
+        ...routeContext,
+        kv,
+        settings: settingsFor(kv),
+      });
+    };
+
+    it("stores the saved hash of each field as its baseline, and not the flag record", async () => {
+      const pending = createStorage();
+      const flags = createStorage();
+
+      await expect(run({ ...entry, fields: ["title"] }, pending, undefined, flags)).resolves.toEqual({
+        recorded: true,
+        added: ["title"],
+      });
+
+      expect(await pending.get("entry-1")).toEqual({
+        collection: "posts",
+        entryId: "entry-1",
+        locale: "fr-FR",
+        model: "model-b",
+        aiTranslatedAt: "2026-09-03T00:00:00.000Z",
+        fields: ["title"],
+        baseline: await hash({ title: "Hello" }, ["title"]),
+      });
+      expect(await flags.get("entry-1")).toBeNull();
+    });
+
+    it("unions fields on a later call, keeping the baseline of fields already pending", async () => {
+      const pending = createStorage();
+      await run({ ...entry, fields: ["title"] }, pending);
+
+      await expect(run({ ...entry, fields: ["title", "body"] }, pending, { title: "Edited", body: "Saved body" })).resolves.toEqual({
+        recorded: true,
+        added: ["body"],
+      });
+      await expect(run({ ...entry, fields: ["title", "body"] }, pending)).resolves.toEqual({ recorded: true, added: [] });
+
+      expect(await pending.get("entry-1")).toMatchObject({
+        fields: ["title", "body"],
+        baseline: { ...(await hash({ title: "Hello" }, ["title"])), ...(await hash({ body: "Saved body" }, ["body"])) },
+      });
+    });
+
+    it("removes cancelled fields, and the record once none are left", async () => {
+      const pending = createStorage();
+      await run({ ...entry, fields: ["title", "body"] }, pending);
+
+      await expect(run({ ...entry, fields: ["body"], cancel: true }, pending)).resolves.toEqual({ recorded: true, added: [] });
+      expect(await pending.get("entry-1")).toMatchObject({ fields: ["title"] });
+
+      await expect(run({ ...entry, fields: ["title"], cancel: true }, pending)).resolves.toEqual({ recorded: true, added: [] });
+      expect(await pending.get("entry-1")).toBeNull();
+      await expect(run({ ...entry, fields: ["title"], cancel: true }, pending)).resolves.toEqual({ recorded: true, added: [] });
+    });
+
+    it("fails with 500 when the saved draft can't be read, and 409 when another write wins", async () => {
+      const kv = createKv();
+      await enablePosts(kv);
+      const routes = createPluginRoutes(options(), dependencies());
+      const handler = route(routes, "ai-translation/pending").handler;
+      const unreadable = callPending({ ...entry, fields: ["title"] }, createStorage(), undefined, undefined, (routeContext) => {
+        const content = routeContext.content;
+        if (content === undefined) throw new Error("missing content access");
+        const get = content.get;
+        content.get = async (collection, id) => {
+          const item = await get(collection, id);
+          return item === null ? null : { ...item, draftRevisionId: "rev-1" };
+        };
+        delete content.getRevision;
+      });
+      await expect(handler({ ...unreadable, kv, settings: settingsFor(kv) })).rejects.toMatchObject({ status: 500 });
+
+      const pending = createStorage();
+      pending.compareAndSet = async () => ({ applied: false });
+      await expect(run({ ...entry, fields: ["title"] }, pending)).rejects.toMatchObject({ status: 409 });
+    });
+  });
+
+  describe("SEO fields", () => {
+    const seoRoutes = () => createPluginRoutes(options(), dependencies());
+    const translateSeo = async (
+      kv: KVAccess,
+      customize: {
+        status?: "draft" | "published" | "scheduled";
+        hasSeo?: boolean;
+        locale?: string;
+        seo?: { title: string | null; description: string | null };
+      } = {},
+      fields: string[] = ["seo.title"],
+    ) => {
+      const routeContext = context({ collection: "posts", entryId: "entry-1", targetLocale: "fr-FR", fields }, "POST", kv, createStorage());
+      const { content, schema } = routeContext;
+      if (content === undefined || schema === undefined) throw new Error("missing access");
+      const get = content.get;
+      content.get = async (collection, id) => {
+        const item = await get(collection, id);
+        return item === null
+          ? null
+          : {
+              ...item,
+              status: customize.status ?? "draft",
+              locale: customize.locale ?? item.locale,
+              seo: { title: "Hello SEO", description: null, image: null, canonical: null, noIndex: false, ...customize.seo },
+            };
+      };
+      const getCollection = schema.getCollection;
+      schema.getCollection = async (slug) => {
+        const found = await getCollection(slug);
+        return found === null ? null : { ...found, hasSeo: customize.hasSeo ?? true };
+      };
+      return route(seoRoutes(), "translate-content").handler(routeContext);
+    };
+
+    it("translates the source SEO text and skips empty values", async () => {
+      const kv = createKv();
+      await enablePosts(kv);
+      await expect(translateSeo(kv)).resolves.toMatchObject({ patch: { "seo.title": "Bonjour" } });
+      await expect(translateSeo(kv, { seo: { title: "  ", description: null } })).rejects.toMatchObject({ status: 400 });
+    });
+
+    it("refuses a collection without SEO", async () => {
+      const kv = createKv();
+      await enablePosts(kv);
+      await expect(translateSeo(kv, { hasSeo: false })).rejects.toMatchObject({ status: 400 });
+    });
+
+    it("refuses a published entry until an administrator allows it", async () => {
+      const kv = createKv();
+      await enablePosts(kv);
+      await expect(translateSeo(kv, { status: "published" })).rejects.toMatchObject({ status: 400 });
+      await expect(translateSeo(kv, { status: "published" }, ["title"])).resolves.toMatchObject({ patch: { title: "Bonjour" } });
+
+      const storage = createStorage();
+      const settings = route(seoRoutes(), "settings/translation");
+      const saved = (await settings.handler(
+        context(
+          {
+            revision: null,
+            translateSeoWhenPublished: true,
+            locales: { "fr-FR": { model: null, glossaryMode: "default", glossaryText: "" } },
+            instructions: { mode: "default", text: "" },
+          },
+          "PUT",
+          kv,
+          storage,
+        ),
+      )) as TranslationSettingsResponse;
+      expect(saved.translateSeoWhenPublished).toBe(true);
+      await expect(settings.handler(context({}, "GET", kv, storage))).resolves.toMatchObject({ translateSeoWhenPublished: true });
+      await expect(route(seoRoutes(), "policy").handler(context({ collection: "posts" }, "GET", kv, storage))).resolves.toMatchObject({
+        translateSeoWhenPublished: true,
+      });
+      await expect(translateSeo(kv, { status: "published" })).resolves.toMatchObject({ patch: { "seo.title": "Bonjour" } });
+    });
+
+    it("treats a scheduled entry like a published one", async () => {
+      const kv = createKv();
+      await enablePosts(kv);
+      await expect(translateSeo(kv, { status: "scheduled" })).rejects.toMatchObject({ status: 400 });
+    });
+
+    it("refuses SEO on a source-locale entry, where only a created draft would receive it", async () => {
+      const kv = createKv();
+      await enablePosts(kv);
+      await expect(translateSeo(kv, { locale: "en-US" })).rejects.toMatchObject({ status: 400 });
+      await expect(translateSeo(kv, { locale: "en-US" }, ["title"])).resolves.toMatchObject({ patch: { title: "Bonjour" } });
+    });
+  });
+
   it("shows edited AI fields and lets an editor keep or remove the flag", async () => {
     const routes = createPluginRoutes(options(), dependencies());
     const kv = createKv();
@@ -385,6 +592,7 @@ describe("EmDash plugin routes", () => {
       locales: ["en-US", "fr-FR"],
       policies: {},
       revision: null,
+      localeTags: {},
     });
     await expect(route(routes, "policy").handler(context({ collection: "posts" }, "GET", kv, storage))).resolves.toEqual({
       enabled: false,
@@ -392,6 +600,8 @@ describe("EmDash plugin routes", () => {
       targetLocales: [],
       fields: [],
       subFields: {},
+      translateSeoWhenPublished: false,
+      localeTags: {},
     });
     const saved = (await route(routes, "settings/collections").handler(
       context({ revision: null, policies: { posts: { fields: ["title", "body"] } } }, "PUT", kv, storage),
@@ -401,6 +611,7 @@ describe("EmDash plugin routes", () => {
       locales: ["en-US", "fr-FR"],
       policies: { posts: { fields: ["body", "title"] } },
       revision: expect.any(String),
+      localeTags: {},
     });
     await expect(route(routes, "policy").handler(context({ collection: "posts" }, "GET", kv, storage))).resolves.toEqual({
       enabled: true,
@@ -408,6 +619,8 @@ describe("EmDash plugin routes", () => {
       targetLocales: [{ locale: "fr-FR", code: "fr-FR" }],
       fields: ["body", "title"],
       subFields: {},
+      translateSeoWhenPublished: false,
+      localeTags: {},
     });
     await expect(route(routes, "policy").handler(context({ collection: "toString" }, "GET", kv, storage))).resolves.toEqual({
       enabled: false,
@@ -415,6 +628,8 @@ describe("EmDash plugin routes", () => {
       targetLocales: [],
       fields: [],
       subFields: {},
+      translateSeoWhenPublished: false,
+      localeTags: {},
     });
     await expect(
       route(routes, "settings/collections").handler(
@@ -454,6 +669,8 @@ describe("EmDash plugin routes", () => {
       targetLocales: [],
       fields: [],
       subFields: {},
+      translateSeoWhenPublished: false,
+      localeTags: {},
     });
   });
 
@@ -468,6 +685,8 @@ describe("EmDash plugin routes", () => {
       targetLocales: [{ locale: "fr-FR", code: "fr-FR" }],
       fields: ["title"],
       subFields: {},
+      translateSeoWhenPublished: false,
+      localeTags: {},
     });
   });
 
@@ -531,6 +750,23 @@ describe("EmDash plugin routes", () => {
     expect(translated.patch).toEqual({ title: "Titre traduit" });
     expect(translatedTexts.join("")).toContain("Fresh source title");
     expect(translatedTexts.join("")).not.toContain("Hello");
+  });
+
+  it("sends localeTags keyed by catalog code and content locale so the admin names locales right", async () => {
+    const routes = createPluginRoutes(
+      { ...options(), localeTags: { "fr-FR": "fr-CA" } },
+      { ...dependencies(), localeAliases: () => ({ "en-US": "en", "fr-FR": "fr" }) },
+    );
+    const kv = createKv();
+    const storage = createStorage();
+    await enablePosts(kv);
+    const tags = { "fr-fr": "fr-CA", fr: "fr-CA" };
+    await expect(route(routes, "policy").handler(context({ collection: "posts" }, "GET", kv, storage))).resolves.toMatchObject({
+      localeTags: tags,
+    });
+    for (const path of ["settings/collections", "settings/translation", "batch/jobs"]) {
+      await expect(route(routes, path).handler(context({}, "GET", kv, storage))).resolves.toMatchObject({ localeTags: tags });
+    }
   });
 
   it("matches path-stamped content to catalog locale codes", async () => {
@@ -662,7 +898,7 @@ describe("EmDash plugin routes", () => {
 
     const failingRoutes = createPluginRoutes(options(), {
       ...dependencies(),
-      getEnv: async () => ({ AI: { run: async () => ({ response: "private model response" }) } }),
+      getEnv: async () => ({ AI: { run: async () => ({ response: "private model response @@" }) } }),
     });
     const failed = (await route(failingRoutes, "translate-content").handler(
       context(input, "POST", kv, storage),
@@ -672,10 +908,10 @@ describe("EmDash plugin routes", () => {
       error: expect.stringMatching(/no segment markers.*Diagnostic ID:/),
       debug: {
         error: expect.stringMatching(/Diagnostic ID:/),
-        batches: [{ attempts: [{ response: "private model response", error: expect.stringContaining("no segment markers") }] }],
+        batches: [{ attempts: [{ response: "private model response @@", error: expect.stringContaining("no segment markers") }] }],
       },
     });
-    if (failed.patch !== null) throw new Error("expected debug translation failure");
+    if (failed.patch !== null || !("error" in failed)) throw new Error("expected debug translation failure");
     expect(failed.error).toContain(failed.debug.id);
 
     const secretFailureRoutes = createPluginRoutes(options(), {
@@ -683,13 +919,26 @@ describe("EmDash plugin routes", () => {
       getEnv: async () => ({
         AI: {
           run: async () => {
-            throw new Error("Authorization: secret-token");
+            throw Object.assign(new Error("Authorization: secret-token", { cause: new Error("socket hang up") }), { code: 3040 });
           },
         },
       }),
     });
-    const secretFailure = await route(secretFailureRoutes, "translate-content").handler(context(input, "POST", kv, storage));
+    const logged: unknown[] = [];
+    const secretContext = context(input, "POST", kv, storage);
+    secretContext.log = { ...secretContext.log, error: (_message: string, data?: unknown) => void logged.push(data) };
+    const secretFailure = (await route(secretFailureRoutes, "translate-content").handler(secretContext)) as TranslateContentResponse;
     expect(JSON.stringify(secretFailure)).not.toContain("secret-token");
+    // The raw error stays in the server log, under the same Diagnostic ID editors see.
+    expect(logged).toEqual([
+      expect.objectContaining({
+        diagnosticId: secretFailure.debug?.id,
+        raw: [
+          { name: "Error", message: "Authorization: secret-token", code: 3040 },
+          { name: "Error", message: "socket hang up" },
+        ],
+      }),
+    ]);
   });
 
   it("attributes content validation failures to their source batch", async () => {
@@ -802,7 +1051,8 @@ describe("EmDash plugin routes", () => {
     )) as CatalogGenerationResponse;
 
     expect(calls[0]?.model).toBe("model-a");
-    expect(calls[0]?.system).toContain("Cloudflare");
+    // "Hello" doesn't contain the code-defined term, so only the term-free parts of the glossary are sent.
+    expect(calls[0]?.system).not.toContain("- Cloudflare");
     expect(calls[0]?.system).toContain("Deployment glossary");
     expect(calls[0]?.system).toContain("Admin glossary");
     expect(calls[0]?.system).toContain("Keep product names unchanged.");
@@ -1250,6 +1500,7 @@ describe("EmDash plugin routes", () => {
       policy: ["GET"],
       "models/reasoning": ["GET"],
       "ai-translation": ["POST"],
+      "ai-translation/pending": ["POST"],
       "ai-translation/status": ["GET"],
       "ai-translation/review": ["POST"],
       "translate-content": ["POST"],
@@ -1301,6 +1552,273 @@ describe("EmDash plugin routes", () => {
     expect(exported.json).toBe('{\n  "nav": {\n    "i18n_group_title": "Navigation",\n    "greeting": "Salut"\n  }\n}\n');
   });
 
+  it("leaves catalog.ignoreKeys entries out of the view and keeps them in exports", async () => {
+    const configured = options();
+    const schema = "https://inlang.com/schema/inlang-message-format";
+    const variants = [{ match: { "count=one": "x" } }] as unknown as string;
+    configured.catalog = { ignoreKeys: ["\\$schema", "internal"] };
+    configured.catalogs.locales["en-US"] = {
+      dictionary: { $schema: schema, nav: { greeting: "Hello" }, internal: { flag: variants } },
+      filePath: "src/i18n/en-US.json",
+    };
+    configured.catalogs.locales["fr-FR"] = {
+      dictionary: { $schema: schema, nav: { greeting: "Bonjour" }, internal: { flag: variants } },
+      filePath: "src/i18n/fr-FR.json",
+    };
+    const routes = createPluginRoutes(configured, dependencies());
+    const kv = createKv();
+    const storage = createStorage();
+
+    const view = (await route(routes, "catalog").handler(context({}, "GET", kv, storage))) as CatalogViewResponse;
+    expect(view.groups).toEqual([{ key: "nav", title: null }]);
+    expect(view.entries.map((entry) => entry.key)).toEqual(["nav.greeting"]);
+    expect(view.messageSyntax).toBe("polystella");
+
+    await route(routes, "catalog/overrides").handler(
+      context({ locale: "fr-FR", overrides: { "nav.greeting": "Salut" }, expected: null }, "PUT", kv, storage),
+    );
+    const exported = (await route(routes, "catalog/export").handler(
+      context({ locale: "fr-FR" }, "GET", kv, storage),
+    )) as CatalogExportResponse;
+    expect(JSON.parse(exported.json)).toEqual({ $schema: schema, nav: { greeting: "Salut" }, internal: { flag: variants } });
+    expect(Object.keys(JSON.parse(exported.json) as object)[0]).toBe("$schema");
+  });
+
+  it("keeps ignored entries in place when exporting a flat catalog", async () => {
+    const configured = options();
+    configured.catalog = { ignoreKeys: ["\\$schema"] };
+    configured.catalogs.locales["en-US"] = { dictionary: { $schema: "s", greeting: "Hello", bye: "Bye" }, filePath: "src/i18n/en-US.json" };
+    configured.catalogs.locales["fr-FR"] = {
+      dictionary: { $schema: "s", greeting: "Bonjour", bye: "Salut" },
+      filePath: "src/i18n/fr-FR.json",
+    };
+    const routes = createPluginRoutes(configured, dependencies());
+    const kv = createKv();
+    const storage = createStorage();
+
+    await route(routes, "catalog/overrides").handler(
+      context({ locale: "fr-FR", overrides: { greeting: "Coucou" }, expected: null }, "PUT", kv, storage),
+    );
+    const exported = (await route(routes, "catalog/export").handler(
+      context({ locale: "fr-FR" }, "GET", kv, storage),
+    )) as CatalogExportResponse;
+    expect(exported.json).toBe('{\n  "$schema": "s",\n  "greeting": "Coucou",\n  "bye": "Salut"\n}\n');
+  });
+
+  it("rejects overrides and generation for ignored keys, and hides ignored groups with their titles", async () => {
+    const configured = options();
+    const variants = [{ match: {} }] as unknown as string;
+    configured.catalog = { ignoreKeys: ["\\$schema", "internal", "nav\\.secret"] };
+    const dictionary = (greeting: string) => ({
+      $schema: "s",
+      greeting,
+      internal: { i18n_group_title: "Internal", flag: variants },
+      nav: { i18n_group_title: "Navigation", secret: variants, label: greeting },
+    });
+    configured.catalogs.locales["en-US"] = { dictionary: dictionary("Hello"), filePath: "src/i18n/en-US.json" };
+    configured.catalogs.locales["fr-FR"] = { dictionary: dictionary("Bonjour"), filePath: "src/i18n/fr-FR.json" };
+    const seen: string[] = [];
+    const routes = createPluginRoutes(configured, {
+      ...dependencies(),
+      getEnv: async () => ({
+        AI: {
+          run: async (_model: string, input: WorkersAIInput) => {
+            seen.push(input.messages.map((message) => message.content).join("\n"));
+            return { response: "@@catalog:0@@\nSalut" };
+          },
+        },
+      }),
+    });
+    const kv = createKv();
+    const storage = createStorage();
+
+    const view = (await route(routes, "catalog").handler(context({}, "GET", kv, storage))) as CatalogViewResponse;
+    expect(view.groups).toEqual([{ key: "nav", title: "Navigation" }]);
+    expect(view.entries.map((entry) => entry.key)).toEqual(["greeting", "nav.label"]);
+
+    for (const key of ["$schema", "internal.flag", "nav.secret"]) {
+      await expect(
+        route(routes, "catalog/overrides").handler(
+          context({ locale: "fr-FR", overrides: { [key]: "x" }, expected: null }, "PUT", kv, storage),
+        ),
+      ).rejects.toMatchObject({ status: 400, message: `unknown catalog key "${key}"` });
+    }
+    for (const key of ["$schema", "internal.flag", "nav.secret"]) {
+      await expect(
+        route(routes, "catalog/generate").handler(context({ locale: "fr-FR", keys: [key] }, "POST", kv, storage)),
+      ).rejects.toMatchObject({ status: 400, message: `key "${key}" has no source value` });
+    }
+    expect(seen).toEqual([]);
+
+    const generated = await route(routes, "catalog/generate").handler(
+      context({ locale: "fr-FR", keys: ["nav.label"] }, "POST", kv, storage),
+    );
+    expect(generated).toMatchObject({ translations: { "nav.label": "Salut" } });
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).not.toContain("match");
+  });
+
+  it("exports nested catalogs with an ignored leaf kept verbatim and the group title intact", async () => {
+    const configured = options();
+    const variants = [{ match: { "n=1": "x" } }] as unknown as string;
+    configured.catalog = { ignoreKeys: ["nav\\.secret"] };
+    configured.catalogs.locales["en-US"] = {
+      dictionary: { nav: { i18n_group_title: "Navigation", greeting: "Hello", secret: variants } },
+      filePath: "src/i18n/en-US.json",
+    };
+    configured.catalogs.locales["fr-FR"] = {
+      dictionary: { nav: { i18n_group_title: "Navigation", greeting: "Bonjour", secret: variants } },
+      filePath: "src/i18n/fr-FR.json",
+    };
+    const routes = createPluginRoutes(configured, dependencies());
+    const kv = createKv();
+    const storage = createStorage();
+    await route(routes, "catalog/overrides").handler(
+      context({ locale: "fr-FR", overrides: { "nav.greeting": "Salut" }, expected: null }, "PUT", kv, storage),
+    );
+    const view = (await route(routes, "catalog").handler(context({}, "GET", kv, storage))) as CatalogViewResponse;
+    expect(view.entries.map((entry) => entry.key)).toEqual(["nav.greeting"]);
+    const exported = (await route(routes, "catalog/export").handler(
+      context({ locale: "fr-FR" }, "GET", kv, storage),
+    )) as CatalogExportResponse;
+    expect(JSON.parse(exported.json)).toEqual({ nav: { i18n_group_title: "Navigation", greeting: "Salut", secret: variants } });
+  });
+
+  describe.each([
+    ["flat", true, "extra", { $schema: "s", greeting: "Hello", extra: "Extra" }, { $schema: "s", greeting: "Bonjour" }, it],
+    [
+      "nested",
+      true,
+      "nav.extra",
+      { $schema: "s", nav: { greeting: "Hello", extra: "Extra" } },
+      { $schema: "s", nav: { greeting: "Bonjour" } },
+      it,
+    ],
+    ["nested without ignoreKeys", false, "nav.extra", { nav: { greeting: "Hello", extra: "Extra" } }, { nav: { greeting: "Bonjour" } }, it],
+  ] as const)("export of a key missing from the locale file (%s)", (_name, ignore, key, sourceDictionary, targetDictionary, test) => {
+    test("keeps the override and the ignored $schema first", async () => {
+      const configured = options();
+      if (ignore) configured.catalog = { ignoreKeys: ["\\$schema"] };
+      configured.catalogs.locales["en-US"] = { dictionary: sourceDictionary, filePath: "src/i18n/en-US.json" };
+      configured.catalogs.locales["fr-FR"] = { dictionary: targetDictionary, filePath: "src/i18n/fr-FR.json" };
+      const routes = createPluginRoutes(configured, dependencies());
+      const kv = createKv();
+      const storage = createStorage();
+      await route(routes, "catalog/overrides").handler(
+        context({ locale: "fr-FR", overrides: { [key]: "Supplément" }, expected: null }, "PUT", kv, storage),
+      );
+      const exported = (await route(routes, "catalog/export").handler(
+        context({ locale: "fr-FR" }, "GET", kv, storage),
+      )) as CatalogExportResponse;
+      expect(exported.json).toContain("Supplément");
+      if (ignore) expect(Object.keys(JSON.parse(exported.json) as object)[0]).toBe("$schema");
+    });
+  });
+
+  it("keeps locale-only keys and the locale's order inside merged nested exports", async () => {
+    const configured = options();
+    configured.catalogs.locales["en-US"] = { dictionary: { nav: { greeting: "Hello", extra: "Extra" } }, filePath: "src/i18n/en-US.json" };
+    configured.catalogs.locales["fr-FR"] = {
+      dictionary: { nav: { i18n_group_title: "Navigation", greeting: "Bonjour", stale: "Ancien" } },
+      filePath: "src/i18n/fr-FR.json",
+    };
+    const routes = createPluginRoutes(configured, dependencies());
+    const exported = (await route(routes, "catalog/export").handler(
+      context({ locale: "fr-FR" }, "GET", createKv(), createStorage()),
+    )) as CatalogExportResponse;
+    expect(exported.json).toBe(
+      '{\n  "nav": {\n    "i18n_group_title": "Navigation",\n    "greeting": "Bonjour",\n    "stale": "Ancien"\n  }\n}\n',
+    );
+  });
+
+  it("hides a group whose children are all ignored, and keeps stored overrides for newly ignored keys out", async () => {
+    const before = options();
+    before.catalogs.locales["en-US"] = { dictionary: { nav: { home: "Home" }, internal: { flag: "x" } }, filePath: "src/i18n/en-US.json" };
+    before.catalogs.locales["fr-FR"] = {
+      dictionary: { nav: { home: "Accueil" }, internal: { flag: "x" } },
+      filePath: "src/i18n/fr-FR.json",
+    };
+    const kv = createKv();
+    const storage = createStorage();
+    await route(createPluginRoutes(before, dependencies()), "catalog/overrides").handler(
+      context({ locale: "fr-FR", overrides: { "internal.flag": "y" }, expected: null }, "PUT", kv, storage),
+    );
+
+    const after = structuredClone(before);
+    after.catalog = { ignoreKeys: ["internal\\..*"] };
+    const routes = createPluginRoutes(after, dependencies());
+    const view = (await route(routes, "catalog").handler(context({ locale: "fr-FR" }, "GET", kv, storage))) as CatalogViewResponse;
+    expect(view.groups).toEqual([{ key: "nav", title: null }]);
+    expect(view.entries.map((entry) => entry.key)).toEqual(["nav.home"]);
+    const exported = (await route(routes, "catalog/export").handler(
+      context({ locale: "fr-FR" }, "GET", kv, storage),
+    )) as CatalogExportResponse;
+    expect(JSON.parse(exported.json)).toEqual({ nav: { home: "Accueil" }, internal: { flag: "x" } });
+  });
+
+  it.each([{}, { ignoreKeys: [] }])("treats catalog %j like no catalog block", async (catalog) => {
+    const configured = options();
+    configured.catalog = catalog;
+    const routes = createPluginRoutes(configured, dependencies());
+    const kv = createKv();
+    const storage = createStorage();
+    const view = (await route(routes, "catalog").handler(context({}, "GET", kv, storage))) as CatalogViewResponse;
+    expect(view.messageSyntax).toBe("polystella");
+    expect(view.entries.map((entry) => entry.key)).toEqual(["greeting"]);
+    await expect(
+      route(routes, "catalog/overrides").handler(
+        context({ locale: "fr-FR", overrides: { greeting: "Bonjour {name}" }, expected: null }, "PUT", kv, storage),
+      ),
+    ).rejects.toMatchObject({ status: 400, message: expect.stringContaining("stray {") });
+  });
+
+  it('validates overrides and prompts in catalog.messageSyntax "icu"', async () => {
+    const configured = options();
+    configured.catalog = { messageSyntax: "icu" };
+    configured.catalogs.locales["en-US"] = {
+      dictionary: { greeting: "Hello {name}", team: "the {company} team" },
+      filePath: "src/i18n/en-US.json",
+    };
+    configured.catalogs.locales["fr-FR"] = { dictionary: { greeting: "Bonjour {name}", team: "" }, filePath: "src/i18n/fr-FR.json" };
+    configured.models = { allowed: ["model-a"], defaults: "model-a" };
+    configured.glossaryDefaults = undefined;
+    const systems: string[] = [];
+    const routes = createPluginRoutes(configured, {
+      ...dependencies(),
+      getEnv: async () => ({
+        AI: {
+          run: async (_model: string, input: WorkersAIInput) => {
+            systems.push(input.messages[0]?.content ?? "");
+            return { response: "@@catalog:0@@\nl''équipe {company}" };
+          },
+        },
+      }),
+    });
+    const kv = createKv();
+    const storage = createStorage();
+    const put = (key: string, value: string) =>
+      route(routes, "catalog/overrides").handler(
+        context({ locale: "fr-FR", overrides: { [key]: value }, expected: null }, "PUT", kv, storage),
+      );
+
+    await expect(put("greeting", "Bonjour {nom}")).rejects.toMatchObject({
+      status: 400,
+      message: expect.stringContaining("missing {name}; {nom} is not in the source"),
+    });
+    await expect(put("team", "l'{company}")).rejects.toMatchObject({
+      status: 400,
+      message: expect.stringContaining("an apostrophe hides {company}"),
+    });
+    await expect(put("greeting", "Salut {name}")).resolves.toEqual({ key: "greeting" });
+
+    const view = (await route(routes, "catalog").handler(context({ locale: "fr-FR" }, "GET", kv, storage))) as CatalogViewResponse;
+    expect(view.messageSyntax).toBe("icu");
+
+    const generated = await route(routes, "catalog/generate").handler(context({ locale: "fr-FR", keys: ["team"] }, "POST", kv, storage));
+    expect(generated).toMatchObject({ translations: { team: "l''équipe {company}" }, tokenFailures: [] });
+    expect(systems[0]).toContain("Preserve every `{token}` placeholder");
+  });
+
   it("exposes top-level group titles from the source dictionary", async () => {
     const configured = options();
     configured.catalogs.locales["en-US"] = {
@@ -1330,7 +1848,7 @@ describe("EmDash plugin routes", () => {
   it("sanitizes provider response failures", async () => {
     const routes = createPluginRoutes(options(), {
       ...dependencies(),
-      getEnv: async () => ({ AI: { run: async () => ({ response: "unparseable private draft content" }) } }),
+      getEnv: async () => ({ AI: { run: async () => ({ response: "unparseable private draft content @@" }) } }),
     });
 
     const translateKv = createKv();
@@ -1358,7 +1876,7 @@ describe("EmDash plugin routes", () => {
           createStorage(),
         ),
       ),
-    ).rejects.not.toThrow("unparseable private draft content");
+    ).rejects.not.toThrow("unparseable private draft content @@");
 
     const unavailableContent = context(
       { collection: "posts", entryId: "entry-1", targetLocale: "fr-FR", fields: ["title"] },
@@ -1392,6 +1910,50 @@ describe("EmDash plugin routes", () => {
         context({ collection: "posts", entryId: "entry-1", targetLocale: "fr-FR", fields: ["title"] }, "POST", kv, createStorage()),
       ),
     ).rejects.toMatchObject({ status: 400 });
+  });
+
+  it("saves settings and translates with a large code-defined glossary, sending only the terms used", async () => {
+    const preferredTranslations = Object.fromEntries(
+      Array.from({ length: 1500 }, (_, index) => [`Product term ${index}`, `Terme ${index}`]),
+    );
+    const base = options();
+    const large = { ...base, glossaryDefaults: { "fr-FR": { ...base.glossaryDefaults?.["fr-FR"], preferredTranslations } } };
+    expect(JSON.stringify(large.glossaryDefaults).length).toBeGreaterThan(35_000);
+    const systems: string[] = [];
+    const routes = createPluginRoutes(large as PolystellaEmdashOptions, {
+      ...dependencies(),
+      getEnv: async () => ({
+        AI: {
+          run: async (_model: string, input: { messages: Array<{ role: string; content: string }> }) => {
+            systems.push(input.messages[0]?.content ?? "");
+            return { response: "@@field:0@@\nBonjour" };
+          },
+        },
+      }),
+    });
+    const kv = createKv();
+    await enablePosts(kv);
+    await expect(
+      route(routes, "settings/translation").handler(
+        context(
+          {
+            revision: null,
+            debugEnabled: false,
+            locales: { "fr-FR": { model: null, glossaryMode: "append", glossaryText: "" } },
+            instructions: { mode: "default", text: "" },
+          },
+          "PUT",
+          kv,
+          createStorage(),
+        ),
+      ),
+    ).resolves.toMatchObject({ locales: [{ locale: "fr-FR" }] });
+    const input = { collection: "posts", entryId: "entry-1", targetLocale: "fr-FR", fields: ["title"] };
+    await expect(route(routes, "translate-content").handler(context(input, "POST", kv, createStorage()))).resolves.toMatchObject({
+      patch: { title: "Bonjour" },
+    });
+    expect(systems[0]).not.toContain("Product term");
+    expect(systems[0]?.length).toBeLessThan(5_000);
   });
 
   it("keeps public overrides disabled until explicitly enabled", async () => {
@@ -1612,7 +2174,7 @@ describe("EmDash batch queue routes", () => {
   it("reports whether the queue is configured", async () => {
     const routes = createPluginRoutes(options(), dependencies());
     const result = await route(routes, "batch/jobs").handler(context({}, "GET", createKv(), createStorage()));
-    expect(result).toEqual({ queueEnabled: false, jobs: [] });
+    expect(result).toEqual({ queueEnabled: false, jobs: [], localeTags: {} });
   });
 
   it("refuses to start a job without a queue binding", async () => {
@@ -1704,6 +2266,26 @@ describe("EmDash batch queue routes", () => {
     await expect(call("batch/entries", { jobId: whole.id }, "GET")).resolves.toEqual({ entries: [], nextCursor: null });
   });
 
+  it("reports a job as finished once every translation has a result, and notes results after a cancel", async () => {
+    const { kv, call, batch } = batchSetup();
+    await enablePosts(kv);
+    const job = (await call("batch/start", { collection: "posts", locales: ["fr-FR"], entryIds: ["a", "b"] })) as BatchJobView;
+    const jobStatus = async (id: string) =>
+      ((await call("batch/jobs", {}, "GET")) as BatchJobsResponse).jobs.find((listed) => listed.id === id)?.status;
+
+    await call("batch/record", { jobId: job.id, entryId: "a", locale: "fr-FR", outcome: "created", message: null });
+    expect(await jobStatus(job.id)).toBe("running");
+    await call("batch/record", { jobId: job.id, entryId: "b", locale: "fr-FR", outcome: "failed", message: "Model timed out." });
+    expect(await jobStatus(job.id)).toBe("finished");
+
+    const cancelled = (await call("batch/start", { collection: "posts", locales: ["fr-FR"], entryIds: ["c"] })) as BatchJobView;
+    await call("batch/cancel", { jobId: cancelled.id });
+    await call("batch/record", { jobId: cancelled.id, entryId: "c", locale: "fr-FR", outcome: "created", message: null });
+    expect(await jobStatus(cancelled.id)).toBe("cancelled");
+    const rows = await batch.results.query({ where: { jobId: cancelled.id } });
+    expect(rows.items.map(({ data }) => (data as { message: string | null }).message)).toEqual(["Finished after the job was cancelled."]);
+  });
+
   it("lists a whole collection a page at a time from the queue", async () => {
     const { sent, kv, call, batch } = batchSetup();
     await enablePosts(kv);
@@ -1791,6 +2373,76 @@ describe("EmDash batch queue routes", () => {
     });
   });
 
+  it("translates an entry too long for one request a part at a time", async () => {
+    const echo = {
+      run: async (_model: string, input: { messages: Array<{ content: string }> }) => ({
+        response: [...(input.messages.at(-1)?.content ?? "").matchAll(/^@@([^@\n]+?)@@\s*$/gm)]
+          .map(([, id]) => `@@${id}@@\nFR`)
+          .join("\n\n"),
+      }),
+    };
+    const { sent, kv, call, batch } = batchSetup({ AI: echo });
+    await enablePosts(kv);
+    const paragraph = (key: string, text = "x".repeat(9_000)) => ({
+      _type: "block",
+      _key: key,
+      style: "normal",
+      markDefs: [{ _type: "link", _key: `${key}m`, href: "#intro" }],
+      children: [{ _type: "span", _key: `${key}s`, text, marks: [] }],
+    });
+    let body = ["a", "b", "c", "d"].map((key) => paragraph(key));
+    const longEntry = (routeContext: RouteContext) => {
+      sourceEntry(routeContext);
+      const content = routeContext.content;
+      if (content === undefined) throw new Error("missing content access");
+      const get = content.get;
+      content.get = async (collection, id) => {
+        const item = await get(collection, id);
+        return item === null ? null : { ...item, data: { ...item.data, body } };
+      };
+    };
+    const translatedBody = ["a", "b", "c", "d"].map((key) => paragraph(key, "FR"));
+
+    // Browser: each response hands back the next part, with the translations so far.
+    const input = { collection: "posts", entryId: "entry-src", targetLocale: "fr-FR", fields: ["title", "body"] };
+    const first = (await call("translate-content", input, "POST", longEntry)) as TranslateContentResponse;
+    if (!("next" in first)) throw new Error("expected a next part");
+    expect(first.next).toMatchObject({ part: 1, partCount: 2 });
+    const last = (await call("translate-content", { ...input, ...first.next }, "POST", longEntry)) as TranslateContentResponse;
+    expect(last).toMatchObject({
+      patch: { title: "FR", body: translatedBody },
+      notice: expect.stringContaining("Review 4 same-page links"),
+    });
+    await expect(call("translate-content", { ...input, ...first.next, fingerprint: "stale" }, "POST", longEntry)).rejects.toMatchObject({
+      status: 409,
+    });
+
+    // Queue: each part stores what it translated and queues the next part.
+    const job = (await call("batch/start", { collection: "posts", locales: ["fr-FR"], entryIds: ["entry-src"] })) as BatchJobView;
+    sent.length = 0;
+    const message = { jobId: job.id, entryId: "entry-src", locale: "fr-FR" };
+    await expect(call("batch/translate", message, "POST", longEntry)).resolves.toEqual({ create: null });
+    expect(sent).toEqual([{ ...message, part: 1 }]);
+    await expect(call("batch/translate", message, "POST", longEntry)).resolves.toEqual({ create: null });
+    const created = await call("batch/translate", { ...message, part: 1 }, "POST", longEntry);
+    expect(created).toMatchObject({
+      create: { data: { title: "FR", body: translatedBody } },
+      notice: expect.stringContaining("Review 4 same-page links"),
+    });
+    expect(await batch.results.count({ jobId: job.id })).toBe(0);
+
+    await call("batch/translate", message, "POST", longEntry);
+    body = [paragraph("a", "Edited meanwhile"), ...body.slice(1)];
+    await call("batch/translate", { ...message, part: 1 }, "POST", longEntry);
+    const rows = await batch.results.query({ where: { jobId: job.id } });
+    expect(rows.items.map(({ data }) => data)).toEqual([
+      expect.objectContaining({
+        outcome: "failed",
+        message: "The source entry changed while it was being translated. Start the translation again.",
+      }),
+    ]);
+  });
+
   it("stores the publish choice on the job and returns it with the draft", async () => {
     const { kv, call } = batchSetup();
     await enablePosts(kv);
@@ -1831,7 +2483,7 @@ describe("EmDash batch queue routes", () => {
   });
 
   it("records translation failures and requeues them on retry", async () => {
-    const { sent, kv, call, batch } = batchSetup({ AI: { run: async () => ({ response: "no markers" }) } });
+    const { sent, kv, call, batch } = batchSetup({ AI: { run: async () => ({ response: "no markers @@" }) } });
     await enablePosts(kv);
     const job = (await call("batch/start", { collection: "posts", locales: ["fr-FR"], entryIds: ["entry-src"] })) as BatchJobView;
     const message = { jobId: job.id, entryId: "entry-src", locale: "fr-FR" };
@@ -1933,7 +2585,7 @@ describe("EmDash batch queue routes", () => {
 });
 
 describe("EmDash thinking effort", () => {
-  const catalog = [
+  const freshCatalog = () => [
     {
       name: "model-a",
       properties: [{ property_id: "reasoning_effort", value: { supported_efforts: ["max", "high", "none"], mandatory: false } }],
@@ -1946,6 +2598,7 @@ describe("EmDash thinking effort", () => {
   function setup(configure: (configured: PolystellaEmdashOptions) => void = () => undefined, catalogFails = false) {
     const configured = options();
     configure(configured);
+    const catalog = freshCatalog();
     const inputs: Array<{ model: string; input: WorkersAIInput }> = [];
     const routes = createPluginRoutes(configured, {
       ...dependencies(),
@@ -1984,7 +2637,7 @@ describe("EmDash thinking effort", () => {
     const sandbox = (model: string) =>
       route(routes, "translation-sandbox").handler(context({ targetLocale: "fr-FR", model, text: "Hello" }, "POST", kv, storage));
     const efforts = (model: string) => route(routes, "models/reasoning").handler(context({ model }, "GET", kv, storage));
-    return { inputs, saveSettings, sandbox, efforts };
+    return { inputs, saveSettings, sandbox, efforts, catalog };
   }
 
   it("lists the efforts a model accepts", async () => {
@@ -2001,7 +2654,7 @@ describe("EmDash thinking effort", () => {
 
   it("stores an effort only with a model override the model accepts", async () => {
     const { saveSettings } = setup((configured) => {
-      configured.models.reasoning = { "fr-FR": "none" };
+      configured.models.params = { "model-b": { enable_thinking: false } };
     });
     const withoutModel = await saveSettings({ model: null, reasoning: "high" });
     expect(withoutModel.locales[0]).toMatchObject({ model: null, reasoning: null, defaultReasoning: "none" });
@@ -2017,8 +2670,10 @@ describe("EmDash thinking effort", () => {
     await expect(saveSettings({ model: "model-a", reasoning: null })).resolves.toMatchObject({ locales: [{ reasoning: null }] });
   });
 
-  it("sends the admin's effort with the model override only", async () => {
-    const { inputs, saveSettings, sandbox } = setup();
+  it("sends the admin's effort with the model override only, over models.params", async () => {
+    const { inputs, saveSettings, sandbox } = setup((configured) => {
+      configured.models.params = { "model-a": { reasoning_effort: "low" } };
+    });
     await saveSettings({ model: "model-a", reasoning: "high" });
     await sandbox("model-a");
     await sandbox("model-b");
@@ -2028,39 +2683,75 @@ describe("EmDash thinking effort", () => {
     ]);
   });
 
-  it("turns thinking off for the code-default model from models.reasoning", async () => {
-    const { inputs, sandbox } = setup((configured) => {
-      configured.models.reasoning = "none";
+  it("turns thinking off with enable_thinking for a switch-only model, replacing the switch in models.params", async () => {
+    const { inputs, saveSettings, sandbox } = setup((configured) => {
+      configured.models.params = { "model-b": { chat_template_kwargs: { enable_thinking: true, clear_thinking: true } } };
     });
+    await saveSettings({ model: "model-b", reasoning: "none" });
     await sandbox("model-b");
-    await sandbox("model-a");
-    expect(inputs[0]?.input.chat_template_kwargs).toEqual({ enable_thinking: false });
-    expect(inputs[1]?.input).not.toHaveProperty("chat_template_kwargs");
-    expect(inputs[1]?.input).not.toHaveProperty("reasoning_effort");
+    expect(inputs[0]?.input.chat_template_kwargs).toEqual({ enable_thinking: false, clear_thinking: true });
+    expect(inputs[0]?.input).not.toHaveProperty("enable_thinking");
     expect(inputs[0]?.input.max_tokens).toBe(8192);
   });
 
   it("sends nothing extra, and still translates, for an unsupported effort or a catalog failure", async () => {
-    const unsupported = setup((configured) => {
-      configured.models.reasoning = "high";
-    });
-    await expect(unsupported.sandbox("model-b")).resolves.toMatchObject({ translation: "Bonjour" });
-    expect(Object.keys(unsupported.inputs[0]?.input ?? {}).sort()).toEqual(["max_tokens", "messages"]);
-
+    const { inputs, saveSettings, sandbox, catalog } = setup();
+    await saveSettings({ model: "model-a", reasoning: "max" });
     clearReasoningCapabilities();
-    const failing = setup((configured) => {
-      configured.models.reasoning = "none";
-    }, true);
-    await expect(failing.sandbox("model-b")).resolves.toMatchObject({ translation: "Bonjour" });
-    expect(Object.keys(failing.inputs[0]?.input ?? {}).sort()).toEqual(["max_tokens", "messages"]);
+    catalog[0] = {
+      name: "model-a",
+      properties: [{ property_id: "reasoning_effort", value: { supported_efforts: ["high"], mandatory: true } }],
+    };
+    await expect(sandbox("model-a")).resolves.toMatchObject({ translation: "Bonjour" });
+    clearReasoningCapabilities();
+    catalog.length = 0;
+    catalog.push({ name: "model-a", properties: "broken" as never });
+    await expect(sandbox("model-a")).resolves.toMatchObject({ translation: "Bonjour" });
+    for (const { input } of inputs) expect(Object.keys(input).sort()).toEqual(["max_tokens", "messages"]);
   });
 
   it("uses models.reasoningInput for the extra input", async () => {
-    const { inputs, sandbox } = setup((configured) => {
-      configured.models.reasoning = "off";
+    const { inputs, saveSettings, sandbox } = setup((configured) => {
       configured.models.reasoningInput = { "model-b": { off: { think: false } } };
     });
+    await saveSettings({ model: "model-b", reasoning: "off" });
     await sandbox("model-b");
     expect(inputs[0]?.input.think).toBe(false);
+  });
+});
+
+describe("withThinking", () => {
+  const check = (params: Record<string, unknown>) => expect(workersAIParamsProblem(params)).toBeUndefined();
+
+  it("keeps one switch when the admin sets the top-level one over a nested base", () => {
+    const result = withThinking({ chat_template_kwargs: { enable_thinking: true, x: 1 } }, { enable_thinking: false });
+    expect(result).toEqual({ enable_thinking: false, chat_template_kwargs: { x: 1 } });
+    check(result);
+  });
+
+  it("drops the top-level switch when the admin sets the nested one", () => {
+    const result = withThinking({ enable_thinking: true }, { chat_template_kwargs: { enable_thinking: false } });
+    expect(result).toEqual({ chat_template_kwargs: { enable_thinking: false } });
+    check(result);
+  });
+
+  it("lets the admin's effort win and turns the code's thinking-off switch back on", () => {
+    const result = withThinking({ reasoning_effort: "low", enable_thinking: false, x: 1 }, { reasoning_effort: "high" });
+    expect(result).toEqual({ reasoning_effort: "high", x: 1 });
+    check(result);
+    expect(withThinking({ chat_template_kwargs: { enable_thinking: false, y: 2 } }, { reasoning_effort: "high" })).toEqual({
+      reasoning_effort: "high",
+      chat_template_kwargs: { y: 2 },
+    });
+    expect(withThinking({ enable_thinking: false }, { reasoning_effort: "none" })).toEqual({
+      reasoning_effort: "none",
+      enable_thinking: false,
+    });
+  });
+
+  it("works without base params", () => {
+    const result = withThinking(undefined, { reasoning_effort: "high" });
+    expect(result).toEqual({ reasoning_effort: "high" });
+    check(result);
   });
 });

@@ -59,7 +59,38 @@ large locale sets show how many catalogs are being handled.
 Both flat and nested catalogs are supported. Nested groups are
 flattened to dotted keys so `t("site.title")` works identically in
 either format; an optional `i18n_group_title` key per group is
-metadata and is never translated.
+metadata and is never translated. Keys matching
+[`catalog.ignoreKeys`](/configuration/#catalog-options) are never sent
+to the model and stay as they are in every locale file.
+
+With `catalog.messageSyntax: "icu"`, prompts and checks use
+[standard ICU](/concepts/catalog-messages/#standard-icu-syntax) (`{name}`).
+A default-locale string that isn't valid ICU is not sent to the model; it
+is listed as a failure (exit 2) with a hint to fix it or ignore its key.
+
+## Workers AI thinking and params
+
+With `provider.kind: "workers-ai"`, `polystella.config.mjs` takes the
+same settings as the EmDash plugin's
+[`models`](/emdash/configuration/#thinking): a `provider.model` entry
+can be `{ model, enable_thinking }`, and `provider.params` holds extra
+input per model id. For example, think only for Japanese:
+
+```js
+provider: {
+  kind: "workers-ai",
+  accountId: process.env.CLOUDFLARE_ACCOUNT_ID,
+  apiToken: process.env.CLOUDFLARE_API_TOKEN,
+  model: {
+    default: { model: TRANSLATION_MODEL, enable_thinking: false },
+    "ja-JP": { model: TRANSLATION_MODEL, enable_thinking: true },
+  },
+},
+```
+
+Astro's `provider.model` takes only model ids, so don't share this
+`provider` object with `astro.config.mjs`. Astro ignores
+`provider.params`.
 
 ## Why no R2 caching
 

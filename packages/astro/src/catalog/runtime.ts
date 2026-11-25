@@ -8,6 +8,7 @@ export {
   resolveTranslations,
   type CatalogDictionary,
   type LocaleTags,
+  type MessageSyntax,
   type MessageValues,
   type GetCatalogDictionary,
   type InterpolateParams,
@@ -15,4 +16,11 @@ export {
   type ResolveCatalogTranslationsDeps,
   type TranslateFn,
 } from "@cloudflare/polystella-core/catalog";
-export { CATALOG_GROUP_TITLE_KEY, detectCatalogFormat, flattenCatalog, type CatalogFormat } from "@cloudflare/polystella-core/catalog";
+export {
+  CATALOG_GROUP_TITLE_KEY,
+  compileIgnoreKeys,
+  detectCatalogFormat,
+  flattenCatalog,
+  type CatalogFormat,
+  type IgnoreKey,
+} from "@cloudflare/polystella-core/catalog";

@@ -5,13 +5,14 @@ import {
   fetchTranslations,
   useCurrentUser,
   useNavigate,
+  type ContentEditorDraft,
   type ContentEditorPanelContext,
 } from "@emdash-cms/admin";
 import { Banner, Button, Checkbox } from "@cloudflare/kumo";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 
-import { MAX_CONTENT_FIELDS, type CollectionPolicyResponse, type TranslationDebugTrace } from "../../contracts.js";
-import { createTranslatedEntry, translateExistingEntry } from "../content-translation.js";
+import { isSeoField, MAX_CONTENT_FIELDS, type CollectionPolicyResponse, type TranslationDebugTrace } from "../../contracts.js";
+import { createTranslatedEntry, translateExistingEntry, translateIntoDraft, type DraftTranslationResult } from "../content-translation.js";
 import {
   errorMessage,
   formatErrorDetails,
@@ -36,14 +37,30 @@ interface PanelError {
   details: string;
 }
 
-export function ContentEditorPanel({ collection, entry, locale }: ContentEditorPanelContext): ReactNode {
+/** EmDash 1.5+ hides the section until this is true. A failed policy read still shows the panel, so it can show the error. */
+export function panelIsVisible({ collection }: ContentEditorPanelContext): Promise<boolean> {
+  return pluginRequest<CollectionPolicyResponse>(`policy?collection=${encodeURIComponent(collection)}`).then(
+    (policy) => policy.enabled,
+    () => true,
+  );
+}
+
+export function ContentEditorPanel({ collection, entry, locale, editorDraft }: ContentEditorPanelContext): ReactNode {
   const targetLocale = locale ?? entry.locale;
+  // `editorDraft` is EmDash 1.6+. Only SEO definitions are kept: `get()` copies every draft value.
+  const seoFields = useMemo(
+    () => editorDraft?.get().fieldDefinitions.filter((definition) => isSeoField(definition.slug)) ?? [],
+    [editorDraft],
+  );
+  // EmDash saves patched SEO text at once, so on a published or scheduled entry it goes live unreviewed.
+  const isLive = entry.status !== "draft";
   const currentUser = useCurrentUser();
   const [policy, setPolicy] = useState<CollectionPolicyResponse | null>(null);
   const [schema, setSchema] = useState<CollectionSchema | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
   const [error, setError] = useState<PanelError | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
+  const [applied, setApplied] = useState<string | null>(null);
   const [loadAttempt, setLoadAttempt] = useState(0);
   const [hidden, setHidden] = useState(false);
   const [translating, setTranslating] = useState(false);
@@ -84,11 +101,13 @@ export function ContentEditorPanel({ collection, entry, locale }: ContentEditorP
         setCreated([]);
         setPolicy(nextPolicy);
         setSchema(nextSchema);
+        const translatesSource = targetLocale?.toLowerCase() === nextPolicy.sourceLocale?.toLowerCase();
         setSelected(
-          nextSchema.fields
-            .filter((field) => isPolicyField(field, nextPolicy))
-            .map((field) => field.slug)
-            .slice(0, MAX_CONTENT_FIELDS),
+          [
+            ...nextSchema.fields.filter((field) => isPolicyField(field, nextPolicy)).map((field) => field.slug),
+            // Live SEO text is never preselected: a patch saves it at once.
+            ...(translatesSource || isLive ? [] : seoFields.map((field) => field.slug)),
+          ].slice(0, MAX_CONTENT_FIELDS),
         );
       })
       .catch((cause: unknown) => {
@@ -97,13 +116,20 @@ export function ContentEditorPanel({ collection, entry, locale }: ContentEditorP
     return () => {
       active = false;
     };
+    // Only the initial selection reads `seoFields` and `isLive`; a status change mustn't reset what the user ticked.
   }, [collection, entry.id, loadAttempt]);
 
   const eligibleFields = policy === null || schema === null ? [] : schema.fields.filter((field) => isPolicyField(field, policy));
+  const seoAllowed = !isLive || policy?.translateSeoWhenPublished === true;
+  const fieldsToTranslate = selected.filter((field) => !isSeoField(field) || seoAllowed);
 
   async function translate(): Promise<void> {
     if (targetLocale === undefined || targetLocale === null || targetLocale.length === 0) {
       setError(panelError(new Error("The target locale is unavailable.")));
+      return;
+    }
+    if (editorDraft !== undefined) {
+      await translateDraft(editorDraft, targetLocale);
       return;
     }
     if (
@@ -126,6 +152,11 @@ export function ContentEditorPanel({ collection, entry, locale }: ContentEditorP
         locale: targetLocale,
         fields: selected,
         onTranslating: () => setTranslationProgress({ percent: 45, label: "Translating selected fields" }),
+        onPart: (part, partCount) =>
+          setTranslationProgress({
+            percent: 45 + Math.round((40 * part) / partCount),
+            label: `Translating part ${part + 1} of ${partCount}`,
+          }),
         onTranslated: (trace) => {
           if (trace !== undefined) setDebug(trace);
           setTranslationProgress({ percent: 85, label: "Saving translated fields" });
@@ -139,11 +170,58 @@ export function ContentEditorPanel({ collection, entry, locale }: ContentEditorP
         storeTranslationDebug(collection, entry.id, targetLocale, currentUser.data.id, result.debug);
       }
       // A reload would hide the warning, so the editor asks for one instead.
-      if (result.flagWarning !== null) {
-        setWarning(`${result.flagWarning} Reload the page to see the translated fields.`);
+      const warning = [result.flagWarning, result.notice].filter((part) => part !== null).join(" ");
+      if (warning !== "") {
+        setWarning(`${warning} Reload the page to see the translated fields.`);
         return;
       }
       window.location.reload();
+    } catch (cause) {
+      setError(panelError(cause));
+    } finally {
+      setTranslating(false);
+      setTranslationProgress(null);
+    }
+  }
+
+  async function translateDraft(draft: ContentEditorDraft, target: string): Promise<void> {
+    setTranslating(true);
+    setTranslationProgress({ percent: 15, label: "Reading the open draft" });
+    setError(null);
+    setWarning(null);
+    setApplied(null);
+    setDebug(null);
+    try {
+      const result = await translateIntoDraft({
+        collection,
+        entryId: entry.id,
+        locale: target,
+        fields: fieldsToTranslate,
+        editorDraft: draft,
+        onTranslating: () => setTranslationProgress({ percent: 45, label: "Translating selected fields" }),
+        onPart: (part, partCount) =>
+          setTranslationProgress({
+            percent: 45 + Math.round((40 * part) / partCount),
+            label: `Translating part ${part + 1} of ${partCount}`,
+          }),
+        onTranslated: (trace) => {
+          if (trace !== undefined) setDebug(trace);
+          setTranslationProgress({ percent: 85, label: "Putting the translation into the form" });
+        },
+      });
+      if (result.status !== "applied") {
+        setError(panelError(new Error(draftFailureMessage(result))));
+        return;
+      }
+      const tooLong = result.tooLong.map((field) => seoFields.find((definition) => definition.slug === field)?.label ?? field);
+      setApplied(
+        [
+          "The translation is in the form. Please review it.",
+          ...(tooLong.length === 0 ? [] : [`Left out because the translation is too long: ${tooLong.join(", ")}.`]),
+        ].join(" "),
+      );
+      const warning = [result.flagWarning, result.notice].filter((part) => part !== null).join(" ");
+      if (warning !== "") setWarning(warning);
     } catch (cause) {
       setError(panelError(cause));
     } finally {
@@ -161,6 +239,8 @@ export function ContentEditorPanel({ collection, entry, locale }: ContentEditorP
     setCreated([]);
     const failed: string[] = [];
     const unflagged: string[] = [];
+    const noticed: string[] = [];
+    let notice = "";
     let flagWarning = "";
     let lastError = "";
     let lastCreated: { id: string; locale: string } | null = null;
@@ -178,6 +258,7 @@ export function ContentEditorPanel({ collection, entry, locale }: ContentEditorP
             locale,
             fields: selected,
             onTranslating: () => step(45, `Translating selected fields into ${locale}`),
+            onPart: (part, partCount) => step(45, `Translating part ${part + 1} of ${partCount} into ${locale}`),
             onTranslated: (trace) => {
               if (trace !== undefined) setDebug(trace);
               step(85, `Creating the ${locale} draft`);
@@ -192,6 +273,10 @@ export function ContentEditorPanel({ collection, entry, locale }: ContentEditorP
             unflagged.push(createdLocale);
             flagWarning = result.flagWarning;
           }
+          if (result.notice !== null) {
+            noticed.push(createdLocale);
+            notice = result.notice;
+          }
           const draft = { id: result.entry.id, locale: createdLocale };
           lastCreated = draft;
           setCreated((current) => [...current, draft]);
@@ -202,10 +287,14 @@ export function ContentEditorPanel({ collection, entry, locale }: ContentEditorP
         }
       }
       setCreateLocales(failed);
-      if (unflagged.length > 0) setWarning(`${flagWarning} Affected locales: ${unflagged.join(", ")}.`);
+      const warnings = [
+        ...(unflagged.length > 0 ? [`${flagWarning} Affected locales: ${unflagged.join(", ")}.`] : []),
+        ...(noticed.length > 0 ? [`${notice} Drafts: ${noticed.join(", ")}.`] : []),
+      ];
+      if (warnings.length > 0) setWarning(warnings.join(" "));
       if (failed.length > 0) {
         setError(panelError(new Error(`${failed.length} of ${createLocales.length} drafts failed (${failed.join(", ")}): ${lastError}`)));
-      } else if (createLocales.length === 1 && lastCreated !== null && unflagged.length === 0) {
+      } else if (createLocales.length === 1 && lastCreated !== null && warnings.length === 0) {
         await navigate({
           to: "/content/$collection/$id",
           params: { collection, id: lastCreated.id },
@@ -285,7 +374,7 @@ export function ContentEditorPanel({ collection, entry, locale }: ContentEditorP
       {warning === null ? null : (
         <Banner
           variant="alert"
-          title="Translation saved without the AI-translated flag"
+          title="Check this translation"
           description={warning}
           action={
             <Button size="sm" variant="secondary" onClick={() => setWarning(null)}>
@@ -318,9 +407,15 @@ export function ContentEditorPanel({ collection, entry, locale }: ContentEditorP
             fieldLabel={(slug) => schema.fields.find((field) => field.slug === slug)?.label ?? slug}
           />
           <p style={mutedStyle}>
-            Translate the latest saved {policy.sourceLocale} values into this {targetLocale} draft.
+            Translate the latest saved {policy.sourceLocale} values into this {targetLocale} {isLive ? "entry" : "draft"}. Please review the
+            translation afterwards.
           </p>
         </>
+      )}
+      {applied === null ? null : (
+        <p role="status" style={mutedStyle}>
+          {applied}
+        </p>
       )}
       {eligibleFields.map((field) => (
         <Checkbox
@@ -333,12 +428,36 @@ export function ContentEditorPanel({ collection, entry, locale }: ContentEditorP
           }
         />
       ))}
-      {eligibleFields.length === 0 ? <small>No supported fields are configured for this collection.</small> : null}
+      {isSourceEntry
+        ? null
+        : seoFields.map((field) => (
+            <Checkbox
+              key={field.slug}
+              label={field.label}
+              checked={seoAllowed && selected.includes(field.slug)}
+              disabled={translating || !seoAllowed || (!selected.includes(field.slug) && selected.length >= MAX_CONTENT_FIELDS)}
+              onCheckedChange={(checked) =>
+                setSelected((current) =>
+                  checked ? [...new Set([...current, field.slug])] : current.filter((value) => value !== field.slug),
+                )
+              }
+            />
+          ))}
+      {!isSourceEntry && seoFields.length > 0 ? (
+        <small style={mutedStyle}>
+          {seoAllowed
+            ? "EmDash saves SEO text as soon as it changes, without waiting for Save."
+            : "SEO text isn't translated on published or scheduled entries, because EmDash would save it before review. An administrator can allow it in Translation settings."}
+        </small>
+      ) : null}
+      {eligibleFields.length === 0 && seoFields.length === 0 ? (
+        <small>No supported fields are configured for this collection.</small>
+      ) : null}
       {translationProgress === null ? null : <TranslationProgress {...translationProgress} />}
       <Button
         variant="primary"
         loading={translating}
-        disabled={selected.length === 0 || currentUser.data === undefined || (isSourceEntry && createLocales.length === 0)}
+        disabled={fieldsToTranslate.length === 0 || currentUser.data === undefined || (isSourceEntry && createLocales.length === 0)}
         onClick={() => void run()}
       >
         {isSourceEntry ? createButtonLabel(createLocales) : "Translate with PolyStella"}
@@ -373,6 +492,18 @@ function PanelErrorMessage({ error, onDismiss, onRetry }: { error: PanelError; o
       }
     />
   );
+}
+
+function draftFailureMessage(result: Exclude<DraftTranslationResult, { status: "applied" }>): string {
+  if (result.status === "failed") return result.error;
+  switch (result.code) {
+    case "EDITOR_DRAFT_STALE":
+      return "The entry changed while PolyStella was translating it, so the form wasn't changed. Translate again.";
+    case "EDITOR_DRAFT_READ_ONLY":
+      return "This editor doesn't accept edits right now, so PolyStella didn't translate anything.";
+    case "EDITOR_DRAFT_INVALID":
+      return "EmDash couldn't put the translation into the form, so nothing changed.";
+  }
 }
 
 function createButtonLabel(locales: readonly string[]): string {

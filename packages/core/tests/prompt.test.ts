@@ -147,6 +147,13 @@ describe("parseResponse", () => {
     expect(() => parseResponse("@@fm:title@@\nTitle", expectedIds)).toThrow(/omitted segment "body:0"/);
   });
 
+  it("takes a marker-less reply as the translation of a lone segment", () => {
+    const reply = "Lesen Sie zunächst {{ps_1}}Erste Schritte{{ps_2}}.";
+    expect([...parseResponse(reply, ["field:0"])]).toEqual([["field:0", reply]]);
+    expect(() => parseResponse("stray @@ marker text", ["field:0"])).toThrow(/no segment markers/);
+    expect(() => parseResponse("", ["field:0"])).toThrow(/no segment markers/);
+  });
+
   it("reports likely truncation without dumping an unbounded response", () => {
     const longResponse = `@@fm:title@@\n${"x".repeat(3000)}`;
     expect(() => parseResponse(longResponse, expectedIds)).toThrow(/Response appears truncated.*truncated middle/s);

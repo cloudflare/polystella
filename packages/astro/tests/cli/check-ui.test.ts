@@ -142,6 +142,43 @@ describe("runCheckUi", () => {
     expect(errOutput).toContain("nav.about");
   });
 
+  it("returns 1 when the default-locale catalog is missing", async () => {
+    const cwd = await tmpProjectWithAstroConfig({
+      defaultLocale: "en",
+      locales: ["en", "de"],
+      files: { "src/content/i18n/de.json": JSON.stringify({ a: "Hallo" }) },
+    });
+    const err = vi.fn();
+    expect(await runCheckUi({ help: false }, { cwd, log: vi.fn(), err })).toBe(1);
+    expect(err.mock.calls.map((call) => String(call[0])).join("\n")).toMatch(/default-locale UI-strings file not found at .*en\.json/);
+  });
+
+  it("returns 1 with the --base path when --base has no default-locale catalog", async () => {
+    const cwd = await tmpProjectWithAstroConfig({
+      defaultLocale: "en",
+      locales: ["en", "de"],
+      files: {
+        "src/content/i18n/en.json": JSON.stringify({ a: "A" }),
+        "locales/de.json": JSON.stringify({ a: "Hallo" }),
+      },
+    });
+    const err = vi.fn();
+    expect(await runCheckUi({ help: false, base: "./locales" }, { cwd, log: vi.fn(), err })).toBe(1);
+    const output = err.mock.calls.map((call) => String(call[0])).join("\n");
+    expect(output).toContain(`default-locale UI-strings file not found at ${path.join(cwd, "locales", "en.json")}`);
+  });
+
+  it("returns 1 as drift, not as a missing default, when only a locale file is missing", async () => {
+    const cwd = await tmpProjectWithAstroConfig({
+      defaultLocale: "en",
+      locales: ["en", "de"],
+      files: { "src/content/i18n/en.json": JSON.stringify({ a: "A" }) },
+    });
+    const err = vi.fn();
+    expect(await runCheckUi({ help: false }, { cwd, log: vi.fn(), err })).toBe(1);
+    expect(err.mock.calls.map((call) => String(call[0])).join("\n")).not.toContain("default-locale UI-strings file not found");
+  });
+
   it("returns 1 when astro i18n.locales does not include defaultLocale", async () => {
     const cwd = await tmpProjectWithAstroConfig({
       defaultLocale: "en-US",
@@ -210,6 +247,48 @@ describe("runCheckUi", () => {
     const err = vi.fn();
     expect(await runCheckUi({ help: false }, { cwd: mapped, log: vi.fn(), err })).toBe(0);
     expect(err).not.toHaveBeenCalled();
+  });
+
+  it("does not report keys matching catalog.ignoreKeys", async () => {
+    const files = {
+      "src/content/i18n/en.json": JSON.stringify({ $schema: "https://inlang.com/schema/inlang-message-format", a: "Hi {{name}}" }),
+      "src/content/i18n/de.json": JSON.stringify({ a: "Hallo {{name}}", internal: { note: "{{broken" } }),
+    };
+    const plain = await tmpProjectWithAstroConfig({ defaultLocale: "en", locales: ["en", "de"], files });
+    await expect(runCheckUi({ help: false }, { cwd: plain, log: vi.fn(), err: vi.fn() })).rejects.toThrow(/format mismatch/);
+
+    const cwd = await tmpProjectWithAstroConfig({
+      defaultLocale: "en",
+      locales: ["en", "de"],
+      files: { ...files, "polystella.config.mjs": `export default { catalog: { ignoreKeys: ["\\\\$schema", "internal"] } };\n` },
+    });
+    const err = vi.fn();
+    expect(await runCheckUi({ help: false }, { cwd, log: vi.fn(), err })).toBe(0);
+    expect(err).not.toHaveBeenCalled();
+  });
+
+  it('validates {name} placeholders with catalog.messageSyntax "icu"', async () => {
+    const files = {
+      "src/content/i18n/en.json": JSON.stringify({ a: "Hello {name}", b: "Hello {name}", c: "Hello {name}", d: "{n: number} off" }),
+      "src/content/i18n/de.json": JSON.stringify({ a: "Hallo {Name}", b: "Hallo", c: "Hallo {name}", d: "x" }),
+    };
+    const plain = await tmpProjectWithAstroConfig({ defaultLocale: "en", locales: ["en", "de"], files });
+    expect(await runCheckUi({ help: false }, { cwd: plain, log: vi.fn(), err: vi.fn() })).toBe(0);
+
+    const cwd = await tmpProjectWithAstroConfig({
+      defaultLocale: "en",
+      locales: ["en", "de"],
+      files: { ...files, "polystella.config.mjs": `export default { catalog: { messageSyntax: "icu" } };\n` },
+    });
+    const err = vi.fn();
+    expect(await runCheckUi({ help: false }, { cwd, log: vi.fn(), err })).toBe(1);
+    const output = err.mock.calls.map((call) => String(call[0])).join("\n");
+    expect(output).toContain('de.json "a": missing {name}; {Name} is not in the source');
+    expect(output).toContain('de.json "b": missing {name}');
+    expect(output).not.toContain('"c"');
+    expect(output).toMatch(/en\.json "d": invalid message: invalid placeholder \(ICU placeholders/);
+    expect(output).not.toContain('de.json "d"');
+    expect(output).toContain("Placeholders are {name}; plurals are {count, plural, one {# item} other {# items}}.");
   });
 
   it("respects --base override", async () => {

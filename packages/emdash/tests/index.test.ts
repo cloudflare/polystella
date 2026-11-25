@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { createPlugin, polystellaEmdash, validatePolystellaEmdashOptions, type PolystellaEmdashOptions } from "../src/index.js";
-import { deserializeOptions, resolveReasoning } from "../src/server/options.js";
+import {
+  createPlugin,
+  polystellaEmdash,
+  validatePolystellaEmdashOptions,
+  type EmDashCatalogLocale,
+  type PolystellaEmdashOptions,
+} from "../src/index.js";
+import { codeDefaultThinking, deserializeOptions } from "../src/server/options.js";
 
 function validOptions(): PolystellaEmdashOptions {
   return {
@@ -47,6 +53,7 @@ describe("polystellaEmdash", () => {
         batch_jobs: { indexes: ["createdAt"] },
         batch_results: { indexes: ["jobId", "outcome"] },
         ai_translations: { indexes: ["locale"] },
+        ai_translation_pending: { indexes: [] },
       },
     });
     expect(plugin.id).toBe(descriptor.id);
@@ -58,6 +65,7 @@ describe("polystellaEmdash", () => {
       "policy",
       "models/reasoning",
       "ai-translation",
+      "ai-translation/pending",
       "ai-translation/status",
       "ai-translation/review",
       "translate-content",
@@ -156,27 +164,78 @@ describe("polystellaEmdash", () => {
     expect(() => validatePolystellaEmdashOptions(options)).toThrow("[polystella-emdash]");
   });
 
-  describe("thinking effort options", () => {
+  it("validates model params and timeouts, and keeps them and glossaryMatchInflections through serialization", () => {
+    const base = validOptions();
+    const params = { "model-a": { enable_thinking: false } };
+    const options: PolystellaEmdashOptions = {
+      ...base,
+      provider: { kind: "workers-ai-binding", binding: "AI", timeoutMs: 120_000 },
+      models: { ...base.models, params },
+      glossaryMatchInflections: true,
+    };
+    const runtimeOptions = polystellaEmdash(options).options;
+    if (runtimeOptions === undefined) throw new Error("descriptor options are missing");
+    expect(deserializeOptions(runtimeOptions)).toMatchObject({
+      provider: { timeoutMs: 120_000 },
+      models: { params },
+      glossaryMatchInflections: true,
+    });
+
+    expect(() => validatePolystellaEmdashOptions({ ...options, models: { ...base.models, params: { "model-c": {} } } })).toThrow(
+      "options.models.params.model-c must exist in options.models.allowed",
+    );
+    expect(() =>
+      validatePolystellaEmdashOptions({ ...options, models: { ...base.models, params: { "model-a": { messages: [] } } } }),
+    ).toThrow('options.models.params.model-a cannot set "messages"; PolyStella sets it');
+    expect(() =>
+      validatePolystellaEmdashOptions({ ...options, models: { ...base.models, params: { "model-a": { enable_thinking: "off" } } } }),
+    ).toThrow("options.models.params.model-a enable_thinking must be true or false");
+
+    const defaults = { default: { model: "model-a", enable_thinking: false }, "ja-JP": { model: "model-a", enable_thinking: true } };
+    const withThinking = polystellaEmdash({ ...options, models: { ...base.models, defaults } }).options;
+    if (withThinking === undefined) throw new Error("descriptor options are missing");
+    expect(deserializeOptions(withThinking).models.defaults).toEqual(defaults);
+    expect(() =>
+      validatePolystellaEmdashOptions({
+        ...options,
+        models: { ...base.models, defaults: { default: { model: "model-a", enable_thinking: "on" } } },
+      }),
+    ).toThrow("options.models.defaults.default.enable_thinking must be true or false");
+    expect(() =>
+      validatePolystellaEmdashOptions({
+        ...options,
+        models: { ...base.models, defaults: { default: { model: "model-a", reasoning: true } } },
+      }),
+    ).toThrow("options.models.defaults.default.reasoning");
+    expect(() =>
+      validatePolystellaEmdashOptions({
+        ...options,
+        models: { ...base.models, defaults, params: { "model-a": { chat_template_kwargs: { enable_thinking: true } } } },
+      }),
+    ).toThrow("options.models.defaults.default sets enable_thinking twice");
+    expect(() =>
+      validatePolystellaEmdashOptions({ ...options, provider: { kind: "workers-ai-binding", binding: "AI", timeoutMs: 0 } }),
+    ).toThrow("options.provider.timeoutMs must be a positive integer");
+  });
+
+  describe("thinking options", () => {
     const withModels = (extra: Record<string, unknown>) => ({
       ...validOptions(),
       models: { allowed: ["model-a", "model-b"], defaults: "model-a", ...extra },
     });
 
-    it("accepts and serializes a reasoning value or per-locale record plus reasoningInput", () => {
-      const models = { reasoning: { default: "none", "ja-JP": "high" }, reasoningInput: { "model-a": { off: { think: false } } } };
-      expect(() => validatePolystellaEmdashOptions(withModels({ reasoning: "none" }))).not.toThrow();
+    it("accepts and serializes reasoningInput", () => {
+      const models = { reasoningInput: { "model-a": { off: { enable_thinking: false } } } };
       const runtimeOptions = polystellaEmdash(withModels(models)).options;
       if (runtimeOptions === undefined) throw new Error("descriptor options are missing");
       expect(deserializeOptions(runtimeOptions).models).toMatchObject(models);
     });
 
     it.each<[string, Record<string, unknown>]>([
-      ["a non-lowercase effort", { reasoning: "High" }],
-      ["an unknown locale", { reasoning: { "fr-FR": "high" } }],
-      ["a non-string effort", { reasoning: { default: 1 } }],
       ["a model that is not allowed", { reasoningInput: { "model-z": { off: {} } } }],
       ["an invalid effort key", { reasoningInput: { "model-a": { "Off!": {} } } }],
       ["a non-object input", { reasoningInput: { "model-a": { off: "x" } } }],
+      ["a non-boolean enable_thinking", { reasoningInput: { "model-a": { off: { enable_thinking: "no" } } } }],
       ...["messages", "max_tokens", "prompt", "stream"].map((key): [string, Record<string, unknown>] => [
         `a reserved ${key} field`,
         { reasoningInput: { "model-a": { off: { [key]: 1 } } } },
@@ -185,13 +244,17 @@ describe("polystellaEmdash", () => {
       expect(() => validatePolystellaEmdashOptions(withModels(models))).toThrow("[polystella-emdash]");
     });
 
-    it("resolves the effort for a locale", () => {
-      expect(resolveReasoning(undefined, "ja-JP")).toBeUndefined();
-      expect(resolveReasoning("none", "ja-JP")).toBe("none");
-      expect(resolveReasoning({ default: "low", "ja-JP": "high" }, "ja-JP")).toBe("high");
-      expect(resolveReasoning({ default: "low", "ja-JP": "high" }, "en-US")).toBe("low");
-      expect(resolveReasoning({ "ja-JP": "high" }, "en-US")).toBeUndefined();
-      expect(resolveReasoning({}, "toString")).toBeUndefined();
+    it("shows the code-default thinking from models.defaults and models.params", () => {
+      const options = (models: Record<string, unknown>) => withModels(models) as PolystellaEmdashOptions;
+      expect(codeDefaultThinking(options({}), "ja-JP")).toBeNull();
+      expect(codeDefaultThinking(options({ params: { "model-a": { reasoning_effort: "low" } } }), "ja-JP")).toBe("low");
+      expect(codeDefaultThinking(options({ params: { "model-a": { enable_thinking: false } } }), "ja-JP")).toBe("none");
+      expect(codeDefaultThinking(options({ params: { "model-a": { chat_template_kwargs: { enable_thinking: true } } } }), "ja-JP")).toBe(
+        "on",
+      );
+      const perLocale = options({ defaults: { default: "model-a", "ja-JP": { model: "model-a", enable_thinking: false } } });
+      expect(codeDefaultThinking(perLocale, "ja-JP")).toBe("none");
+      expect(codeDefaultThinking(perLocale, "fr-FR")).toBeNull();
     });
   });
 
@@ -218,6 +281,38 @@ describe("polystellaEmdash", () => {
     expect(JSON.stringify(descriptor)).not.toContain('apiToken":"secret');
   });
 
+  it("validates blockFields and round-trips them through serialized runtime options", () => {
+    const configured = validOptions();
+    const blockFields = { "marketing.hero": ["headline", "banners[].title", "cta.label"] };
+    expect(() => validatePolystellaEmdashOptions({ ...configured, blockFields })).not.toThrow();
+    expect(() => validatePolystellaEmdashOptions({ ...configured, blockFields: { block: ["children"] } })).toThrow("reserved");
+    expect(() => validatePolystellaEmdashOptions({ ...configured, blockFields: { "marketing.hero": ["a..b"] } })).toThrow(
+      "options.blockFields.marketing.hero[0]",
+    );
+    expect(() => validatePolystellaEmdashOptions({ ...configured, blockFields: { image: [] } })).not.toThrow();
+    expect(() =>
+      validatePolystellaEmdashOptions({ ...configured, blockFields: { faq: ["question", { path: "answer", format: "markdown" }] } }),
+    ).not.toThrow();
+    expect(() => validatePolystellaEmdashOptions({ ...configured, glossaryMatchInflections: true })).not.toThrow();
+    expect(() => validatePolystellaEmdashOptions({ ...configured, glossaryMatchInflections: "yes" })).toThrow(
+      "options.glossaryMatchInflections must be a boolean",
+    );
+    expect(() => validatePolystellaEmdashOptions({ ...configured, blockFields: { faq: [{ path: "answer", format: "html" }] } })).toThrow(
+      'options.blockFields.faq[0].format must be "markdown"',
+    );
+    expect(() =>
+      validatePolystellaEmdashOptions({ ...configured, blockFields: { faq: ["answer", { path: "answer", format: "markdown" }] } }),
+    ).toThrow("duplicates");
+    expect(() => validatePolystellaEmdashOptions({ ...configured, blockFields: { "marketing.hero": ["title", "title"] } })).toThrow(
+      "options.blockFields.marketing.hero cannot contain duplicates",
+    );
+
+    const descriptor = polystellaEmdash({ ...configured, blockFields });
+    const runtimeOptions = descriptor.options;
+    if (runtimeOptions === undefined) throw new Error("descriptor options are missing");
+    expect(deserializeOptions(runtimeOptions).blockFields).toEqual(blockFields);
+  });
+
   it("validates localeTags and round-trips them through serialized runtime options", () => {
     const configured: PolystellaEmdashOptions = {
       ...validOptions(),
@@ -242,6 +337,67 @@ describe("polystellaEmdash", () => {
     const runtimeOptions = descriptor.options;
     if (runtimeOptions === undefined) throw new Error("descriptor options are missing");
     expect(deserializeOptions(runtimeOptions).localeTags).toEqual({ jp: "ja" });
+  });
+
+  it("validates the catalog block and round-trips it through serialized runtime options", () => {
+    const configured: PolystellaEmdashOptions = {
+      ...validOptions(),
+      catalogs: {
+        defaultLocale: "en-US",
+        locales: {
+          "en-US": { dictionary: { $schema: "https://inlang.com/schema", greeting: "Hello {name}" }, filePath: "src/i18n/en-US.json" },
+          "fr-FR": {
+            dictionary: { greeting: "Bonjour {name}", plural: [{ match: {} }] } as unknown as EmDashCatalogLocale["dictionary"],
+            filePath: "src/i18n/fr-FR.json",
+          },
+        },
+      },
+      models: { allowed: ["model-a"], defaults: "model-a" },
+      glossaryDefaults: undefined,
+    };
+
+    expect(() => validatePolystellaEmdashOptions(configured)).toThrow("got array");
+    const catalog = { ignoreKeys: ["\\$schema", "plural"], messageSyntax: "icu" as const };
+    const descriptor = polystellaEmdash({ ...configured, catalog });
+    const runtimeOptions = descriptor.options;
+    if (runtimeOptions === undefined) throw new Error("descriptor options are missing");
+    expect(deserializeOptions(runtimeOptions).catalog).toEqual(catalog);
+
+    expect(() => validatePolystellaEmdashOptions({ ...configured, catalog: { ignoreKeys: ["["] } })).toThrow(
+      "options.catalog.ignoreKeys contains an invalid regular expression",
+    );
+    expect(() => validatePolystellaEmdashOptions({ ...configured, catalog: { ignoreKeys: ["plural"], messageSyntax: "inlang" } })).toThrow(
+      'options.catalog.messageSyntax must be "polystella" or "icu"',
+    );
+    expect(() => validatePolystellaEmdashOptions({ ...configured, catalog: { ignoreKeys: ["plural"], nope: true } })).toThrow(
+      "options.catalog.nope",
+    );
+  });
+
+  it("omits catalog from serialized runtime options unless it is set, and keeps an empty block empty", () => {
+    const serialized = (catalog?: PolystellaEmdashOptions["catalog"]): Record<string, unknown> => {
+      const runtimeOptions = polystellaEmdash({ ...validOptions(), ...(catalog === undefined ? {} : { catalog }) }).options;
+      if (runtimeOptions === undefined) throw new Error("descriptor options are missing");
+      return JSON.parse((runtimeOptions as { serialized: string }).serialized) as Record<string, unknown>;
+    };
+
+    expect("catalog" in serialized()).toBe(false);
+    expect(serialized({}).catalog).toEqual({});
+    expect(serialized({ ignoreKeys: [] }).catalog).toEqual({ ignoreKeys: [] });
+    expect(serialized({ messageSyntax: "polystella" }).catalog).toEqual({ messageSyntax: "polystella" });
+  });
+
+  it("rejects malformed catalog blocks", () => {
+    const configured = validOptions();
+    const invalid = (catalog: unknown) => validatePolystellaEmdashOptions({ ...configured, catalog });
+    expect(() => invalid(null)).toThrow("options.catalog");
+    expect(() => invalid([])).toThrow("options.catalog");
+    expect(() => invalid({ ignoreKeys: "plural" })).toThrow("options.catalog.ignoreKeys must be an array");
+    expect(() => invalid({ ignoreKeys: [/plural/] })).toThrow("not RegExp objects");
+    expect(() => invalid({ ignoreKeys: [""] })).toThrow("non-empty");
+    expect(() => invalid({ ignoreKeys: ["a)|(.*"] })).toThrow("invalid regular expression");
+    expect(() => invalid({})).not.toThrow();
+    expect(() => invalid({ ignoreKeys: [] })).not.toThrow();
   });
 
   it("rejects unknown provider properties instead of serializing them", () => {

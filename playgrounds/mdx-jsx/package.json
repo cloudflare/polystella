@@ -16,10 +16,10 @@
   "dependencies": {
     "@astrojs/mdx": "^7.0.8",
     "@cloudflare/polystella-astro": "workspace:*",
-    "astro": "^7.4.2"
+    "astro": "^7.4.7"
   },
   "devDependencies": {
-    "@types/node": "^26.1.0",
+    "@types/node": "^26.6.6",
     "typescript": "^6.0.3"
   }
 }

@@ -44,6 +44,21 @@ describe("loadAstroI18n", () => {
     await expect(loadI18nInNode(cwd)).resolves.toEqual(I18N);
   }, 20_000);
 
+  it("loads polystella.config.mjs through the same Vite fallback", async () => {
+    const cwd = await scaffoldProject({
+      "node_modules/ts-only-pkg/package.json": JSON.stringify({
+        name: "ts-only-pkg",
+        type: "module",
+        exports: { "./static": "./src/index.ts" },
+      }),
+      "node_modules/ts-only-pkg/src/index.ts": `export const patterns: string[] = ["\\\\$schema"];\n`,
+      "polystella.config.mjs": `import { patterns } from "ts-only-pkg/static";\nexport default { catalog: { ignoreKeys: patterns } };\n`,
+    });
+    const script = `const { loadCatalogOptions } = await import(process.argv[1]); console.log(JSON.stringify((await loadCatalogOptions(process.cwd())).ignoreKeys));`;
+    const { stdout } = await promisify(execFile)(process.execPath, ["--input-type=module", "-e", script, coreConfigModule], { cwd });
+    expect(JSON.parse(stdout)).toEqual(["\\$schema"]);
+  }, 20_000);
+
   it("finds astro.config.ts", async () => {
     const cwd = await scaffoldProject({ "astro.config.ts": `const i18n: object = ${JSON.stringify(I18N)};\nexport default { i18n };\n` });
     await expect(loadI18nInNode(cwd)).resolves.toEqual(I18N);

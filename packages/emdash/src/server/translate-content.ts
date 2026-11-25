@@ -5,26 +5,96 @@ import {
   type TranslateBatchAttemptEvent,
   type Translator,
 } from "@cloudflare/polystella-core";
+import { splitMarkdownText, type SplitMarkdownText } from "@cloudflare/polystella-core/adapters";
 import { validateTokenPreservation } from "@cloudflare/polystella-core/catalog/translate";
 
 import { MAX_CONTENT_FIELDS } from "../contracts.js";
+import type { BlockFieldPath } from "./options.js";
 
-const MAX_SEGMENTS = 500;
+// One request translates one part; larger entries take several requests.
+const MAX_PART_SEGMENTS = 500;
+const MAX_PART_CHARACTERS = 30_000;
+const MAX_SEGMENTS = 5_000;
 const MAX_SEGMENT_CHARACTERS = 20_000;
-const MAX_TOTAL_CHARACTERS = 30_000;
+// The queue keeps earlier parts in one storage row, so this also bounds that row (about 1.5 MB in CJK).
+const MAX_TOTAL_CHARACTERS = 500_000;
+// One entry is one request here, so nothing else multiplies these provider calls.
+const BATCH_CONCURRENCY = 3;
 
-/** `cell` is `[row, cell]` for spans inside a table block, `null` for a text block's children. */
-type SpanContainer = { blockIndex: number; cell: readonly [number, number] | null };
+type PathPart = string | number;
 
-/** Image values keep their media metadata; only these text properties are translated. */
-const IMAGE_TEXT_PROPERTIES = ["alt", "caption"] as const;
+interface SegmentLocation {
+  field: string;
+  /** Where the text lives inside the values, starting at the field name. */
+  path: PathPart[];
+  leadingWhitespace: string;
+  trailingWhitespace: string;
+}
 
-type SegmentTarget =
-  | { kind: "field"; field: string }
-  | ({ kind: "span"; field: string; childIndex: number } & SpanContainer)
-  | { kind: "item"; field: string; item: number; subField: string; property: (typeof IMAGE_TEXT_PROPERTIES)[number] | null };
+/** A span list (text block children or a table cell) whose joined text must keep the source placeholder tokens. */
+interface SpanList {
+  field: string;
+  path: PathPart[];
+  segmentIds: string[];
+}
 
-type SegmentLocation = SegmentTarget & { leadingWhitespace: string; trailingWhitespace: string };
+/** A Markdown string split into paragraph and list-item segments, rebuilt by core's `splitMarkdownText`. */
+interface MarkdownText {
+  field: string;
+  path: PathPart[];
+  split: SplitMarkdownText;
+  /** Our segment id → the splitter's own id (`body:0`, ...). */
+  adapterIds: Map<string, string>;
+}
+
+interface Collector {
+  segments: Segment[];
+  group: Segment[];
+  locations: Map<string, SegmentLocation>;
+  spanLists: SpanList[];
+  markdownTexts: MarkdownText[];
+  blockFields: BlockFieldPaths;
+}
+
+/** Custom Portable Text block type → text paths inside it, like `cards[].title`. */
+export type BlockFieldPaths = Readonly<Record<string, readonly BlockFieldPath[]>>;
+
+/**
+ * Text in the block types EmDash itself writes: its editor, WordPress import and `emdash/ui` components.
+ * Re-check against EmDash's converters and components whenever the tested EmDash version changes.
+ */
+export const EMDASH_BLOCK_FIELDS: BlockFieldPaths = {
+  image: ["alt", "caption", "title"],
+  gallery: ["images[].alt", "images[].caption"],
+  video: ["caption"],
+  button: ["text"],
+  buttons: ["buttons[].text"],
+  columns: ["columns[].content"],
+  cover: ["content"],
+  pullquote: ["text", "citation"],
+  embed: ["caption"],
+  iframe: ["title"],
+};
+
+/**
+ * Sites build heading ids themselves (EmDash adds none), often from the heading text, so a translated
+ * heading can get a new id that copied `#…` links no longer match. PolyStella can't know the site's rule.
+ */
+export function samePageLinksNotice(values: unknown): string | null {
+  let count = 0;
+  const visit = (value: unknown): void => {
+    if (typeof value === "string") count += value.match(/\]\(#[^)\s]+\)/g)?.length ?? 0;
+    else if (Array.isArray(value)) value.forEach(visit);
+    else if (isRecord(value)) {
+      if (typeof value.href === "string" && value.href.length > 1 && value.href.startsWith("#")) count += 1;
+      Object.values(value).forEach(visit);
+    }
+  };
+  visit(values);
+  if (count === 0) return null;
+  const links = count === 1 ? "1 same-page link (#…)" : `${count} same-page links (#…)`;
+  return `Review ${links} by hand: if a link points at a heading, the translated heading may have a different anchor.`;
+}
 
 export class ContentTranslationInputError extends Error {
   constructor(message: string) {
@@ -33,36 +103,84 @@ export class ContentTranslationInputError extends Error {
   }
 }
 
-export interface TranslateContentFieldsOptions {
+export interface ContentPlanOptions {
   values: Record<string, unknown>;
+  blockFields?: BlockFieldPaths | undefined;
+  /** Fields of EmDash's `blocks` type. Their block types are the site's own, so only `blockFields` applies to them. */
+  blocksFieldSlugs?: readonly string[] | undefined;
+  /** Repeater field slug → subfields to translate: text values, or an image's alt and caption. Other subfields stay as they are. */
+  repeaterSubFields?: Readonly<Record<string, readonly string[]>> | undefined;
+}
+
+/** Image values keep their media metadata; only these text properties are translated. */
+const IMAGE_TEXT_PROPERTIES = ["alt", "caption"] as const;
+
+export interface ContentTranslateOptions {
   translator: Translator;
   glossary: Glossary;
+  matchInflections?: boolean | undefined;
   sourceLocale: string;
   targetLocale: string;
   promptInstruction?: string | undefined;
   onBatchAttempt?: ((event: TranslateBatchAttemptEvent) => void) | undefined;
   onValidationIssue?: ((segmentIds: string[], message: string) => void) | undefined;
   signal?: AbortSignal | undefined;
-  /** Repeater field slug → subfields to translate: text values, or an image's alt and caption. Other subfields stay as they are. */
-  repeaterSubFields?: Readonly<Record<string, readonly string[]>> | undefined;
 }
+
+export type TranslateContentFieldsOptions = ContentPlanOptions & ContentTranslateOptions;
 
 export interface TranslateContentFieldsResult {
   patch: Record<string, unknown>;
   batchCount: number;
 }
 
+/** An entry's text, cut into parts that each fit one request. */
+export interface ContentPlan {
+  values: Record<string, unknown>;
+  segments: Segment[];
+  /** Each part is a list of segment groups, translated by one request. */
+  parts: Segment[][][];
+  characters: number;
+  /** Changes when any source text changes, so parts translated earlier can be matched to the same source. */
+  fingerprint: string;
+  locations: Map<string, SegmentLocation>;
+  spanLists: SpanList[];
+  markdownTexts: MarkdownText[];
+}
+
+/** Translates every part in one go; routes translate one part per request instead. */
 export async function translateContentFields(options: TranslateContentFieldsOptions): Promise<TranslateContentFieldsResult> {
+  const plan = await planContentTranslation(options);
+  const translations = new Map<string, string>();
+  let batchCount = 0;
+  for (const [index] of plan.parts.entries()) {
+    const part = await translateContentPart(plan, index, options);
+    for (const [id, text] of part.translations) translations.set(id, text);
+    batchCount += part.batchCount;
+  }
+  return { patch: applyContentTranslations(plan, translations, options.onValidationIssue), batchCount };
+}
+
+export async function planContentTranslation(options: ContentPlanOptions): Promise<ContentPlan> {
   const segments: Segment[] = [];
   const groups: Segment[][] = [];
   const locations = new Map<string, SegmentLocation>();
+  const spanLists: SpanList[] = [];
+  const markdownTexts: MarkdownText[] = [];
   const fields = Object.entries(options.values);
   if (fields.length > MAX_CONTENT_FIELDS) {
     throw new ContentTranslationInputError(`cannot translate more than ${MAX_CONTENT_FIELDS} fields at once`);
   }
 
   for (const [fieldIndex, [field, value]] of fields.entries()) {
-    const group: Segment[] = [];
+    const collector: Collector = {
+      segments,
+      group: [],
+      locations,
+      spanLists,
+      markdownTexts,
+      blockFields: { ...EMDASH_BLOCK_FIELDS, ...options.blockFields },
+    };
     const subFields =
       options.repeaterSubFields !== undefined && Object.hasOwn(options.repeaterSubFields, field)
         ? options.repeaterSubFields[field]
@@ -70,167 +188,259 @@ export async function translateContentFields(options: TranslateContentFieldsOpti
     if (subFields !== undefined) {
       // An emptied optional repeater may be saved as null; it has nothing to translate.
       if (value === null) continue;
-      if (!Array.isArray(value)) throw new ContentTranslationInputError(`repeater field "${field}" is not a list`);
-      for (const [item, row] of value.entries()) {
-        if (!isRecord(row)) throw new ContentTranslationInputError(`repeater field "${field}" contains an invalid item`);
-        for (const subField of subFields) {
-          const subValue = Object.hasOwn(row, subField) ? row[subField] : undefined;
-          const id = `field:${fieldIndex}:item:${item}:${subField}`;
-          if (typeof subValue === "string") {
-            addSegment(id, subValue, { kind: "item", field, item, subField, property: null }, group, segments, locations);
-          } else if (isRecord(subValue)) {
-            for (const property of IMAGE_TEXT_PROPERTIES) {
-              const text = subValue[property];
-              if (typeof text !== "string") continue;
-              addSegment(`${id}:${property}`, text, { kind: "item", field, item, subField, property }, group, segments, locations);
-            }
-          }
-        }
-      }
+      collectRepeaterField(value, `field:${fieldIndex}`, field, subFields, collector);
     } else if (typeof value === "string") {
-      addSegment(`field:${fieldIndex}`, value, { kind: "field", field }, group, segments, locations);
+      addSegment(`field:${fieldIndex}`, value, field, [field], collector);
+    } else if (Array.isArray(value) && options.blocksFieldSlugs?.includes(field) === true) {
+      collectBlocksField(value, `field:${fieldIndex}`, field, options.blockFields ?? {}, collector);
     } else if (Array.isArray(value)) {
-      for (const [blockIndex, block] of value.entries()) {
-        if (!isPortableTextNode(block)) {
-          throw new ContentTranslationInputError(`Portable Text field "${field}" contains an invalid block`);
-        }
-        for (const container of spanContainers(field, block, blockIndex)) {
-          const spans = containerSpans(value, container);
-          if (spans === null) continue;
-          for (const [childIndex, child] of spans.entries()) {
-            if (!isPortableTextSpan(child)) {
-              throw new ContentTranslationInputError(`Portable Text field "${field}" contains an invalid span`);
-            }
-            const cellPath = container.cell === null ? "" : `:row:${container.cell[0]}:cell:${container.cell[1]}`;
-            addSegment(
-              `field:${fieldIndex}:block:${blockIndex}${cellPath}:span:${childIndex}`,
-              child.text,
-              { kind: "span", field, ...container, childIndex },
-              group,
-              segments,
-              locations,
-            );
-          }
-        }
-      }
+      collectBlocks(value, `field:${fieldIndex}`, field, [field], collector);
     } else {
       throw new ContentTranslationInputError(`field "${field}" is not supported for translation`);
     }
-    if (group.length > 0) groups.push(group);
+    if (collector.group.length > 0) groups.push(collector.group);
   }
 
   if (segments.length > MAX_SEGMENTS) {
-    throw new ContentTranslationInputError(`cannot translate more than ${MAX_SEGMENTS} text segments at once`);
+    throw new ContentTranslationInputError(`cannot translate more than ${MAX_SEGMENTS} text segments in one entry`);
   }
-  const totalCharacters = segments.reduce((total, segment) => total + segment.text.length, 0);
-  if (totalCharacters > MAX_TOTAL_CHARACTERS) {
-    throw new ContentTranslationInputError(`cannot translate more than ${MAX_TOTAL_CHARACTERS} characters at once`);
+  const characters = segments.reduce((total, segment) => total + segment.text.length, 0);
+  if (characters > MAX_TOTAL_CHARACTERS) {
+    throw new ContentTranslationInputError(`cannot translate more than ${MAX_TOTAL_CHARACTERS} characters in one entry`);
   }
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(JSON.stringify(segments.map(({ id, text }) => [id, text]))),
+  );
+  const fingerprint = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  return { values: options.values, segments, parts: splitIntoParts(groups), characters, fingerprint, locations, spanLists, markdownTexts };
+}
 
-  const result = await translateSegments({
+export async function translateContentPart(
+  plan: ContentPlan,
+  partIndex: number,
+  options: ContentTranslateOptions,
+): Promise<{ translations: Map<string, string>; batchCount: number }> {
+  const groups = plan.parts[partIndex];
+  if (groups === undefined) throw new ContentTranslationInputError(`part ${partIndex} does not exist`);
+  return translateSegments({
     translator: options.translator,
-    segments,
+    segments: groups.flat(),
     groups,
     glossary: options.glossary,
+    matchInflections: options.matchInflections,
     sourceLocale: options.sourceLocale,
     targetLocale: options.targetLocale,
+    concurrency: BATCH_CONCURRENCY,
     ...(options.promptInstruction === undefined ? {} : { promptInstruction: options.promptInstruction }),
     ...(options.onBatchAttempt === undefined ? {} : { onBatchAttempt: options.onBatchAttempt }),
     ...(options.signal === undefined ? {} : { signal: options.signal }),
   });
+}
 
-  const patch = structuredClone(options.values);
+/** Builds the patch from every part's translations and checks placeholder tokens survived. */
+export function applyContentTranslations(
+  plan: ContentPlan,
+  translations: ReadonlyMap<string, string>,
+  onValidationIssue?: ContentTranslateOptions["onValidationIssue"],
+): Record<string, unknown> {
+  const { segments, locations, spanLists, markdownTexts } = plan;
+  const patch = structuredClone(plan.values);
+  const markdownSegmentFields = new Map(markdownTexts.flatMap((text) => [...text.adapterIds.keys()].map((id) => [id, text.field])));
   for (const segment of segments) {
-    const translation = result.translations.get(segment.id);
+    const translation = translations.get(segment.id);
+    const markdownField = markdownSegmentFields.get(segment.id);
+    if (markdownField !== undefined && translation !== undefined) {
+      if (validateTokenPreservation(markdownField, segment.text, translation) !== null) {
+        const message = `[polystella-emdash] translation changed placeholder tokens in field "${markdownField}"`;
+        notifyValidationIssue(onValidationIssue, [segment.id], message);
+        throw new Error(message);
+      }
+      continue;
+    }
     const location = locations.get(segment.id);
     if (translation === undefined || location === undefined) {
       const message = `[polystella-emdash] missing translation for internal segment "${segment.id}"`;
-      notifyValidationIssue(options.onValidationIssue, [segment.id], message);
+      notifyValidationIssue(onValidationIssue, [segment.id], message);
       throw new Error(message);
     }
     const tokenIssue = validateTokenPreservation(location.field, segment.text, translation);
     if (tokenIssue !== null) {
       const message = `[polystella-emdash] translation changed placeholder tokens in field "${location.field}"`;
-      notifyValidationIssue(options.onValidationIssue, [segment.id], message);
+      notifyValidationIssue(onValidationIssue, [segment.id], message);
       throw new Error(message);
     }
-    applyTranslation(patch, location, `${location.leadingWhitespace}${translation}${location.trailingWhitespace}`);
+    setAtPath(patch, location, `${location.leadingWhitespace}${translation}${location.trailingWhitespace}`);
   }
-  validatePortableTextTokens(options.values, patch, options.repeaterSubFields ?? {}, (field, container, message) => {
-    notifyValidationIssue(
-      options.onValidationIssue,
-      segments
-        .filter((segment) => {
-          const location = locations.get(segment.id);
-          return location?.kind === "span" && location.field === field && sameContainer(location, container);
-        })
-        .map(({ id }) => id),
-      message,
-    );
-  });
-
-  return { patch, batchCount: result.batchCount };
+  for (const text of markdownTexts) {
+    const adapterTranslations = new Map<string, string>();
+    for (const [id, adapterId] of text.adapterIds) {
+      const translation = translations.get(id);
+      if (translation === undefined) throw new Error(`[polystella-emdash] missing translation for internal segment "${id}"`);
+      adapterTranslations.set(adapterId, translation);
+    }
+    const location = { field: text.field, path: text.path, leadingWhitespace: "", trailingWhitespace: "" };
+    setAtPath(patch, location, text.split.apply(adapterTranslations));
+  }
+  validateSpanListTokens(plan.values, patch, spanLists, (segmentIds, message) =>
+    notifyValidationIssue(onValidationIssue, segmentIds, message),
+  );
+  return patch;
 }
 
-/** The span lists a block holds: a text block's children, or each table cell's content. Code blocks hold none. */
-function spanContainers(field: string, block: Record<string, unknown>, blockIndex: number): SpanContainer[] {
-  if (block._type === "block") {
-    if (!Array.isArray(block.children)) {
-      throw new ContentTranslationInputError(`Portable Text field "${field}" contains a block without children`);
-    }
-    return block.style === "code" ? [] : [{ blockIndex, cell: null }];
-  }
-  if (block._type !== "table") return [];
-  if (!Array.isArray(block.rows)) throw new ContentTranslationInputError(`Portable Text field "${field}" contains a table without rows`);
-  return block.rows.flatMap((row, rowIndex) => {
-    if (!isRecord(row) || !Array.isArray(row.cells)) {
-      throw new ContentTranslationInputError(`Portable Text field "${field}" contains an invalid table row`);
-    }
-    return row.cells.map((cell, cellIndex) => {
-      if (!isRecord(cell) || !Array.isArray(cell.content)) {
-        throw new ContentTranslationInputError(`Portable Text field "${field}" contains an invalid table cell`);
+/** Fills parts in order up to the per-request limits; a group too big for one part continues in the next. */
+function splitIntoParts(groups: readonly Segment[][]): Segment[][][] {
+  const parts: Segment[][][] = [];
+  let part: Segment[][] = [];
+  let piece: Segment[] = [];
+  let characters = 0;
+  let count = 0;
+  for (const group of groups) {
+    for (const segment of group) {
+      if (count > 0 && (characters + segment.text.length > MAX_PART_CHARACTERS || count >= MAX_PART_SEGMENTS)) {
+        if (piece.length > 0) part.push(piece);
+        parts.push(part);
+        part = [];
+        piece = [];
+        characters = 0;
+        count = 0;
       }
-      return { blockIndex, cell: [rowIndex, cellIndex] as const };
-    });
-  });
+      piece.push(segment);
+      characters += segment.text.length;
+      count += 1;
+    }
+    if (piece.length > 0) part.push(piece);
+    piece = [];
+  }
+  if (part.length > 0) parts.push(part);
+  return parts;
 }
 
-function containerSpans(blocks: readonly unknown[], container: SpanContainer): unknown[] | null {
-  const block = blocks[container.blockIndex];
-  if (!isRecord(block)) return null;
-  if (container.cell === null) return Array.isArray(block.children) ? block.children : null;
-  const [rowIndex, cellIndex] = container.cell;
-  const row = Array.isArray(block.rows) ? block.rows[rowIndex] : undefined;
-  const cell = isRecord(row) && Array.isArray(row.cells) ? row.cells[cellIndex] : undefined;
-  return isRecord(cell) && Array.isArray(cell.content) ? cell.content : null;
+function collectBlocks(blocks: readonly unknown[], idPrefix: string, field: string, path: PathPart[], collector: Collector): void {
+  for (const [blockIndex, block] of blocks.entries()) {
+    const blockPath = [...path, blockIndex];
+    if (!isPortableTextNode(block)) {
+      throw inputError(`Portable Text field "${field}" contains an invalid block`, blockPath);
+    }
+    const blockId = `${idPrefix}:block:${blockIndex}`;
+    if (block._type === "block") {
+      if (!Array.isArray(block.children)) {
+        throw inputError(`Portable Text field "${field}" contains a block without children`, blockPath);
+      }
+      if (block.style !== "code") collectSpans(block.children, blockId, field, [...blockPath, "children"], collector);
+    } else if (block._type === "table") {
+      collectTable(block, blockId, field, blockPath, collector);
+    } else {
+      collectCustomBlock(block, collector.blockFields, blockId, field, blockPath, collector);
+    }
+  }
 }
 
-function sameContainer(left: SpanContainer, right: SpanContainer): boolean {
-  return left.blockIndex === right.blockIndex && left.cell?.[0] === right.cell?.[0] && left.cell?.[1] === right.cell?.[1];
+function collectBlocksField(
+  blocks: readonly unknown[],
+  idPrefix: string,
+  field: string,
+  blockFields: BlockFieldPaths,
+  collector: Collector,
+): void {
+  for (const [blockIndex, block] of blocks.entries()) {
+    if (!isPortableTextNode(block)) throw inputError(`blocks field "${field}" contains an invalid block`, [field, blockIndex]);
+    collectCustomBlock(block, blockFields, `${idPrefix}:block:${blockIndex}`, field, [field, blockIndex], collector);
+  }
 }
 
-function validatePortableTextTokens(
+function collectCustomBlock(
+  block: Record<string, unknown> & { _type: string },
+  blockFields: BlockFieldPaths,
+  blockId: string,
+  field: string,
+  blockPath: PathPart[],
+  collector: Collector,
+): void {
+  const fieldPaths = Object.hasOwn(blockFields, block._type) ? blockFields[block._type] : undefined;
+  for (const fieldPath of fieldPaths ?? []) {
+    const { path, markdown } =
+      typeof fieldPath === "string" ? { path: fieldPath, markdown: false } : { path: fieldPath.path, markdown: true };
+    collectBlockPath(block, path.split("."), markdown, blockId, field, blockPath, collector);
+  }
+}
+
+function collectTable(table: Record<string, unknown>, blockId: string, field: string, blockPath: PathPart[], collector: Collector): void {
+  if (!Array.isArray(table.rows)) throw inputError(`Portable Text field "${field}" contains a table without rows`, blockPath);
+  for (const [rowIndex, row] of table.rows.entries()) {
+    const rowPath = [...blockPath, "rows", rowIndex];
+    if (!isRecord(row) || !Array.isArray(row.cells)) {
+      throw inputError(`Portable Text field "${field}" contains an invalid table row`, rowPath);
+    }
+    for (const [cellIndex, cell] of row.cells.entries()) {
+      const cellPath = [...rowPath, "cells", cellIndex];
+      if (!isRecord(cell) || !Array.isArray(cell.content)) {
+        throw inputError(`Portable Text field "${field}" contains an invalid table cell`, cellPath);
+      }
+      collectSpans(cell.content, `${blockId}:row:${rowIndex}:cell:${cellIndex}`, field, [...cellPath, "content"], collector);
+    }
+  }
+}
+
+function collectSpans(spans: readonly unknown[], idPrefix: string, field: string, path: PathPart[], collector: Collector): void {
+  const segmentIds: string[] = [];
+  for (const [spanIndex, span] of spans.entries()) {
+    if (!isPortableTextSpan(span)) throw inputError(`Portable Text field "${field}" contains an invalid span`, [...path, spanIndex]);
+    const id = `${idPrefix}:span:${spanIndex}`;
+    if (addSegment(id, span.text, field, [...path, spanIndex, "text"], collector)) segmentIds.push(id);
+  }
+  if (segmentIds.length > 0) collector.spanLists.push({ field, path, segmentIds });
+}
+
+/** Follows one `a.b[].c` path. Strings are translated; a Portable Text array is walked like a field. */
+function collectBlockPath(
+  node: unknown,
+  parts: string[],
+  markdown: boolean,
+  id: string,
+  field: string,
+  path: PathPart[],
+  collector: Collector,
+): void {
+  const addText = markdown ? addMarkdownText : addSegment;
+  const [head, ...rest] = parts;
+  if (head === undefined || !isRecord(node)) return;
+  const isList = head.endsWith("[]");
+  const key = isList ? head.slice(0, -2) : head;
+  if (!Object.hasOwn(node, key)) return;
+  const value = node[key];
+  const valuePath = [...path, key];
+  const valueId = `${id}:${key}`;
+  if (isList) {
+    if (!Array.isArray(value)) return;
+    for (const [index, item] of value.entries()) {
+      const itemPath = [...valuePath, index];
+      if (rest.length > 0) collectBlockPath(item, rest, markdown, `${valueId}:${index}`, field, itemPath, collector);
+      else if (typeof item === "string") addText(`${valueId}:${index}`, item, field, itemPath, collector);
+    }
+  } else if (rest.length > 0) {
+    collectBlockPath(value, rest, markdown, valueId, field, valuePath, collector);
+  } else if (typeof value === "string") {
+    addText(valueId, value, field, valuePath, collector);
+  } else if (Array.isArray(value)) {
+    collectBlocks(value, valueId, field, valuePath, collector);
+  }
+}
+
+function validateSpanListTokens(
   source: Record<string, unknown>,
   patch: Record<string, unknown>,
-  repeaterSubFields: Readonly<Record<string, readonly string[]>>,
-  onValidationIssue: (field: string, container: SpanContainer, message: string) => void,
+  spanLists: readonly SpanList[],
+  onValidationIssue: (segmentIds: string[], message: string) => void,
 ): void {
-  for (const [field, value] of Object.entries(source)) {
-    if (!Array.isArray(value) || Object.hasOwn(repeaterSubFields, field)) continue;
-    const translated = patch[field];
-    if (!Array.isArray(translated)) continue;
-    for (const [blockIndex, block] of value.entries()) {
-      if (!isRecord(block)) continue;
-      for (const container of spanContainers(field, block, blockIndex)) {
-        const sourceSpans = containerSpans(value, container);
-        const translatedSpans = containerSpans(translated, container);
-        if (sourceSpans === null || translatedSpans === null) continue;
-        if (validateTokenPreservation(field, sourceSpans.map(spanText).join(""), translatedSpans.map(spanText).join("")) !== null) {
-          const message = `[polystella-emdash] translation changed placeholder tokens in field "${field}"`;
-          onValidationIssue(field, container, message);
-          throw new Error(message);
-        }
-      }
+  for (const { field, path, segmentIds } of spanLists) {
+    const sourceSpans = getAtPath(source, path);
+    const translatedSpans = getAtPath(patch, path);
+    if (!Array.isArray(sourceSpans) || !Array.isArray(translatedSpans)) continue;
+    if (validateTokenPreservation(field, sourceSpans.map(spanText).join(""), translatedSpans.map(spanText).join("")) !== null) {
+      const message = `[polystella-emdash] translation changed placeholder tokens in field "${field}"`;
+      onValidationIssue(segmentIds, message);
+      throw new Error(message);
     }
   }
 }
@@ -247,60 +457,89 @@ function spanText(value: unknown): string {
   return isRecord(value) && value._type === "span" && typeof value.text === "string" ? value.text : "";
 }
 
-function addSegment(
-  id: string,
-  source: string,
-  target: SegmentTarget,
-  group: Segment[],
-  segments: Segment[],
-  locations: Map<string, SegmentLocation>,
-): void {
+function collectRepeaterField(value: unknown, id: string, field: string, subFields: readonly string[], collector: Collector): void {
+  if (!Array.isArray(value)) throw new ContentTranslationInputError(`repeater field "${field}" is not a list`);
+  for (const [item, row] of value.entries()) {
+    if (!isRecord(row)) throw new ContentTranslationInputError(`repeater field "${field}" contains an invalid item`);
+    for (const subField of subFields) {
+      const subValue = Object.hasOwn(row, subField) ? row[subField] : undefined;
+      const subId = `${id}:item:${item}:${subField}`;
+      if (typeof subValue === "string") {
+        addSegment(subId, subValue, field, [field, item, subField], collector);
+      } else if (isRecord(subValue)) {
+        for (const property of IMAGE_TEXT_PROPERTIES) {
+          const text = subValue[property];
+          if (typeof text === "string") addSegment(`${subId}:${property}`, text, field, [field, item, subField, property], collector);
+        }
+      }
+    }
+  }
+}
+
+/** Returns whether the text produced a segment; blank text is left as-is. */
+function addSegment(id: string, source: string, field: string, path: PathPart[], collector: Collector): boolean {
   const text = source.trim();
-  if (text.length === 0) return;
+  if (text.length === 0) return false;
   if (text.length > MAX_SEGMENT_CHARACTERS) {
-    throw new ContentTranslationInputError(`one text segment exceeds ${MAX_SEGMENT_CHARACTERS} characters`);
+    throw inputError(`one text segment exceeds ${MAX_SEGMENT_CHARACTERS} characters`, path);
   }
   const start = source.indexOf(text);
-  const segment = { id, text };
-  group.push(segment);
-  segments.push(segment);
-  locations.set(id, {
-    ...target,
+  const segment: Segment = { id, text, markup: "html" };
+  collector.group.push(segment);
+  collector.segments.push(segment);
+  collector.locations.set(id, {
+    field,
+    path,
     leadingWhitespace: source.slice(0, start),
     trailingWhitespace: source.slice(start + text.length),
   });
+  return true;
 }
 
-function applyTranslation(patch: Record<string, unknown>, location: SegmentLocation, translation: string): void {
-  if (location.kind === "field") {
-    patch[location.field] = translation;
-    return;
+/** Splits Markdown into paragraph and list-item segments so the model never sees its block structure. */
+function addMarkdownText(id: string, source: string, field: string, path: PathPart[], collector: Collector): boolean {
+  if (source.trim().length === 0) return false;
+  const split = splitMarkdownText(source);
+  const adapterIds = new Map<string, string>();
+  for (const segment of split.segments) {
+    if (segment.text.length > MAX_SEGMENT_CHARACTERS)
+      throw inputError(`one text segment exceeds ${MAX_SEGMENT_CHARACTERS} characters`, path);
+    const ownId = `${id}:${segment.id}`;
+    adapterIds.set(ownId, segment.id);
+    const ownSegment = { ...segment, id: ownId };
+    collector.group.push(ownSegment);
+    collector.segments.push(ownSegment);
   }
-  if (location.kind === "item") {
-    const rows = patch[location.field];
-    const row = Array.isArray(rows) ? rows[location.item] : undefined;
-    if (!isRecord(row)) throw new Error(`[polystella-emdash] repeater field "${location.field}" changed shape`);
-    if (location.property === null) {
-      row[location.subField] = translation;
-      return;
-    }
-    const image = row[location.subField];
-    if (!isRecord(image)) throw new Error(`[polystella-emdash] repeater field "${location.field}" changed shape`);
-    image[location.property] = translation;
-    return;
-  }
+  if (adapterIds.size === 0) return false;
+  collector.markdownTexts.push({ field, path, split, adapterIds });
+  return true;
+}
 
-  const value = patch[location.field];
-  if (!Array.isArray(value)) throw new Error(`[polystella-emdash] Portable Text field "${location.field}" changed shape`);
-  const spans = containerSpans(value, location);
-  if (spans === null) {
-    throw new Error(`[polystella-emdash] Portable Text field "${location.field}" changed block structure`);
+function getAtPath(root: unknown, path: readonly PathPart[]): unknown {
+  let current = root;
+  for (const part of path) {
+    if (typeof current !== "object" || current === null) return undefined;
+    current = (current as Record<PathPart, unknown>)[part];
   }
-  const child = spans[location.childIndex];
-  if (!isRecord(child) || child._type !== "span") {
-    throw new Error(`[polystella-emdash] Portable Text field "${location.field}" changed span structure`);
+  return current;
+}
+
+function setAtPath(patch: Record<string, unknown>, location: SegmentLocation, translation: string): void {
+  const last = location.path.at(-1);
+  const parent = getAtPath(patch, location.path.slice(0, -1));
+  if (last === undefined || typeof parent !== "object" || parent === null) {
+    throw new Error(`[polystella-emdash] field "${location.field}" changed structure at ${formatPath(location.path)}`);
   }
-  child.text = translation;
+  (parent as Record<PathPart, unknown>)[last] = translation;
+}
+
+function inputError(message: string, path: readonly PathPart[]): ContentTranslationInputError {
+  return new ContentTranslationInputError(path.length > 1 ? `${message} at ${formatPath(path)}` : message);
+}
+
+/** `["body", 3, "cards", 0, "title"]` → `body[3].cards[0].title`. */
+function formatPath(path: readonly PathPart[]): string {
+  return path.map((part, index) => (typeof part === "number" ? `[${part}]` : index === 0 ? part : `.${part}`)).join("");
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

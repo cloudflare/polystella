@@ -53,6 +53,19 @@ export interface BatchMessage {
   jobId: string;
   entryId: string;
   locale: string;
+  /** Which part of a long entry this message translates; 0 when absent. */
+  part?: number;
+}
+
+/** Translations of the parts done so far, kept in the results collection until the entry is created. */
+export interface StoredBatchParts {
+  jobId: string;
+  entryId: string;
+  locale: string;
+  /** The part the next message translates. */
+  part: number;
+  fingerprint: string;
+  translations: Record<string, string>;
 }
 
 /** What the queue consumer passes to `runtime.handleContentCreate`. */
@@ -68,6 +81,8 @@ export interface BatchCreatePayload {
 export interface BatchTranslateResponse {
   create: BatchCreatePayload | null;
   publish?: boolean;
+  /** Recorded with the created row, for an editor to check by hand. */
+  notice?: string;
 }
 
 export interface BatchQueue {
@@ -101,6 +116,29 @@ export function batchResultId(message: BatchMessage): string {
   return JSON.stringify([message.jobId, message.entryId, message.locale]);
 }
 
+/** Has `jobId`, so deleting a job deletes it too, but no `outcome`, so it never counts as a result. */
+export function batchPartsId(message: BatchMessage): string {
+  return JSON.stringify(["parts", message.jobId, message.entryId, message.locale]);
+}
+
+export function parseStoredParts(value: unknown): StoredBatchParts | null {
+  if (!isRecord(value)) return null;
+  const { jobId, entryId, locale, part, fingerprint, translations } = value;
+  if (
+    !isNonEmptyString(jobId) ||
+    !isNonEmptyString(entryId) ||
+    !isNonEmptyString(locale) ||
+    typeof part !== "number" ||
+    !Number.isSafeInteger(part) ||
+    typeof fingerprint !== "string" ||
+    !isRecord(translations) ||
+    !Object.values(translations).every((text) => typeof text === "string")
+  ) {
+    return null;
+  }
+  return { jobId, entryId, locale, part, fingerprint, translations: translations as Record<string, string> };
+}
+
 export function readBatchListMessage(value: unknown): BatchListMessage | null {
   if (!isRecord(value) || value.kind !== "list") return null;
   const { jobId, page } = value;
@@ -118,8 +156,10 @@ function readListing(value: unknown): BatchListing | null {
 
 export function readBatchMessage(value: unknown): BatchMessage | null {
   if (!isRecord(value)) return null;
-  const { jobId, entryId, locale } = value;
-  return isNonEmptyString(jobId) && isNonEmptyString(entryId) && isNonEmptyString(locale) ? { jobId, entryId, locale } : null;
+  const { jobId, entryId, locale, part } = value;
+  if (!isNonEmptyString(jobId) || !isNonEmptyString(entryId) || !isNonEmptyString(locale)) return null;
+  if (part === undefined) return { jobId, entryId, locale };
+  return typeof part === "number" && Number.isSafeInteger(part) && part >= 0 ? { jobId, entryId, locale, part } : null;
 }
 
 export function parseStoredJob(value: unknown): StoredBatchJob | null {
@@ -180,7 +220,8 @@ export async function recordBatchResult(
   now: Date,
   translation: BatchTranslationLink | null = null,
 ): Promise<void> {
-  const row: StoredBatchResult = { ...message, outcome, message: detail, translation, updatedAt: now.toISOString() };
+  const { jobId, entryId, locale } = message;
+  const row: StoredBatchResult = { jobId, entryId, locale, outcome, message: detail, translation, updatedAt: now.toISOString() };
   await storage.put(batchResultId(message), row);
 }
 

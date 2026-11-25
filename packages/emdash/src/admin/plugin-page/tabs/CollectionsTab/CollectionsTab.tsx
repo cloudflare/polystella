@@ -5,6 +5,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { MAX_COLLECTION_POLICY_FIELDS, type CollectionPolicy, type CollectionSettingsResponse } from "../../../../contracts.js";
 import {
   COLLECTIONS_SAVED_EVENT,
+  defaultSubFields,
   errorMessage,
   isTranslatable,
   localeLabel,
@@ -88,7 +89,7 @@ export function CollectionsTab(): ReactNode {
       const fields = eligibleFields(schema)
         .map((field) => field.slug)
         .slice(0, MAX_COLLECTION_POLICY_FIELDS);
-      const policy = withFields(schema, { fields: [] }, fields);
+      const policy = withFields(schema, { fields: [] }, fields, false);
       if (policy === null) throw new Error("This collection has no supported translatable fields.");
       setSchemas((current) => new Map(current).set(collection, schema));
       setPolicies((current) => ({ ...current, [collection]: policy }));
@@ -177,8 +178,8 @@ export function CollectionsTab(): ReactNode {
                     ))}
                   {fields.some((field) => field.type === "repeater") ? (
                     <span style={mutedStyle}>
-                      Repeater subfields that aren't selected, such as links or numbers, are copied from the source entry. Images translate
-                      their alt text and caption.
+                      Repeater subfields that aren't selected are copied from the source entry. Links, IDs and author names start
+                      unselected. Images translate their alt text and caption.
                     </span>
                   ) : null}
                 </>
@@ -200,13 +201,23 @@ function eligibleFields(schema: CollectionSchema): SchemaField[] {
   return schema.fields.filter((field) => supportsTranslation(field) && isTranslatable(field));
 }
 
-/** Sets the enabled fields. A newly enabled repeater starts with all its subfields; `null` when nothing is left. */
-function withFields(schema: CollectionSchema, policy: CollectionPolicy, fields: readonly string[]): CollectionPolicy | null {
+/**
+ * Sets the enabled fields. A newly enabled repeater starts with its default subfields; one the admin ticked by hand that has
+ * none (only links or ids) starts with all of them. `null` when nothing is left.
+ */
+function withFields(
+  schema: CollectionSchema,
+  policy: CollectionPolicy,
+  fields: readonly string[],
+  tickedByHand = true,
+): CollectionPolicy | null {
   const subFields: Record<string, string[]> = {};
   for (const field of schema.fields) {
     if (field.type !== "repeater" || !fields.includes(field.slug)) continue;
     const kept = policy.subFields !== undefined && Object.hasOwn(policy.subFields, field.slug) ? policy.subFields[field.slug] : undefined;
-    subFields[field.slug] = kept ?? translatableSubFields(field).map(({ slug }) => slug);
+    const defaults = defaultSubFields(field);
+    subFields[field.slug] =
+      kept ?? (defaults.length > 0 || !tickedByHand ? defaults : translatableSubFields(field).map(({ slug }) => slug));
   }
   return normalizePolicy(schema, { fields: [...fields], subFields });
 }

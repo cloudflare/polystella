@@ -1,18 +1,31 @@
-import type { Translator } from "../index.js";
+import { resolveModelChoice, type ModelChoiceSpec, type ProviderResponseInfo, type Translator } from "../translator.js";
 
 import { createProviderHttpError } from "./http-error.js";
+import { outOfTokensError } from "./out-of-tokens.js";
+import { withRequestTimeout } from "./timeout.js";
+
+export { ProviderTimeoutError } from "./timeout.js";
 
 export interface WorkersAIInput {
   messages: Array<{ role: "system" | "user"; content: string }>;
   max_tokens: number;
-  [key: string]: unknown;
+  /** Model-specific parameters from `params`, such as `chat_template_kwargs`. */
+  [parameter: string]: unknown;
 }
+
+/** Input keys PolyStella sets itself, so `params` can't override them. */
+export const RESERVED_WORKERS_AI_PARAMS: readonly string[] = ["messages", "prompt", "max_tokens", "max_completion_tokens", "stream"];
 
 interface WorkersAITranslatorOptions {
   modelId: string;
   maxTokens: number;
-  /** Model-specific input fields, such as `reasoning_effort`. `messages` and `max_tokens` always win. */
-  extraInput?: Readonly<Record<string, unknown>> | undefined;
+  /**
+   * Extra input sent with every request. `enable_thinking: false` turns off a reasoning model's thinking: it is sent
+   * as `chat_template_kwargs.enable_thinking`, the form Workers AI reads. Other keys pass through unchanged.
+   */
+  params?: Readonly<Record<string, unknown>> | undefined;
+  /** Stop waiting after this many milliseconds and throw `ProviderTimeoutError`. Default: no limit. */
+  timeoutMs?: number | undefined;
 }
 
 export interface WorkersAIHttpTranslatorOptions extends WorkersAITranslatorOptions {
@@ -29,45 +42,52 @@ export interface WorkersAIBindingTranslatorOptions extends WorkersAITranslatorOp
 }
 
 export function createWorkersAIHttpTranslator(options: WorkersAIHttpTranslatorOptions): Translator {
-  const { accountId, apiToken, modelId, maxTokens, extraInput, endpoint, fetchImpl = fetch } = options;
+  const { accountId, apiToken, modelId, maxTokens, endpoint, fetchImpl = fetch } = options;
   const url = endpoint ?? `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${modelId}`;
+  const params = resolveParams(options.params);
 
   return {
     modelId,
-    async translate(systemPrompt, userPrompt, signal) {
+    async translate(systemPrompt, userPrompt, signal, onResponse) {
       signal?.throwIfAborted();
-      const response = await fetchImpl(url, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${apiToken}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(createInput(systemPrompt, userPrompt, maxTokens, extraInput)),
-        ...(signal !== undefined ? { signal } : {}),
+      const data = await withRequestTimeout(options.timeoutMs, signal, async (requestSignal) => {
+        const response = await fetchImpl(url, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${apiToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(createInput(systemPrompt, userPrompt, maxTokens, params)),
+          ...(requestSignal !== undefined ? { signal: requestSignal } : {}),
+        });
+        requestSignal?.throwIfAborted();
+        if (!response.ok) throw await createProviderHttpError("Workers AI", response, requestSignal);
+        const body: unknown = await response.json();
+        return body;
       });
-      signal?.throwIfAborted();
-      if (!response.ok) throw await createProviderHttpError("Workers AI", response, signal);
-
-      const data: unknown = await response.json();
       signal?.throwIfAborted();
       if (property(data, "success") === false) {
         throw new Error(`[polystella] Workers AI returned errors: ${JSON.stringify(property(data, "errors") ?? [])}`);
       }
 
-      return normalizeWorkersAIHttpResponse(data, modelId);
+      onResponse?.(responseInfo(property(data, "result") ?? data));
+      return normalizeWorkersAIHttpResponse(data, modelId, maxTokens);
     },
   };
 }
 
 export function createWorkersAIBindingTranslator(options: WorkersAIBindingTranslatorOptions): Translator {
-  const { modelId, maxTokens, extraInput, run } = options;
+  const { modelId, maxTokens, run } = options;
+  const params = resolveParams(options.params);
   return {
     modelId,
-    async translate(systemPrompt, userPrompt, signal) {
+    async translate(systemPrompt, userPrompt, signal, onResponse) {
       signal?.throwIfAborted();
-      const data = await run(modelId, createInput(systemPrompt, userPrompt, maxTokens, extraInput));
+      const input = createInput(systemPrompt, userPrompt, maxTokens, params);
+      const data = await withRequestTimeout(options.timeoutMs, signal, async () => await run(modelId, input));
       signal?.throwIfAborted();
-      return normalizeWorkersAIBindingResponse(data, modelId);
+      onResponse?.(responseInfo(data));
+      return normalizeWorkersAIBindingResponse(data, modelId, maxTokens);
     },
   };
 }
@@ -76,10 +96,10 @@ function createInput(
   systemPrompt: string,
   userPrompt: string,
   maxTokens: number,
-  extraInput: Readonly<Record<string, unknown>> | undefined,
+  params: Readonly<Record<string, unknown>> | undefined,
 ): WorkersAIInput {
   return {
-    ...extraInput,
+    ...params,
     messages: [
       { role: "system", content: systemPrompt },
       { role: "user", content: userPrompt },
@@ -88,8 +108,69 @@ function createInput(
   };
 }
 
-function normalizeWorkersAIHttpResponse(data: unknown, modelId: string): string {
+/** Why `params` can't be sent, or `undefined` when it can. */
+export function workersAIParamsProblem(params: Readonly<Record<string, unknown>> | undefined): string | undefined {
+  const reserved = Object.keys(params ?? {}).find((key) => RESERVED_WORKERS_AI_PARAMS.includes(key));
+  if (reserved !== undefined) return `cannot set "${reserved}"; PolyStella sets it`;
+  if (params === undefined || !Object.hasOwn(params, "enable_thinking")) return undefined;
+  if (typeof params.enable_thinking !== "boolean") return "enable_thinking must be true or false";
+  const kwargs = params.chat_template_kwargs;
+  if (kwargs !== undefined && (kwargs === null || typeof kwargs !== "object" || Array.isArray(kwargs))) {
+    return "chat_template_kwargs must be an object";
+  }
+  if (property(kwargs, "enable_thinking") !== undefined) return "sets enable_thinking twice; keep only the top-level enable_thinking";
+  return undefined;
+}
+
+/**
+ * `params` for `modelId` in `locale`: the locale's `enable_thinking` from its model choice wins, but only while the
+ * locale uses that model, so a model picked elsewhere keeps its own params.
+ */
+export function workersAIParamsForLocale(
+  params: Readonly<Record<string, unknown>> | undefined,
+  models: ModelChoiceSpec,
+  locale: string,
+  modelId: string,
+): Readonly<Record<string, unknown>> | undefined {
+  const choice = resolveModelChoice(models, locale);
+  if (choice.enable_thinking === undefined || choice.model !== modelId) return params;
+  return { ...params, enable_thinking: choice.enable_thinking };
+}
+
+// Workers AI accepts a top-level `enable_thinking` and ignores it, so it is moved to where the models read it.
+function resolveParams(params: Readonly<Record<string, unknown>> | undefined): Readonly<Record<string, unknown>> | undefined {
+  const problem = workersAIParamsProblem(params);
+  if (problem !== undefined) throw new Error(`[polystella] Workers AI params ${problem}`);
+  if (params === undefined || !Object.hasOwn(params, "enable_thinking")) return params;
+  const { enable_thinking: enableThinking, ...rest } = params;
+  const kwargs = property(rest, "chat_template_kwargs");
+  return { ...rest, chat_template_kwargs: { ...(kwargs === undefined ? {} : kwargs), enable_thinking: enableThinking } };
+}
+
+/** OpenAI-style `choices[0].finish_reason`, reasoning text and `usage`, as chat models on Workers AI return them. */
+function responseInfo(data: unknown): ProviderResponseInfo {
+  const choices = property(data, "choices");
+  const choice: unknown = Array.isArray(choices) ? choices[0] : undefined;
+  const message = property(choice, "message");
+  const reasoning = property(message, "reasoning_content") ?? property(message, "reasoning");
+  const usage = property(data, "usage");
+  const info: ProviderResponseInfo = {};
+  const finishReason = property(choice, "finish_reason");
+  if (typeof finishReason === "string") info.finishReason = finishReason;
+  if (typeof reasoning === "string") info.reasoningCharacters = reasoning.length;
+  const count = (value: unknown): number | undefined => (typeof value === "number" && Number.isFinite(value) ? value : undefined);
+  const inputTokens = count(property(usage, "prompt_tokens"));
+  const outputTokens = count(property(usage, "completion_tokens"));
+  const reasoningTokens = count(property(property(usage, "completion_tokens_details"), "reasoning_tokens"));
+  if (inputTokens !== undefined) info.inputTokens = inputTokens;
+  if (outputTokens !== undefined) info.outputTokens = outputTokens;
+  if (reasoningTokens !== undefined) info.reasoningTokens = reasoningTokens;
+  return info;
+}
+
+function normalizeWorkersAIHttpResponse(data: unknown, modelId: string, maxTokens: number): string {
   const result = property(data, "result");
+  throwIfOutOfTokens([property(result, "choices"), property(data, "choices")], modelId, maxTokens);
   const candidates = [
     property(result, "response"),
     firstChoiceContent(property(result, "choices")),
@@ -108,8 +189,9 @@ function normalizeWorkersAIHttpResponse(data: unknown, modelId: string): string 
   );
 }
 
-function normalizeWorkersAIBindingResponse(data: unknown, modelId: string): string {
+function normalizeWorkersAIBindingResponse(data: unknown, modelId: string, maxTokens: number): string {
   if (typeof data === "string") return data;
+  throwIfOutOfTokens([property(data, "choices")], modelId, maxTokens);
   if (data !== null && typeof data === "object") {
     const hasResponseEnvelope = Object.hasOwn(data, "response");
     const hasChoicesEnvelope = Object.hasOwn(data, "choices");
@@ -132,6 +214,13 @@ function normalizeWorkersAIBindingResponse(data: unknown, modelId: string): stri
   );
 }
 
+/** Reasoning models often spend the whole budget before answering; other models drop the last segments. */
+function throwIfOutOfTokens(choiceLists: unknown[], modelId: string, maxTokens: number): void {
+  for (const choices of choiceLists) {
+    if (Array.isArray(choices) && property(choices[0], "finish_reason") === "length") throw outOfTokensError(modelId, maxTokens);
+  }
+}
+
 function firstChoiceContent(value: unknown): unknown {
   if (!Array.isArray(value)) return undefined;
   return property(property(value[0], "message"), "content");
@@ -150,7 +239,24 @@ function normalizeValue(value: unknown): string | undefined {
 function unexpectedResponseError(providerName: string, modelId: string, detail: string, data: unknown): Error {
   const serialized = safeStringify(data);
   const preview = serialized.length > 800 ? `${serialized.slice(0, 800)}\n... [truncated, total length ${serialized.length}]` : serialized;
-  return new Error(`[polystella] unexpected ${providerName} response shape (model="${modelId}"): ${detail}. Raw response was:\n${preview}`);
+  return new Error(
+    `[polystella] unexpected ${providerName} response shape (model="${modelId}"): ${detail}. Raw response was:\n${firstChoiceSummary(data)}${preview}`,
+  );
+}
+
+/** Reasoning fields can fill the preview, so the finish reason and field sizes are listed first. */
+function firstChoiceSummary(data: unknown): string {
+  const choices = [property(property(data, "result"), "choices"), property(data, "choices")].find(Array.isArray);
+  const choice: unknown = choices?.[0];
+  if (choice === undefined) return "";
+  const message = property(choice, "message");
+  const fields =
+    message !== null && typeof message === "object"
+      ? Object.entries(message).map(
+          ([key, value]) => `${key}=${typeof value === "string" ? `${value.length} chars` : value === null ? "null" : typeof value}`,
+        )
+      : [];
+  return `choices[0]: finish_reason=${JSON.stringify(property(choice, "finish_reason")) ?? "undefined"}; message: ${fields.join(", ") || "none"}\n`;
 }
 
 function safeStringify(value: unknown): string {

@@ -44,8 +44,8 @@ describe("parseCapability", () => {
   it("offers a none/on switch for a model with only an optional flag", () => {
     expect(parseCapability(flash)).toEqual(
       new Map([
-        ["none", { chat_template_kwargs: { enable_thinking: false } }],
-        ["on", { chat_template_kwargs: { enable_thinking: true } }],
+        ["none", { enable_thinking: false }],
+        ["on", { enable_thinking: true }],
       ]),
     );
   });
@@ -144,6 +144,34 @@ describe("reasoningCapability", () => {
       await expect(reasoningCapability(httpOptions(), env, "glm", deps)).resolves.not.toBeNull();
     } finally {
       now.mockRestore();
+    }
+  });
+
+  it("does not share an unresolved lookup between concurrent calls", async () => {
+    const resolvers: Array<(value: unknown[]) => void> = [];
+    const models = vi.fn(() => new Promise<unknown[]>((resolve) => resolvers.push(resolve)));
+    const env = { AI: { models } };
+    const first = reasoningCapability(bindingOptions(), env, "glm", dependencies);
+    const second = reasoningCapability(bindingOptions(), env, "glm", dependencies);
+    expect(models).toHaveBeenCalledTimes(2);
+    for (const resolve of resolvers) resolve([glm]);
+    await expect(Promise.all([first, second])).resolves.toHaveLength(2);
+  });
+
+  it("rethrows a cached failure for 60 s, then retries (fake timers)", async () => {
+    vi.useFakeTimers();
+    try {
+      const models = vi.fn().mockRejectedValueOnce(new Error("boom")).mockResolvedValue([glm]);
+      const env = { AI: { models } };
+      await expect(reasoningCapability(bindingOptions(), env, "glm", dependencies)).rejects.toThrow("boom");
+      vi.advanceTimersByTime(59_000);
+      await expect(reasoningCapability(bindingOptions(), env, "glm", dependencies)).rejects.toThrow("boom");
+      expect(models).toHaveBeenCalledOnce();
+      vi.advanceTimersByTime(2_000);
+      await expect(reasoningCapability(bindingOptions(), env, "glm", dependencies)).resolves.not.toBeNull();
+      expect(models).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
     }
   });
 

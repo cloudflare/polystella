@@ -16,7 +16,12 @@ export interface CollectionPolicy {
   subFields?: Record<string, string[]> | undefined;
 }
 
-export interface CollectionSettingsResponse {
+/** For responses the admin names locales from: lowercased catalog code or content locale → the BCP 47 tag `localeTags` maps it to. */
+export interface WithLocaleTags {
+  localeTags: Record<string, string>;
+}
+
+export interface CollectionSettingsResponse extends WithLocaleTags {
   defaultLocale: string;
   locales: string[];
   policies: Record<string, CollectionPolicy>;
@@ -24,13 +29,23 @@ export interface CollectionSettingsResponse {
   revision: string | null;
 }
 
-export interface CollectionPolicyResponse {
+export interface CollectionPolicyResponse extends WithLocaleTags {
   enabled: boolean;
   sourceLocale: string | null;
   /** `locale` is how EmDash stores new content (Astro path); older rows may use the catalog `code`. */
   targetLocales: Array<{ locale: string; code: string }>;
   fields: string[];
   subFields: Record<string, string[]>;
+  /** Whether the panel may translate `seo.title` and `seo.description` on a published entry. */
+  translateSeoWhenPublished: boolean;
+}
+
+/** EmDash editor-draft keys for an entry's SEO text. Not collection fields, so not part of a collection policy. */
+export const SEO_FIELDS = ["seo.title", "seo.description"] as const;
+export type SeoField = (typeof SEO_FIELDS)[number];
+
+export function isSeoField(field: string): field is SeoField {
+  return (SEO_FIELDS as readonly string[]).includes(field);
 }
 
 export interface TranslationLocaleSettings {
@@ -39,7 +54,7 @@ export interface TranslationLocaleSettings {
   model: string | null;
   /** Thinking effort for the overridden model; `null` uses the model's default. */
   reasoning: string | null;
-  /** Thinking effort for the code-default model, from `models.reasoning`; `null` when unset. */
+  /** Thinking the code sets for the code-default model, from `models.defaults` / `models.params`; `null` when unset. */
   defaultReasoning: string | null;
   defaultGlossary: string;
   glossaryMode: CustomizationMode;
@@ -61,7 +76,7 @@ export interface AiTranslationStatus {
   editedFields: string[] | null;
 }
 
-export interface TranslationSettingsResponse {
+export interface TranslationSettingsResponse extends WithLocaleTags {
   defaultLocale: string;
   /** Host revision of the stored settings; send it back on PUT. `null` when nothing is stored. */
   revision: string | null;
@@ -72,6 +87,8 @@ export interface TranslationSettingsResponse {
   defaultMaxTokens: number;
   /** Off by default: edited AI text keeps its flag until an editor keeps or removes it in the panel. */
   clearAiFlagOnEdit: boolean;
+  /** Off by default: SEO text is translated only on entries that aren't published. */
+  translateSeoWhenPublished: boolean;
   allowedModels: string[];
   locales: TranslationLocaleSettings[];
   instructions: {
@@ -89,6 +106,16 @@ export interface TranslationDebugAttempt {
   response: string | null;
   translations: Record<string, string> | null;
   error: string | null;
+  /** What Workers AI reported about the reply. Absent when it reported nothing, or in traces saved before it existed. */
+  providerResponse?:
+    | {
+        finishReason?: string | undefined;
+        reasoningCharacters?: number | undefined;
+        inputTokens?: number | undefined;
+        outputTokens?: number | undefined;
+        reasoningTokens?: number | undefined;
+      }
+    | undefined;
 }
 
 export interface TranslationDebugBatch {
@@ -98,6 +125,8 @@ export interface TranslationDebugBatch {
   segmentLabels: string[];
   sourceCharacters: number;
   estimatedInputTokens: number;
+  /** Glossary terms the prompt carried, out of the locale's whole glossary. Absent in traces saved before it existed. */
+  glossaryTerms?: { sent: number; total: number } | undefined;
   attempts: TranslationDebugAttempt[];
 }
 
@@ -120,8 +149,23 @@ export interface TranslationDebugTrace {
 }
 
 export type TranslateContentResponse =
-  | { patch: Record<string, unknown>; batchCount: number; debug?: TranslationDebugTrace | undefined }
-  | { patch: null; batchCount: number; error: string; debug: TranslationDebugTrace };
+  | {
+      patch: Record<string, unknown>;
+      batchCount: number;
+      /** Something an editor should check by hand, such as same-page links. */
+      notice?: string | undefined;
+      debug?: TranslationDebugTrace | undefined;
+    }
+  | { patch: null; batchCount: number; error: string; debug: TranslationDebugTrace }
+  | { patch: null; batchCount: number; next: TranslateContentNextPart; debug?: TranslationDebugTrace | undefined };
+
+/** A long entry is translated one part per request: send this back, with the same fields, to translate the next part. */
+export interface TranslateContentNextPart {
+  part: number;
+  partCount: number;
+  fingerprint: string;
+  translations: Record<string, string>;
+}
 
 export interface CatalogLocaleSummary {
   locale: string;
@@ -142,12 +186,14 @@ export interface CatalogGroupView {
   title: string | null;
 }
 
-export interface CatalogViewResponse {
+export interface CatalogViewResponse extends WithLocaleTags {
   defaultLocale: string;
   locale: string;
   locales: CatalogLocaleSummary[];
   groups: CatalogGroupView[];
   entries: CatalogEntryView[];
+  /** How the catalog writes placeholders: `"polystella"` (`{{name}}`) or `"icu"` (`{name}`). */
+  messageSyntax: "polystella" | "icu";
 }
 
 export type CatalogGenerationResponse =
@@ -199,7 +245,8 @@ export interface BatchJobView {
   collection: string;
   locales: string[];
   total: number;
-  status: "running" | "cancelled";
+  /** `finished` once every queued translation has a result and listing is done. */
+  status: "running" | "cancelled" | "finished";
   createdAt: string;
   publish: boolean;
   /** The queue is still listing the collection, so `total` can still grow. */
@@ -241,7 +288,7 @@ export interface BatchJobEntriesResponse {
   nextCursor: string | null;
 }
 
-export interface BatchJobsResponse {
+export interface BatchJobsResponse extends WithLocaleTags {
   /** False when the deployment has no `batchQueueBinding`; the admin then translates in the browser only. */
   queueEnabled: boolean;
   jobs: BatchJobView[];

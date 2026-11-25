@@ -1,9 +1,9 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
-import { detectCatalogFormat, flattenCatalog } from "../catalog/index.js";
+import { detectCatalogFormat, flattenCatalog, type IgnoreKey } from "../catalog/index.js";
 
-import { loadAstroI18n } from "./config.js";
+import { loadAstroI18n, loadCatalogOptions, type CatalogOptions } from "./config.js";
 import { applySyncToDisk, formatLocaleFile, formatNestedLocaleFile, formatSyncSummary, parseSourceLayout, syncLocaleDict } from "./sync.js";
 
 const DEFAULT_CATALOG_BASE = "./src/content/i18n";
@@ -19,6 +19,8 @@ export const SYNC_UI_USAGE = `polystella sync-ui
 Reconcile non-default-locale UI-string JSON files against the default.
 Adds missing keys (empty placeholders), removes extra keys, preserves
 existing values, source key order, and blank-line section layout.
+Keys matching catalog.ignoreKeys in polystella.config.mjs are left
+untouched.
 
 Usage:
   polystella sync-ui [flags]
@@ -79,12 +81,22 @@ export async function runSyncUi(args: SyncUiArgs, deps: SyncUiDeps): Promise<num
     return 1;
   }
 
+  let catalog: CatalogOptions;
+  try {
+    catalog = await loadCatalogOptions(deps.cwd);
+  } catch (error) {
+    const message = errorMessage(error);
+    deps.err(message.startsWith("[polystella]") ? message : `[polystella] ${message}`);
+    return 1;
+  }
+
   const baseDir = args.base ?? DEFAULT_CATALOG_BASE;
-  if (args.check) return runSyncCheck(deps.cwd, baseDir, i18n.defaultLocale, i18n.locales, deps);
+  const { ignoreKey } = catalog;
+  if (args.check) return runSyncCheck(deps.cwd, baseDir, i18n.defaultLocale, i18n.locales, ignoreKey, deps);
 
   let result;
   try {
-    result = await applySyncToDisk({ rootDir: deps.cwd, baseDir, defaultLocale: i18n.defaultLocale, locales: i18n.locales });
+    result = await applySyncToDisk({ rootDir: deps.cwd, baseDir, defaultLocale: i18n.defaultLocale, locales: i18n.locales, ignoreKey });
   } catch (error) {
     deps.err(`[polystella] ${errorMessage(error)}`);
     return 1;
@@ -105,6 +117,7 @@ async function runSyncCheck(
   baseDir: string,
   defaultLocale: string,
   locales: ReadonlyArray<string>,
+  ignoreKey: IgnoreKey | undefined,
   deps: SyncUiDeps,
 ): Promise<number> {
   const sourcePath = path.resolve(cwd, baseDir, `${defaultLocale}.json`);
@@ -119,9 +132,9 @@ async function runSyncCheck(
     throw error;
   }
   const sourceParsed = JSON.parse(sourceRaw) as unknown;
-  const sourceDict = flattenCatalog(sourceParsed);
+  const sourceDict = flattenCatalog(sourceParsed, ignoreKey);
   const sourceObject = sourceParsed as Record<string, unknown>;
-  const sourceFormat = detectCatalogFormat(sourceParsed);
+  const sourceFormat = detectCatalogFormat(sourceParsed, ignoreKey);
   const layout = sourceFormat === "flat" ? parseSourceLayout(sourceRaw) : undefined;
   const sourceKeyOrder = layout?.keys ?? Object.keys(sourceDict);
   const changes: string[] = [];
@@ -136,12 +149,11 @@ async function runSyncCheck(
       if (!isNotFound(error)) throw error;
     }
     const existingParsed = existingRaw === undefined ? undefined : (JSON.parse(existingRaw) as Record<string, unknown>);
-    const existingDict = existingParsed === undefined ? {} : flattenCatalog(existingParsed);
+    const existingDict = existingParsed === undefined ? {} : flattenCatalog(existingParsed, ignoreKey);
     const sync = syncLocaleDict({ source: sourceDict, existing: existingDict, sourceKeyOrder });
+    const files = { dict: sync.dict, source: sourceObject, existing: existingParsed, ignoreKey };
     const nextText =
-      sourceFormat === "nested" || layout === undefined
-        ? formatNestedLocaleFile({ dict: sync.dict, source: sourceObject, existing: existingParsed })
-        : formatLocaleFile({ dict: sync.dict, layout });
+      sourceFormat === "nested" || layout === undefined ? formatNestedLocaleFile(files) : formatLocaleFile({ ...files, layout });
     if (existingRaw === nextText) continue;
     const parts: string[] = [];
     if (sync.added.length > 0) parts.push(`+${sync.added.length} added`);

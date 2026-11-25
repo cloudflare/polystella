@@ -2,7 +2,13 @@ import { EMPTY_GLOSSARY, PermanentProviderError, translateBatch } from "../../sr
 import { describe, expect, it, vi } from "vitest";
 
 import { createAnthropicTranslator } from "../../src/providers/anthropic.js";
-import { createWorkersAIBindingTranslator, createWorkersAIHttpTranslator } from "../../src/providers/workers-ai.js";
+import {
+  createWorkersAIBindingTranslator,
+  createWorkersAIHttpTranslator,
+  ProviderTimeoutError,
+  workersAIParamsForLocale,
+  workersAIParamsProblem,
+} from "../../src/providers/workers-ai.js";
 
 function makeFetchStub(body: unknown, init: { status?: number; statusText?: string; rawText?: string } = {}) {
   const responseBody = init.rawText ?? JSON.stringify(body);
@@ -44,27 +50,6 @@ describe("Workers AI HTTP translator", () => {
         { role: "user", content: "user" },
       ],
       max_tokens: 8192,
-    });
-  });
-
-  it("merges extraInput into the body without letting it replace messages or max_tokens", async () => {
-    const fetchImpl = makeFetchStub({ result: { response: "OK" } });
-    const translator = createWorkersAIHttpTranslator({
-      accountId: "ACCT",
-      apiToken: "TOKEN",
-      modelId: "model",
-      maxTokens: 50,
-      extraInput: { reasoning_effort: "high", messages: [], max_tokens: 1 },
-      fetchImpl,
-    });
-    await translator.translate("s", "u");
-    expect(JSON.parse(String(fetchImpl.mock.calls[0]![1]?.body))).toEqual({
-      reasoning_effort: "high",
-      messages: [
-        { role: "system", content: "s" },
-        { role: "user", content: "u" },
-      ],
-      max_tokens: 50,
     });
   });
 
@@ -130,25 +115,6 @@ describe("Workers AI binding translator", () => {
     });
   });
 
-  it("merges extraInput into the binding input without letting it replace messages or max_tokens", async () => {
-    const run = vi.fn().mockResolvedValue("OK");
-    const translator = createWorkersAIBindingTranslator({
-      modelId: "model",
-      maxTokens: 50,
-      extraInput: { chat_template_kwargs: { enable_thinking: false }, messages: [], max_tokens: 1 },
-      run,
-    });
-    await translator.translate("s", "u");
-    expect(run).toHaveBeenCalledWith("model", {
-      chat_template_kwargs: { enable_thinking: false },
-      messages: [
-        { role: "system", content: "s" },
-        { role: "user", content: "u" },
-      ],
-      max_tokens: 50,
-    });
-  });
-
   it.each([
     ["direct string", "translated", "translated"],
     ["direct object", { title: "Translated" }, '{"title":"Translated"}'],
@@ -195,6 +161,40 @@ describe("Workers AI binding translator", () => {
     await expect(translator.translate("s", "u")).rejects.toBe(failure);
   });
 
+  it("explains replies cut off at the output token limit", async () => {
+    const binding = createWorkersAIBindingTranslator({
+      modelId: "reasoner",
+      maxTokens: 8192,
+      run: vi.fn().mockResolvedValue({ choices: [{ message: { content: null, reasoning_content: "..." }, finish_reason: "length" }] }),
+    });
+    await expect(binding.translate("s", "u")).rejects.toThrow('model ran out of output tokens (model="reasoner", max_tokens=8192)');
+
+    const http = createWorkersAIHttpTranslator({
+      accountId: "acct",
+      apiToken: "token",
+      modelId: "reasoner",
+      maxTokens: 512,
+      fetchImpl: makeFetchStub({
+        success: true,
+        result: { choices: [{ message: { content: "@@a@@\nPartial" }, finish_reason: "length" }] },
+      }),
+    });
+    await expect(http.translate("s", "u")).rejects.toThrow("max_tokens=512");
+  });
+
+  it("summarizes the first choice before the preview of an unusable reply", async () => {
+    const translator = createWorkersAIBindingTranslator({
+      modelId: "reasoner",
+      maxTokens: 100,
+      run: vi
+        .fn()
+        .mockResolvedValue({ choices: [{ message: { content: null, reasoning_content: "x".repeat(2000) }, finish_reason: "stop" }] }),
+    });
+    await expect(translator.translate("s", "u")).rejects.toThrow(
+      'Raw response was:\nchoices[0]: finish_reason="stop"; message: content=null, reasoning_content=2000 chars\n{"choices"',
+    );
+  });
+
   it("includes a preview for unsupported binding responses", async () => {
     const translator = createWorkersAIBindingTranslator({
       modelId: "model",
@@ -205,10 +205,127 @@ describe("Workers AI binding translator", () => {
   });
 });
 
+describe("Workers AI request controls", () => {
+  const reply = {
+    choices: [{ finish_reason: "stop", message: { content: "@@a@@\nHallo", reasoning_content: "x".repeat(42) } }],
+    usage: { prompt_tokens: 120, completion_tokens: 300, completion_tokens_details: { reasoning_tokens: 250 } },
+  };
+
+  it("sends model params with both transports and reports finish reason, reasoning and usage", async () => {
+    const run = vi.fn(async () => reply);
+    const params = { chat_template_kwargs: { enable_thinking: false } };
+    const binding = createWorkersAIBindingTranslator({ modelId: "glm", maxTokens: 100, params, run });
+    const reported: unknown[] = [];
+    await expect(binding.translate("system", "user", undefined, (info) => reported.push(info))).resolves.toBe("@@a@@\nHallo");
+    expect(run).toHaveBeenCalledWith("glm", expect.objectContaining({ ...params, max_tokens: 100 }));
+
+    const fetchImpl = vi.fn(async () => Response.json({ success: true, result: reply }));
+    const http = createWorkersAIHttpTranslator({ accountId: "a", apiToken: "t", modelId: "glm", maxTokens: 100, params, fetchImpl });
+    await http.translate("system", "user", undefined, (info) => reported.push(info));
+    const [, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
+    expect(JSON.parse(String(init.body))).toMatchObject(params);
+
+    const info = { finishReason: "stop", reasoningCharacters: 42, inputTokens: 120, outputTokens: 300, reasoningTokens: 250 };
+    expect(reported).toEqual([info, info]);
+    expect(() => createWorkersAIBindingTranslator({ modelId: "glm", maxTokens: 100, params: { max_tokens: 5 }, run })).toThrow(
+      'Workers AI params cannot set "max_tokens"',
+    );
+  });
+
+  it("sends enable_thinking as chat_template_kwargs.enable_thinking, the form Workers AI reads", async () => {
+    const inputs: unknown[] = [];
+    const run = async (_model: string, input: unknown) => (inputs.push(input), { response: "@@a@@\nHallo" });
+    for (const enable_thinking of [false, true]) {
+      const translator = createWorkersAIBindingTranslator({
+        modelId: "deepseek",
+        maxTokens: 100,
+        params: { enable_thinking, chat_template_kwargs: { clear_thinking: true }, reasoning_effort: "none" },
+        run,
+      });
+      await translator.translate("system", "user");
+    }
+    expect(inputs).toEqual(
+      [false, true].map((enable_thinking) =>
+        expect.objectContaining({
+          chat_template_kwargs: { clear_thinking: true, enable_thinking },
+          reasoning_effort: "none",
+        }),
+      ),
+    );
+    expect(inputs[0]).not.toHaveProperty("enable_thinking");
+
+    const create = (params: Record<string, unknown>) => () =>
+      createWorkersAIBindingTranslator({ modelId: "deepseek", maxTokens: 100, params, run });
+    expect(create({ enable_thinking: "no" })).toThrow("enable_thinking must be true or false");
+
+    const models = {
+      default: { model: "deepseek", enable_thinking: false },
+      "ja-JP": { model: "deepseek", enable_thinking: true },
+      "ko-KR": "glm",
+    };
+    const params = { enable_thinking: true, reasoning_effort: "low" };
+    expect(workersAIParamsForLocale(params, models, "ja-JP", "deepseek")).toEqual({ enable_thinking: true, reasoning_effort: "low" });
+    expect(workersAIParamsForLocale(params, models, "de-DE", "deepseek")).toEqual({ enable_thinking: false, reasoning_effort: "low" });
+    // A model picked instead of the locale's code model keeps its own params.
+    expect(workersAIParamsForLocale(params, models, "de-DE", "glm")).toBe(params);
+    expect(workersAIParamsForLocale(undefined, models, "ko-KR", "glm")).toBeUndefined();
+    expect(create({ enable_thinking: false, chat_template_kwargs: { enable_thinking: false } })).toThrow("sets enable_thinking twice");
+    expect(create({ enable_thinking: false, chat_template_kwargs: "x" })).toThrow("chat_template_kwargs must be an object");
+    expect(workersAIParamsProblem({ chat_template_kwargs: { enable_thinking: false } })).toBeUndefined();
+  });
+
+  it("stops waiting after timeoutMs, aborting the HTTP request", async () => {
+    const binding = createWorkersAIBindingTranslator({ modelId: "glm", maxTokens: 100, timeoutMs: 20, run: () => new Promise(() => {}) });
+    await expect(binding.translate("system", "user")).rejects.toBeInstanceOf(ProviderTimeoutError);
+
+    let aborted = false;
+    const fetchImpl = vi.fn(
+      (_url: string | URL | Request, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => {
+            aborted = true;
+            reject(init.signal?.reason);
+          });
+        }),
+    );
+    const http = createWorkersAIHttpTranslator({ accountId: "a", apiToken: "t", modelId: "glm", maxTokens: 100, timeoutMs: 20, fetchImpl });
+    await expect(http.translate("system", "user")).rejects.toThrow("[polystella] the model did not answer within 0.02 s");
+    expect(aborted).toBe(true);
+
+    const cancelled = new AbortController();
+    cancelled.abort(new Error("cancelled"));
+    await expect(binding.translate("system", "user", cancelled.signal)).rejects.toThrow("cancelled");
+  });
+
+  it("puts the reply info on the batch attempt event and on the error", async () => {
+    const events: unknown[] = [];
+    const failing = createWorkersAIBindingTranslator({
+      modelId: "glm",
+      maxTokens: 100,
+      run: async () => ({ ...reply, choices: [{ ...reply.choices[0], message: { content: "@@" } }] }),
+    });
+    const batch = translateBatch({
+      translator: failing,
+      segments: [{ id: "a", text: "Hello" }],
+      glossary: EMPTY_GLOSSARY,
+      sourceLocale: "en",
+      targetLocale: "de",
+      onBatchAttempt: (event) => events.push(event.providerResponse),
+    });
+    await expect(batch).rejects.toMatchObject({ providerResponse: { finishReason: "stop", reasoningTokens: 250 } });
+    expect(events).toEqual([expect.objectContaining({ outputTokens: 300 })]);
+  });
+});
+
 describe("Anthropic translator", () => {
   function createAnthropic(fetchImpl: typeof fetch) {
     return createAnthropicTranslator({ apiKey: "KEY", modelId: "claude-test", maxTokens: 8192, fetchImpl });
   }
+
+  it("explains replies cut off at the output token limit", async () => {
+    const translator = createAnthropic(makeFetchStub({ content: [{ type: "text", text: "@@a@@\nPart" }], stop_reason: "max_tokens" }));
+    await expect(translator.translate("s", "u")).rejects.toThrow('model ran out of output tokens (model="claude-test", max_tokens=8192)');
+  });
 
   it("sends the documented endpoint, headers, body, and signal", async () => {
     const fetchImpl = makeFetchStub({ content: [{ type: "text", text: "OK" }] });

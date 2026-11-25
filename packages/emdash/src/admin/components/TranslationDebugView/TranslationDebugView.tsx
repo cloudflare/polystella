@@ -1,7 +1,7 @@
 import { Button, LayerCard } from "@cloudflare/kumo";
 import type { ReactNode } from "react";
 
-import type { TranslationDebugTrace } from "../../../contracts.js";
+import type { TranslationDebugAttempt, TranslationDebugTrace } from "../../../contracts.js";
 import { cardStyle, codeStyle, mutedStyle, rowStyle, stackStyle } from "../../styles.js";
 
 export function TranslationDebugView({ trace, onDismiss }: { trace: TranslationDebugTrace; onDismiss(): void }): ReactNode {
@@ -38,6 +38,7 @@ export function TranslationDebugView({ trace, onDismiss }: { trace: TranslationD
             <summary>
               Batch {batch.batch}: {batch.segmentCount} segments, {batch.sourceCharacters} source characters, approximately{" "}
               {batch.estimatedInputTokens} input tokens
+              {batch.glossaryTerms === undefined ? null : `, ${batch.glossaryTerms.sent} of ${batch.glossaryTerms.total} glossary terms`}
             </summary>
             <div style={{ ...stackStyle, padding: "12px 0 0 16px" }}>
               <small style={mutedStyle}>{batch.segmentLabels.join(", ")}</small>
@@ -47,6 +48,9 @@ export function TranslationDebugView({ trace, onDismiss }: { trace: TranslationD
                     Attempt {attempt.attempt}: {attempt.error === null ? "completed" : "failed"} in {attempt.durationMs} ms
                   </summary>
                   <div style={{ ...stackStyle, padding: "12px 0 0 16px" }}>
+                    {attempt.providerResponse === undefined ? null : (
+                      <small style={mutedStyle}>{describeProviderResponse(attempt.providerResponse)}</small>
+                    )}
                     <details>
                       <summary>System prompt</summary>
                       <pre style={codeStyle}>{attempt.systemPrompt}</pre>
@@ -91,4 +95,18 @@ function downloadTranslationDebug(trace: TranslationDebugTrace): void {
   link.download = `polystella-${trace.operation}-debug.json`;
   link.click();
   URL.revokeObjectURL(url);
+}
+
+/** `finish: stop · input 2,104 tokens · output 3,388 tokens (2,950 reasoning) · reasoning text 9,812 characters`. */
+function describeProviderResponse(info: NonNullable<TranslationDebugAttempt["providerResponse"]>): string {
+  const number = (value: number) => value.toLocaleString("en-US");
+  const parts = [
+    info.finishReason === undefined ? null : `finish: ${info.finishReason}`,
+    info.inputTokens === undefined ? null : `input ${number(info.inputTokens)} tokens`,
+    info.outputTokens === undefined
+      ? null
+      : `output ${number(info.outputTokens)} tokens${info.reasoningTokens === undefined ? "" : ` (${number(info.reasoningTokens)} reasoning)`}`,
+    info.reasoningCharacters === undefined ? null : `reasoning text ${number(info.reasoningCharacters)} characters`,
+  ];
+  return parts.filter((part) => part !== null).join(" · ") || "The provider reported nothing about this reply.";
 }

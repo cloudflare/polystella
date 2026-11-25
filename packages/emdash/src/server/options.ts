@@ -1,15 +1,22 @@
-import type { Glossary, ModelSpec } from "@cloudflare/polystella-core";
+import { resolveModelId, type Glossary, type ModelChoice, type ModelChoiceSpec } from "@cloudflare/polystella-core";
 import {
   checkLocaleTags,
+  compileIgnoreKeys,
   flattenCatalog,
   formatLocaleTagIssues,
   resolveLocaleTag,
   type CatalogSource,
+  type IgnoreKey,
   type LocaleTags,
+  type MessageSyntax,
 } from "@cloudflare/polystella-core/catalog";
+import { workersAIParamsForLocale, workersAIParamsProblem } from "@cloudflare/polystella-core/providers/workers-ai";
 
 import { USE_CODE_DEFAULT_MODEL } from "../contracts.js";
 
+// Same ceiling as the glossary file loader. Prompts carry only the terms a batch uses, so this is only a sanity bound.
+const MAX_GLOSSARY_DEFAULT_CHARACTERS = 1_000_000;
+const BLOCK_FIELD_PATH_PATTERN = /^[A-Za-z_][\w-]*(\[\])?(\.[A-Za-z_][\w-]*(\[\])?)*$/;
 const EMDASH_LOCALE_PATTERN = /^[a-z]{2,3}(-[a-z0-9]{2,8})*$/i;
 
 export interface EmDashCatalogLocale {
@@ -22,6 +29,8 @@ export type EmDashWorkersAIProvider =
       kind: "workers-ai-binding";
       binding: string;
       maxTokens?: number | undefined;
+      /** Stop waiting for a model reply after this many milliseconds. Default 200,000, under Workers AI's own ~236 s timeout. */
+      timeoutMs?: number | undefined;
     }
   | {
       kind: "workers-ai-http";
@@ -29,7 +38,19 @@ export type EmDashWorkersAIProvider =
       apiTokenEnv: string;
       endpoint?: string | undefined;
       maxTokens?: number | undefined;
+      /** Stop waiting for a model reply after this many milliseconds. Default 200,000, under Workers AI's own ~236 s timeout. */
+      timeoutMs?: number | undefined;
     };
+
+export interface EmDashCatalogOptions {
+  /** Regex strings matched against whole dotted keys. Matching entries are not messages: never shown, checked or translated. */
+  ignoreKeys?: readonly string[] | undefined;
+  /** `"polystella"` (default): `{{name}}`. `"icu"`: standard ICU MessageFormat, `{name}`. */
+  messageSyntax?: MessageSyntax | undefined;
+}
+
+/** A text path inside a block, or a Markdown string at that path. */
+export type BlockFieldPath = string | { path: string; format: "markdown" };
 
 export interface PolystellaEmdashOptions {
   provider: EmDashWorkersAIProvider;
@@ -37,27 +58,35 @@ export interface PolystellaEmdashOptions {
     defaultLocale: string;
     locales: Record<string, EmDashCatalogLocale>;
   };
+  /** Same shape as `catalog` in `polystella.config.mjs`; import that file to share one block. */
+  catalog?: EmDashCatalogOptions | undefined;
   models: {
     allowed: readonly string[];
-    defaults: ModelSpec;
-    /** Thinking effort for the code-default models, as a value or per locale. `"none"` turns thinking off; omitted uses the model's default. */
-    reasoning?: ReasoningSpec | undefined;
-    /** Model id → effort → the exact input fields to send. Overrides the Workers AI catalog for that model. */
+    /** Locale entries may be `{ model, enable_thinking }`, applied while the locale uses that model. */
+    defaults: ModelChoiceSpec;
+    /** Extra Workers AI input per allowed model, such as `{ enable_thinking: false }`. */
+    params?: Readonly<Record<string, Readonly<Record<string, unknown>>>> | undefined;
+    /** Model id → admin thinking choice → the exact input to send. Overrides the Workers AI catalog for that model. */
     reasoningInput?: Readonly<Record<string, Readonly<Record<string, Readonly<Record<string, unknown>>>>>> | undefined;
   };
   glossaryDefaults?: Readonly<Record<string, Glossary>> | undefined;
+  /** Let any letters follow a glossary term when deciding whether a batch uses it, so `Worker` matches "Workers". Default false. */
+  glossaryMatchInflections?: boolean | undefined;
   rules?: readonly string[] | undefined;
+  /**
+   * Text paths translated inside custom Portable Text blocks, by block `_type`. `a.b` follows objects, `a[]` walks a list,
+   * and a path that ends on a Portable Text array translates it too. Unlisted block types and fields are copied unchanged.
+   * EmDash's own block types (`image`, `buttons`, `columns`, ...) have defaults; an entry replaces one, and `[]` turns it off.
+   * `{ path, format: "markdown" }` translates a Markdown string by paragraph and list item, keeping its links and formatting.
+   */
+  blockFields?: Readonly<Record<string, readonly BlockFieldPath[]>> | undefined;
   /** Catalog locale → BCP 47 tag for codes `Intl` would misread (`jp` → `ja`). Unmapped locales are used as-is. */
   localeTags?: LocaleTags | undefined;
   /** Cloudflare Queue producer binding for server-side batch translation. The Worker must also export the queue consumer. */
   batchQueueBinding?: string | undefined;
 }
 
-export type ReasoningSpec = string | Readonly<Record<string, string>>;
-
 export const REASONING_EFFORT_PATTERN = /^[a-z][a-z_]*$/;
-/** Fields PolyStella always sets itself, so `reasoningInput` cannot replace them. */
-const RESERVED_INPUT_KEYS = ["messages", "max_tokens", "prompt", "stream"];
 
 export interface SerializedPolystellaEmdashOptions {
   serialized: string;
@@ -65,10 +94,26 @@ export interface SerializedPolystellaEmdashOptions {
 
 export function validatePolystellaEmdashOptions(value: unknown): asserts value is PolystellaEmdashOptions {
   const options = readRecord(value, "options");
-  rejectUnknownKeys(options, ["provider", "catalogs", "models", "glossaryDefaults", "rules", "localeTags", "batchQueueBinding"], "options");
+  rejectUnknownKeys(
+    options,
+    [
+      "provider",
+      "catalogs",
+      "catalog",
+      "models",
+      "glossaryDefaults",
+      "glossaryMatchInflections",
+      "rules",
+      "blockFields",
+      "localeTags",
+      "batchQueueBinding",
+    ],
+    "options",
+  );
   validateProvider(options.provider);
   if (options.batchQueueBinding !== undefined) readEnvironmentName(options.batchQueueBinding, "options.batchQueueBinding");
 
+  const ignoreKey = validateCatalogOptions(options.catalog);
   const catalogs = readRecord(options.catalogs, "options.catalogs");
   const defaultLocale = readLocale(catalogs.defaultLocale, "options.catalogs.defaultLocale");
   const locales = readRecord(catalogs.locales, "options.catalogs.locales");
@@ -79,7 +124,7 @@ export function validatePolystellaEmdashOptions(value: unknown): asserts value i
     const catalog = readRecord(rawCatalog, `options.catalogs.locales.${locale}`);
     const dictionary = readRecord(catalog.dictionary, `options.catalogs.locales.${locale}.dictionary`);
     try {
-      flattenCatalog(dictionary);
+      flattenCatalog(dictionary, ignoreKey);
     } catch (error) {
       fail(`options.catalogs.locales.${locale}.dictionary is invalid: ${error instanceof Error ? error.message : "invalid catalog"}`);
     }
@@ -102,22 +147,22 @@ export function validatePolystellaEmdashOptions(value: unknown): asserts value i
   }
   const defaultModels = readModelSpec(models.defaults, "options.models.defaults");
   const configuredLocales = new Set(Object.keys(locales));
-  for (const [locale, model] of modelSpecEntries(defaultModels)) {
+  const modelParams = models.params === undefined ? {} : readRecord(models.params, "options.models.params");
+  for (const [model, params] of Object.entries(modelParams)) {
+    if (!allowedModels.includes(model)) fail(`options.models.params.${model} must exist in options.models.allowed`);
+    const problem = workersAIParamsProblem(readRecord(params, `options.models.params.${model}`));
+    if (problem !== undefined) fail(`options.models.params.${model} ${problem}`);
+  }
+  for (const [locale, choice] of modelSpecEntries(defaultModels)) {
     if (locale !== "default" && !configuredLocales.has(locale)) {
       fail(`options.models.defaults.${locale} must match a configured catalog locale`);
     }
+    const model = typeof choice === "string" ? choice : choice.model;
     if (!allowedModels.includes(model)) fail(`options.models.defaults.${locale} must exist in options.models.allowed`);
-  }
-  if (models.reasoning !== undefined) {
-    const reasoning = models.reasoning;
-    const entries =
-      typeof reasoning === "string" ? [["default", reasoning] as const] : Object.entries(readRecord(reasoning, "options.models.reasoning"));
-    for (const [locale, effort] of entries) {
-      if (locale !== "default" && !configuredLocales.has(locale)) {
-        fail(`options.models.reasoning.${locale} must match a configured catalog locale`);
-      }
-      readReasoningEffort(effort, `options.models.reasoning.${locale}`);
-    }
+    if (typeof choice === "string" || choice.enable_thinking === undefined) continue;
+    const params = modelParams[model] as Readonly<Record<string, unknown>> | undefined;
+    const problem = workersAIParamsProblem({ ...params, enable_thinking: choice.enable_thinking });
+    if (problem !== undefined) fail(`options.models.defaults.${locale} ${problem}`);
   }
   if (models.reasoningInput !== undefined) {
     for (const [model, rawEfforts] of Object.entries(readRecord(models.reasoningInput, "options.models.reasoningInput"))) {
@@ -127,8 +172,8 @@ export function validatePolystellaEmdashOptions(value: unknown): asserts value i
         const label = `options.models.reasoningInput.${model}.${effort}`;
         readReasoningEffort(effort, `${label} key`);
         const fields = readRecord(input, label);
-        const reserved = Object.keys(fields).find((key) => RESERVED_INPUT_KEYS.includes(key));
-        if (reserved !== undefined) fail(`${label}.${reserved} is set by PolyStella and cannot be overridden`);
+        const problem = workersAIParamsProblem(fields);
+        if (problem !== undefined) fail(`${label} ${problem}`);
         try {
           JSON.stringify(fields);
         } catch {
@@ -143,10 +188,33 @@ export function validatePolystellaEmdashOptions(value: unknown): asserts value i
     for (const [locale, glossary] of Object.entries(defaults)) {
       if (!configuredLocales.has(locale)) fail(`options.glossaryDefaults.${locale} must match a configured catalog locale`);
       validateGlossary(glossary, `options.glossaryDefaults.${locale}`);
+      if (JSON.stringify(glossary).length > MAX_GLOSSARY_DEFAULT_CHARACTERS) {
+        fail(`options.glossaryDefaults.${locale} cannot exceed ${MAX_GLOSSARY_DEFAULT_CHARACTERS} characters`);
+      }
     }
+  }
+  if (options.glossaryMatchInflections !== undefined && typeof options.glossaryMatchInflections !== "boolean") {
+    fail("options.glossaryMatchInflections must be a boolean");
   }
 
   if (options.rules !== undefined) readStringArray(options.rules, "options.rules", true);
+
+  if (options.blockFields !== undefined) {
+    const blockFields = readRecord(options.blockFields, "options.blockFields");
+    for (const [type, paths] of Object.entries(blockFields)) {
+      if (type === "block" || type === "span") fail(`options.blockFields.${type} is reserved for standard Portable Text`);
+      if (!Array.isArray(paths)) fail(`options.blockFields.${type} must be an array`);
+      const typePaths = paths.map((entry: unknown, index) => {
+        const label = `options.blockFields.${type}[${index}]`;
+        if (typeof entry === "string") return readBlockFieldPath(entry, label);
+        const record = readRecord(entry, label);
+        rejectUnknownKeys(record, ["path", "format"], label);
+        if (record.format !== "markdown") fail(`${label}.format must be "markdown"`);
+        return readBlockFieldPath(record.path, `${label}.path`);
+      });
+      assertUnique(typePaths, `options.blockFields.${type}`);
+    }
+  }
 
   if (options.localeTags !== undefined) {
     const localeTags = readRecord(options.localeTags, "options.localeTags");
@@ -167,12 +235,14 @@ export function serializeOptions(options: PolystellaEmdashOptions): SerializedPo
             kind: "workers-ai-binding",
             binding: options.provider.binding,
             ...(options.provider.maxTokens === undefined ? {} : { maxTokens: options.provider.maxTokens }),
+            ...(options.provider.timeoutMs === undefined ? {} : { timeoutMs: options.provider.timeoutMs }),
           }
         : {
             kind: "workers-ai-http",
             accountIdEnv: options.provider.accountIdEnv,
             apiTokenEnv: options.provider.apiTokenEnv,
             ...(options.provider.maxTokens === undefined ? {} : { maxTokens: options.provider.maxTokens }),
+            ...(options.provider.timeoutMs === undefined ? {} : { timeoutMs: options.provider.timeoutMs }),
             ...(options.provider.endpoint === undefined ? {} : { endpoint: options.provider.endpoint }),
           },
     catalogs: {
@@ -189,11 +259,9 @@ export function serializeOptions(options: PolystellaEmdashOptions): SerializedPo
     },
     models: {
       allowed: [...options.models.allowed],
-      defaults: typeof options.models.defaults === "string" ? options.models.defaults : { ...options.models.defaults },
-      ...(options.models.reasoning === undefined
-        ? {}
-        : { reasoning: typeof options.models.reasoning === "string" ? options.models.reasoning : { ...options.models.reasoning } }),
-      ...(options.models.reasoningInput === undefined ? {} : { reasoningInput: options.models.reasoningInput }),
+      defaults: structuredClone(options.models.defaults),
+      ...(options.models.params === undefined ? {} : { params: structuredClone(options.models.params) }),
+      ...(options.models.reasoningInput === undefined ? {} : { reasoningInput: structuredClone(options.models.reasoningInput) }),
     },
     ...(options.glossaryDefaults === undefined
       ? {}
@@ -211,11 +279,50 @@ export function serializeOptions(options: PolystellaEmdashOptions): SerializedPo
             ]),
           ),
         }),
+    ...(options.glossaryMatchInflections === undefined ? {} : { glossaryMatchInflections: options.glossaryMatchInflections }),
     ...(options.rules === undefined ? {} : { rules: [...options.rules] }),
+    ...(options.blockFields === undefined
+      ? {}
+      : { blockFields: Object.fromEntries(Object.entries(options.blockFields).map(([type, paths]) => [type, [...paths]])) }),
     ...(options.localeTags === undefined ? {} : { localeTags: { ...options.localeTags } }),
     ...(options.batchQueueBinding === undefined ? {} : { batchQueueBinding: options.batchQueueBinding }),
+    ...(options.catalog === undefined
+      ? {}
+      : {
+          catalog: {
+            ...(options.catalog.ignoreKeys === undefined ? {} : { ignoreKeys: [...options.catalog.ignoreKeys] }),
+            ...(options.catalog.messageSyntax === undefined ? {} : { messageSyntax: options.catalog.messageSyntax }),
+          },
+        }),
   };
   return { serialized: JSON.stringify(normalized) };
+}
+
+/** `catalog.ignoreKeys` compiled; `undefined` when there are none. */
+export function catalogIgnoreKey(options: Pick<PolystellaEmdashOptions, "catalog">): IgnoreKey | undefined {
+  return compileIgnoreKeys(options.catalog?.ignoreKeys ?? []);
+}
+
+export function catalogMessageSyntax(options: Pick<PolystellaEmdashOptions, "catalog">): MessageSyntax {
+  return options.catalog?.messageSyntax ?? "polystella";
+}
+
+function validateCatalogOptions(value: unknown): IgnoreKey | undefined {
+  if (value === undefined) return undefined;
+  const catalog = readRecord(value, "options.catalog");
+  rejectUnknownKeys(catalog, ["ignoreKeys", "messageSyntax"], "options.catalog");
+  if (catalog.messageSyntax !== undefined && catalog.messageSyntax !== "polystella" && catalog.messageSyntax !== "icu") {
+    fail('options.catalog.messageSyntax must be "polystella" or "icu"');
+  }
+  const ignoreKeys = catalog.ignoreKeys ?? [];
+  if (!Array.isArray(ignoreKeys) || !ignoreKeys.every((pattern): pattern is string => typeof pattern === "string" && pattern.length > 0)) {
+    fail("options.catalog.ignoreKeys must be an array of non-empty regular expression strings (not RegExp objects)");
+  }
+  try {
+    return compileIgnoreKeys(ignoreKeys);
+  } catch (error) {
+    fail(`options.catalog.ignoreKeys contains an invalid regular expression: ${error instanceof Error ? error.message : String(error)}`);
+  }
 }
 
 export function deserializeOptions(runtimeOptions: unknown): PolystellaEmdashOptions {
@@ -261,23 +368,31 @@ function readStringArray(value: unknown, label: string, allowEmpty: boolean): st
   return value.map((item, index) => readString(item, `${label}[${index}]`));
 }
 
+function readBlockFieldPath(value: unknown, label: string): string {
+  const path = readString(value, label);
+  if (!BLOCK_FIELD_PATH_PATTERN.test(path)) fail(`${label} must look like "title", "cta.label" or "cards[].title"`);
+  return path;
+}
+
 function assertUnique(values: readonly string[], label: string): void {
   if (new Set(values).size !== values.length) fail(`${label} cannot contain duplicates`);
 }
 
 function validateProvider(value: unknown): void {
   const provider = readRecord(value, "options.provider");
-  const maxTokens = provider.maxTokens;
-  if (maxTokens !== undefined && (typeof maxTokens !== "number" || !Number.isInteger(maxTokens) || maxTokens <= 0)) {
-    fail("options.provider.maxTokens must be a positive integer");
+  for (const key of ["maxTokens", "timeoutMs"]) {
+    const value = provider[key];
+    if (value !== undefined && (typeof value !== "number" || !Number.isInteger(value) || value <= 0)) {
+      fail(`options.provider.${key} must be a positive integer`);
+    }
   }
   if (provider.kind === "workers-ai-binding") {
-    rejectUnknownKeys(provider, ["kind", "binding", "maxTokens"], "options.provider");
+    rejectUnknownKeys(provider, ["kind", "binding", "maxTokens", "timeoutMs"], "options.provider");
     readEnvironmentName(provider.binding, "options.provider.binding");
     return;
   }
   if (provider.kind === "workers-ai-http") {
-    rejectUnknownKeys(provider, ["kind", "accountIdEnv", "apiTokenEnv", "maxTokens", "endpoint"], "options.provider");
+    rejectUnknownKeys(provider, ["kind", "accountIdEnv", "apiTokenEnv", "maxTokens", "timeoutMs", "endpoint"], "options.provider");
     readEnvironmentName(provider.accountIdEnv, "options.provider.accountIdEnv");
     readEnvironmentName(provider.apiTokenEnv, "options.provider.apiTokenEnv");
     if (provider.endpoint !== undefined) {
@@ -304,15 +419,24 @@ function readEnvironmentName(value: unknown, label: string): string {
   return name;
 }
 
-function readModelSpec(value: unknown, label: string): ModelSpec {
+function readModelSpec(value: unknown, label: string): ModelChoiceSpec {
   if (typeof value === "string") return readString(value, label);
   const models = readRecord(value, label);
-  readString(models.default, `${label}.default`);
-  for (const [locale, model] of Object.entries(models)) {
+  if (models.default === undefined) fail(`${label}.default is required`);
+  for (const [locale, choice] of Object.entries(models)) {
     if (locale !== "default") readLocale(locale, `${label} key`);
-    readString(model, `${label}.${locale}`);
+    if (typeof choice === "string") {
+      readString(choice, `${label}.${locale}`);
+      continue;
+    }
+    const entry = readRecord(choice, `${label}.${locale}`);
+    rejectUnknownKeys(entry, ["model", "enable_thinking"], `${label}.${locale}`);
+    readString(entry.model, `${label}.${locale}.model`);
+    if (entry.enable_thinking !== undefined && typeof entry.enable_thinking !== "boolean") {
+      fail(`${label}.${locale}.enable_thinking must be true or false`);
+    }
   }
-  return models as { default: string } & Record<string, string>;
+  return models as { default: ModelChoice } & Record<string, ModelChoice>;
 }
 
 function readReasoningEffort(value: unknown, label: string): string {
@@ -321,17 +445,25 @@ function readReasoningEffort(value: unknown, label: string): string {
   return effort;
 }
 
+/** The thinking the code sets for a locale's default model, for display; `null` when the code leaves it to the model. */
+export function codeDefaultThinking(options: PolystellaEmdashOptions, locale: string): string | null {
+  const model = resolveModelId(options.models.defaults, locale);
+  const params = workersAIParamsForLocale(options.models.params?.[model], options.models.defaults, locale, model);
+  if (typeof params?.reasoning_effort === "string") return params.reasoning_effort;
+  const kwargs = params?.chat_template_kwargs;
+  const enabled = params?.enable_thinking ?? (isPlainRecord(kwargs) ? kwargs.enable_thinking : undefined);
+  return enabled === false ? "none" : enabled === true ? "on" : null;
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 export function isReasoningEffort(value: string): boolean {
   return value.length <= 32 && REASONING_EFFORT_PATTERN.test(value);
 }
 
-/** The code-default thinking effort for a locale; `undefined` leaves it to the model. */
-export function resolveReasoning(spec: ReasoningSpec | undefined, locale: string): string | undefined {
-  if (spec === undefined || typeof spec === "string") return spec;
-  return Object.hasOwn(spec, locale) ? spec[locale] : Object.hasOwn(spec, "default") ? spec.default : undefined;
-}
-
-function modelSpecEntries(models: ModelSpec): Array<[string, string]> {
+function modelSpecEntries(models: ModelChoiceSpec): Array<[string, ModelChoice]> {
   return typeof models === "string" ? [["default", models]] : Object.entries(models);
 }
 

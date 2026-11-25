@@ -67,7 +67,7 @@ export function BatchTab(): ReactNode {
     };
   }, [jobsRefresh]);
 
-  const jobsActive = serverJobs?.jobs.some((job) => job.status === "running" && !batchJobFinished(job)) ?? false;
+  const jobsActive = serverJobs?.jobs.some((job) => job.status === "running") ?? false;
   useEffect(() => {
     if (!jobsActive) return;
     const timer = setInterval(() => setJobsRefresh((current) => current + 1), JOB_POLL_MS);
@@ -192,7 +192,7 @@ export function BatchTab(): ReactNode {
   }
 
   async function startServerJob(): Promise<void> {
-    const entries = scope === "all" ? "every source entry" : `${selected.size} entries`;
+    const entries = scope === "all" ? "every source entry" : `${selected.size} ${selected.size === 1 ? "entry" : "entries"}`;
     if (
       !window.confirm(
         `PolyStella will queue missing translations for ${entries} into ${locales.length} locales on the server. They are ${publish ? "published" : "saved as drafts"} and existing translations are skipped. Continue?`,
@@ -265,6 +265,9 @@ export function BatchTab(): ReactNode {
                 <Select
                   label="Collection"
                   value={collection}
+                  renderValue={(value) =>
+                    collections?.find((item) => item.slug === value)?.label ?? (typeof value === "string" ? value : "")
+                  }
                   disabled={running}
                   onValueChange={(value) => {
                     if (typeof value === "string") setCollection(value);
@@ -281,6 +284,7 @@ export function BatchTab(): ReactNode {
                 <Select
                   label="Entries"
                   value={scope}
+                  renderValue={(value) => (value === "selected" ? "Selected entries" : "Whole collection")}
                   disabled={running}
                   onValueChange={(value) => {
                     if (value === "all" || value === "selected") setScope(value);
@@ -295,6 +299,7 @@ export function BatchTab(): ReactNode {
                   <Select
                     label="Run in"
                     value={runner}
+                    renderValue={(value) => (value === "queue" ? "Server queue" : "This browser")}
                     disabled={running}
                     onValueChange={(value) => {
                       if (value === "browser" || value === "queue") setRunner(value);

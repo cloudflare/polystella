@@ -166,6 +166,9 @@ export function BatchRunPage(): ReactNode {
                 {stopping ? "Stopping after current entries..." : "Stop"}
               </Button>
             ) : null}
+            {stopping && running ? (
+              <small style={mutedStyle}>Translations already started finish first. With a slow model, that can take a few minutes.</small>
+            ) : null}
             {!running && failed > 0 ? (
               <Button variant="secondary" onClick={retryFailed}>
                 Retry {failed} failed

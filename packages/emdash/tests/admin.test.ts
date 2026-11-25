@@ -15,7 +15,8 @@ import {
   storeTranslationDebug,
   takeTranslationDebug,
 } from "../src/admin.js";
-import { isPolicyField, localeLabel, translatableSubFields } from "../src/admin/utils.js";
+import { panelIsVisible } from "../src/admin/panels/ContentEditorPanel.js";
+import { defaultSubFields, isPolicyField, localeLabel, rememberLocaleTags, translatableSubFields } from "../src/admin/utils.js";
 import type { SchemaField } from "../src/admin/types.js";
 import type { CatalogEntryView, CatalogGroupView, TranslationDebugTrace } from "../src/contracts.js";
 import type { ReactElement } from "react";
@@ -27,6 +28,23 @@ describe("EmDash admin entry", () => {
     expect(Object.keys(pages)).toEqual(["/", "/batch-run"]);
     expect(contentEditorPanels).toHaveLength(1);
     expect(contentEditorPanels[0]).toMatchObject({ id: "polystella", title: "PolyStella", minRole: 40 });
+  });
+
+  it("shows the editor panel only for enabled collections, and still on a failed policy read", async () => {
+    const policy = (response: Response) =>
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => response),
+      );
+    const context = { collection: "posts", entry: { id: "e1" } } as Parameters<typeof panelIsVisible>[0];
+
+    expect(contentEditorPanels[0]?.isVisible).toBe(panelIsVisible);
+    policy(Response.json({ data: { enabled: true } }));
+    await expect(panelIsVisible(context)).resolves.toBe(true);
+    policy(Response.json({ data: { enabled: false } }));
+    await expect(panelIsVisible(context)).resolves.toBe(false);
+    policy(Response.json({ error: { message: "boom" } }, { status: 500 }));
+    await expect(panelIsVisible(context)).resolves.toBe(true);
   });
 
   it("groups catalog entries by their first key segment with i18n_group_title labels", () => {
@@ -61,6 +79,9 @@ describe("EmDash admin entry", () => {
     expect(sourceContainsTokens("Hello {{name}}")).toBe(true);
     expect(sourceContainsTokens("Hello {name}")).toBe(false);
     expect(sourceContainsTokens(null)).toBe(false);
+    expect(sourceContainsTokens("Hello {name}", "icu")).toBe(true);
+    expect(sourceContainsTokens("{n, plural, other {# x}}", "icu")).toBe(true);
+    expect(sourceContainsTokens("Use '{'braces'}'", "icu")).toBe(false);
   });
 
   it("classifies override toggle changes", () => {
@@ -129,6 +150,15 @@ describe("EmDash admin entry", () => {
     expect(localeLabel("not a tag!")).toBe("not a tag!");
   });
 
+  it("names a locale from its localeTags tag and keeps the code", () => {
+    const literal = localeLabel("es-la");
+    rememberLocaleTags({ "es-la": "es-419" });
+    const label = localeLabel("es-la");
+    expect(label).not.toBe(literal);
+    expect(label).toBe(`${new Intl.DisplayNames(undefined, { type: "language" }).of("es-419")} (es-la)`);
+    expect(localeLabel("ES-LA")).toMatch(/\(ES-LA\)$/);
+  });
+
   describe("repeater subfields", () => {
     const repeater = {
       slug: "faq",
@@ -151,6 +181,17 @@ describe("EmDash admin entry", () => {
       ]);
       expect(translatableSubFields({ slug: "t", type: "string" } as unknown as SchemaField)).toEqual([]);
       expect(translatableSubFields({ slug: "faq", type: "repeater" } as unknown as SchemaField)).toEqual([]);
+    });
+
+    it("starts a repeater without its links, ids and author names", () => {
+      const subFields = ["question", "url", "author_name", "slug", "ctaHref", "link", "link_text", "author_bio", "key_points", "image"];
+      const withCopied = {
+        ...repeater,
+        validation: { subFields: subFields.map((slug) => ({ slug, type: slug === "image" ? "image" : "string" })) },
+      } as unknown as SchemaField;
+      expect(defaultSubFields(withCopied)).toEqual(["question", "link_text", "author_bio", "key_points", "image"]);
+      const onlyCopied = { ...repeater, validation: { subFields: [{ slug: "url", type: "string" }] } } as unknown as SchemaField;
+      expect(defaultSubFields(onlyCopied)).toEqual([]);
     });
 
     it("needs a chosen translatable subfield before a repeater counts as a policy field", () => {

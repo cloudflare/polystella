@@ -218,6 +218,17 @@ describe("smoke: polystella(options) integration end-to-end", () => {
     // Mode default is "auto" — surfaced verbatim for the runtime.
     expect(source).toContain('export const mode = "auto"');
     expect(source).toContain("export const localeTags = {}");
+    expect(source).toContain('export const messageSyntax = "polystella"');
+  });
+
+  it("exposes catalog.messageSyntax from polystella.config.mjs to the runtime config", async () => {
+    const harness = await makeSmokeFixture({
+      files: { "polystella.config.mjs": `export default { catalog: { messageSyntax: "icu" } };\n` },
+      options: { sourceDir: "./content", dryRun: true, catalog: { messageSyntax: "icu" } },
+    });
+    await harness.configSetup("build");
+    const source = harness.capturedVitePlugins.find((p) => p.name === "polystella:runtime-config")?.load?.("\0polystella:runtime-config");
+    expect(source).toContain('export const messageSyntax = "icu"');
   });
 
   it("auto-registers the middleware by default", async () => {
@@ -419,6 +430,19 @@ describe("smoke: polystella(options) integration end-to-end", () => {
     });
 
     await expect(harness.configSetup("build")).rejects.toThrow(/UI-strings dictionary drift/);
+  });
+
+  it("reads catalog.ignoreKeys from polystella.config.mjs for the drift check and accepts it in shared options", async () => {
+    const catalog = { ignoreKeys: ["\\$schema"] };
+    const harness = await makeSmokeFixture({
+      files: {
+        "polystella.config.mjs": `export default { catalog: ${JSON.stringify(catalog)} };\n`,
+        "src/content/i18n/en-US.json": JSON.stringify({ $schema: "https://inlang.com/schema/inlang-message-format", "nav.home": "Home" }),
+      },
+      options: { sourceDir: "./content", dryRun: true, catalog },
+    });
+
+    await expect(harness.configSetup("build")).resolves.toBeUndefined();
   });
 
   it("validates that defaultLocale exists in i18n.locales", async () => {

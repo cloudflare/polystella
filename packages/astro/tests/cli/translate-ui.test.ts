@@ -306,4 +306,86 @@ describe("runTranslateUi", () => {
       globalThis.fetch = originalFetch;
     }
   });
+
+  it('translates {name} messages with catalog.messageSyntax "icu" and never sends invalid ICU sources', async () => {
+    const cwd = await tmpProjectWithAstroConfig({
+      defaultLocale: "en",
+      locales: ["en", "de"],
+      polystellaConfig: `export default {
+  maxRetries: 0,
+  catalog: { messageSyntax: "icu" },
+  provider: { kind: "workers-ai", accountId: "a", apiToken: "t", endpoint: "https://example.test/workers-ai", model: "fake/model" },
+};
+`,
+      files: {
+        "src/content/i18n/en.json": `{\n  "hi": "Hello {name}",\n  "bold": "{#b}Hi{/b}"\n}\n`,
+        "src/content/i18n/de.json": `{\n  "hi": "",\n  "bold": ""\n}\n`,
+      },
+    });
+
+    const bodies: string[] = [];
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (_url: string, init?: RequestInit) => {
+      bodies.push(String(init?.body));
+      const ids = [...workersAiUserPrompt(init).matchAll(/^@@([^@\n]+?)@@$/gm)].map((match) => match[1]);
+      const response = ids.map((id) => `@@${id}@@\nHallo {name}`).join("\n\n");
+      return new Response(JSON.stringify({ result: { response }, success: true }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }) as typeof fetch;
+
+    try {
+      const warn = vi.fn();
+      const code = await runTranslateUi({ syncOnly: false, help: false }, { cwd, log: vi.fn(), warn, err: vi.fn() });
+      expect(code).toBe(2);
+      expect(bodies).toHaveLength(1);
+      expect(bodies[0]).toContain("Preserve every `{token}` placeholder");
+      expect(bodies[0]).not.toContain("{#b}");
+      expect(warn.mock.calls.map((call) => String(call[0])).join("\n")).toContain("bold: the source is not a valid ICU message");
+      expect(await readFile(path.resolve(cwd, "src/content/i18n/de.json"), "utf8")).toBe('{\n  "hi": "Hallo {name}",\n  "bold": ""\n}\n');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("never sends catalog.ignoreKeys entries to the model and keeps them in the written file", async () => {
+    const schema = "https://inlang.com/schema/inlang-message-format";
+    const cwd = await tmpProjectWithAstroConfig({
+      defaultLocale: "en",
+      locales: ["en", "de"],
+      polystellaConfig: `export default {
+  maxRetries: 0,
+  catalog: { ignoreKeys: ["\\\\$schema", "plural"] },
+  provider: { kind: "workers-ai", accountId: "a", apiToken: "t", endpoint: "https://example.test/workers-ai", model: "fake/model" },
+};
+`,
+      files: {
+        "src/content/i18n/en.json": `{\n  "$schema": "${schema}",\n  "greeting": "Hello",\n  "plural": [{ "match": {} }]\n}\n`,
+        "src/content/i18n/de.json": `{\n  "greeting": "",\n  "plural": ["kept"]\n}\n`,
+      },
+    });
+
+    const prompts: string[] = [];
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (_url: string, init?: RequestInit) => {
+      const userPrompt = workersAiUserPrompt(init);
+      prompts.push(userPrompt);
+      return new Response(JSON.stringify({ result: { response: workersAiResponseFromPrompt(userPrompt) }, success: true }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }) as typeof fetch;
+
+    try {
+      const code = await runTranslateUi({ syncOnly: false, help: false }, { cwd, log: vi.fn(), warn: vi.fn(), err: vi.fn() });
+      expect(code).toBe(0);
+      expect(prompts.join("\n")).not.toContain(schema);
+      expect(prompts.join("\n")).not.toContain("kept");
+      const deText = await readFile(path.resolve(cwd, "src/content/i18n/de.json"), "utf8");
+      expect(deText).toBe(`{\n  "$schema": "${schema}",\n  "greeting": "translated catalog:0",\n  "plural": [\n    "kept"\n  ]\n}\n`);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
 });

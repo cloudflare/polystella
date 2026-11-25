@@ -19,8 +19,9 @@ translatable fields. The source is always the code-defined
 it. Only fields the collection schema marks as translatable and of a
 supported type (`string`, `text`, Portable Text, repeater) are offered.
 
-A repeater lists its `string`, `text`, and `image` subfields, all ticked
-when the repeater is enabled. Only ticked subfields are translated; an
+A repeater lists its `string`, `text`, and `image` subfields. When the
+repeater is enabled, all are ticked except ones named like links, IDs or
+authors (`url`, `href`, `slug`, `id`, `author_name`, ...). Only ticked subfields are translated; an
 image translates its alt text and caption. Every other subfield (links,
 numbers, unticked text) is copied from the source row. Unticking every
 subfield turns the repeater off. The source entry is the source of
@@ -106,16 +107,18 @@ code-defined default locale is source-only and is not listed here:
 - **Translation model** — pick from `models.allowed`, or keep the
   code default (`models.defaults`). A model outside `allowed` cannot
   be selected.
-- **Thinking** — shown when a locale overrides the model. _Model
-  default_, _Off_ when the model can turn thinking off, and each effort
+- **Thinking** — shown when a locale overrides the model. _No
+  override_ (the code's `models.params` for the model apply), _Off_ when the model can turn thinking off, and each effort
   the model lists in the Workers AI catalog (or in
   `models.reasoningInput`). Changing the model resets it. With the code
-  default model, the code's `models.reasoning` applies and is shown
-  read-only.
+  default model, the thinking set by `models.defaults` or
+  `models.params` applies and is shown read-only.
 - **Glossary behavior** — use the code default, append custom plain
   text, or replace the code glossary. Structured YAML stays
   code-defined; only `notes` can be appended or replaced.
-- **Custom glossary** — plain text applied per the behavior above.
+- **Custom glossary** — plain text applied per the behavior above,
+  up to 10,000 characters. Code-defined glossaries have no such cap:
+  each request carries only the terms its text uses.
 - **Shared translation instructions** — use code defaults, append,
   or replace the `rules` from configuration.
 
@@ -129,13 +132,29 @@ off by default, so edited AI text keeps its flag until an editor
 decides in the content-editor panel. When on, saving different text in
 any field PolyStella wrote removes the flag right away.
 
+**Translate the SEO title and meta description of published and scheduled entries**
+is off by default. EmDash saves SEO text as soon as it changes, without
+waiting for **Save** or **Publish**, so on a published or scheduled
+entry a translation takes effect before anyone reviews it. Off, the
+panel translates SEO text only on drafts. On, it also translates it on
+published and scheduled entries.
+
 **Debug mode** is a per-project switch. When enabled, content,
 catalog, and sandbox translation traces include the effective model, batch
 metrics, exact prompts, every provider attempt, normalized model
 responses, parsed translations, validation issues, timings, and a
-diagnostic ID. Traces are returned only to administrators, are not
+diagnostic ID. Each attempt also shows what Workers AI reported: the
+finish reason, input and output tokens (with reasoning tokens when the
+model counts them) and the size of any reasoning text. Traces are returned only to administrators, are not
 stored server-side, and never include credentials, authorization
 headers, account IDs, or raw provider HTTP envelopes.
+
+Whether or not debug mode is on, every failure writes its diagnostic ID to the
+server log with the full error message, its code and cause chain, and for an
+unusable model reply the finish reason and reply field sizes. When the model
+replied but the reply failed a check, the log also carries the finish reason,
+token usage and reasoning size. Editors see only a
+short, safe message and the same ID.
 
 ## Translation sandbox tab
 
@@ -153,17 +172,52 @@ stages; EmDash plugin routes do not stream provider or batch progress.
 ## Content-editor panel
 
 The panel appears for Editors and Administrators. It translates
-selected `string`, `text`, Portable Text, and repeater fields in an existing
+selected `string`, `text`, Portable Text, `blocks` and repeater fields in an existing
 target-locale draft — the source locale is the code-defined
 `catalogs.defaultLocale`, and the target must differ from it.
 
-The private route rereads selected values through its `content:read`
+After a translation, the panel lists any same-page links (`#…`) in the
+translated fields for review instead of reloading. EmDash gives headings
+no ids, so each site builds its own, often from the heading text. A
+translated heading can then get a different anchor than the copied link,
+and PolyStella can't know the site's rule. Batch results show the same
+note on each created entry.
+
+Long entries are translated in parts of up to 30,000 characters and 500
+text segments, one request per part; the panel shows which part is
+running, and queued batch jobs translate one part per queue message. An
+entry can hold up to 500,000 characters and 5,000 segments. If the source
+changes between parts, the translation stops and asks to start again.
+
+The private route rereads the source values through its `content:read`
 capability, so the browser never supplies the values being
-translated. The panel updates the draft with EmDash's `_rev` token
-and reloads after success. Unsaved browser changes are not translated
-and are lost after confirmation. If another editor has taken over the
-entry's edit lock, the save is refused and the panel names the lock
-holder.
+translated.
+
+On EmDash 1.6 and later, the panel puts the translation into the open
+form without saving, and keeps your other unsaved changes. Please
+review the translation; EmDash's autosave may save it within seconds.
+If you change one of the selected fields while PolyStella translates,
+the form is left as it was and the panel asks you to translate again.
+Edits to other fields are kept.
+In a read-only editor (another editor holds the lock, or a version is
+open), nothing is sent. In collections with revisions, the first save
+after a translation keeps the draft from before it in **Revisions**, so
+you can restore it. PolyStella marks each translated field AI-written
+when a save first changes it; a field not saved within an hour is not
+marked.
+
+In collections with SEO, the panel also offers the **SEO title** and
+**Meta description**. EmDash saves these at once, so on published and
+scheduled entries they're off unless an Administrator turns on
+**Translate the SEO title and meta description of published and
+scheduled entries**. A source-locale entry doesn't offer them. A translated SEO
+value longer than EmDash allows (200 or 500 characters) is left out, and
+the panel says so. SEO text doesn't count toward the AI-translated flag.
+
+On EmDash before 1.6, the panel saves the translated fields with
+EmDash's `_rev` token and reloads. Unsaved changes are lost after
+confirmation. If another editor has taken over the entry's edit lock,
+the save is refused and the panel names the lock holder.
 
 On a source-locale entry, the panel creates missing translations
 instead. Tick one or more locales that have no entry yet (or
@@ -182,20 +236,23 @@ time and model. Once a person saves different text in a field
 PolyStella wrote, it shows **Edited since AI translation** and the
 changed fields, with **Keep AI flag** and **Remove AI flag**.
 
-Named percentage stages show when the panel is loading the latest
-saved entry, translating selected fields, and saving the patch.
+Named percentage stages show the panel's progress, from loading the
+entry and translating to filling the form or saving.
 
-Successful content traces survive the existing editor reload in
-browser session storage for one view, so an Administrator can inspect
-the trace after the panel reloads.
+On EmDash before 1.6, successful content traces survive the editor
+reload in browser session storage for one view, so an Administrator can
+inspect the trace after the panel reloads.
 
 ## EmDash limitations
 
-- Panels use the latest saved entry, not unsaved form state.
-- EmDash shows the PolyStella section on every collection because
-  panel visibility cannot be resolved asynchronously. On collections
-  not enabled in plugin settings, the panel says so and links
-  Administrators to the Collections tab.
+- The source values always come from the latest saved source-locale
+  entry. Only the open entry's form takes patches.
+- Before EmDash 1.6, panels save the translation and reload, so
+  unsaved changes are lost.
+- Before EmDash 1.5, the PolyStella section shows on every collection.
+  On collections not enabled in plugin settings, the panel says so and
+  links Administrators to the Collections tab. From 1.5 on, the section
+  is hidden there.
 
 ## See also
 

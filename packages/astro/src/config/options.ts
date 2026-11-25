@@ -70,6 +70,15 @@ const r2OptionsSchema = z.object({
     ),
 });
 
+const maxPromptTokensSchema = z
+  .number()
+  .int()
+  .positive()
+  .optional()
+  .describe(
+    "Ceiling for one whole prompt (instructions, matched glossary terms, style rules, notes and segments), default 8000. A batch over it is split; a single segment over it fails.",
+  );
+
 const workersAiProviderSchema = z.object({
   kind: z.literal("workers-ai").describe("Discriminator selecting the Workers AI provider."),
   accountId: z.string().min(1, "provider.accountId is required").describe("Cloudflare account ID that owns the Workers AI usage."),
@@ -111,6 +120,7 @@ const workersAiProviderSchema = z.object({
     .positive()
     .default(4000)
     .describe("Soft cap on per-batch input tokens. The pipeline packs adapter-grouped segments into batches that fit under this budget."),
+  maxPromptTokens: maxPromptTokensSchema,
 });
 
 const anthropicProviderSchema = z.object({
@@ -134,9 +144,17 @@ const anthropicProviderSchema = z.object({
     .positive()
     .default(4000)
     .describe("Soft cap on per-batch input tokens. See the Workers AI provider's identical field for the rationale."),
+  maxPromptTokens: maxPromptTokensSchema,
 });
 
 const providerSchema = z.discriminatedUnion("kind", [workersAiProviderSchema, anthropicProviderSchema]);
+
+const matchInflectionsSchema = z
+  .boolean()
+  .optional()
+  .describe(
+    'Let any letters follow a glossary term when deciding whether a batch uses it, so "Worker" also matches "Workers". Default false: the term must end at a word boundary.',
+  );
 
 const glossaryFileSchema = z
   .object({
@@ -149,6 +167,7 @@ const glossaryFileSchema = z
     inline: z.never().optional(),
     http: z.never().optional(),
     r2: z.never().optional(),
+    matchInflections: matchInflectionsSchema,
   })
   .strict();
 
@@ -166,6 +185,7 @@ const glossaryInlineSchema = z
     ),
     http: z.never().optional(),
     r2: z.never().optional(),
+    matchInflections: matchInflectionsSchema,
   })
   .strict();
 
@@ -180,6 +200,7 @@ const glossaryHttpSchema = z
       })
       .strict(),
     r2: z.never().optional(),
+    matchInflections: matchInflectionsSchema,
   })
   .strict();
 
@@ -198,6 +219,7 @@ const glossaryR2Schema = z
         endpoint: z.string().url().optional().describe("Override the default R2 endpoint. Useful for testing."),
       })
       .strict(),
+    matchInflections: matchInflectionsSchema,
   })
   .strict();
 
@@ -527,6 +549,28 @@ export const polystellaOptionsSchema = z
       .default(true)
       .describe(
         "Auto-register the polystella request middleware. `false` disables auto-registration so you can compose manually via `sequence(...)`.",
+      ),
+
+    // Read from polystella.config.mjs, not from these options; accepted so a shared config object validates.
+    catalog: z
+      .object({
+        ignoreKeys: z
+          .array(z.string().min(1))
+          .optional()
+          .describe(
+            'Regex strings matched against whole dotted catalog keys (`"\\\\$schema"`, `"internal\\\\..*"`). Matching entries are never synced, checked or translated, and stay untouched in locale files.',
+          ),
+        messageSyntax: z
+          .enum(["polystella", "icu"])
+          .optional()
+          .describe(
+            'How catalog strings write placeholders. `"polystella"` (default): `{{name}}`, `{{count, plural, ...}}`. `"icu"`: standard ICU MessageFormat, `{name}`, `{count, plural, ...}`.',
+          ),
+      })
+      .strict()
+      .optional()
+      .describe(
+        "UI-string catalog options. Read only from `polystella.config.mjs`, by the catalog CLI commands, the drift checks, `Astro.locals.t` and `catalogAstro()`.",
       ),
   })
   .strict();

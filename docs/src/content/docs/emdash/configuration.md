@@ -1,6 +1,6 @@
 ---
 title: EmDash configuration
-description: PolystellaEmdashOptions — provider, catalogs, models, glossaryDefaults, rules, localeTags, and batchQueueBinding.
+description: PolystellaEmdashOptions — provider, catalogs, catalog, models, glossaryDefaults, glossaryMatchInflections, rules, blockFields, localeTags, and batchQueueBinding.
 aiGenerated: true
 sidebar:
   label: Configuration
@@ -17,14 +17,15 @@ The Workers AI transport. Either a named binding on the EmDash
 deployment, or HTTP with runtime environment variable names (never
 literal credentials):
 
-| Field          | Type                                          | Notes                                                                                                                                                                                                              |
-| -------------- | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `kind`         | `"workers-ai-binding"` or `"workers-ai-http"` | Selects the transport.                                                                                                                                                                                             |
-| `binding`      | string                                        | Binding kind only. The named Workers AI binding on the EmDash deployment.                                                                                                                                          |
-| `accountIdEnv` | string                                        | HTTP kind only. Env var name for the account ID.                                                                                                                                                                   |
-| `apiTokenEnv`  | string                                        | HTTP kind only. Env var name for the API token.                                                                                                                                                                    |
-| `endpoint`     | string                                        | HTTP kind only, optional. Overrides the Workers AI endpoint.                                                                                                                                                       |
-| `maxTokens`    | number                                        | Optional. Defaults to `8192`. Do not lower it — the default is already the floor for multi-segment translations; truncation produces invalid JSON. Administrators can override it in the Translation settings tab. |
+| Field          | Type                                          | Notes                                                                                                                                                                                                                                             |
+| -------------- | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `kind`         | `"workers-ai-binding"` or `"workers-ai-http"` | Selects the transport.                                                                                                                                                                                                                            |
+| `binding`      | string                                        | Binding kind only. The named Workers AI binding on the EmDash deployment.                                                                                                                                                                         |
+| `accountIdEnv` | string                                        | HTTP kind only. Env var name for the account ID.                                                                                                                                                                                                  |
+| `apiTokenEnv`  | string                                        | HTTP kind only. Env var name for the API token.                                                                                                                                                                                                   |
+| `endpoint`     | string                                        | HTTP kind only, optional. Overrides the Workers AI endpoint.                                                                                                                                                                                      |
+| `timeoutMs`    | number                                        | Optional. Defaults to `200000` (200 s), under Workers AI's own timeout of about 236 s. A request still running then fails with "The translation model timed out". With the binding, PolyStella stops waiting, but Workers AI may finish the call. |
+| `maxTokens`    | number                                        | Optional. Defaults to `8192`. Do not lower it — the default is already the floor for multi-segment translations; truncation produces invalid JSON. Administrators can override it in the Translation settings tab.                                |
 
 ## `catalogs`
 
@@ -42,17 +43,39 @@ shape as the main Astro catalog integration. Nested groups are
 flattened to dotted runtime keys; `i18n_group_title` remains metadata
 and is preserved by JSON export.
 
+## `catalog`
+
+Optional. The same block as `catalog` in `polystella.config.mjs`
+([Catalog options](/configuration/#catalog-options)). The plugin can't
+read that file, so pass the block here. Import the file to keep one copy:
+
+```js
+// astro.config.mjs
+import polystellaConfig from "./polystella.config.mjs";
+
+const polystellaOptions = {
+  // provider, catalogs, models, ...
+  catalog: polystellaConfig.catalog,
+};
+```
+
+| Field           | Type                      | Notes                                                                                                                                    |
+| --------------- | ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `ignoreKeys`    | string[]                  | Regex strings matched against whole dotted keys. Matching entries aren't shown, checked or translated, and JSON export keeps them as-is. |
+| `messageSyntax` | `"polystella"` \| `"icu"` | Default `"polystella"` (`{{name}}`). `"icu"` reads [standard ICU](/concepts/catalog-messages/#standard-icu-syntax) (`{name}`).           |
+
+`messageSyntax` applies to override validation, catalog generation, the
+Catalog tab's placeholder hint and the runtime `t()`.
+
 ## `models`
 
 The model bounds for translation.
 
-| Field      | Type                  | Notes                                                                                                                                  |
-| ---------- | --------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| `allowed`  | string[]              | Non-empty, unique. Administrators cannot select a model outside this list. Cannot contain the reserved `__polystella_code_default__`.  |
-| `defaults` | string or `ModelSpec` | A single model id, or `{ default, <locale>: model }`. Every locale key must match a configured catalog locale and appear in `allowed`. |
-
-| `reasoning` | string or `{ default?, <locale>: effort }` | Optional. Thinking effort for the code-default models, such as `"none"` (off) or `"high"`. Omitted leaves the model's own default. |
-| `reasoningInput` | `{ <model>: { <effort>: input } }` | Optional. The exact input fields to send for each effort of a model, instead of what the Workers AI catalog says. Keys must be in `allowed`; `messages`, `max_tokens`, `prompt`, and `stream` cannot be set. |
+| Field            | Type                               | Notes                                                                                                                                                                                                                       |
+| ---------------- | ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `allowed`        | string[]                           | Non-empty, unique. Administrators cannot select a model outside this list. Cannot contain the reserved `__polystella_code_default__`.                                                                                       |
+| `defaults`       | string or `ModelSpec`              | A single model id, or `{ default, <locale>: model }`. A model can be `{ model, enable_thinking }` (see [Thinking](#thinking)). Every locale key must match a configured catalog locale and every model appear in `allowed`. |
+| `reasoningInput` | `{ <model>: { <choice>: input } }` | Optional. The exact input to send for each admin thinking choice of a model, instead of what the Workers AI catalog says (see [Admin thinking choice](#admin-thinking-choice)). Keys must be in `allowed`.                  |
 
 `models.defaults` may set a `default` fallback and locale-specific
 models. Each target locale receives its own model and glossary
@@ -60,34 +83,78 @@ settings.
 
 ### Thinking
 
-PolyStella reads each model's `reasoning_effort` entry from the
-Workers AI model catalog (`env.AI.models()` for the binding, the
-model search API for HTTP, whose token then needs Workers AI Read).
-Listed efforts are sent as `reasoning_effort`. A model whose thinking
-isn't mandatory also gets `"none"` (off), sent as
-`chat_template_kwargs.enable_thinking: false` when `"none"` isn't a
-listed effort. A model without the entry has no thinking choice.
+Reasoning models think before they answer. Turning thinking off often
+makes them several times faster, but tricky languages may need it. Set
+it per locale, next to the locale's model: an entry in
+`models.defaults` can be `{ model, enable_thinking }` instead of a
+model id.
 
-With a custom `provider.endpoint`, the catalog is not read (the token
-may belong to another host), so only models listed in
-`models.reasoningInput` get a thinking choice. Catalog lookups time
-out after five seconds and a failed lookup is retried after a minute.
+```js
+const MODEL = "@cf/deepseek-ai/deepseek-v4.1-flash-1017";
 
-`models.reasoning` applies only while a locale uses its code-default
-model. An administrator who picks a model, even the same one, chooses
-its thinking in the admin instead. An effort the model doesn't accept, or a catalog that can't be
-read, is logged and skipped, so translations still run with the
-model's default. Thinking uses output tokens, so raise
-**Max output tokens** if thinking translations come back truncated.
-
-```ts
 models: {
-  allowed: ["@cf/zai-org/glm-4.7-flash", "@cf/openai/gpt-oss-120b"],
-  defaults: "@cf/zai-org/glm-4.7-flash",
-  reasoning: "none",
-  reasoningInput: {
-    "@cf/openai/gpt-oss-120b": { low: { reasoning: { effort: "low" } }, high: { reasoning: { effort: "high" } } },
+  allowed: [MODEL],
+  defaults: {
+    default: { model: MODEL, enable_thinking: false },
+    "ja-JP": { model: MODEL, enable_thinking: true },
+    "zh-CN": { model: MODEL, enable_thinking: true },
   },
+},
+```
+
+The setting applies while the locale uses that model. If an
+administrator picks a different model for the locale in the admin, that
+model's own `models.params` apply instead, so a model that can't turn
+thinking off never receives `false`.
+
+PolyStella sends `enable_thinking` as
+`chat_template_kwargs.enable_thinking`, the only form Workers AI reads;
+it ignores a top-level `enable_thinking` without an error. Set it
+explicitly: some models still think when it is left out, even if their
+schema says it defaults to `false`. Some models can't turn thinking off,
+and Workers AI rejects `false` for them.
+
+### `models.params`
+
+Optional: extra Workers AI input per allowed model, for settings the
+model's schema documents, sent as written. `enable_thinking: true` or
+`false` here applies whatever the locale; a locale's own
+`enable_thinking` in `models.defaults` wins over it.
+
+```js
+params: {
+  "@cf/deepseek-ai/deepseek-v4.1-flash-1017": { reasoning_effort: "low" },
+},
+```
+
+Keys must be allowed models. `messages`, `prompt`, `max_tokens`,
+`max_completion_tokens` and `stream` are set by PolyStella and are
+rejected. Params apply to both the binding and HTTP providers.
+
+### Admin thinking choice
+
+When an administrator picks a model for a locale in **Translation
+settings**, they can also pick its thinking. PolyStella reads each
+model's `reasoning_effort` entry from the Workers AI model catalog
+(`env.AI.models()` for the binding, the model search API for HTTP,
+whose token then needs Workers AI Read). Listed efforts are sent as
+`reasoning_effort`. A model whose thinking isn't mandatory also gets
+**Off**, sent as `enable_thinking: false`. A model without the entry
+has no thinking choice.
+
+With a custom `provider.endpoint`, the catalog is not read, so only
+models listed in `models.reasoningInput` get a choice. Catalog lookups
+time out after five seconds and a failed lookup is retried after a
+minute. A choice the model doesn't accept, or a catalog that can't be
+read, is logged and skipped, so translations still run with
+`models.params`. The admin's choice wins over `models.params` for the
+keys it sets. Locales on the code default show its thinking read-only.
+
+`models.reasoningInput` replaces the catalog for a model:
+
+```js
+reasoningInput: {
+  "@cf/openai/gpt-oss-120b": { low: { reasoning: { effort: "low" } }, high: { reasoning: { effort: "high" } } },
 },
 ```
 
@@ -109,6 +176,13 @@ glossaryDefaults: await loadGlossaryDefaults({
 The helper also accepts the same `http` and `r2` source forms as the
 Astro integration. Remote sources do not require `projectRoot`.
 
+Glossaries can be large: each translation request carries only the
+terms its text uses, plus the style rules and notes. A locale's
+glossary can be up to 1,000,000 characters. Set
+`glossaryMatchInflections: true` to let any letters follow a term, so
+`Worker` also matches "Workers"; by default a term must end at a word
+boundary.
+
 Every key must match a configured catalog locale. Administrators can
 use each glossary unchanged, append plain-text `notes`, or replace
 them for target locales; structured YAML and the source-only default
@@ -119,6 +193,90 @@ locale remain code-defined.
 Optional. Shared code-defined translation instructions, joined into
 a single prompt. Administrators can use them unchanged, append to
 them, or replace them.
+
+## `blockFields`
+
+Optional. Text to translate inside custom Portable Text blocks, keyed by
+the block's `_type`. Standard paragraphs, headings, lists and tables are
+always translated; custom blocks are copied unchanged unless listed here.
+
+EmDash's own block types are translated without configuration:
+
+| Block type  | Translated paths                   |
+| :---------- | :--------------------------------- |
+| `image`     | `alt`, `caption`, `title`          |
+| `gallery`   | `images[].alt`, `images[].caption` |
+| `video`     | `caption`                          |
+| `button`    | `text`                             |
+| `buttons`   | `buttons[].text`                   |
+| `columns`   | `columns[].content`                |
+| `cover`     | `content`                          |
+| `pullquote` | `text`, `citation`                 |
+| `embed`     | `caption`                          |
+| `iframe`    | `title`                            |
+
+A `blockFields` entry for one of these types replaces its default, and
+an empty list (`image: []`) copies that type unchanged. `code`,
+`htmlBlock` and `file` blocks are never translated.
+
+A path can also be an object that marks a Markdown string:
+
+```js
+blockFields: {
+  faq: ["question", { path: "answer", format: "markdown" }],
+}
+```
+
+A Markdown string is translated one paragraph, heading or list item at
+a time, so its structure can't be merged or reordered. Links, images,
+emphasis and code spans are replaced with placeholders before the model
+sees the text, so URLs are never sent and lost links are caught. Inline
+tags such as `<gradient>…</gradient>` are protected the same way in
+every translated string. When a reply loses, repeats or reorders a
+placeholder, that text is resent once with the problem explained; if it
+fails again, the translation fails with "model changed inline markup".
+
+[`blocks` fields](https://docs.emdashcms.com/guides/blocks/) use the same
+map, keyed by block type slug:
+
+```js
+blockFields: {
+  hero: ["heading", "body", "link_label"],
+  feature_grid: ["heading", "items[].title", "items[].description"],
+}
+```
+
+Inside a `blocks` field only the site's entries apply. A block type named
+`image` or `table` there is the site's own, so it gets neither EmDash's
+defaults nor Portable Text table handling. `_version`, `_key`, URLs and
+media are always copied unchanged.
+
+```js
+blockFields: {
+  "marketing.hero": ["headline", "banners[].title", "body"],
+  "marketing.columns": ["columns[].content"],
+}
+```
+
+| Path              | Meaning                                                                                                  |
+| :---------------- | :------------------------------------------------------------------------------------------------------- |
+| `headline`        | A string property                                                                                        |
+| `cta.label`       | A property of a nested object                                                                            |
+| `banners[].title` | A property of every item in a list                                                                       |
+| `tags[]`          | Every string in a list                                                                                   |
+| `columns[].body`  | If the value is a Portable Text array, its text blocks (and any listed custom blocks) are translated too |
+
+A path a block doesn't have, or whose value is neither text nor an array,
+is skipped silently. One list can therefore cover several stored shapes of
+the same block type. An array at the end of a path without `[]` is read as
+Portable Text.
+
+List only copy. Leave URLs, IDs, icons, dates and media references out.
+Plain strings are sent to the model as text, so Markdown fields keep
+their syntax only as well as the model preserves it. Nested Portable
+Text must be valid (every node needs `_type` and `_key`); otherwise the
+request fails with the exact location, such as
+`body[3].columns[0].content[1]`.
 
 ## `localeTags`
 
@@ -188,19 +346,31 @@ replace. Configure collection and field policy in the
 
 - `catalogs.defaultLocale` must exist in `catalogs.locales`.
 - `catalogs.locales` must contain at least one locale; every catalog
-  leaf must be a string.
+  leaf must be a string, unless `catalog.ignoreKeys` matches it.
+- `catalog.ignoreKeys` must hold valid regular expression strings, and
+  `catalog.messageSyntax` must be `"polystella"` or `"icu"`.
 - `filePath` must be a repository-relative path.
 - `models.allowed` must be non-empty and unique, and must not
   contain `__polystella_code_default__`.
 - Every `models.defaults.<locale>` must match a configured catalog
   locale and appear in `models.allowed`.
 - Every `glossaryDefaults` key must match a configured catalog
-  locale.
+  locale, and each glossary must be at most 1,000,000 characters.
+- `glossaryMatchInflections` must be a boolean.
 - Every `localeTags` key must match a configured catalog locale, and
   every locale must resolve to a tag `Intl` recognises.
+- Every `blockFields` list must be unique (an empty list turns a default off), hold
+  strings or `{ path, format: "markdown" }` objects, use paths like
+  `title`, `cta.label` or `cards[].title`, and not target the reserved
+  `block` or `span` types.
+- Every `models.params` key must be in `models.allowed`, and its object
+  must not set `messages`, `prompt`, `max_tokens`,
+  `max_completion_tokens` or `stream`. `enable_thinking` must be `true`
+  or `false`, here and in `models.defaults` entries, and can't also be
+  set in that model's `chat_template_kwargs`.
 - Provider env/binding names and `batchQueueBinding` must be valid
   environment binding names; `endpoint` must be a valid URL;
-  `maxTokens` must be a positive integer.
+  `maxTokens` and `timeoutMs` must be positive integers.
 
 ## Astro integration options
 

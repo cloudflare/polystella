@@ -2,13 +2,23 @@ import { isLiteralElement, isPluralElement, isSelectElement, type MessageFormatE
 import pRetry from "p-retry";
 
 import { packGroupsIntoBatches } from "../batch.js";
+import { formatCorrections, type TranslationCorrection } from "../corrections.js";
 import type { Glossary } from "../glossary.js";
 import { assertUniqueSegmentIds, type Segment } from "../segment.js";
 import { translateBatch, type TranslateBatchAttemptEvent, type TranslateBatchRetryEvent } from "../translate-batch.js";
 import { isPermanentProviderError, type Translator } from "../translator.js";
 
 import { pluralCategories, requiredPluralCategories } from "./locale-tags.js";
-import { argumentKinds, MessageSyntaxError, parseMessage, removePluralBranches, walk } from "./message.js";
+import {
+  argumentKinds,
+  DEFAULT_MESSAGE_SYNTAX,
+  MessageSyntaxError,
+  parseMessage,
+  placeholderText,
+  removePluralBranches,
+  walk,
+  type MessageSyntax,
+} from "./message.js";
 
 const TOKEN_RE = /\{\{(\w+)\}\}/g;
 
@@ -28,6 +38,8 @@ export interface TokenValidationIssue {
   spurious: string[];
   /** Message-structure problems beyond placeholder names (syntax, plural/select branches, types). */
   problems?: string[] | undefined;
+  /** Set for `"icu"` messages, so placeholders are described as `{name}`. */
+  messageSyntax?: MessageSyntax | undefined;
 }
 
 export function validateTokenPreservation(key: string, source: string, translation: string): TokenValidationIssue | null {
@@ -39,66 +51,79 @@ export function validateTokenPreservation(key: string, source: string, translati
 }
 
 /** Problems in one message on its own: invalid syntax, or plural branches `tag` never selects. */
-export function validateMessage(template: string, tag: string): string[] {
+export function validateMessage(template: string, tag: string, syntax: MessageSyntax = DEFAULT_MESSAGE_SYNTAX): string[] {
   let ast: MessageFormatElement[];
   try {
-    ast = parseMessage(template);
+    ast = parseMessage(template, syntax);
   } catch (error) {
     return [describeSyntaxError(error)];
   }
-  return [...swallowedPlaceholderProblems(template, ast), ...branchProblems(ast, undefined, tag, false)];
+  return [...swallowedPlaceholderProblems(template, ast, syntax, undefined), ...branchProblems(ast, undefined, tag, false, syntax)];
 }
 
 /**
  * Validates a catalog translation against its source message: it parses, uses the same placeholder
  * names and types, keeps select keys and `=N` branches, and uses exactly the target locale's plural
- * categories. Sources that are not valid messages fall back to `validateTokenPreservation`.
+ * categories. Sources that are not valid messages fall back to `validateTokenPreservation`; in
+ * `"icu"` syntax they are not checked (`validateMessage` reports the source instead).
  */
 export function validateMessageTranslation(
   key: string,
   source: string,
   translation: string,
   targetTag: string,
+  syntax: MessageSyntax = DEFAULT_MESSAGE_SYNTAX,
 ): TokenValidationIssue | null {
+  const syntaxField = syntax === "icu" ? { messageSyntax: syntax } : {};
   let sourceAst: MessageFormatElement[];
   try {
-    sourceAst = parseMessage(source);
+    sourceAst = parseMessage(source, syntax);
   } catch {
-    return validateTokenPreservation(key, source, translation);
+    return syntax === "icu" ? null : validateTokenPreservation(key, source, translation);
   }
   let translationAst: MessageFormatElement[];
   try {
-    translationAst = parseMessage(translation);
+    translationAst = parseMessage(translation, syntax);
   } catch (error) {
-    return { key, missing: [], spurious: [], problems: [describeSyntaxError(error)] };
+    return { key, missing: [], spurious: [], problems: [describeSyntaxError(error)], ...syntaxField };
   }
 
   const sourceKinds = argumentKinds(sourceAst);
   const translationKinds = argumentKinds(translationAst);
   const missing = [...sourceKinds.keys()].filter((name) => !translationKinds.has(name)).sort();
   const spurious = [...translationKinds.keys()].filter((name) => !sourceKinds.has(name)).sort();
-  const problems = [...swallowedPlaceholderProblems(translation, translationAst), ...strayBraceProblems(translationAst, sourceAst)];
+  const problems = [...swallowedPlaceholderProblems(translation, translationAst, syntax, new Set(sourceKinds.keys()))];
+  if (syntax === "polystella") problems.push(...strayBraceProblems(translationAst, sourceAst));
   for (const [name, kinds] of sourceKinds) {
     const translated = translationKinds.get(name);
     if (translated === undefined) continue;
     const from = describeKinds(kinds);
     const to = describeKinds(translated);
-    if (from !== to) problems.push(`{{${name}}} changed from ${from} to ${to}`);
+    if (from !== to) problems.push(`${placeholderText(name, syntax)} changed from ${from} to ${to}`);
   }
-  problems.push(...branchProblems(translationAst, sourceAst, targetTag, true));
+  problems.push(...branchProblems(translationAst, sourceAst, targetTag, true, syntax));
   return missing.length === 0 && spurious.length === 0 && problems.length === 0
     ? null
-    : { key, missing, spurious, ...(problems.length > 0 ? { problems } : {}) };
+    : { key, missing, spurious, ...(problems.length > 0 ? { problems } : {}), ...syntaxField };
 }
 
 /** `true` when `template` is a valid message containing plural, select or selectordinal. */
-export function hasBranchingMessage(template: string): boolean {
+export function hasBranchingMessage(template: string, syntax: MessageSyntax = DEFAULT_MESSAGE_SYNTAX): boolean {
   try {
-    return [...argumentKinds(parseMessage(template)).values()].some((kinds) =>
+    return [...argumentKinds(parseMessage(template, syntax)).values()].some((kinds) =>
       [...kinds].some((kind) => kind.startsWith("plural") || kind.startsWith("select")),
     );
   } catch {
     return false;
+  }
+}
+
+function invalidIcuSource(source: string): string | undefined {
+  try {
+    parseMessage(source, "icu");
+    return undefined;
+  } catch (error) {
+    return `the source is not a valid ICU message (${describeSyntaxError(error)}); fix it or add its key to catalog.ignoreKeys`;
   }
 }
 
@@ -109,12 +134,24 @@ function describeSyntaxError(error: unknown): string {
   throw error;
 }
 
-// The parsed argument set misses a `{{name}}` that is visibly there: an apostrophe quoted it away.
-function swallowedPlaceholderProblems(template: string, ast: readonly MessageFormatElement[]): string[] {
+const ICU_ARGUMENT_RE = /\{([\p{L}\p{N}_]+)\}/gu;
+
+// The parsed argument set misses a placeholder that is visibly there: an apostrophe quoted it away.
+// In ICU, `'{name}'` is also how a literal is written, so only source placeholders count there.
+function swallowedPlaceholderProblems(
+  template: string,
+  ast: readonly MessageFormatElement[],
+  syntax: MessageSyntax,
+  sourceNames: ReadonlySet<string> | undefined,
+): string[] {
   const parsedNames = argumentKinds(ast);
-  return [...extractTokens(template)]
+  const visible =
+    syntax === "polystella"
+      ? extractTokens(template)
+      : new Set([...template.matchAll(ICU_ARGUMENT_RE)].map((match) => match[1] ?? "").filter((name) => sourceNames?.has(name) === true));
+  return [...visible]
     .filter((name) => !parsedNames.has(name))
-    .map((name) => `an apostrophe hides {{${name}}}; write '' before it`);
+    .map((name) => `an apostrophe hides ${placeholderText(name, syntax)}; write '' before it`);
 }
 
 // A doubled `}}}}` parses as a placeholder plus a literal `}` and would render visibly.
@@ -163,10 +200,12 @@ function branchProblems(
   sourceAst: readonly MessageFormatElement[] | undefined,
   tag: string,
   requireAllCategories: boolean,
+  syntax: MessageSyntax,
 ): string[] {
   const problems: string[] = [];
   const sourceSets = sourceAst === undefined ? new Map<string, BranchSet[]>() : branchSets(sourceAst);
   for (const [name, sets] of branchSets(ast)) {
+    const shown = placeholderText(name, syntax);
     for (const { type, keys } of sets) {
       const sourceKeys = new Set((sourceSets.get(name) ?? []).filter((set) => set.type === type).flatMap((set) => [...set.keys]));
       if (type === "select") {
@@ -174,19 +213,19 @@ function branchProblems(
         const added = [...keys].filter((key) => !sourceKeys.has(key));
         const removed = [...sourceKeys].filter((key) => !keys.has(key));
         if (added.length > 0 || removed.length > 0) {
-          problems.push(`{{${name}}} select branches must match the source (${[...sourceKeys].sort().join(", ")})`);
+          problems.push(`${shown} select branches must match the source (${[...sourceKeys].sort().join(", ")})`);
         }
         continue;
       }
       const categories = pluralCategories(tag, type === "plural" ? "cardinal" : "ordinal");
       const invalid = [...keys].filter((key) => !key.startsWith("=") && !categories.includes(key));
       if (invalid.length > 0)
-        problems.push(`{{${name}}} ${type} branch ${invalid.join(", ")} is never used in ${tag} (use ${categories.join(", ")})`);
+        problems.push(`${shown} ${type} branch ${invalid.join(", ")} is never used in ${tag} (use ${categories.join(", ")})`);
       const required = requiredPluralCategories(tag, type === "plural" ? "cardinal" : "ordinal");
       const lacking = requireAllCategories ? required.filter((category) => !keys.has(category)) : [];
-      if (lacking.length > 0) problems.push(`{{${name}}} ${type} is missing ${lacking.join(", ")} for ${tag}`);
+      if (lacking.length > 0) problems.push(`${shown} ${type} is missing ${lacking.join(", ")} for ${tag}`);
       const exactLost = [...sourceKeys].filter((key) => key.startsWith("=") && !keys.has(key));
-      if (exactLost.length > 0) problems.push(`{{${name}}} ${type} lost exact branch ${exactLost.join(", ")}`);
+      if (exactLost.length > 0) problems.push(`${shown} ${type} lost exact branch ${exactLost.join(", ")}`);
     }
   }
   return problems;
@@ -196,29 +235,40 @@ function branchProblems(
  * The token rule, plus an apostrophe rule when sources contain placeholders and an ICU rule listing
  * `targetTag`'s plural categories when sources contain plural/select/selectordinal.
  */
-export function withMessageRules(glossary: Glossary, sources: readonly string[], targetTag: string): Glossary {
-  const base = withTokenPreservationRule(glossary);
+export function withMessageRules(
+  glossary: Glossary,
+  sources: readonly string[],
+  targetTag: string,
+  syntax: MessageSyntax = DEFAULT_MESSAGE_SYNTAX,
+): Glossary {
+  const icu = syntax === "icu";
+  const base = withTokenPreservationRule(glossary, syntax);
   const styleRules = [...base.styleRules];
-  if (sources.some((source) => source.includes("{{"))) {
+  if (sources.some((source) => source.includes(icu ? "{" : "{{"))) {
     styleRules.push({
       category: "apostrophes",
-      instruction:
-        "An apostrophe written directly before `{{`, before `}` or before `#` inside a plural branch must be doubled (`''`). Everywhere else write a single apostrophe.",
-      example: "the {{company}} team -> l''équipe {{company}}",
+      instruction: icu
+        ? "An apostrophe written directly before `{`, before `}` or before `#` inside a plural branch starts a quote, so it must be doubled (`''`). Everywhere else write a single apostrophe."
+        : "An apostrophe written directly before `{{`, before `}` or before `#` inside a plural branch must be doubled (`''`). Everywhere else write a single apostrophe.",
+      example: icu ? "the {company} team -> l''équipe {company}" : "the {{company}} team -> l''équipe {{company}}",
     });
   }
-  const branching = sources.filter(hasBranchingMessage);
+  const branching = sources.filter((source) => hasBranchingMessage(source, syntax));
   if (branching.length > 0) {
     const ordinal = branching.some((source) => source.includes("selectordinal"));
     styleRules.push({
       category: "icu-messages",
       instruction: [
-        "Some strings are ICU messages such as `{{count, plural, one {...} other {...}}}`. Keep the double outer braces, the placeholder name, the keyword (plural, select, selectordinal) and the single braces around each branch; translate only the text inside the branches.",
+        icu
+          ? "Some strings are ICU messages such as `{count, plural, one {...} other {...}}`. Keep the outer braces, the placeholder name, the keyword (plural, select, selectordinal) and the braces around each branch; translate only the text inside the branches."
+          : "Some strings are ICU messages such as `{{count, plural, one {...} other {...}}}`. Keep the double outer braces, the placeholder name, the keyword (plural, select, selectordinal) and the single braces around each branch; translate only the text inside the branches.",
         "`#` inside a plural branch stands for the number. Keep select keys and exact `=N` branches as written.",
         categoryInstruction("plural", targetTag, "cardinal"),
         ...(ordinal ? [categoryInstruction("selectordinal", targetTag, "ordinal")] : []),
       ].join(" "),
-      example: "{{count, plural, =0 {No roles} one {# role} other {# roles}}}",
+      example: icu
+        ? "{count, plural, =0 {No roles} one {# role} other {# roles}}"
+        : "{{count, plural, =0 {No roles} one {# role} other {# roles}}}",
     });
   }
   return { ...base, styleRules };
@@ -232,12 +282,13 @@ function categoryInstruction(keyword: string, tag: string, type: Intl.PluralRule
 }
 
 /** Drops plural/selectordinal branches `targetTag` never selects (e.g. `one` kept from an English source in Japanese). */
-export function removeUnusedPluralBranches(translation: string, targetTag: string): string {
+export function removeUnusedPluralBranches(translation: string, targetTag: string, syntax: MessageSyntax = DEFAULT_MESSAGE_SYNTAX): string {
   const cardinal = pluralCategories(targetTag);
   const ordinal = pluralCategories(targetTag, "ordinal");
   return removePluralBranches(
     translation,
     (type, key) => !key.startsWith("=") && !(type === "cardinal" ? cardinal : ordinal).includes(key),
+    syntax,
   );
 }
 
@@ -256,16 +307,17 @@ export function selectEmptyKeys(sourceDict: Record<string, string>, localeDict: 
   return pairs;
 }
 
-export function withTokenPreservationRule(glossary: Glossary): Glossary {
+export function withTokenPreservationRule(glossary: Glossary, syntax: MessageSyntax = DEFAULT_MESSAGE_SYNTAX): Glossary {
+  const token = placeholderText("token", syntax);
+  const year = placeholderText("year", syntax);
   return {
     ...glossary,
     styleRules: [
       ...glossary.styleRules,
       {
         category: "placeholders",
-        instruction:
-          "Preserve every `{{token}}` placeholder verbatim - same name, same braces, same position relative to the surrounding text. Do not translate, rename, or remove them.",
-        example: "Copyright ©{{year}}. -> Copyright ©{{year}}.",
+        instruction: `Preserve every \`${token}\` placeholder verbatim - same name, same braces, same position relative to the surrounding text. Do not translate, rename, or remove them.`,
+        example: `Copyright ©${year}. -> Copyright ©${year}.`,
       },
     ],
   };
@@ -279,6 +331,10 @@ export interface CatalogTranslationOptions {
   /** BCP 47 tag of the translation; names the language and selects its plural categories. */
   targetLocale: string;
   context?: string | undefined;
+  /** See `GlossaryMatchOptions`. */
+  matchInflections?: boolean | undefined;
+  /** Default `"polystella"`. */
+  messageSyntax?: MessageSyntax | undefined;
   maxRetries?: number | undefined;
   retryMinTimeoutMs?: number | undefined;
   retryFactor?: number | undefined;
@@ -314,8 +370,16 @@ export interface TranslateUiStringsResult {
 
 export async function translateCatalogEntries(opts: TranslateCatalogEntriesOptions): Promise<TranslateCatalogEntriesResult> {
   assertUniqueSegmentIds(opts.entries.map(({ key }) => key));
-  const entries = opts.entries.filter(({ source }) => source.length > 0);
-  if (entries.length === 0) return { translations: new Map(), tokenFailures: [], batchCount: 0 };
+  const syntax = opts.messageSyntax ?? DEFAULT_MESSAGE_SYNTAX;
+  const tokenFailures: TokenValidationIssue[] = [];
+  const entries = opts.entries.filter(({ key, source }) => {
+    if (source.length === 0) return false;
+    const sourceProblem = syntax === "icu" ? invalidIcuSource(source) : undefined;
+    if (sourceProblem !== undefined)
+      tokenFailures.push({ key, missing: [], spurious: [], problems: [sourceProblem], messageSyntax: syntax });
+    return sourceProblem === undefined;
+  });
+  if (entries.length === 0) return { translations: new Map(), tokenFailures, batchCount: 0 };
 
   const keysById = new Map<string, string>();
   const segments = entries.map(({ key, source }, index) => {
@@ -325,7 +389,6 @@ export async function translateCatalogEntries(opts: TranslateCatalogEntriesOptio
   });
   const batches = packUiStringBatches(segments, opts);
   const translations = new Map<string, string>();
-  const tokenFailures: TokenValidationIssue[] = [];
 
   for (const segments of batches) {
     opts.signal?.throwIfAborted();
@@ -333,8 +396,9 @@ export async function translateCatalogEntries(opts: TranslateCatalogEntriesOptio
       opts.glossary,
       segments.map(({ text }) => text),
       opts.targetLocale,
+      syntax,
     );
-    const result = await translateUiBatchWithRetries({ ...opts, segments, glossary, keysById });
+    const result = await translateUiBatchWithRetries({ ...opts, segments, glossary, keysById, messageSyntax: syntax });
     const failedKeys = new Set(result.tokenFailures.map(({ key }) => key));
     for (const [id, text] of result.translations) {
       const key = keysById.get(id);
@@ -392,6 +456,7 @@ type TranslateUiBatchOptions = Pick<
   | "sourceLocale"
   | "targetLocale"
   | "context"
+  | "matchInflections"
   | "maxRetries"
   | "retryMinTimeoutMs"
   | "retryFactor"
@@ -403,6 +468,7 @@ type TranslateUiBatchOptions = Pick<
   segments: Segment[];
   glossary: Glossary;
   keysById: ReadonlyMap<string, string>;
+  messageSyntax: MessageSyntax;
 };
 
 interface TranslateUiBatchResult {
@@ -421,10 +487,11 @@ class TokenValidationError extends Error {
 }
 
 /** Readable problems for an issue: lost placeholders, placeholders the source lacks, then structure problems. */
-export function describeTokenValidationIssue({ missing, spurious, problems }: TokenValidationIssue): string[] {
+export function describeTokenValidationIssue({ missing, spurious, problems, messageSyntax }: TokenValidationIssue): string[] {
+  const syntax = messageSyntax ?? DEFAULT_MESSAGE_SYNTAX;
   return [
-    ...missing.map((name) => `missing {{${name}}}`),
-    ...spurious.map((name) => `{{${name}}} is not in the source`),
+    ...missing.map((name) => `missing ${placeholderText(name, syntax)}`),
+    ...spurious.map((name) => `${placeholderText(name, syntax)} is not in the source`),
     ...(problems ?? []),
   ];
 }
@@ -432,21 +499,6 @@ export function describeTokenValidationIssue({ missing, spurious, problems }: To
 /** One-line description of a failed key, e.g. `roles: {{count}} plural is missing few for pl`. */
 export function formatTokenValidationIssue(issue: TokenValidationIssue): string {
   return `${issue.key}: ${describeTokenValidationIssue(issue).join("; ")}`;
-}
-
-interface TranslationCorrection {
-  id: string;
-  translation: string;
-  problems: string[];
-}
-
-function formatCorrections(corrections: readonly TranslationCorrection[]): string | undefined {
-  if (corrections.length === 0) return undefined;
-  const lines = ["CORRECTIONS (your previous answer for these segments was invalid; return a corrected translation for each):"];
-  for (const { id, translation, problems } of corrections) {
-    lines.push(`- Segment ${id}`, `  Previous answer: ${translation}`, `  Problem: ${problems.join("; ")}`);
-  }
-  return lines.join("\n");
 }
 
 class RetriableTypeError extends Error {
@@ -479,6 +531,7 @@ async function translateUiBatchWithRetries(opts: TranslateUiBatchOptions): Promi
             ...(correctionText === undefined ? {} : { promptInstruction: correctionText }),
             ...(opts.onBatchAttempt === undefined ? {} : { onBatchAttempt: opts.onBatchAttempt }),
             ...(opts.context === undefined ? {} : { context: opts.context }),
+            ...(opts.matchInflections === undefined ? {} : { matchInflections: opts.matchInflections }),
             ...(opts.signal === undefined ? {} : { signal: opts.signal }),
           });
           const issues: TokenValidationIssue[] = [];
@@ -486,10 +539,10 @@ async function translateUiBatchWithRetries(opts: TranslateUiBatchOptions): Promi
           for (const segment of pending) {
             const raw = result.get(segment.id);
             if (raw === undefined) continue;
-            const translation = removeUnusedPluralBranches(raw, opts.targetLocale);
+            const translation = removeUnusedPluralBranches(raw, opts.targetLocale, opts.messageSyntax);
             const key = opts.keysById.get(segment.id);
             if (key === undefined) throw new Error(`[polystella] missing catalog key for internal segment id "${segment.id}"`);
-            const issue = validateMessageTranslation(key, segment.text, translation, opts.targetLocale);
+            const issue = validateMessageTranslation(key, segment.text, translation, opts.targetLocale, opts.messageSyntax);
             if (issue === null) {
               accepted.set(segment.id, translation);
             } else {

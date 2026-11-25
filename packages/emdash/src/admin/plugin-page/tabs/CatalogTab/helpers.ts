@@ -28,6 +28,7 @@ export function filterCatalogGroups(groups: readonly CatalogGroup[], query: stri
   );
 }
 
-export function sourceContainsTokens(source: string | null): boolean {
-  return source !== null && source.includes("{{");
+export function sourceContainsTokens(source: string | null, messageSyntax: "polystella" | "icu" = "polystella"): boolean {
+  if (source === null) return false;
+  return messageSyntax === "icu" ? /\{\s*[\p{L}\p{N}_]/u.test(source) : source.includes("{{");
 }

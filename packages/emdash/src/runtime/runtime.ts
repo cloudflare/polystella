@@ -1,4 +1,4 @@
-import { resolveTranslations, type CatalogDictionary, type TranslateFn } from "@cloudflare/polystella-core/catalog";
+import { resolveTranslations, type CatalogDictionary, type MessageSyntax, type TranslateFn } from "@cloudflare/polystella-core/catalog";
 import { getPluginSetting, PluginStorageRepository } from "emdash";
 import { getDb } from "emdash/runtime";
 
@@ -19,6 +19,8 @@ export interface PolystellaRuntimeConfig {
   fallbackToDefault: boolean;
   /** Catalog locale → BCP 47 tag used for plural rules and number/date formatting. */
   localeTags?: Record<string, string> | undefined;
+  /** `catalog.messageSyntax`; default `"polystella"`. */
+  messageSyntax?: MessageSyntax | undefined;
   localePaths?: Record<string, string> | undefined;
   prefixDefaultLocale?: boolean | undefined;
 }
@@ -85,6 +87,7 @@ export function createPolystellaRuntime(config: PolystellaRuntimeConfig, depende
       getDictionary: getCatalogDictionary,
       fallbackToDefault: config.fallbackToDefault,
       localeTags: config.localeTags,
+      messageSyntax: config.messageSyntax,
     });
   }
 

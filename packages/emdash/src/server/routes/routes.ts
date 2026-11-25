@@ -1,5 +1,5 @@
 import { resolveModelId, translateSegments, type Glossary, type Segment, type Translator } from "@cloudflare/polystella-core";
-import type { CatalogSource } from "@cloudflare/polystella-core/catalog";
+import type { CatalogSource, IgnoreKey, MessageSyntax } from "@cloudflare/polystella-core/catalog";
 import {
   DEFAULT_UI_STRING_BATCH_SIZE,
   formatTokenValidationIssue,
@@ -37,6 +37,7 @@ import {
 import {
   MAX_CATALOG_KEYS,
   MAX_CONTENT_FIELDS,
+  isSeoField,
   MAX_SANDBOX_CHARACTERS,
   MAX_BATCH_FAILURES_SHOWN,
   MAX_BATCH_TRANSLATIONS,
@@ -63,11 +64,13 @@ import {
 } from "../../contracts.js";
 import { invalidateRuntimeOverrides } from "../../runtime-cache.js";
 import {
+  batchPartsId,
   batchQueue,
   batchResultId,
   enqueueBatchMessages,
   MAX_BATCH_MESSAGE_CHARACTERS,
   parseStoredJob,
+  parseStoredParts,
   parseStoredResult,
   readBatchJob,
   deleteBatchJob,
@@ -79,18 +82,23 @@ import {
   type BatchMessage,
   type BatchTranslateResponse,
   type StoredBatchJob,
+  type StoredBatchParts,
 } from "../batch.js";
 import {
   AI_TRANSLATIONS_CACHE_NAMESPACE,
+  AI_TRANSLATION_PENDING_COLLECTION,
   AI_TRANSLATIONS_COLLECTION,
   changedFields,
   hashFields,
+  mergedFieldHashes,
   readFieldHashes,
   type AiTranslationRecord,
+  readPendingAiTranslation,
+  type PendingAiTranslation,
 } from "../../ai-translations.js";
 import { resolveGlossary, resolveInstructions, runtimeOverrideSettingKey } from "../../settings.js";
 import type { PolystellaEmdashOptions } from "../options.js";
-import { localeTag, resolveReasoning, targetLocales } from "../options.js";
+import { catalogIgnoreKey, catalogMessageSyntax, localeTag, targetLocales } from "../options.js";
 import { reasoningCapability, type ReasoningCapability } from "../reasoning.js";
 import {
   collectionPolicies,
@@ -107,7 +115,14 @@ import {
   MAX_GLOSSARY_CHARACTERS,
   MAX_INSTRUCTION_CHARACTERS,
 } from "../settings-storage.js";
-import { ContentTranslationInputError, translateContentFields } from "../translate-content.js";
+import {
+  applyContentTranslations,
+  ContentTranslationInputError,
+  planContentTranslation,
+  samePageLinksNotice,
+  translateContentPart,
+  type ContentPlan,
+} from "../translate-content.js";
 import {
   catalogSegmentLabel,
   contentSegmentLabel,
@@ -134,7 +149,9 @@ const RECENT_BATCH_JOBS = 10;
 const BATCH_RESULTS_PAGE_SIZE = 50;
 const BATCH_LIST_PAGE_SIZE = 100;
 const ADMIN_ROLE = 50;
-const TRANSLATABLE_FIELD_TYPES = new Set(["string", "text", "portableText"]);
+// A translation already running when its job was cancelled still saves; its row says so.
+const FINISHED_AFTER_CANCEL = "Finished after the job was cancelled.";
+const TRANSLATABLE_FIELD_TYPES = new Set(["string", "text", "portableText", "blocks"]);
 const MAX_ENTRY_ID_LENGTH = 128;
 const TRANSLATABLE_SUBFIELD_TYPES = new Set(["string", "text", "image"]);
 
@@ -149,31 +166,35 @@ export function createPluginRoutes(
   inputOptions: PolystellaEmdashOptions,
   dependencies: PluginRouteDependencies = defaultDependencies,
 ): Record<string, PluginRoute> {
-  const options = flattenEmdashCatalogs(inputOptions);
+  const ignoreKey = catalogIgnoreKey(inputOptions);
+  const options = flattenEmdashCatalogs(inputOptions, ignoreKey);
+  const messageSyntax = catalogMessageSyntax(inputOptions);
   const sourceContentLocale = () => contentLocale(options.catalogs.defaultLocale, dependencies);
+  // Read per request: EmDash may set up its i18n config after the routes are created.
+  const localeTags = () => adminLocaleTags(options, dependencies);
   return {
     "settings/collections": {
       permission: "plugins:manage",
       methods: ["GET", "PUT"],
       async handler(ctx) {
-        if (ctx.request.method === "GET") return collectionSettings(options, ctx.settings);
+        if (ctx.request.method === "GET") return { ...(await collectionSettings(options, ctx.settings)), localeTags: localeTags() };
         const input = readRecord(ctx.input, "request body");
         const revision = readRevision(input.revision);
         await saveCollectionPolicies(ctx.settings, revision, readCollectionPolicies(input.policies));
-        return collectionSettings(options, ctx.settings);
+        return { ...(await collectionSettings(options, ctx.settings)), localeTags: localeTags() };
       },
     },
     "settings/translation": {
       permission: "plugins:manage",
       methods: ["GET", "PUT"],
       async handler(ctx) {
-        if (ctx.request.method === "GET") return translationSettingsView(options, ctx.settings);
+        if (ctx.request.method === "GET") return { ...(await translationSettingsView(options, ctx.settings)), localeTags: localeTags() };
         const env = await dependencies.getEnv();
         await saveTranslationSettings(options, ctx.settings, readRecord(ctx.input, "request body"), async (model, effort, label) => {
           const capability = await readReasoningCapability(options, env, model, dependencies, ctx.log);
           if (capability?.has(effort) !== true) throw PluginRouteError.badRequest(`${label} is not a thinking effort ${model} accepts`);
         });
-        return translationSettingsView(options, ctx.settings);
+        return { ...(await translationSettingsView(options, ctx.settings)), localeTags: localeTags() };
       },
     },
     policy: {
@@ -190,6 +211,8 @@ export function createPluginRoutes(
             policy === undefined ? [] : targetLocales(options).map((code) => ({ locale: contentLocale(code, dependencies), code })),
           fields: policy === undefined ? [] : [...policy.fields],
           subFields: policy?.subFields ?? {},
+          translateSeoWhenPublished: (await storedTranslationSettings(options, ctx.settings)).translateSeoWhenPublished,
+          localeTags: localeTags(),
         } satisfies CollectionPolicyResponse;
       },
     },
@@ -213,28 +236,56 @@ export function createPluginRoutes(
       permission: "content:edit_any",
       methods: ["POST"],
       async handler(ctx) {
-        const input = readRecord(ctx.input, "request body");
-        const { collection, entryId, item, storage, policy } = await aiTranslationTarget(ctx, input);
-        // The queue translates every enabled field, so it sends none.
-        const fields = input.fields === undefined ? policy.fields : [...new Set(readStringArray(input.fields, "fields", false))];
-        if (fields.some((field) => !policy.fields.includes(field)))
-          throw PluginRouteError.badRequest("fields must be enabled for the collection");
-        if (item.locale === null) throw PluginRouteError.badRequest("entry has no locale");
-        const locale = configuredTargetLocale(options, catalogLocale(options, item.locale, dependencies));
-        const stored = await storedTranslationSettings(options, ctx.settings);
+        const { collection, entryId, item, storage, fields, meta } = await aiTranslationInput(ctx, options, dependencies);
         const data = await savedEntryData(contentAccess(ctx), collection, item);
         const previous = readFieldHashes(recordValue(await storage.get(entryId)).fieldHashes);
         const record: AiTranslationRecord = {
-          collection,
-          entryId,
-          locale,
-          model: stored.locales[locale]?.model ?? resolveModelId(options.models.defaults, locale),
-          aiTranslatedAt: dependencies.now().toISOString(),
+          ...meta,
           fieldHashes: data === null ? null : await mergedFieldHashes(data, fields, previous),
         };
         await storage.put(entryId, record);
         invalidateObjectCache(AI_TRANSLATIONS_CACHE_NAMESPACE);
         return { recorded: true };
+      },
+    },
+    // Sent just before the panel patches the open editor (or `cancel` after a refused patch). A later save that
+    // changes one of these fields from its `baseline` confirms it into the AI-translated record.
+    "ai-translation/pending": {
+      permission: "content:edit_any",
+      methods: ["POST"],
+      async handler(ctx) {
+        const { collection, entryId, item, fields, meta, input } = await aiTranslationInput(ctx, options, dependencies);
+        const cancel = input.cancel === undefined ? false : readBoolean(input.cancel, "cancel");
+        const pending = ctx.storage[AI_TRANSLATION_PENDING_COLLECTION];
+        if (pending === undefined) throw PluginRouteError.internal("pending AI translation storage is unavailable");
+        const stored = await pending.getVersioned(entryId);
+        const previous = readPendingAiTranslation(stored?.value);
+        let next: PendingAiTranslation | null;
+        let added: string[] = [];
+        if (cancel) {
+          const remaining = previous?.fields.filter((field) => !fields.includes(field)) ?? [];
+          next = previous === null || remaining.length === 0 ? null : { ...previous, fields: remaining };
+        } else {
+          const data = await savedEntryData(contentAccess(ctx), collection, item);
+          if (data === null) throw PluginRouteError.internal("the saved draft could not be read");
+          added = fields.filter((field) => !(previous?.fields.includes(field) ?? false));
+          next = {
+            ...meta,
+            fields: [...(previous?.fields ?? []), ...added],
+            baseline: { ...previous?.baseline, ...(await hashFields(data, added)) },
+          };
+        }
+        const result =
+          stored === null
+            ? next === null
+              ? { applied: true }
+              : await pending.compareAndSet(entryId, null, next)
+            : next === null
+              ? await pending.compareAndDelete(entryId, stored.revision)
+              : await pending.compareAndSet(entryId, stored.revision, next);
+        if (!result.applied) throw PluginRouteError.conflict("Another translation of this entry is being recorded. Try again.");
+        // A refused patch cancels only these, so an earlier unsaved translation of the same field stays pending.
+        return { recorded: true, added };
       },
     },
     // For the editor panel: whether the entry is flagged, and which AI-written fields were changed since.
@@ -303,15 +354,38 @@ export function createPluginRoutes(
           if (selectedFields.length > MAX_CONTENT_FIELDS) {
             throw PluginRouteError.badRequest(`fields cannot contain more than ${MAX_CONTENT_FIELDS} values`);
           }
-          if (selectedFields.some((field) => !policy.fields.includes(field))) {
+          const dataFields = selectedFields.filter((field) => !isSeoField(field));
+          if (dataFields.some((field) => !policy.fields.includes(field))) {
             throw PluginRouteError.badRequest("fields must be enabled in PolyStella collection settings");
           }
           const schema = await collectionSchema(ctx, collection);
-          const untranslatableField = selectedFields.find((slug) => !isTranslatableField(schema, policy, slug));
+          const untranslatableField = dataFields.find((slug) => !isTranslatableField(schema, policy, slug));
           if (untranslatableField !== undefined) {
             throw PluginRouteError.badRequest(`field "${untranslatableField}" is not a translatable text field in the collection schema`);
           }
-          const { values } = await loadTranslationSource(ctx, options, dependencies, collection, entryId, targetLocale, selectedFields);
+          const seoSelected = dataFields.length < selectedFields.length;
+          if (seoSelected && !schema.hasSeo) throw PluginRouteError.badRequest("the collection has no SEO fields");
+          const { item, isSourceEntry, values } = await loadTranslationSource(
+            ctx,
+            options,
+            dependencies,
+            collection,
+            entryId,
+            targetLocale,
+            selectedFields,
+          );
+          // Only the open editor takes SEO text: a created draft gets `data` only.
+          if (seoSelected && isSourceEntry) throw PluginRouteError.badRequest("SEO fields are translated only on a target-locale entry");
+          // EmDash saves patched SEO text at once, so on a published or scheduled entry it would go live unreviewed.
+          if (
+            seoSelected &&
+            item.status !== "draft" &&
+            !(await storedTranslationSettings(options, ctx.settings)).translateSeoWhenPublished
+          ) {
+            throw PluginRouteError.badRequest(
+              "SEO fields of a published or scheduled entry can't be translated; an administrator can allow it in Translation settings",
+            );
+          }
 
           const settings = await translationSettings(options, targetLocale, ctx.settings, ctx.log, dependencies);
           if (settings.debugEnabled && (ctx.user?.role ?? 0) >= ADMIN_ROLE) {
@@ -326,26 +400,48 @@ export function createPluginRoutes(
               labelSegment: (id) => contentSegmentLabel(id, Object.keys(values)),
             });
           }
-          translationStarted = true;
-          const result = await translateContentFields({
+          const plan = await planContentTranslation({
             values,
-            repeaterSubFields: repeaterSubFields(schema, policy, selectedFields),
+            repeaterSubFields: repeaterSubFields(schema, policy, dataFields),
+            blockFields: options.blockFields,
+            blocksFieldSlugs: blocksFieldSlugs(schema),
+          });
+          const part = input.part === undefined ? 0 : readPartIndex(input.part, plan.parts.length);
+          const translations = part === 0 ? new Map<string, string>() : readEarlierParts(input, plan);
+          const onValidationIssue =
+            debug === undefined ? undefined : (segmentIds: string[], message: string) => debug?.markValidationIssue(message, segmentIds);
+          translationStarted = true;
+          const result = await translateContentPart(plan, part, {
             translator: settings.translator,
             glossary: settings.glossary,
+            matchInflections: settings.matchInflections,
             sourceLocale: localeTag(options, options.catalogs.defaultLocale),
             targetLocale: localeTag(options, targetLocale),
             ...(settings.promptInstruction === undefined ? {} : { promptInstruction: settings.promptInstruction }),
-            ...(debug === undefined
-              ? {}
-              : {
-                  onBatchAttempt: debug.record,
-                  onValidationIssue: (segmentIds, message) => debug?.markValidationIssue(message, segmentIds),
-                }),
+            ...(debug === undefined ? {} : { onBatchAttempt: debug.record, onValidationIssue }),
             signal: ctx.request.signal,
           });
+          for (const [id, text] of result.translations) translations.set(id, text);
+          const next =
+            part + 1 < plan.parts.length
+              ? {
+                  part: part + 1,
+                  partCount: plan.parts.length,
+                  fingerprint: plan.fingerprint,
+                  translations: Object.fromEntries(translations),
+                }
+              : null;
+          const patch = next === null ? applyContentTranslations(plan, translations, onValidationIssue) : null;
+          const trace = debug === undefined ? {} : { debug: debug.finish(result.batchCount) };
+          if (patch === null && next !== null)
+            return { patch, batchCount: result.batchCount, next, ...trace } satisfies TranslateContentResponse;
+          if (patch === null) throw new Error("[polystella-emdash] no patch for the last part");
+          const notice = samePageLinksNotice(patch);
           return {
-            ...result,
-            ...(debug === undefined ? {} : { debug: debug.finish(result.batchCount) }),
+            patch,
+            batchCount: result.batchCount,
+            ...(notice === null ? {} : { notice }),
+            ...trace,
           } satisfies TranslateContentResponse;
         } catch (error) {
           if (error instanceof ContentTranslationInputError) throw PluginRouteError.badRequest(error.message);
@@ -364,13 +460,15 @@ export function createPluginRoutes(
       async handler(ctx) {
         const query = readRecord(ctx.input, "query");
         const locale = query.locale === undefined ? preferredCatalogLocale(options) : readString(query.locale, "locale");
-        return catalogView(
+        const view = await catalogView(
           options,
           ctx.settings,
           overrideStorage(ctx.storage),
           locale,
           inputOptions.catalogs.locales[inputOptions.catalogs.defaultLocale]?.dictionary,
+          ignoreKey,
         );
+        return { ...view, localeTags: localeTags() } satisfies CatalogViewResponse;
       },
     },
     "catalog/generate": {
@@ -409,9 +507,11 @@ export function createPluginRoutes(
             entries,
             translator: settings.translator,
             glossary: settings.glossary,
+            matchInflections: settings.matchInflections,
             sourceLocale: localeTag(options, options.catalogs.defaultLocale),
             targetLocale: localeTag(options, locale),
             maxRetries: 2,
+            messageSyntax,
             ...(settings.promptInstruction === undefined ? {} : { context: settings.promptInstruction }),
             ...(debug === undefined ? {} : { onBatchAttempt: debug.record, onRetry: ({ error }) => debug?.markLastAttemptError(error) }),
             signal: ctx.request.signal,
@@ -472,7 +572,7 @@ export function createPluginRoutes(
           if (value.length > maxCharacters) {
             throw PluginRouteError.badRequest(`override cannot exceed ${maxCharacters} characters`);
           }
-          const problem = overrideMessageProblem(key, source[key], value, localeTag(options, locale));
+          const problem = overrideMessageProblem(key, source[key], value, localeTag(options, locale), messageSyntax);
           if (problem !== undefined) throw PluginRouteError.badRequest(`override is not a valid message: ${problem}`);
         }
         const stored = await storage.getVersioned(id);
@@ -539,7 +639,14 @@ export function createPluginRoutes(
         return {
           filePath: catalog.filePath,
           filename: catalog.filePath.split("/").at(-1) ?? `${locale}.json`,
-          json: serializeCatalog(locale, catalog.dictionary, overrides, inputOptions.catalogs.locales[locale]?.dictionary),
+          json: serializeCatalog(
+            locale,
+            catalog.dictionary,
+            overrides,
+            inputOptions.catalogs.locales[locale]?.dictionary,
+            ignoreKey,
+            inputOptions.catalogs.locales[inputOptions.catalogs.defaultLocale]?.dictionary,
+          ),
         } satisfies CatalogExportResponse;
       },
     },
@@ -577,6 +684,7 @@ export function createPluginRoutes(
             translator: settings.translator,
             segments: [segment],
             glossary: settings.glossary,
+            matchInflections: settings.matchInflections,
             sourceLocale: localeTag(options, options.catalogs.defaultLocale),
             targetLocale: localeTag(options, targetLocale),
             ...(settings.promptInstruction === undefined ? {} : { promptInstruction: settings.promptInstruction }),
@@ -621,7 +729,7 @@ export function createPluginRoutes(
             return job === null ? [] : [batchJobView(results, id, job)];
           }),
         );
-        return { queueEnabled: options.batchQueueBinding !== undefined, jobs: views } satisfies BatchJobsResponse;
+        return { queueEnabled: options.batchQueueBinding !== undefined, jobs: views, localeTags: localeTags() } satisfies BatchJobsResponse;
       },
     },
     "batch/start": {
@@ -828,30 +936,70 @@ export function createPluginRoutes(
             fields,
           );
           if (sourceItem.id !== message.entryId) return await record("failed", "The entry is not in the source locale.");
-          const settings = await translationSettings(options, message.locale, ctx.settings, ctx.log, dependencies);
-          const result = await translateContentFields({
+          const plan = await planContentTranslation({
             values,
             repeaterSubFields: repeaterSubFields(schema, policy, fields),
+            blockFields: options.blockFields,
+            blocksFieldSlugs: blocksFieldSlugs(schema),
+          });
+          const part = message.part ?? 0;
+          const translations = new Map<string, string>();
+          if (part > 0) {
+            const stored = parseStoredParts(await results.get(batchPartsId(message)));
+            // A redelivered message for a part that already ran has nothing left to do.
+            if (stored !== null && stored.part !== part) return { create: null } satisfies BatchTranslateResponse;
+            if (stored === null || stored.fingerprint !== plan.fingerprint || part >= plan.parts.length) {
+              await results.delete(batchPartsId(message));
+              return await record("failed", SOURCE_CHANGED);
+            }
+            for (const [id, text] of Object.entries(stored.translations)) translations.set(id, text);
+          }
+          const settings = await translationSettings(options, message.locale, ctx.settings, ctx.log, dependencies);
+          const result = await translateContentPart(plan, part, {
             translator: settings.translator,
             glossary: settings.glossary,
+            matchInflections: settings.matchInflections,
             sourceLocale: localeTag(options, options.catalogs.defaultLocale),
             targetLocale: localeTag(options, message.locale),
             ...(settings.promptInstruction === undefined ? {} : { promptInstruction: settings.promptInstruction }),
             signal: ctx.request.signal,
           });
+          for (const [id, text] of result.translations) translations.set(id, text);
+          if (part + 1 < plan.parts.length) {
+            const { jobId, entryId, locale } = message;
+            const stored: StoredBatchParts = {
+              jobId,
+              entryId,
+              locale,
+              part: part + 1,
+              fingerprint: plan.fingerprint,
+              translations: Object.fromEntries(translations),
+            };
+            await results.put(batchPartsId(message), stored);
+            await enqueueBatchMessages(batchQueue(options.batchQueueBinding, await dependencies.getEnv()), [
+              { jobId, entryId, locale, part: part + 1 },
+            ]);
+            return { create: null } satisfies BatchTranslateResponse;
+          }
+          const patch = applyContentTranslations(plan, translations);
+          if (part > 0) await results.delete(batchPartsId(message));
+          const notice = samePageLinksNotice(patch);
           return {
             create: {
               collection,
-              data: { ...sourceItem.data, ...result.patch },
+              data: { ...sourceItem.data, ...patch },
               slug: sourceItem.slug,
               locale: contentLocale(message.locale, dependencies),
               translationOf: sourceItem.id,
               ...(job.createdBy === null ? {} : { authorId: job.createdBy }),
             },
             publish: job.publish,
+            ...(notice === null ? {} : { notice }),
           } satisfies BatchTranslateResponse;
         } catch (error) {
-          return await record("failed", batchFailureMessage(error, ctx.log));
+          const failure = batchFailureMessage(error, ctx.log);
+          await results.delete(batchPartsId(message));
+          return await record("failed", failure);
         }
       },
     },
@@ -874,8 +1022,11 @@ export function createPluginRoutes(
         }
         const { jobs, results } = batchStorage(ctx.storage);
         // A message still in flight when its job was removed must not leave a row nothing lists.
-        if ((await readBatchJob(jobs, message.jobId)) === null) return { recorded: false };
-        await recordBatchResult(results, message, outcome, detail, dependencies.now(), translation);
+        const job = await readBatchJob(jobs, message.jobId);
+        if (job === null) return { recorded: false };
+        const note = job.status === "cancelled" && outcome !== "skipped" ? FINISHED_AFTER_CANCEL : null;
+        const recordedDetail = note === null ? detail : detail === null ? note : `${note} ${detail}`;
+        await recordBatchResult(results, message, outcome, recordedDetail, dependencies.now(), translation);
         return { recorded: true };
       },
     },
@@ -982,20 +1133,6 @@ async function savedEntryData(
   return { ...item.data, ...Object.fromEntries(Object.entries(revision.data).filter(([key]) => !key.startsWith("_"))) };
 }
 
-/** This run's fields, plus fields an earlier AI run wrote that nobody has changed since. */
-async function mergedFieldHashes(
-  data: Record<string, unknown>,
-  fields: readonly string[],
-  previous: Readonly<Record<string, string>> | null,
-): Promise<Record<string, string>> {
-  const untouched: Record<string, string> = {};
-  if (previous !== null) {
-    const changed = new Set(await changedFields(data, previous));
-    for (const [field, hash] of Object.entries(previous)) if (!changed.has(field)) untouched[field] = hash;
-  }
-  return { ...untouched, ...(await hashFields(data, fields)) };
-}
-
 async function aiTranslationTarget(ctx: RouteContext, input: Record<string, unknown>) {
   const collection = readString(input.collection, "collection");
   const entryId = readString(input.entryId, "entryId");
@@ -1005,6 +1142,28 @@ async function aiTranslationTarget(ctx: RouteContext, input: Record<string, unkn
   const storage = ctx.storage[AI_TRANSLATIONS_COLLECTION];
   if (storage === undefined) throw PluginRouteError.internal("AI translation storage is unavailable");
   return { collection, entryId, item, policy, storage };
+}
+
+/** Shared input of the two routes that record an AI translation. The server derives locale and model itself. */
+async function aiTranslationInput(ctx: RouteContext, options: PolystellaEmdashOptions, dependencies: PluginRouteDependencies) {
+  const input = readRecord(ctx.input, "request body");
+  const target = await aiTranslationTarget(ctx, input);
+  const { policy, item } = target;
+  // The queue translates every enabled field, so it sends none.
+  const fields = input.fields === undefined ? policy.fields : [...new Set(readStringArray(input.fields, "fields", false))];
+  if (fields.some((field) => !policy.fields.includes(field)))
+    throw PluginRouteError.badRequest("fields must be enabled for the collection");
+  if (item.locale === null) throw PluginRouteError.badRequest("entry has no locale");
+  const locale = configuredTargetLocale(options, catalogLocale(options, item.locale, dependencies));
+  const stored = await storedTranslationSettings(options, ctx.settings);
+  const meta = {
+    collection: target.collection,
+    entryId: target.entryId,
+    locale,
+    model: stored.locales[locale]?.model ?? resolveModelId(options.models.defaults, locale),
+    aiTranslatedAt: dependencies.now().toISOString(),
+  };
+  return { ...target, input, fields, meta };
 }
 
 function recordValue(value: unknown): Record<string, unknown> {
@@ -1046,7 +1205,8 @@ async function batchJobView(results: StorageCollection, id: string, job: StoredB
     collection: job.collection,
     locales: job.locales,
     total: job.total,
-    status: job.status,
+    status:
+      job.status === "cancelled" ? "cancelled" : job.listing === null && created + skipped + failed >= job.total ? "finished" : "running",
     publish: job.publish,
     createdAt: job.createdAt,
     listing: job.listing !== null,
@@ -1078,6 +1238,32 @@ async function collectionSchema(ctx: RouteContext, collection: string): Promise<
   const schema = await ctx.schema.getCollection(collection);
   if (schema === null) throw PluginRouteError.notFound("collection not found");
   return schema;
+}
+
+const SOURCE_CHANGED = "The source entry changed while it was being translated. Start the translation again.";
+
+function readPartIndex(value: unknown, partCount: number): number {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0 || value >= partCount) {
+    throw PluginRouteError.badRequest(`part must be an integer from 0 to ${partCount - 1}`);
+  }
+  return value;
+}
+
+/** Translations of earlier parts, sent back by the browser; only valid for the same source text. */
+function readEarlierParts(input: Record<string, unknown>, plan: ContentPlan): Map<string, string> {
+  if (input.fingerprint !== plan.fingerprint) throw PluginRouteError.conflict(SOURCE_CHANGED);
+  const ids = new Set(plan.segments.map(({ id }) => id));
+  const translations = new Map<string, string>();
+  for (const [id, text] of Object.entries(readRecord(input.translations, "translations"))) {
+    if (!ids.has(id) || typeof text !== "string")
+      throw PluginRouteError.badRequest("translations must map this entry's segment ids to text");
+    translations.set(id, text);
+  }
+  return translations;
+}
+
+function blocksFieldSlugs(schema: CollectionSchemaInfo): string[] {
+  return schema.fields.filter((field) => field.type === "blocks").map((field) => field.slug);
 }
 
 function isTranslatableField(schema: CollectionSchemaInfo, policy: CollectionPolicy, slug: string): boolean {
@@ -1114,7 +1300,7 @@ async function loadTranslationSource(
   entryId: string,
   targetLocale: string,
   fields: readonly string[],
-): Promise<{ sourceItem: PluginContentItem; values: Record<string, unknown> }> {
+): Promise<{ item: PluginContentItem; isSourceEntry: boolean; sourceItem: PluginContentItem; values: Record<string, unknown> }> {
   if (ctx.content === undefined) throw PluginRouteError.internal("content access is unavailable");
   const item = await ctx.content.get(collection, entryId);
   if (item === null) throw PluginRouteError.notFound("content entry not found");
@@ -1132,18 +1318,28 @@ async function loadTranslationSource(
     sourceItem = (sourceId === undefined ? null : await ctx.content.get(collection, sourceId)) ?? item;
   }
   const values = Object.fromEntries(
-    fields.flatMap((field) => (Object.hasOwn(sourceItem.data, field) ? [[field, sourceItem.data[field]]] : [])),
+    fields.flatMap((field) => {
+      if (!isSeoField(field)) return Object.hasOwn(sourceItem.data, field) ? [[field, sourceItem.data[field]]] : [];
+      const text = field === "seo.title" ? sourceItem.seo?.title : sourceItem.seo?.description;
+      return typeof text === "string" && text.trim().length > 0 ? [[field, text]] : [];
+    }),
   );
   if (Object.keys(values).length === 0) throw PluginRouteError.badRequest("selected fields have no saved values");
-  return { sourceItem, values };
+  return { item, isSourceEntry, sourceItem, values };
 }
 
-function overrideMessageProblem(key: string, source: string | undefined, value: string, tag: string): string | undefined {
+function overrideMessageProblem(
+  key: string,
+  source: string | undefined,
+  value: string,
+  tag: string,
+  syntax: MessageSyntax,
+): string | undefined {
   if (source === undefined || source.length === 0) {
-    const problems = validateMessage(value, tag);
+    const problems = validateMessage(value, tag, syntax);
     return problems.length === 0 ? undefined : problems.join("; ");
   }
-  const issue = validateMessageTranslation(key, source, value, tag);
+  const issue = validateMessageTranslation(key, source, value, tag, syntax);
   return issue === null ? undefined : formatTokenValidationIssue(issue);
 }
 
@@ -1163,7 +1359,8 @@ async function catalogView(
   storage: StorageCollection,
   locale: string,
   source?: CatalogSource | undefined,
-): Promise<CatalogViewResponse> {
+  ignoreKey?: IgnoreKey | undefined,
+): Promise<Omit<CatalogViewResponse, "localeTags">> {
   const catalog = options.catalogs.locales[configuredTargetLocale(options, locale)];
   const flatSource = options.catalogs.locales[options.catalogs.defaultLocale]?.dictionary;
   if (catalog === undefined || flatSource === undefined || source === undefined)
@@ -1192,8 +1389,9 @@ async function catalogView(
         return { locale: code, filePath: value.filePath, runtimeEnabled: enabledLocales.includes(code) };
       })
       .sort((left, right) => left.locale.localeCompare(right.locale)),
-    groups: catalogGroupTitles(source),
+    groups: catalogGroupTitles(source, ignoreKey),
     entries,
+    messageSyntax: catalogMessageSyntax(options),
   };
 }
 
@@ -1207,6 +1405,7 @@ async function translationSettings(
 ): Promise<{
   translator: Translator;
   glossary: Glossary;
+  matchInflections: boolean;
   debugEnabled: boolean;
   maxTokens: number;
   promptInstruction?: string | undefined;
@@ -1216,39 +1415,34 @@ async function translationSettings(
   if (stored === undefined) throw PluginRouteError.internal(`translation settings for ${locale} are unavailable`);
   const deploymentModel = resolveModelId(options.models.defaults, locale);
   const model = modelOverride ?? stored.model ?? deploymentModel;
+  if (stored.glossaryText.length > MAX_GLOSSARY_CHARACTERS) {
+    throw PluginRouteError.badRequest(`glossary text for ${locale} cannot exceed ${MAX_GLOSSARY_CHARACTERS} characters`);
+  }
   const glossary = resolveGlossary(options.glossaryDefaults?.[locale], stored.glossaryMode, stored.glossaryText.trim());
   const promptInstruction = resolveInstructions(
     options.rules ?? [],
     storedSettings.instructions.mode,
     storedSettings.instructions.text.trim(),
   );
-  if (JSON.stringify(glossary).length > MAX_GLOSSARY_CHARACTERS) {
-    throw PluginRouteError.badRequest(`effective glossary cannot exceed ${MAX_GLOSSARY_CHARACTERS} characters`);
-  }
   if (promptInstruction.length > MAX_INSTRUCTION_CHARACTERS) {
     throw PluginRouteError.badRequest(`translation instructions cannot exceed ${MAX_INSTRUCTION_CHARACTERS} characters`);
   }
   const maxTokens = storedSettings.maxTokens ?? defaultMaxTokens(options);
-  // An admin's effort goes with their model override; the code default goes with the code-default model.
-  const effort =
-    stored.model !== null
-      ? model === stored.model
-        ? stored.reasoning
-        : null
-      : model === deploymentModel
-        ? (resolveReasoning(options.models.reasoning, locale) ?? null)
-        : null;
+  // An admin's thinking choice goes with their model override; the code default comes from `models.params`.
+  const effort = stored.model !== null && model === stored.model ? stored.reasoning : null;
   return {
     translator: createTranslator(
       options,
       env,
       model,
+      locale,
       log,
       dependencies,
       maxTokens,
       await reasoningInput(options, env, model, effort, dependencies, log),
     ),
     glossary,
+    matchInflections: options.glossaryMatchInflections === true,
     debugEnabled: storedSettings.debugEnabled,
     maxTokens,
     ...(promptInstruction.length === 0 ? {} : { promptInstruction }),
@@ -1319,6 +1513,17 @@ function contentLocale(locale: string, dependencies: PluginRouteDependencies): s
 
 function sameContentLocale(left: string | null, right: string, dependencies: PluginRouteDependencies): boolean {
   return left !== null && contentLocale(left, dependencies).toLowerCase() === contentLocale(right, dependencies).toLowerCase();
+}
+
+function adminLocaleTags(options: PolystellaEmdashOptions, dependencies: PluginRouteDependencies): Record<string, string> {
+  const tags: Record<string, string> = {};
+  for (const code of Object.keys(options.catalogs.locales)) {
+    const tag = localeTag(options, code);
+    if (tag === code) continue;
+    tags[code.toLowerCase()] = tag;
+    tags[contentLocale(code, dependencies).toLowerCase()] = tag;
+  }
+  return tags;
 }
 
 // ponytail: first matching code wins when one Astro path lists several catalog codes.
