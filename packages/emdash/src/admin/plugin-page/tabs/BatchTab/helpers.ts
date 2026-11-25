@@ -70,6 +70,8 @@ export interface BatchRunPlan {
   targets: BatchTargetLocale[];
   options: BatchJobOptions;
   createdAt: number;
+  /** The policy's `localeTags`: the run tab opens without a response that carries them. */
+  localeTags?: Record<string, string> | undefined;
 }
 
 const RUN_KEY_PREFIX = "polystella:batch-run:";

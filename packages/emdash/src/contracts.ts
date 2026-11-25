@@ -135,6 +135,8 @@ export interface TranslationDebugTrace {
   operation: "content" | "catalog" | "sandbox";
   provider: "workers-ai-binding" | "workers-ai-http";
   model: string;
+  /** Extra Workers AI input sent with every request, such as thinking settings; `messages` and `max_tokens` aren't shown. */
+  requestInput: Record<string, unknown> | null;
   maxOutputTokens: number;
   inputTokenBudget: number;
   maxSegmentsPerBatch: number | null;

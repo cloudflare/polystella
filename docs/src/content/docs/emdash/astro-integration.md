@@ -85,7 +85,7 @@ Astro.cache.set(cacheHint);
 | `polystella.aiTranslationModel` | `string \| null` | Model the locale was configured to use at that time. |
 
 - The flag is set whenever PolyStella saves a translation: from the
-  content-editor panel, the Batch translation tab, and server queue
+  content-editor panel, the Batch translation page, and server queue
   jobs. It is written before any publish. If only the flag fails to
   save, the translation stays saved and the panel or result row shows
   a warning.

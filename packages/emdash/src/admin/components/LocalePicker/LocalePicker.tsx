@@ -10,6 +10,7 @@ export interface LocaleOption {
 
 export function LocalePicker({
   legend,
+  placeholder = "Choose locales",
   options,
   value,
   disabled,
@@ -17,6 +18,7 @@ export function LocalePicker({
   actions,
 }: {
   legend: string;
+  placeholder?: string;
   options: readonly LocaleOption[];
   value: readonly string[];
   disabled: boolean;
@@ -30,10 +32,10 @@ export function LocalePicker({
       <Select<string, true>
         label={legend}
         multiple
-        placeholder="Choose locales"
+        placeholder={placeholder}
         value={[...value]}
         disabled={disabled}
-        renderValue={(selected) => selectedLocalesLabel(selected, options)}
+        renderValue={(selected) => (selected.length === 0 ? placeholder : selectedLocalesLabel(selected, options))}
         onValueChange={(next) => onChange(all.filter((locale) => next.includes(locale)))}
       >
         {options.map(({ locale, label }) => (

@@ -10,9 +10,11 @@ import {
   type TranslationLocaleSettings,
   type TranslationSettingsResponse,
 } from "../../../../contracts.js";
-import { errorMessage, localeLabel, pluginRequest } from "../../../utils.js";
-import { cardStyle, codeStyle, mutedStyle, rowStyle, sectionStyle, stackStyle } from "../../../styles.js";
+import { errorMessage, localeLabel, pluginPageUrl, pluginRequest } from "../../../utils.js";
+import { cardStyle, mutedStyle, rowStyle, sectionStyle, stackStyle, subheadingStyle } from "../../../styles.js";
 import { ErrorMessage } from "../../../components/ErrorMessage/ErrorMessage.js";
+import { NewWindowLink } from "../../../components/NewWindowLink/NewWindowLink.js";
+import { InfoTooltip, SectionHeader } from "../../../components/PageHeader/PageHeader.js";
 
 export function TranslationSettingsTab(): ReactNode {
   const [settings, setSettings] = useState<TranslationSettingsResponse | null>(null);
@@ -80,10 +82,7 @@ export function TranslationSettingsTab(): ReactNode {
 
   return (
     <section style={sectionStyle}>
-      <div>
-        <h2>Translation settings</h2>
-        <p style={mutedStyle}>Choose a model and customize code-defined guidance without redeploying.</p>
-      </div>
+      <SectionHeader title="Translation settings" description="Choose a model and customize code-defined guidance without redeploying." />
       {error === null ? null : <ErrorMessage>{error}</ErrorMessage>}
       {settings === null ? null : (
         <LayerCard style={cardStyle}>
@@ -129,7 +128,13 @@ export function TranslationSettingsTab(): ReactNode {
                 setSettings((current) => (current === null ? null : { ...current, translateSeoWhenPublished }))
               }
             />
-            <h3>Shared translation instructions</h3>
+            <div style={subheadingStyle}>
+              <h3 style={{ fontSize: "inherit", margin: 0 }}>Additional translation instructions</h3>
+              <InfoTooltip
+                label="About additional translation instructions"
+                content="Sent with every translation in every language, together with that language's glossary."
+              />
+            </div>
             <Select
               label="Instruction behavior"
               value={settings.instructions.mode}
@@ -160,10 +165,9 @@ export function TranslationSettingsTab(): ReactNode {
                 }
               />
             )}
-            <details>
-              <summary>View code-defined instructions</summary>
-              <pre style={codeStyle}>{settings.instructions.defaultText || "No code-defined instructions."}</pre>
-            </details>
+            <span>
+              <NewWindowLink href={pluginPageUrl("/code-defaults")}>View code-defined additional translation instructions</NewWindowLink>
+            </span>
           </div>
         </LayerCard>
       )}
@@ -231,10 +235,9 @@ export function TranslationSettingsTab(): ReactNode {
                   onValueChange={(glossaryText) => updateLocale(locale.locale, { glossaryText })}
                 />
               )}
-              <details>
-                <summary>View code-defined glossary</summary>
-                <pre style={codeStyle}>{locale.defaultGlossary || "No code-defined glossary."}</pre>
-              </details>
+              <span>
+                <NewWindowLink href={pluginPageUrl("/code-defaults", { locale: locale.locale })}>View code-defined glossary</NewWindowLink>
+              </span>
             </div>
           </details>
         </LayerCard>

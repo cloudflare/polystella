@@ -95,7 +95,15 @@ describe("batch translation", () => {
       removeItem: (key) => void rows.delete(key),
       clear: () => rows.clear(),
     };
-    const plan = { collection: "posts", scope: "selected" as const, items: [job.item], targets: [job.target], options, createdAt: 1_000 };
+    const plan = {
+      collection: "posts",
+      scope: "selected" as const,
+      items: [job.item],
+      targets: [job.target],
+      options,
+      localeTags: { "es-la": "es-419" },
+      createdAt: 1_000,
+    };
     rows.set("polystella:batch-run:old", JSON.stringify({ ...plan, createdAt: -100_000_000 }));
     rows.set("polystella:batch-run:corrupt", "{");
     rows.set("unrelated", "keep");

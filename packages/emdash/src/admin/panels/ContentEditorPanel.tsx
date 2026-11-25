@@ -18,6 +18,7 @@ import {
   formatErrorDetails,
   isPolicyField,
   localeLabel,
+  pluginPageUrl,
   pluginRequest,
   removeTranslationDebug,
   storeTranslationDebug,
@@ -26,6 +27,7 @@ import {
 import type { CollectionSchema, TranslationProgressState } from "../types.js";
 import { codeStyle, mutedStyle, rowStyle, stackStyle } from "../styles.js";
 import { LocalePicker } from "../components/LocalePicker/LocalePicker.js";
+import { NewWindowLink } from "../components/NewWindowLink/NewWindowLink.js";
 import { TranslationDebugView } from "../components/TranslationDebugView/TranslationDebugView.js";
 import { TranslationProgress } from "../components/TranslationProgress/TranslationProgress.js";
 import { AiFlagStatus } from "./AiFlagStatus.js";
@@ -322,16 +324,14 @@ export function ContentEditorPanel({ collection, entry, locale, editorDraft }: C
       <div style={stackStyle}>
         <small style={mutedStyle}>
           PolyStella isn't enabled for this collection.{" "}
-          {isAdmin ? "Enable it and choose its fields in the PolyStella Collections tab." : "Ask an administrator to enable it."}
+          {isAdmin
+            ? "Enable it and choose its fields in PolyStella's Settings, on the Collections tab."
+            : "Ask an administrator to enable it."}
         </small>
         {isAdmin ? (
-          <Button
-            size="sm"
-            variant="secondary"
-            onClick={() => void navigate({ to: "/plugins/$pluginId/$", params: { pluginId: "polystella", _splat: "" } })}
-          >
-            Open PolyStella settings
-          </Button>
+          <span>
+            <NewWindowLink href={pluginPageUrl("/settings", { tab: "collections" })}>Open PolyStella settings</NewWindowLink>
+          </span>
         ) : null}
       </div>
     );
@@ -388,10 +388,11 @@ export function ContentEditorPanel({ collection, entry, locale, editorDraft }: C
       )}
       {isSourceEntry ? (
         <>
-          <p style={mutedStyle}>Create translated drafts from the latest saved {policy.sourceLocale} values.</p>
+          <p style={mutedStyle}>Create a translated draft from this entry.</p>
           {createdDrafts}
           <LocalePicker
             legend="Untranslated locales"
+            placeholder="Choose languages"
             options={creatableLocales.map((locale) => ({ locale, label: localeLabel(locale) }))}
             value={createLocales}
             disabled={translating}
@@ -407,8 +408,9 @@ export function ContentEditorPanel({ collection, entry, locale, editorDraft }: C
             fieldLabel={(slug) => schema.fields.find((field) => field.slug === slug)?.label ?? slug}
           />
           <p style={mutedStyle}>
-            Translate the latest saved {policy.sourceLocale} values into this {targetLocale} {isLive ? "entry" : "draft"}. Please review the
-            translation afterwards.
+            Translate the latest saved {policy.sourceLocale === null ? "source" : localeLabel(policy.sourceLocale)} values into this{" "}
+            {targetLocale === null || targetLocale === undefined ? "" : localeLabel(targetLocale)} {isLive ? "entry" : "draft"}. Please
+            review the translation afterwards.
           </p>
         </>
       )}
@@ -443,12 +445,17 @@ export function ContentEditorPanel({ collection, entry, locale, editorDraft }: C
               }
             />
           ))}
-      {!isSourceEntry && seoFields.length > 0 ? (
-        <small style={mutedStyle}>
-          {seoAllowed
-            ? "EmDash saves SEO text as soon as it changes, without waiting for Save."
-            : "SEO text isn't translated on published or scheduled entries, because EmDash would save it before review. An administrator can allow it in Translation settings."}
-        </small>
+      {!isSourceEntry && seoFields.length > 0 && !seoAllowed ? (
+        <details>
+          <summary style={{ ...mutedStyle, cursor: "pointer" }}>
+            <small>Note: SEO text is off for published and scheduled entries</small>
+          </summary>
+          <small style={mutedStyle}>
+            SEO text changes would be applied automatically to the live site, even if changes were not published, so they're disabled by
+            default. You can enable this in{" "}
+            <NewWindowLink href={pluginPageUrl("/settings", { tab: "translation" })}>PolyStella settings</NewWindowLink>.
+          </small>
+        </details>
       ) : null}
       {eligibleFields.length === 0 && seoFields.length === 0 ? (
         <small>No supported fields are configured for this collection.</small>
@@ -460,7 +467,7 @@ export function ContentEditorPanel({ collection, entry, locale, editorDraft }: C
         disabled={fieldsToTranslate.length === 0 || currentUser.data === undefined || (isSourceEntry && createLocales.length === 0)}
         onClick={() => void run()}
       >
-        {isSourceEntry ? createButtonLabel(createLocales) : "Translate with PolyStella"}
+        {isSourceEntry ? createButtonLabel(createLocales) : "Translate"}
       </Button>
     </div>
   );

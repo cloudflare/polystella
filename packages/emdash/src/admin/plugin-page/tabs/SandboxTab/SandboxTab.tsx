@@ -11,10 +11,12 @@ import { errorMessage, localeLabel, pluginRequest } from "../../../utils.js";
 import type { TranslationProgressState } from "../../../types.js";
 import { cardStyle, mutedStyle, rowStyle, sectionStyle, stackStyle } from "../../../styles.js";
 import { ErrorMessage } from "../../../components/ErrorMessage/ErrorMessage.js";
+import { SectionHeader } from "../../../components/PageHeader/PageHeader.js";
 import { TranslationDebugView } from "../../../components/TranslationDebugView/TranslationDebugView.js";
 import { TranslationProgress } from "../../../components/TranslationProgress/TranslationProgress.js";
 
-export function SandboxTab(): ReactNode {
+/** `visible` reloads the settings each time the tab is shown, so a model saved in Translation settings appears here. */
+export function SandboxTab({ visible = true }: { visible?: boolean | undefined }): ReactNode {
   const [settings, setSettings] = useState<TranslationSettingsResponse | null>(null);
   const [sourceText, setSourceText] = useState("");
   const [targetLocale, setTargetLocale] = useState("");
@@ -26,14 +28,17 @@ export function SandboxTab(): ReactNode {
   const [debug, setDebug] = useState<TranslationDebugTrace | null>(null);
 
   useEffect(() => {
+    if (!visible) return;
     let active = true;
     pluginRequest<TranslationSettingsResponse>("settings/translation")
       .then((value) => {
         if (!active) return;
         setSettings(value);
-        const firstLocale = value.locales[0];
-        setTargetLocale(firstLocale?.locale ?? "");
-        setModel(firstLocale?.model ?? firstLocale?.defaultModel ?? "");
+        setTargetLocale((current) => {
+          const locale = value.locales.find((item) => item.locale === current) ?? value.locales[0];
+          setModel(locale?.model ?? locale?.defaultModel ?? "");
+          return locale?.locale ?? "";
+        });
       })
       .catch((cause: unknown) => {
         if (active) setError(errorMessage(cause));
@@ -41,7 +46,7 @@ export function SandboxTab(): ReactNode {
     return () => {
       active = false;
     };
-  }, []);
+  }, [visible]);
 
   async function translate(): Promise<void> {
     if (settings === null) return;
@@ -75,18 +80,15 @@ export function SandboxTab(): ReactNode {
 
   return (
     <section style={sectionStyle}>
-      <div>
-        <h2>Translation sandbox</h2>
-        <p style={mutedStyle}>Test translations without affecting saved content or settings.</p>
-      </div>
+      <SectionHeader
+        title="Translation sandbox"
+        description={`Translates from the default locale${settings === null ? "" : ` (${localeLabel(settings.defaultLocale)})`} using the selected language's glossary and the additional instructions. Nothing is saved.`}
+      />
       {error === null ? null : <ErrorMessage>{error}</ErrorMessage>}
       {debug === null ? null : <TranslationDebugView trace={debug} onDismiss={() => setDebug(null)} />}
       <LayerCard style={cardStyle}>
         <div style={stackStyle}>
           <div style={rowStyle}>
-            <span>
-              Source locale: <strong>{settings?.defaultLocale ?? "Unavailable"}</strong> (code default)
-            </span>
             <div style={{ minWidth: 180 }}>
               <Select
                 label="Target locale"
@@ -144,7 +146,9 @@ export function SandboxTab(): ReactNode {
             Translate
           </Button>
           {progress === null ? null : <TranslationProgress {...progress} />}
-          <Textarea label="Output" rows={6} value={output} readOnly />
+          <div style={{ marginTop: 12 }}>
+            <Textarea label="Output" rows={6} value={output} readOnly />
+          </div>
         </div>
       </LayerCard>
     </section>

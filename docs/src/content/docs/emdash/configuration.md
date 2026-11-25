@@ -65,7 +65,7 @@ const polystellaOptions = {
 | `messageSyntax` | `"polystella"` \| `"icu"` | Default `"polystella"` (`{{name}}`). `"icu"` reads [standard ICU](/concepts/catalog-messages/#standard-icu-syntax) (`{name}`).           |
 
 `messageSyntax` applies to override validation, catalog generation, the
-Catalog tab's placeholder hint and the runtime `t()`.
+Catalog page's placeholder hint and the runtime `t()`.
 
 ## `models`
 
@@ -288,7 +288,7 @@ See [Catalog messages](/concepts/catalog-messages/#locale-tags).
 ## `batchQueueBinding`
 
 Optional. The name of a Cloudflare Queue producer binding. When set,
-the [Batch translation tab](/emdash/admin-ui/#batch-translation-tab)
+the [Batch translation page](/emdash/admin-ui/#batch-translation)
 can run jobs on the server, so they keep going after the browser tab
 closes. Server jobs only create missing translations, as drafts unless
 the administrator turns on **Publish translations immediately**.

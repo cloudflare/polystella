@@ -16,7 +16,18 @@ import {
   takeTranslationDebug,
 } from "../src/admin.js";
 import { panelIsVisible } from "../src/admin/panels/ContentEditorPanel.js";
-import { defaultSubFields, isPolicyField, localeLabel, rememberLocaleTags, translatableSubFields } from "../src/admin/utils.js";
+import { keyWithinGroup } from "../src/admin/plugin-page/tabs/CatalogTab/helpers.js";
+import {
+  contentTypeUrl,
+  defaultSubFields,
+  isPolicyField,
+  isSettingsTab,
+  localeLabel,
+  plural,
+  pluginPageUrl,
+  rememberLocaleTags,
+  translatableSubFields,
+} from "../src/admin/utils.js";
 import type { SchemaField } from "../src/admin/types.js";
 import type { CatalogEntryView, CatalogGroupView, TranslationDebugTrace } from "../src/contracts.js";
 import type { ReactElement } from "react";
@@ -25,9 +36,28 @@ afterEach(() => vi.unstubAllGlobals());
 
 describe("EmDash admin entry", () => {
   it("exports the declared pages and editor panel", () => {
-    expect(Object.keys(pages)).toEqual(["/", "/batch-run"]);
+    expect(Object.keys(pages)).toEqual(["/", "/settings", "/catalog", "/batch-translation", "/batch-run", "/code-defaults"]);
     expect(contentEditorPanels).toHaveLength(1);
     expect(contentEditorPanels[0]).toMatchObject({ id: "polystella", title: "PolyStella", minRole: 40 });
+  });
+
+  it("builds plugin page links and reads the settings tab from the URL", () => {
+    expect(pluginPageUrl("/settings", { tab: "translation" })).toBe("/_emdash/admin/plugins/polystella/settings?tab=translation");
+    expect(pluginPageUrl("/code-defaults")).toBe("/_emdash/admin/plugins/polystella/code-defaults");
+    expect(contentTypeUrl("blog posts")).toBe("/_emdash/admin/content-types/blog%20posts");
+    expect(["translation", "collections", "sandbox", "catalog", null].map(isSettingsTab)).toEqual([true, true, true, false, false]);
+  });
+
+  it("pluralizes counts", () => {
+    expect([1, 0, 2].map((count) => plural(count, "entry", "entries"))).toEqual(["1 entry", "0 entries", "2 entries"]);
+    expect(plural(3, "key")).toBe("3 keys");
+    expect(plural(1234, "key")).toBe(`${(1234).toLocaleString()} keys`);
+  });
+
+  it("drops the group prefix from catalog keys only when the group names it", () => {
+    expect(keyWithinGroup("ai_translation_notice.title", "ai_translation_notice")).toBe("title");
+    expect(keyWithinGroup("ai_translation_notice", "ai_translation_notice")).toBe("ai_translation_notice");
+    expect(keyWithinGroup("ai_translation_noticeboard.title", "ai_translation_notice")).toBe("ai_translation_noticeboard.title");
   });
 
   it("shows the editor panel only for enabled collections, and still on a failed policy read", async () => {
@@ -213,6 +243,7 @@ function debugTrace(): TranslationDebugTrace {
     operation: "content",
     provider: "workers-ai-binding",
     model: "model-a",
+    requestInput: null,
     maxOutputTokens: 8192,
     inputTokenBudget: 4000,
     maxSegmentsPerBatch: null,

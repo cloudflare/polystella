@@ -107,6 +107,6 @@ configured `filePath`.
 
 ## See also
 
-- [Admin UI](/emdash/admin-ui/) — the Catalog tab and debug traces.
+- [Admin UI](/emdash/admin-ui/) — the Catalog page and debug traces.
 - [Astro integration](/emdash/astro-integration/) — how overrides
   reach `Astro.locals.t`.

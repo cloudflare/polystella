@@ -1,10 +1,26 @@
 import { ApiResponseError, apiFetch, parseApiResponse } from "@emdash-cms/admin";
 
-import { POLYSTELLA_API_BASE, type CollectionPolicy, type TranslationDebugTrace } from "../contracts.js";
+import { POLYSTELLA_API_BASE, POLYSTELLA_PLUGIN_ID, type CollectionPolicy, type TranslationDebugTrace } from "../contracts.js";
 import type { SchemaField } from "./types.js";
 
-/** Dispatched on `window` after collection policies are saved, so other tabs can reload them. */
-export const COLLECTIONS_SAVED_EVENT = "polystella:collections-saved";
+// EmDash's admin router is mounted here; it exports no helper for the base path.
+const ADMIN_BASE = "/_emdash/admin";
+
+export type SettingsTab = "translation" | "collections" | "sandbox";
+
+export function isSettingsTab(value: unknown): value is SettingsTab {
+  return value === "translation" || value === "collections" || value === "sandbox";
+}
+
+/** A PolyStella admin page, such as `pluginPageUrl("/settings", { tab: "translation" })`. */
+export function pluginPageUrl(page: string, search: Record<string, string> = {}): string {
+  const query = new URLSearchParams(search).toString();
+  return `${ADMIN_BASE}/plugins/${POLYSTELLA_PLUGIN_ID}${page}${query.length === 0 ? "" : `?${query}`}`;
+}
+
+export function contentTypeUrl(collection: string): string {
+  return `${ADMIN_BASE}/content-types/${encodeURIComponent(collection)}`;
+}
 
 export async function pluginRequest<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await apiFetch(`${POLYSTELLA_API_BASE}/${path}`, {
@@ -14,6 +30,11 @@ export async function pluginRequest<T>(path: string, init?: RequestInit): Promis
   const value = await parseApiResponse<T>(response, "PolyStella request failed");
   if (isRecord(value) && isRecord(value.localeTags)) rememberLocaleTags(value.localeTags);
   return value;
+}
+
+/** "1 entry", "3 entries". */
+export function plural(count: number, singular: string, pluralForm = `${singular}s`): string {
+  return `${count.toLocaleString()} ${count === 1 ? singular : pluralForm}`;
 }
 
 export function errorMessage(value: unknown): string {
@@ -38,7 +59,8 @@ const languageNames = new Intl.DisplayNames(undefined, { type: "language" });
 const knownLocaleTags = new Map<string, string>();
 
 /** Keeps the server's `localeTags` so labels name `es-la` as Latin American Spanish, not the code's literal reading. */
-export function rememberLocaleTags(tags: Readonly<Record<string, unknown>>): void {
+export function rememberLocaleTags(tags: unknown): void {
+  if (!isRecord(tags)) return;
   for (const [locale, tag] of Object.entries(tags)) if (typeof tag === "string") knownLocaleTags.set(locale.toLowerCase(), tag);
 }
 

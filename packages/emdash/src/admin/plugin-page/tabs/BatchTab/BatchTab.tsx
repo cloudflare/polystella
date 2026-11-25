@@ -9,7 +9,9 @@ import {
   type CollectionPolicyResponse,
   type CollectionSettingsResponse,
 } from "../../../../contracts.js";
-import { COLLECTIONS_SAVED_EVENT, errorMessage, isPolicyField, localeLabel, pluginRequest } from "../../../utils.js";
+import { errorMessage, isPolicyField, localeLabel, plural, pluginPageUrl, pluginRequest } from "../../../utils.js";
+import { NewWindowIcon } from "../../../components/NewWindowLink/NewWindowLink.js";
+import { SectionHeader } from "../../../components/PageHeader/PageHeader.js";
 import { cardStyle, mutedStyle, rowStyle, sectionStyle, stackStyle } from "../../../styles.js";
 import { ErrorMessage } from "../../../components/ErrorMessage/ErrorMessage.js";
 import { LocalePicker } from "../../../components/LocalePicker/LocalePicker.js";
@@ -50,7 +52,6 @@ export function BatchTab(): ReactNode {
   const [runner, setRunner] = useState<Runner>("browser");
   const [serverJobs, setServerJobs] = useState<BatchJobsResponse | null>(null);
   const [jobsRefresh, setJobsRefresh] = useState(0);
-  const [policiesVersion, setPoliciesVersion] = useState(0);
   const urlContexts = usePublicUrlContexts();
 
   useEffect(() => {
@@ -75,12 +76,6 @@ export function BatchTab(): ReactNode {
   }, [jobsActive]);
 
   useEffect(() => {
-    const reload = () => setPoliciesVersion((current) => current + 1);
-    window.addEventListener(COLLECTIONS_SAVED_EVENT, reload);
-    return () => window.removeEventListener(COLLECTIONS_SAVED_EVENT, reload);
-  }, []);
-
-  useEffect(() => {
     let active = true;
     Promise.all([fetchCollections(), pluginRequest<CollectionSettingsResponse>("settings/collections")])
       .then(([projectCollections, settings]) => {
@@ -95,7 +90,7 @@ export function BatchTab(): ReactNode {
     return () => {
       active = false;
     };
-  }, [policiesVersion]);
+  }, []);
 
   useEffect(() => {
     setLoaded(null);
@@ -128,7 +123,7 @@ export function BatchTab(): ReactNode {
     return () => {
       active = false;
     };
-  }, [collection, policiesVersion]);
+  }, [collection]);
 
   useEffect(() => {
     if (loaded === null || scope !== "selected") return;
@@ -184,7 +179,7 @@ export function BatchTab(): ReactNode {
     const targets = policy.targetLocales.filter(({ locale }) => locales.includes(locale));
     const items = scope === "all" ? [] : [...selected.values()];
     const options = { collection, sourceLocale: policy.sourceLocale ?? undefined, fields, updateExisting, publish };
-    const runId = saveBatchRun({ collection, scope, items, targets, options, createdAt: Date.now() });
+    const runId = saveBatchRun({ collection, scope, items, targets, options, createdAt: Date.now(), localeTags: policy.localeTags });
     const url = batchRunUrl(window.location.pathname, runId);
     if (window.open(url, "_blank") === null) {
       setError(`Your browser blocked the new tab. Allow pop-ups for this site, or open ${url} yourself.`);
@@ -195,7 +190,7 @@ export function BatchTab(): ReactNode {
     const entries = scope === "all" ? "every source entry" : `${selected.size} ${selected.size === 1 ? "entry" : "entries"}`;
     if (
       !window.confirm(
-        `PolyStella will queue missing translations for ${entries} into ${locales.length} locales on the server. They are ${publish ? "published" : "saved as drafts"} and existing translations are skipped. Continue?`,
+        `PolyStella will queue missing translations for ${entries} into ${plural(locales.length, "locale")} on the server. They are ${publish ? "published" : "saved as drafts"} and existing translations are skipped. Continue?`,
       )
     ) {
       return;
@@ -238,25 +233,32 @@ export function BatchTab(): ReactNode {
         onClick={() => (runner === "queue" ? void startServerJob() : openBrowserRun())}
       >
         {runner === "queue" ? "Queue" : "Translate"} {scope === "all" ? "collection" : `${selected.size} selected`}
-        {runner === "browser" ? " in a new tab" : ""}
+        {runner === "browser" ? (
+          <>
+            {" in a new tab"}
+            <NewWindowIcon />
+          </>
+        ) : null}
       </Button>
     </div>
   );
 
   return (
     <section style={sectionStyle}>
-      <div>
-        <h2>Batch translation</h2>
-        <p style={mutedStyle}>
-          Translate many entries at once from their latest saved source values.{" "}
-          {runner === "browser"
+      <SectionHeader
+        title="Batch translation"
+        description={`Translate many entries at once from their latest saved source values. ${
+          runner === "browser"
             ? "Browser runs open in a new tab, which must stay open until the run finishes."
-            : "The server queue keeps running after you close this tab."}
-        </p>
-      </div>
+            : "The server queue keeps running after you close this tab."
+        }`}
+      />
       {error === null ? null : <ErrorMessage>{error}</ErrorMessage>}
       {collections?.length === 0 ? (
-        <p style={mutedStyle}>Enable PolyStella for a collection in the Collections tab first.</p>
+        <p style={mutedStyle}>
+          Enable PolyStella for a collection first, in{" "}
+          <a href={pluginPageUrl("/settings", { tab: "collections" })}>Settings, Collections</a>.
+        </p>
       ) : (
         <LayerCard style={cardStyle}>
           <div style={stackStyle}>

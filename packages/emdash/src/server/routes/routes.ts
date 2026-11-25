@@ -1,5 +1,6 @@
 import { resolveModelId, translateSegments, type Glossary, type Segment, type Translator } from "@cloudflare/polystella-core";
 import type { CatalogSource, IgnoreKey, MessageSyntax } from "@cloudflare/polystella-core/catalog";
+import { workersAIRequestParams } from "@cloudflare/polystella-core/providers/workers-ai";
 import {
   DEFAULT_UI_STRING_BATCH_SIZE,
   formatTokenValidationIssue,
@@ -130,7 +131,7 @@ import {
   type TranslationDebugCollector,
 } from "./debug-collector.js";
 import { throwTranslationFailure, translationFailureMessage } from "./failures.js";
-import { createTranslator, type PluginRouteDependencies } from "./provider.js";
+import { createTranslator, translatorParams, type PluginRouteDependencies } from "./provider.js";
 import {
   isRecord,
   readBoolean,
@@ -393,6 +394,7 @@ export function createPluginRoutes(
               operation: "content",
               provider: options.provider.kind,
               model: settings.translator.modelId,
+              requestInput: settings.requestInput,
               maxOutputTokens: settings.maxTokens,
               maxSegmentsPerBatch: null,
               sourceLocale: options.catalogs.defaultLocale,
@@ -496,6 +498,7 @@ export function createPluginRoutes(
               operation: "catalog",
               provider: options.provider.kind,
               model: settings.translator.modelId,
+              requestInput: settings.requestInput,
               maxOutputTokens: settings.maxTokens,
               maxSegmentsPerBatch: DEFAULT_UI_STRING_BATCH_SIZE,
               sourceLocale: options.catalogs.defaultLocale,
@@ -671,6 +674,7 @@ export function createPluginRoutes(
               operation: "sandbox",
               provider: options.provider.kind,
               model: settings.translator.modelId,
+              requestInput: settings.requestInput,
               maxOutputTokens: settings.maxTokens,
               maxSegmentsPerBatch: null,
               sourceLocale: options.catalogs.defaultLocale,
@@ -1409,6 +1413,8 @@ async function translationSettings(
   debugEnabled: boolean;
   maxTokens: number;
   promptInstruction?: string | undefined;
+  /** For the debug trace: the extra Workers AI input each request carries. */
+  requestInput: Readonly<Record<string, unknown>> | null;
 }> {
   const [storedSettings, env] = await Promise.all([storedTranslationSettings(options, settings), dependencies.getEnv()]);
   const stored = storedSettings.locales[locale];
@@ -1430,17 +1436,11 @@ async function translationSettings(
   const maxTokens = storedSettings.maxTokens ?? defaultMaxTokens(options);
   // An admin's thinking choice goes with their model override; the code default comes from `models.params`.
   const effort = stored.model !== null && model === stored.model ? stored.reasoning : null;
+  const thinking = await reasoningInput(options, env, model, effort, dependencies, log);
+  const translator = createTranslator(options, env, model, locale, log, dependencies, maxTokens, thinking);
   return {
-    translator: createTranslator(
-      options,
-      env,
-      model,
-      locale,
-      log,
-      dependencies,
-      maxTokens,
-      await reasoningInput(options, env, model, effort, dependencies, log),
-    ),
+    translator,
+    requestInput: workersAIRequestParams(translatorParams(options, model, locale, thinking)) ?? null,
     glossary,
     matchInflections: options.glossaryMatchInflections === true,
     debugEnabled: storedSettings.debugEnabled,

@@ -13,13 +13,14 @@ import {
   type CatalogViewResponse,
   type TranslationDebugTrace,
 } from "../../../../contracts.js";
-import { errorMessage, localeLabel, pluginRequest } from "../../../utils.js";
+import { errorMessage, localeLabel, plural, pluginRequest } from "../../../utils.js";
 import type { CatalogGroup, TranslationProgressState } from "../../../types.js";
 import { cardStyle, inputStyle, mutedStyle, rowStyle, sectionStyle, stackStyle } from "../../../styles.js";
 import { ErrorMessage } from "../../../components/ErrorMessage/ErrorMessage.js";
+import { SectionHeader } from "../../../components/PageHeader/PageHeader.js";
 import { TranslationDebugView } from "../../../components/TranslationDebugView/TranslationDebugView.js";
 import { TranslationProgress } from "../../../components/TranslationProgress/TranslationProgress.js";
-import { catalogOverrideChanged, filterCatalogGroups, groupCatalogEntries, sourceContainsTokens } from "./helpers.js";
+import { catalogOverrideChanged, filterCatalogGroups, groupCatalogEntries, keyWithinGroup, sourceContainsTokens } from "./helpers.js";
 
 function useDebouncedValue<T>(value: T, delayMs: number): T {
   const [debounced, setDebounced] = useState(value);
@@ -301,7 +302,7 @@ export function CatalogTab(): ReactNode {
 
   return (
     <section style={sectionStyle}>
-      <p style={mutedStyle}>Generate, edit, and export temporary UI string overrides.</p>
+      <SectionHeader title="Catalog" description="Generate, edit, and export temporary UI string overrides." />
       {error === null ? null : <ErrorMessage>{error}</ErrorMessage>}
       {debug === null ? null : <TranslationDebugView trace={debug} onDismiss={() => setDebug(null)} />}
       {catalog === null ? null : (
@@ -406,7 +407,7 @@ const CatalogGroupCard = memo(function CatalogGroupCard({
       <details onToggle={(event) => setOpen(event.currentTarget.open)}>
         <summary style={{ cursor: "pointer", padding: 20 }}>
           <strong>{group.title ?? group.key}</strong> {group.title === null ? null : <small style={mutedStyle}>({group.key}) </small>}
-          <small style={mutedStyle}>{group.entries.length} keys</small>
+          <small style={mutedStyle}>{plural(group.entries.length, "key")}</small>
         </summary>
         {open ? (
           <div style={{ overflowX: "auto", padding: "0 20px 20px" }}>
@@ -418,13 +419,13 @@ const CatalogGroupCard = memo(function CatalogGroupCard({
                     checked={selectableKeys.length > 0 && selectedCount === selectableKeys.length}
                     indeterminate={selectedCount > 0 && selectedCount < selectableKeys.length}
                     disabled={working || selectableKeys.length === 0}
-                    style={{ width: 40 }}
+                    style={{ width: 48 }}
                     onCheckedChange={(checked) => onToggleSelected(checked ? selectableKeys : groupKeys, checked)}
                   />
-                  <Table.Head style={{ width: "18%" }}>Key</Table.Head>
-                  <Table.Head style={{ width: "22%" }}>Source</Table.Head>
-                  <Table.Head style={{ width: "22%" }}>Deployed</Table.Head>
-                  <Table.Head style={{ width: "22%" }}>Override</Table.Head>
+                  <Table.Head style={{ width: "19%" }}>Key</Table.Head>
+                  <Table.Head style={{ width: "26%" }}>Source</Table.Head>
+                  <Table.Head style={{ width: "26%" }}>Deployed</Table.Head>
+                  <Table.Head>Override</Table.Head>
                 </Table.Row>
               </Table.Header>
               <Table.Body>
@@ -434,6 +435,7 @@ const CatalogGroupCard = memo(function CatalogGroupCard({
                     <CatalogRow
                       key={entry.key}
                       entry={entry}
+                      keyLabel={keyWithinGroup(entry.key, group.key)}
                       messageSyntax={messageSyntax}
                       checked={checked}
                       selectDisabled={working || entry.source === null || entry.source.length === 0 || (!checked && selectionFull)}
@@ -457,6 +459,7 @@ const CatalogGroupCard = memo(function CatalogGroupCard({
 
 const CatalogRow = memo(function CatalogRow({
   entry,
+  keyLabel,
   messageSyntax,
   checked,
   selectDisabled,
@@ -468,6 +471,7 @@ const CatalogRow = memo(function CatalogRow({
   onDraftChange,
 }: CatalogRowHandlers & {
   entry: CatalogEntryView;
+  keyLabel: string;
   messageSyntax: CatalogViewResponse["messageSyntax"];
   checked: boolean;
   selectDisabled: boolean;
@@ -484,7 +488,9 @@ const CatalogRow = memo(function CatalogRow({
         onCheckedChange={(next) => onToggleSelected([entry.key], next)}
       />
       <Table.Cell>
-        <strong style={{ overflowWrap: "anywhere" }}>{entry.key}</strong>
+        <strong style={{ overflowWrap: "anywhere" }} title={entry.key}>
+          {keyLabel}
+        </strong>
       </Table.Cell>
       <Table.Cell>
         <TokenGuidance source={entry.source} messageSyntax={messageSyntax} />
@@ -495,19 +501,22 @@ const CatalogRow = memo(function CatalogRow({
       <Table.Cell>
         <div style={stackStyle}>
           <Switch
+            aria-label={`Override ${entry.key}`}
             label={overrideEnabled ? "Enabled" : "Disabled"}
             checked={overrideEnabled}
             disabled={working}
             onCheckedChange={(enabled) => onToggleOverride(entry, enabled)}
           />
-          <Textarea
-            aria-label={`Override ${entry.key}`}
-            rows={3}
-            style={inputStyle}
-            value={overrideEnabled ? draft : ""}
-            disabled={working || !overrideEnabled}
-            onValueChange={(value) => onDraftChange(entry, value)}
-          />
+          {overrideEnabled ? (
+            <Textarea
+              aria-label={`Override ${entry.key}`}
+              rows={3}
+              style={inputStyle}
+              value={draft}
+              disabled={working}
+              onValueChange={(value) => onDraftChange(entry, value)}
+            />
+          ) : null}
         </div>
       </Table.Cell>
     </Table.Row>

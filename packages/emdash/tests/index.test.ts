@@ -46,7 +46,11 @@ describe("polystellaEmdash", () => {
       format: "native",
       entrypoint: "@cloudflare/polystella-emdash",
       adminEntry: "@cloudflare/polystella-emdash/admin",
-      adminPages: [{ path: "/", label: "PolyStella" }],
+      adminPages: [
+        { path: "/settings", label: "Settings", icon: "gear", group: "PolyStella" },
+        { path: "/catalog", label: "Catalog", icon: "book-open-text", group: "PolyStella" },
+        { path: "/batch-translation", label: "Batch translation", icon: "translate", group: "PolyStella" },
+      ],
       capabilities: ["content:read", "content:revisions:read", "schema:read"],
       storage: {
         catalog_overrides: { indexes: ["locale"] },

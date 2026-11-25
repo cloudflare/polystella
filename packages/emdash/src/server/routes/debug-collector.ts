@@ -15,6 +15,7 @@ export interface TranslationDebugCollectorOptions {
   operation: TranslationDebugTrace["operation"];
   provider: TranslationDebugTrace["provider"];
   model: string;
+  requestInput: Readonly<Record<string, unknown>> | null;
   maxOutputTokens: number;
   maxSegmentsPerBatch: number | null;
   sourceLocale: string;
@@ -75,6 +76,7 @@ export function createTranslationDebugCollector(options: TranslationDebugCollect
         operation: options.operation,
         provider: options.provider,
         model: options.model,
+        requestInput: options.requestInput === null ? null : { ...options.requestInput },
         maxOutputTokens: options.maxOutputTokens,
         inputTokenBudget: DEFAULT_INPUT_TOKEN_BUDGET,
         maxSegmentsPerBatch: options.maxSegmentsPerBatch,

@@ -5,6 +5,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import type { BatchTranslationLink } from "../../../../contracts.js";
 import { mutedStyle, rowStyle, stackStyle } from "../../../styles.js";
 import { localeLabel } from "../../../utils.js";
+import { NewWindowIcon } from "../../../components/NewWindowLink/NewWindowLink.js";
 import { publicContentUrl, type PublicUrlContext } from "./helpers.js";
 
 export interface BatchResultRow {
@@ -102,15 +103,18 @@ function TranslationLinks({
         rel="noopener noreferrer"
       >
         Edit
+        <NewWindowIcon />
       </Link>
       {liveUrl === null ? null : (
         <a href={liveUrl} target="_blank" rel="noopener noreferrer">
           View live
+          <NewWindowIcon />
         </a>
       )}
       {translation.published ? null : (
         <Button size="sm" variant="ghost" onClick={() => void openPreview(collection, translation, urlContext)}>
           Preview draft
+          <NewWindowIcon />
         </Button>
       )}
     </div>

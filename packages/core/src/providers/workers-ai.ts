@@ -44,7 +44,7 @@ export interface WorkersAIBindingTranslatorOptions extends WorkersAITranslatorOp
 export function createWorkersAIHttpTranslator(options: WorkersAIHttpTranslatorOptions): Translator {
   const { accountId, apiToken, modelId, maxTokens, endpoint, fetchImpl = fetch } = options;
   const url = endpoint ?? `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${modelId}`;
-  const params = resolveParams(options.params);
+  const params = workersAIRequestParams(options.params);
 
   return {
     modelId,
@@ -78,7 +78,7 @@ export function createWorkersAIHttpTranslator(options: WorkersAIHttpTranslatorOp
 
 export function createWorkersAIBindingTranslator(options: WorkersAIBindingTranslatorOptions): Translator {
   const { modelId, maxTokens, run } = options;
-  const params = resolveParams(options.params);
+  const params = workersAIRequestParams(options.params);
   return {
     modelId,
     async translate(systemPrompt, userPrompt, signal, onResponse) {
@@ -138,7 +138,10 @@ export function workersAIParamsForLocale(
 }
 
 // Workers AI accepts a top-level `enable_thinking` and ignores it, so it is moved to where the models read it.
-function resolveParams(params: Readonly<Record<string, unknown>> | undefined): Readonly<Record<string, unknown>> | undefined {
+/** `params` in the form the translators send them. Throws on params `workersAIParamsProblem` rejects. */
+export function workersAIRequestParams(
+  params: Readonly<Record<string, unknown>> | undefined,
+): Readonly<Record<string, unknown>> | undefined {
   const problem = workersAIParamsProblem(params);
   if (problem !== undefined) throw new Error(`[polystella] Workers AI params ${problem}`);
   if (params === undefined || !Object.hasOwn(params, "enable_thinking")) return params;

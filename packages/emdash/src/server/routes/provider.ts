@@ -34,8 +34,7 @@ export function createTranslator(
   thinkingParams?: Readonly<Record<string, unknown>> | undefined,
 ): Translator {
   const provider = options.provider;
-  const baseParams = workersAIParamsForLocale(options.models.params?.[modelId], options.models.defaults, locale, modelId);
-  const params = thinkingParams === undefined ? baseParams : withThinking(baseParams, thinkingParams);
+  const params = translatorParams(options, modelId, locale, thinkingParams);
   if (provider.kind === "workers-ai-binding") {
     const binding = env?.[provider.binding];
     if (!isWorkersAIBinding(binding)) {
@@ -70,6 +69,17 @@ export function createTranslator(
     ...(provider.endpoint === undefined ? {} : { endpoint: provider.endpoint }),
     ...(dependencies.fetchImpl === undefined ? {} : { fetchImpl: dependencies.fetchImpl }),
   });
+}
+
+/** The extra Workers AI input for `modelId` in `locale`: `models.params`, the locale's code default, then the admin's choice. */
+export function translatorParams(
+  options: PolystellaEmdashOptions,
+  modelId: string,
+  locale: string,
+  thinkingParams: Readonly<Record<string, unknown>> | undefined,
+): Readonly<Record<string, unknown>> | undefined {
+  const baseParams = workersAIParamsForLocale(options.models.params?.[modelId], options.models.defaults, locale, modelId);
+  return thinkingParams === undefined ? baseParams : withThinking(baseParams, thinkingParams);
 }
 
 export function environmentCredential(env: Record<string, unknown> | undefined, name: string): string | undefined {

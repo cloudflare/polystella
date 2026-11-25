@@ -1,21 +1,22 @@
 import { fetchCollection, fetchCollections } from "@emdash-cms/admin";
 import { Button, Checkbox, LayerCard, Switch } from "@cloudflare/kumo";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 
 import { MAX_COLLECTION_POLICY_FIELDS, type CollectionPolicy, type CollectionSettingsResponse } from "../../../../contracts.js";
 import {
-  COLLECTIONS_SAVED_EVENT,
+  contentTypeUrl,
   defaultSubFields,
   errorMessage,
   isTranslatable,
-  localeLabel,
   pluginRequest,
   supportsTranslation,
   translatableSubFields,
 } from "../../../utils.js";
 import type { CollectionSchema, SchemaField } from "../../../types.js";
-import { cardStyle, mutedStyle, sectionStyle, stackStyle } from "../../../styles.js";
+import { cardStyle, mutedStyle, rowStyle, sectionStyle, stackStyle } from "../../../styles.js";
 import { ErrorMessage } from "../../../components/ErrorMessage/ErrorMessage.js";
+import { NewWindowLink, visuallyHidden } from "../../../components/NewWindowLink/NewWindowLink.js";
+import { SectionHeader } from "../../../components/PageHeader/PageHeader.js";
 
 export function CollectionsTab(): ReactNode {
   const [collections, setCollections] = useState<Awaited<ReturnType<typeof fetchCollections>>>([]);
@@ -68,7 +69,6 @@ export function CollectionsTab(): ReactNode {
       });
       setSettings(value);
       setPolicies(value.policies);
-      window.dispatchEvent(new Event(COLLECTIONS_SAVED_EVENT));
     } catch (cause) {
       setError(errorMessage(cause));
     } finally {
@@ -113,87 +113,111 @@ export function CollectionsTab(): ReactNode {
 
   return (
     <section style={sectionStyle}>
-      <div>
-        <h2>Collections</h2>
-        <p style={mutedStyle}>Choose where PolyStella appears and which saved fields editors may send for translation.</p>
-      </div>
+      <SectionHeader
+        title="Collections"
+        description="Choose where PolyStella appears and which saved fields editors may send for translation."
+      />
       {error === null ? null : <ErrorMessage>{error}</ErrorMessage>}
-      {collections.map((collection) => {
-        const policy = Object.hasOwn(policies, collection.slug) ? policies[collection.slug] : undefined;
-        const schema = schemas.get(collection.slug);
-        const fields = schema === undefined ? [] : eligibleFields(schema);
-        return (
-          <LayerCard key={collection.slug} style={cardStyle}>
-            <div style={stackStyle}>
-              <Switch
-                label={
-                  <span>
-                    <strong>{collection.label}</strong> <code>{collection.slug}</code>
-                  </span>
-                }
-                checked={policy !== undefined}
-                disabled={working}
-                onCheckedChange={(enabled) => void setCollectionEnabled(collection.slug, enabled)}
-              />
-              {policy === undefined ? null : schema === undefined ? (
-                <span style={mutedStyle}>Loading fields...</span>
-              ) : (
-                <>
-                  <span style={mutedStyle}>
-                    Source locale: code default ({settings === null ? "" : localeLabel(settings.defaultLocale)})
-                  </span>
-                  <Checkbox.Group
-                    legend="Fields available for translation"
-                    value={policy.fields}
-                    allValues={fields.slice(0, MAX_COLLECTION_POLICY_FIELDS).map((field) => field.slug)}
+      <div style={collectionGridStyle}>
+        {collections.map((collection) => {
+          const policy = Object.hasOwn(policies, collection.slug) ? policies[collection.slug] : undefined;
+          const schema = schemas.get(collection.slug);
+          const fields = schema === undefined ? [] : eligibleFields(schema);
+          return (
+            <LayerCard key={collection.slug} style={cardStyle}>
+              <div style={stackStyle}>
+                <div style={rowStyle}>
+                  <Switch
+                    label={
+                      <span>
+                        <strong>{collection.label}</strong> <code>{collection.slug}</code>
+                      </span>
+                    }
+                    checked={policy !== undefined}
                     disabled={working}
-                    onValueChange={(next) => updatePolicy(collection.slug, (current) => withFields(schema, current, next))}
-                  >
-                    {fields.map((field) => (
-                      <Checkbox.Item
-                        key={field.slug}
-                        value={field.slug}
-                        label={`${field.label} (${field.slug})`}
-                        disabled={policy.fields.length >= MAX_COLLECTION_POLICY_FIELDS && !policy.fields.includes(field.slug)}
-                      />
-                    ))}
-                  </Checkbox.Group>
-                  {fields
-                    .filter((field) => field.type === "repeater" && policy.fields.includes(field.slug))
-                    .map((field) => (
-                      <Checkbox.Group
-                        key={field.slug}
-                        legend={`${field.label} subfields to translate`}
-                        value={policy.subFields?.[field.slug] ?? []}
-                        allValues={translatableSubFields(field).map(({ slug }) => slug)}
-                        disabled={working}
-                        onValueChange={(next) =>
-                          updatePolicy(collection.slug, (current) => withSubFields(schema, current, field.slug, next))
-                        }
-                      >
-                        {translatableSubFields(field).map((subField) => (
-                          <Checkbox.Item key={subField.slug} value={subField.slug} label={`${subField.label} (${subField.slug})`} />
-                        ))}
-                      </Checkbox.Group>
-                    ))}
-                  {fields.some((field) => field.type === "repeater") ? (
-                    <span style={mutedStyle}>
-                      Repeater subfields that aren't selected are copied from the source entry. Links, IDs and author names start
-                      unselected. Images translate their alt text and caption.
-                    </span>
-                  ) : null}
-                </>
-              )}
-            </div>
-          </LayerCard>
-        );
-      })}
+                    onCheckedChange={(enabled) => void setCollectionEnabled(collection.slug, enabled)}
+                  />
+                  <NewWindowLink href={contentTypeUrl(collection.slug)} title={`Edit ${collection.label} in Content types`}>
+                    <span style={visuallyHidden}>Edit {collection.label} in Content types</span>
+                  </NewWindowLink>
+                </div>
+                {policy === undefined ? null : schema === undefined ? (
+                  <span style={mutedStyle}>Loading fields...</span>
+                ) : (
+                  <>
+                    <Checkbox.Group
+                      legend="Translate these fields"
+                      value={policy.fields}
+                      allValues={fields.slice(0, MAX_COLLECTION_POLICY_FIELDS).map((field) => field.slug)}
+                      disabled={working}
+                      onValueChange={(next) => updatePolicy(collection.slug, (current) => withFields(schema, current, next))}
+                    >
+                      {fields.map((field) => (
+                        <Checkbox.Item
+                          key={field.slug}
+                          value={field.slug}
+                          label={`${field.label} (${field.slug})`}
+                          disabled={policy.fields.length >= MAX_COLLECTION_POLICY_FIELDS && !policy.fields.includes(field.slug)}
+                        />
+                      ))}
+                    </Checkbox.Group>
+                    {fields
+                      .filter((field) => field.type === "repeater" && policy.fields.includes(field.slug))
+                      .map((field) => (
+                        <Checkbox.Group
+                          key={field.slug}
+                          legend={`${field.label} subfields to translate`}
+                          value={policy.subFields?.[field.slug] ?? []}
+                          allValues={translatableSubFields(field).map(({ slug }) => slug)}
+                          disabled={working}
+                          onValueChange={(next) =>
+                            updatePolicy(collection.slug, (current) => withSubFields(schema, current, field.slug, next))
+                          }
+                        >
+                          {translatableSubFields(field).map((subField) => (
+                            <Checkbox.Item key={subField.slug} value={subField.slug} label={`${subField.label} (${subField.slug})`} />
+                          ))}
+                          <IdentifierWarning field={field} chosen={policy.subFields?.[field.slug] ?? []} />
+                        </Checkbox.Group>
+                      ))}
+                    {fields.some((field) => field.type === "repeater") ? (
+                      <span style={mutedStyle}>
+                        Repeater subfields that aren't selected are copied from the source entry. Links, IDs and author names start
+                        unselected. Images translate their alt text and caption.
+                      </span>
+                    ) : null}
+                  </>
+                )}
+              </div>
+            </LayerCard>
+          );
+        })}
+      </div>
       <div>
         <Button variant="primary" loading={working} disabled={settings === null} onClick={() => void save()}>
           Save collections
         </Button>
       </div>
     </section>
+  );
+}
+
+const collectionGridStyle: CSSProperties = {
+  alignItems: "start",
+  display: "grid",
+  gap: 20,
+  gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 420px), 1fr))",
+};
+
+function IdentifierWarning({ field, chosen }: { field: SchemaField; chosen: readonly string[] }): ReactNode {
+  const defaults = defaultSubFields(field);
+  const identifiers = chosen.filter((slug) => !defaults.includes(slug));
+  if (identifiers.length === 0) return null;
+  return (
+    <span style={{ color: "var(--color-kumo-danger, #b91c1c)" }}>
+      {identifiers.join(", ")} {identifiers.length === 1 ? "looks" : "look"} like a link, ID or name. Translating{" "}
+      {identifiers.length === 1 ? "it" : "them"} can break links and references; untick unless the text is meant to be read.
+    </span>
   );
 }
 

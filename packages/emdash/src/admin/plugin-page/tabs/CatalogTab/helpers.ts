@@ -32,3 +32,8 @@ export function sourceContainsTokens(source: string | null, messageSyntax: "poly
   if (source === null) return false;
   return messageSyntax === "icu" ? /\{\s*[\p{L}\p{N}_]/u.test(source) : source.includes("{{");
 }
+
+/** `title` for `ai_translation_notice.title` in the `ai_translation_notice` group; the group already names the prefix. */
+export function keyWithinGroup(key: string, group: string): string {
+  return key.startsWith(`${group}.`) && key.length > group.length + 1 ? key.slice(group.length + 1) : key;
+}

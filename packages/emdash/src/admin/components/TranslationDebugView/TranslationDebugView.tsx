@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 
 import type { TranslationDebugAttempt, TranslationDebugTrace } from "../../../contracts.js";
 import { cardStyle, codeStyle, mutedStyle, rowStyle, stackStyle } from "../../styles.js";
+import { plural } from "../../utils.js";
 
 export function TranslationDebugView({ trace, onDismiss }: { trace: TranslationDebugTrace; onDismiss(): void }): ReactNode {
   return (
@@ -18,13 +19,17 @@ export function TranslationDebugView({ trace, onDismiss }: { trace: TranslationD
           </Button>
         </div>
         <small style={mutedStyle}>
-          ID: {trace.id} | {trace.provider} | {trace.model} | {trace.sourceLocale} to {trace.targetLocale} | {trace.batchCount} batches |{" "}
-          {trace.providerCallCount} provider calls | {trace.durationMs} ms
+          ID: {trace.id} | {trace.provider} | {trace.model} | {trace.sourceLocale} to {trace.targetLocale} |{" "}
+          {plural(trace.batchCount, "batch", "batches")} | {plural(trace.providerCallCount, "provider call")} | {trace.durationMs} ms
         </small>
         <small style={mutedStyle}>
           Input budget: {trace.inputTokenBudget} estimated tokens
           {trace.maxSegmentsPerBatch === null ? "" : ` | Maximum ${trace.maxSegmentsPerBatch} segments per batch`} | Maximum output:{" "}
           {trace.maxOutputTokens} tokens
+        </small>
+        <small style={mutedStyle}>
+          Extra request input:{" "}
+          {trace.requestInput === null || trace.requestInput === undefined ? "none" : <code>{JSON.stringify(trace.requestInput)}</code>}
         </small>
         {trace.error === null ? null : <pre style={codeStyle}>{trace.error}</pre>}
         {trace.validationIssues.length === 0 ? null : (
@@ -36,7 +41,7 @@ export function TranslationDebugView({ trace, onDismiss }: { trace: TranslationD
         {trace.batches.map((batch) => (
           <details key={batch.batch}>
             <summary>
-              Batch {batch.batch}: {batch.segmentCount} segments, {batch.sourceCharacters} source characters, approximately{" "}
+              Batch {batch.batch}: {plural(batch.segmentCount, "segment")}, {batch.sourceCharacters} source characters, approximately{" "}
               {batch.estimatedInputTokens} input tokens
               {batch.glossaryTerms === undefined ? null : `, ${batch.glossaryTerms.sent} of ${batch.glossaryTerms.total} glossary terms`}
             </summary>

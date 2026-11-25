@@ -6,12 +6,20 @@ sidebar:
   label: Admin UI
 ---
 
-The native admin registers one **PolyStella** page with five tabs —
-**Catalog**, **Collections**, **Batch translation**, **Translation
-settings**, and **Translation sandbox** — rendered with EmDash's Kumo
-design system. No generated plugin settings page is registered.
+The native admin adds a **PolyStella** sidebar group with three pages,
+rendered with EmDash's Kumo design system:
 
-## Collections tab
+- **Settings** (`/settings`) — the **Translation settings**,
+  **Collections**, and **Sandbox** tabs. `?tab=translation`,
+  `?tab=collections` or `?tab=sandbox` opens a tab directly.
+- **Catalog** (`/catalog`).
+- **Batch translation** (`/batch-translation`).
+
+EmDash before 1.6 lists the three pages without the group. The old `/`
+address still opens Settings. Links that open a new window show a ↗ icon.
+No generated plugin settings page is registered.
+
+## Collections
 
 Lets an Administrator enable project collections and choose their
 translatable fields. The source is always the code-defined
@@ -47,7 +55,7 @@ Administrator saved in the meantime, the save is rejected; reload the
 tab and reapply your change. The Translation settings tab behaves the
 same way.
 
-## Batch translation tab
+## Batch translation
 
 Translates many entries of one enabled collection at once, using the
 same route and saves as the content-editor panel. Choose:
@@ -99,7 +107,7 @@ translations they created stay. Jobs older than 30 days are deleted
 automatically when the list loads. The list refreshes every five
 seconds while a job runs.
 
-## Translation settings tab
+## Translation settings
 
 Target-locale settings, each with its own model and glossary behavior. The
 code-defined default locale is source-only and is not listed here:
@@ -119,8 +127,12 @@ code-defined default locale is source-only and is not listed here:
 - **Custom glossary** — plain text applied per the behavior above,
   up to 10,000 characters. Code-defined glossaries have no such cap:
   each request carries only the terms its text uses.
-- **Shared translation instructions** — use code defaults, append,
-  or replace the `rules` from configuration.
+- **Additional translation instructions** — use code defaults, append,
+  or replace the `rules` from configuration. They are sent with every
+  translation in every language, together with that language's glossary.
+
+**View code-defined additional translation instructions** and **View
+code-defined glossary** open the code's text read-only in a new window.
 
 **Max output tokens** caps how much text the model may return per
 request, for every translation. Leave it empty to use `provider.maxTokens`
@@ -156,7 +168,7 @@ replied but the reply failed a check, the log also carries the finish reason,
 token usage and reasoning size. Editors see only a
 short, safe message and the same ID.
 
-## Translation sandbox tab
+## Translation sandbox
 
 Lets an Administrator translate up to 30,000 characters of freeform
 text from `catalogs.defaultLocale` to any configured non-default
@@ -251,12 +263,12 @@ inspect the trace after the panel reloads.
   unsaved changes are lost.
 - Before EmDash 1.5, the PolyStella section shows on every collection.
   On collections not enabled in plugin settings, the panel says so and
-  links Administrators to the Collections tab. From 1.5 on, the section
+  links Administrators to Settings, on the Collections tab. From 1.5 on, the section
   is hidden there.
 
 ## See also
 
-- [Catalog overrides](/emdash/catalog-overrides/) — the Catalog tab
+- [Catalog overrides](/emdash/catalog-overrides/) — the Catalog page
   in more detail.
 - [Configuration](/emdash/configuration/) — the deployment-side
   bounds these panels operate within.

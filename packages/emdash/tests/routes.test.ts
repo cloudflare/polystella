@@ -20,7 +20,7 @@ import {
 } from "../src/contracts.js";
 import { createPluginRoutes, type PluginRouteDependencies } from "../src/server/routes/routes.js";
 import { clearReasoningCapabilities } from "../src/server/reasoning.js";
-import { withThinking } from "../src/server/routes/provider.js";
+import { translatorParams, withThinking } from "../src/server/routes/provider.js";
 import { workersAIParamsProblem } from "@cloudflare/polystella-core/providers/workers-ai";
 
 const objectCache = vi.hoisted(() => ({ invalidateObjectCache: vi.fn() }));
@@ -2710,6 +2710,56 @@ describe("EmDash thinking effort", () => {
     for (const { input } of inputs) expect(Object.keys(input).sort()).toEqual(["max_tokens", "messages"]);
   });
 
+  it("shows the extra request input in the debug trace, in the form Workers AI receives", async () => {
+    const configured = options();
+    configured.models.params = { "model-a": { enable_thinking: false, temperature: 0.2 } };
+    const routes = createPluginRoutes(configured, {
+      ...dependencies(),
+      getEnv: async () => ({ AI: { run: async () => ({ response: "@@sandbox:0@@\nBonjour" }) } }),
+    });
+    const kv = createKv();
+    const storage = createStorage();
+    await enableDebug(routes, kv, storage);
+    const sandbox = (model: string) =>
+      route(routes, "translation-sandbox").handler(
+        context({ targetLocale: "fr-FR", model, text: "Hello" }, "POST", kv, storage),
+      ) as Promise<TranslationSandboxResponse>;
+    await expect(sandbox("model-a")).resolves.toMatchObject({
+      debug: { requestInput: { temperature: 0.2, chat_template_kwargs: { enable_thinking: false } } },
+    });
+    await expect(sandbox("model-b")).resolves.toMatchObject({ debug: { requestInput: null } });
+  });
+
+  it("shows the request input in content and catalog debug traces, only to administrators", async () => {
+    const configured = options();
+    configured.models.params = { "model-b": { enable_thinking: false, temperature: 0.2 } };
+    const responseFor = (input: WorkersAIInput) =>
+      JSON.stringify(input).includes("@@catalog:0@@") ? "@@catalog:0@@\nBonjour" : "@@field:0@@\nBonjour";
+    const routes = createPluginRoutes(configured, {
+      ...dependencies(),
+      getEnv: async () => ({ AI: { run: async (_model: string, input: WorkersAIInput) => ({ response: responseFor(input) }) } }),
+    });
+    const kv = createKv();
+    const storage = createStorage();
+    await enablePosts(kv);
+    await enableDebug(routes, kv, storage);
+    const expected = { debug: { requestInput: { temperature: 0.2, chat_template_kwargs: { enable_thinking: false } } } };
+    const content = { collection: "posts", entryId: "entry-1", targetLocale: "fr-FR", fields: ["title"] };
+    const catalog = { locale: "fr-FR", keys: ["greeting"] };
+
+    await expect(route(routes, "translate-content").handler(context(content, "POST", kv, storage))).resolves.toMatchObject(expected);
+    await expect(route(routes, "catalog/generate").handler(context(catalog, "POST", kv, storage))).resolves.toMatchObject(expected);
+
+    // catalog/generate is gated by the framework's plugins:manage permission instead of a role check in the handler.
+    expect(route(routes, "catalog/generate").permission).toBe("plugins:manage");
+    const editorContext = context(content, "POST", kv, storage);
+    if (editorContext.user === undefined) throw new Error("missing test user");
+    editorContext.user = { ...editorContext.user, role: 40 };
+    const result = await route(routes, "translate-content").handler(editorContext);
+    expect(result).not.toHaveProperty("debug");
+    expect(JSON.stringify(result)).not.toContain("temperature");
+  });
+
   it("uses models.reasoningInput for the extra input", async () => {
     const { inputs, saveSettings, sandbox } = setup((configured) => {
       configured.models.reasoningInput = { "model-b": { off: { think: false } } };
@@ -2753,5 +2803,32 @@ describe("withThinking", () => {
     const result = withThinking(undefined, { reasoning_effort: "high" });
     expect(result).toEqual({ reasoning_effort: "high" });
     check(result);
+  });
+});
+
+describe("translatorParams", () => {
+  const configured = (params: Record<string, unknown>) => {
+    const result = options();
+    result.models.params = { "model-a": params };
+    return result;
+  };
+
+  it("returns models.params unchanged without an admin choice", () => {
+    expect(translatorParams(configured({ temperature: 0.2 }), "model-a", "fr-FR", undefined)).toEqual({ temperature: 0.2 });
+    expect(translatorParams(options(), "model-a", "fr-FR", undefined)).toBeUndefined();
+  });
+
+  it("layers the admin's thinking input over models.params", () => {
+    expect(translatorParams(configured({ temperature: 0.2 }), "model-a", "fr-FR", { reasoning_effort: "high" })).toEqual({
+      temperature: 0.2,
+      reasoning_effort: "high",
+    });
+  });
+
+  it("drops the code's enable_thinking:false when the admin picks an effort", () => {
+    expect(translatorParams(configured({ enable_thinking: false, x: 1 }), "model-a", "fr-FR", { reasoning_effort: "high" })).toEqual({
+      x: 1,
+      reasoning_effort: "high",
+    });
   });
 });
