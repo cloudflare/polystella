@@ -1,13 +1,7 @@
-import { Button, Checkbox } from "@cloudflare/kumo";
-import type { CSSProperties, ReactNode } from "react";
+import { Button, Select } from "@cloudflare/kumo";
+import type { ReactNode } from "react";
 
 import { rowStyle, stackStyle } from "../../styles.js";
-
-const localeGridStyle: CSSProperties = {
-  display: "grid",
-  gap: "8px 16px",
-  gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))",
-};
 
 export interface LocaleOption {
   locale: string;
@@ -33,14 +27,21 @@ export function LocalePicker({
   const all = options.map(({ locale }) => locale);
   return (
     <div style={stackStyle}>
-      <Checkbox.Group legend={legend} value={[...value]} allValues={all} disabled={disabled} onValueChange={onChange}>
-        {/* Kumo always stacks group items in one column; this grid packs them into rows instead. */}
-        <div style={localeGridStyle}>
-          {options.map(({ locale, label }) => (
-            <Checkbox.Item key={locale} value={locale} label={label} />
-          ))}
-        </div>
-      </Checkbox.Group>
+      <Select<string, true>
+        label={legend}
+        multiple
+        placeholder="Choose locales"
+        value={[...value]}
+        disabled={disabled}
+        renderValue={(selected) => selectedLocalesLabel(selected, options)}
+        onValueChange={(next) => onChange(all.filter((locale) => next.includes(locale)))}
+      >
+        {options.map(({ locale, label }) => (
+          <Select.Option key={locale} value={locale}>
+            {label}
+          </Select.Option>
+        ))}
+      </Select>
       <div style={rowStyle}>
         <Button size="sm" variant="secondary" disabled={disabled || value.length === all.length} onClick={() => onChange(all)}>
           Select all
@@ -52,4 +53,9 @@ export function LocalePicker({
       </div>
     </div>
   );
+}
+
+function selectedLocalesLabel(selected: readonly string[], options: readonly LocaleOption[]): string {
+  if (selected.length > 2) return `${selected.length} locales`;
+  return selected.map((locale) => options.find((option) => option.locale === locale)?.label ?? locale).join(", ");
 }

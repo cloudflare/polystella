@@ -1,6 +1,6 @@
 import { Banner, Button, Input, LayerCard, Select, Switch, Table, Textarea, Tooltip } from "@cloudflare/kumo";
 import { QuestionIcon } from "@phosphor-icons/react";
-import { useEffect, useState, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import {
   MAX_CATALOG_KEYS,
@@ -14,7 +14,7 @@ import {
   type TranslationDebugTrace,
 } from "../../../../contracts.js";
 import { errorMessage, localeLabel, pluginRequest } from "../../../utils.js";
-import type { TranslationProgressState } from "../../../types.js";
+import type { CatalogGroup, TranslationProgressState } from "../../../types.js";
 import { cardStyle, inputStyle, mutedStyle, rowStyle, sectionStyle, stackStyle } from "../../../styles.js";
 import { ErrorMessage } from "../../../components/ErrorMessage/ErrorMessage.js";
 import { TranslationDebugView } from "../../../components/TranslationDebugView/TranslationDebugView.js";
@@ -183,14 +183,47 @@ export function CatalogTab(): ReactNode {
     }
   }
 
-  function updateOverrideChange(entry: CatalogEntryView, enabled: boolean, value: string): void {
+  const updateOverrideChange = useCallback((entry: CatalogEntryView, enabled: boolean, value: string): void => {
     setTouched((current) => {
+      const changed = catalogOverrideChanged(entry.override, enabled, value);
+      if (changed === current.has(entry.key)) return current;
       const next = new Set(current);
-      if (!catalogOverrideChanged(entry.override, enabled, value)) next.delete(entry.key);
-      else next.add(entry.key);
+      if (changed) next.add(entry.key);
+      else next.delete(entry.key);
       return next;
     });
-  }
+  }, []);
+  const draftsRef = useRef(drafts);
+  draftsRef.current = drafts;
+  const toggleOverride = useCallback(
+    (entry: CatalogEntryView, enabled: boolean): void => {
+      setEnabledOverrides((current) => {
+        const next = new Set(current);
+        if (enabled) next.add(entry.key);
+        else next.delete(entry.key);
+        return next;
+      });
+      updateOverrideChange(entry, enabled, draftsRef.current.get(entry.key) ?? "");
+    },
+    [updateOverrideChange],
+  );
+  const changeDraft = useCallback(
+    (entry: CatalogEntryView, value: string): void => {
+      setDrafts((current) => new Map(current).set(entry.key, value));
+      updateOverrideChange(entry, true, value);
+    },
+    [updateOverrideChange],
+  );
+  const toggleSelected = useCallback((keys: readonly string[], checked: boolean): void => {
+    setSelected((current) =>
+      checked ? [...new Set([...current, ...keys])].slice(0, MAX_CATALOG_KEYS) : current.filter((key) => !keys.includes(key)),
+    );
+  }, []);
+  const selectedKeys = useMemo(() => new Set(selected), [selected]);
+  const groups = useMemo(
+    () => filterCatalogGroups(groupCatalogEntries(catalog?.entries ?? [], catalog?.groups ?? []), debouncedSearch),
+    [catalog, debouncedSearch],
+  );
 
   async function setRuntimeEnabled(enabled: boolean): Promise<void> {
     if (catalog === null) return;
@@ -237,7 +270,6 @@ export function CatalogTab(): ReactNode {
 
   if (catalog === null && error === null) return <p style={sectionStyle}>Loading catalog...</p>;
   const localeSummary = catalog?.locales.find((item) => item.locale === catalog.locale);
-  const groups = filterCatalogGroups(groupCatalogEntries(catalog?.entries ?? [], catalog?.groups ?? []), debouncedSearch);
   const actions = (
     <div style={rowStyle}>
       <Button
@@ -313,118 +345,174 @@ export function CatalogTab(): ReactNode {
             onChange={(event) => setSearch(event.target.value)}
           />
           {generationProgress === null ? null : <TranslationProgress {...generationProgress} />}
-          {groups.map((group) => {
-            const groupKeys = new Set(group.entries.map((entry) => entry.key));
-            const selectableKeys = group.entries
-              .filter((entry) => entry.source !== null && entry.source.length > 0)
-              .map((entry) => entry.key);
-            const selectedCount = selectableKeys.filter((key) => selected.includes(key)).length;
-            return (
-              <LayerCard key={group.key}>
-                <details>
-                  <summary style={{ cursor: "pointer", padding: 20 }}>
-                    <strong>{group.title ?? group.key}</strong>{" "}
-                    {group.title === null ? null : <small style={mutedStyle}>({group.key}) </small>}
-                    <small style={mutedStyle}>{group.entries.length} keys</small>
-                  </summary>
-                  <div style={{ overflowX: "auto", padding: "0 20px 20px" }}>
-                    <Table layout="fixed" style={{ minWidth: 960 }}>
-                      <Table.Header>
-                        <Table.Row>
-                          <Table.CheckHead
-                            label={`Select all ${group.key} keys`}
-                            checked={selectableKeys.length > 0 && selectedCount === selectableKeys.length}
-                            indeterminate={selectedCount > 0 && selectedCount < selectableKeys.length}
-                            disabled={working || selectableKeys.length === 0}
-                            style={{ width: 40 }}
-                            onCheckedChange={(checked) =>
-                              setSelected((current) =>
-                                checked
-                                  ? [...new Set([...current, ...selectableKeys])].slice(0, MAX_CATALOG_KEYS)
-                                  : current.filter((key) => !groupKeys.has(key)),
-                              )
-                            }
-                          />
-                          <Table.Head style={{ width: "18%" }}>Key</Table.Head>
-                          <Table.Head style={{ width: "22%" }}>Source</Table.Head>
-                          <Table.Head style={{ width: "22%" }}>Deployed</Table.Head>
-                          <Table.Head style={{ width: "22%" }}>Override</Table.Head>
-                        </Table.Row>
-                      </Table.Header>
-                      <Table.Body>
-                        {group.entries.map((entry) => {
-                          const overrideEnabled = enabledOverrides.has(entry.key);
-                          return (
-                            <Table.Row key={entry.key}>
-                              <Table.CheckCell
-                                label={`Select ${entry.key}`}
-                                checked={selected.includes(entry.key)}
-                                disabled={
-                                  working ||
-                                  entry.source === null ||
-                                  entry.source.length === 0 ||
-                                  (!selected.includes(entry.key) && selected.length >= MAX_CATALOG_KEYS)
-                                }
-                                onCheckedChange={(checked) =>
-                                  setSelected((current) =>
-                                    checked ? [...new Set([...current, entry.key])] : current.filter((key) => key !== entry.key),
-                                  )
-                                }
-                              />
-                              <Table.Cell>
-                                <strong style={{ overflowWrap: "anywhere" }}>{entry.key}</strong>
-                              </Table.Cell>
-                              <Table.Cell>
-                                <TokenGuidance source={entry.source} messageSyntax={catalog.messageSyntax} />
-                              </Table.Cell>
-                              <Table.Cell>
-                                <span style={mutedStyle}>{entry.deployed ?? "Missing"}</span>
-                              </Table.Cell>
-                              <Table.Cell>
-                                <div style={stackStyle}>
-                                  <Switch
-                                    label={overrideEnabled ? "Enabled" : "Disabled"}
-                                    checked={overrideEnabled}
-                                    disabled={working}
-                                    onCheckedChange={(enabled) => {
-                                      setEnabledOverrides((current) => {
-                                        const next = new Set(current);
-                                        if (enabled) next.add(entry.key);
-                                        else next.delete(entry.key);
-                                        return next;
-                                      });
-                                      updateOverrideChange(entry, enabled, drafts.get(entry.key) ?? "");
-                                    }}
-                                  />
-                                  <Textarea
-                                    aria-label={`Override ${entry.key}`}
-                                    rows={3}
-                                    style={inputStyle}
-                                    value={overrideEnabled ? (drafts.get(entry.key) ?? "") : ""}
-                                    disabled={working || !overrideEnabled}
-                                    onValueChange={(value) => {
-                                      setDrafts((current) => new Map(current).set(entry.key, value));
-                                      updateOverrideChange(entry, true, value);
-                                    }}
-                                  />
-                                </div>
-                              </Table.Cell>
-                            </Table.Row>
-                          );
-                        })}
-                      </Table.Body>
-                    </Table>
-                  </div>
-                </details>
-              </LayerCard>
-            );
-          })}
+          {groups.map((group) => (
+            <CatalogGroupCard
+              key={group.key}
+              group={group}
+              messageSyntax={catalog.messageSyntax}
+              selectedKeys={selectedKeys}
+              selectionFull={selected.length >= MAX_CATALOG_KEYS}
+              drafts={drafts}
+              enabledOverrides={enabledOverrides}
+              working={working}
+              onToggleSelected={toggleSelected}
+              onToggleOverride={toggleOverride}
+              onDraftChange={changeDraft}
+            />
+          ))}
           {actions}
         </>
       )}
     </section>
   );
 }
+
+interface CatalogRowHandlers {
+  onToggleSelected(keys: readonly string[], checked: boolean): void;
+  onToggleOverride(entry: CatalogEntryView, enabled: boolean): void;
+  onDraftChange(entry: CatalogEntryView, value: string): void;
+}
+
+/** Mounts its table only while open, so typing in one override doesn't re-render every key of every group. */
+const CatalogGroupCard = memo(function CatalogGroupCard({
+  group,
+  messageSyntax,
+  selectedKeys,
+  selectionFull,
+  drafts,
+  enabledOverrides,
+  working,
+  onToggleSelected,
+  onToggleOverride,
+  onDraftChange,
+}: CatalogRowHandlers & {
+  group: CatalogGroup;
+  messageSyntax: CatalogViewResponse["messageSyntax"];
+  selectedKeys: ReadonlySet<string>;
+  selectionFull: boolean;
+  drafts: ReadonlyMap<string, string>;
+  enabledOverrides: ReadonlySet<string>;
+  working: boolean;
+}): ReactNode {
+  const [open, setOpen] = useState(false);
+  const selectableKeys = useMemo(
+    () => group.entries.filter((entry) => entry.source !== null && entry.source.length > 0).map((entry) => entry.key),
+    [group],
+  );
+  const groupKeys = useMemo(() => group.entries.map((entry) => entry.key), [group]);
+  const selectedCount = selectableKeys.filter((key) => selectedKeys.has(key)).length;
+  return (
+    <LayerCard>
+      <details onToggle={(event) => setOpen(event.currentTarget.open)}>
+        <summary style={{ cursor: "pointer", padding: 20 }}>
+          <strong>{group.title ?? group.key}</strong> {group.title === null ? null : <small style={mutedStyle}>({group.key}) </small>}
+          <small style={mutedStyle}>{group.entries.length} keys</small>
+        </summary>
+        {open ? (
+          <div style={{ overflowX: "auto", padding: "0 20px 20px" }}>
+            <Table layout="fixed" style={{ minWidth: 960 }}>
+              <Table.Header>
+                <Table.Row>
+                  <Table.CheckHead
+                    label={`Select all ${group.key} keys`}
+                    checked={selectableKeys.length > 0 && selectedCount === selectableKeys.length}
+                    indeterminate={selectedCount > 0 && selectedCount < selectableKeys.length}
+                    disabled={working || selectableKeys.length === 0}
+                    style={{ width: 40 }}
+                    onCheckedChange={(checked) => onToggleSelected(checked ? selectableKeys : groupKeys, checked)}
+                  />
+                  <Table.Head style={{ width: "18%" }}>Key</Table.Head>
+                  <Table.Head style={{ width: "22%" }}>Source</Table.Head>
+                  <Table.Head style={{ width: "22%" }}>Deployed</Table.Head>
+                  <Table.Head style={{ width: "22%" }}>Override</Table.Head>
+                </Table.Row>
+              </Table.Header>
+              <Table.Body>
+                {group.entries.map((entry) => {
+                  const checked = selectedKeys.has(entry.key);
+                  return (
+                    <CatalogRow
+                      key={entry.key}
+                      entry={entry}
+                      messageSyntax={messageSyntax}
+                      checked={checked}
+                      selectDisabled={working || entry.source === null || entry.source.length === 0 || (!checked && selectionFull)}
+                      overrideEnabled={enabledOverrides.has(entry.key)}
+                      draft={drafts.get(entry.key) ?? ""}
+                      working={working}
+                      onToggleSelected={onToggleSelected}
+                      onToggleOverride={onToggleOverride}
+                      onDraftChange={onDraftChange}
+                    />
+                  );
+                })}
+              </Table.Body>
+            </Table>
+          </div>
+        ) : null}
+      </details>
+    </LayerCard>
+  );
+});
+
+const CatalogRow = memo(function CatalogRow({
+  entry,
+  messageSyntax,
+  checked,
+  selectDisabled,
+  overrideEnabled,
+  draft,
+  working,
+  onToggleSelected,
+  onToggleOverride,
+  onDraftChange,
+}: CatalogRowHandlers & {
+  entry: CatalogEntryView;
+  messageSyntax: CatalogViewResponse["messageSyntax"];
+  checked: boolean;
+  selectDisabled: boolean;
+  overrideEnabled: boolean;
+  draft: string;
+  working: boolean;
+}): ReactNode {
+  return (
+    <Table.Row>
+      <Table.CheckCell
+        label={`Select ${entry.key}`}
+        checked={checked}
+        disabled={selectDisabled}
+        onCheckedChange={(next) => onToggleSelected([entry.key], next)}
+      />
+      <Table.Cell>
+        <strong style={{ overflowWrap: "anywhere" }}>{entry.key}</strong>
+      </Table.Cell>
+      <Table.Cell>
+        <TokenGuidance source={entry.source} messageSyntax={messageSyntax} />
+      </Table.Cell>
+      <Table.Cell>
+        <span style={mutedStyle}>{entry.deployed ?? "Missing"}</span>
+      </Table.Cell>
+      <Table.Cell>
+        <div style={stackStyle}>
+          <Switch
+            label={overrideEnabled ? "Enabled" : "Disabled"}
+            checked={overrideEnabled}
+            disabled={working}
+            onCheckedChange={(enabled) => onToggleOverride(entry, enabled)}
+          />
+          <Textarea
+            aria-label={`Override ${entry.key}`}
+            rows={3}
+            style={inputStyle}
+            value={overrideEnabled ? draft : ""}
+            disabled={working || !overrideEnabled}
+            onValueChange={(value) => onDraftChange(entry, value)}
+          />
+        </div>
+      </Table.Cell>
+    </Table.Row>
+  );
+});
 
 function TokenGuidance({
   source,
