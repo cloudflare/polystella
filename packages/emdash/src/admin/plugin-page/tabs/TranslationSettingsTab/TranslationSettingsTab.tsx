@@ -201,7 +201,9 @@ export function TranslationSettingsTab(): ReactNode {
                     <InfoTooltip label={`${localeLabel(locale.locale)} code-default model`} content={locale.defaultModel} />
                   </small>
                 ) : (
-                  <small style={mutedStyle}>{locale.model}</small>
+                  <small style={{ ...mutedStyle, ...truncateStyle }} title={locale.model}>
+                    {locale.model}
+                  </small>
                 )}
               </>
             }
@@ -279,6 +281,8 @@ export function TranslationSettingsTab(): ReactNode {
 }
 
 const cardHeadingStyle: CSSProperties = { fontSize: 18, margin: 0 };
+// Long model ids would wrap and make side-by-side language cards uneven.
+const truncateStyle: CSSProperties = { flex: "1 1 0", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" };
 
 const MODEL_DEFAULT_REASONING = "__polystella_model_default__";
 const reasoningRequests = new Map<string, Promise<ModelReasoningResponse>>();
