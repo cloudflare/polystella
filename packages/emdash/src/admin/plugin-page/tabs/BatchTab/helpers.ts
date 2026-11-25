@@ -227,6 +227,64 @@ export async function loadAllItems(collection: string, sourceLocale: string, tar
   return items;
 }
 
+export interface CollectionTranslationStats {
+  sourceEntries: number;
+  publishedSourceEntries: number;
+  /** Source entries with no translation, keyed by target locale. */
+  untranslated: Record<string, number>;
+}
+
+/** Counts from one paged list per locale, matched by translation group, instead of a request per entry. */
+export async function collectionTranslationStats(
+  collection: string,
+  sourceLocale: string,
+  targets: readonly BatchTargetLocale[],
+  signal?: AbortSignal | undefined,
+): Promise<CollectionTranslationStats> {
+  // Older translations can be stored under the catalog code ("fr-FR") instead of the content locale ("fr").
+  const targetRowLists = (target: BatchTargetLocale) =>
+    Promise.all([...new Set([target.locale, target.code])].map((locale) => listAllEntries(collection, locale, signal))).then((lists) =>
+      lists.flat(),
+    );
+  const [sourceRows, ...targetRows] = await Promise.all([listAllEntries(collection, sourceLocale, signal), ...targets.map(targetRowLists)]);
+  const sources = sourceRows.filter(({ locale }) => targets.every((target) => findExistingTranslation([{ locale }], target) === undefined));
+  const untranslated: Record<string, number> = {};
+  targets.forEach((target, index) => {
+    const translatedGroups = new Set(
+      (targetRows[index] ?? []).filter((row) => findExistingTranslation([row], target) !== undefined).map(translationGroupOf),
+    );
+    untranslated[target.locale] = sources.filter((row) => !translatedGroups.has(translationGroupOf(row))).length;
+  });
+  return {
+    sourceEntries: sources.length,
+    publishedSourceEntries: sources.filter(({ status }) => status === "published").length,
+    untranslated,
+  };
+}
+
+interface EntryRow {
+  id: string;
+  locale: string;
+  status: string;
+  translationGroup: string | null;
+}
+
+function translationGroupOf(row: EntryRow): string {
+  return row.translationGroup ?? row.id;
+}
+
+async function listAllEntries(collection: string, locale: string, signal: AbortSignal | undefined): Promise<EntryRow[]> {
+  const rows: EntryRow[] = [];
+  let cursor: string | undefined;
+  do {
+    signal?.throwIfAborted();
+    const result = await fetchContentList(collection, { limit: 100, locale, ...(cursor === undefined ? {} : { cursor }) });
+    rows.push(...result.items);
+    cursor = result.nextCursor;
+  } while (cursor !== undefined);
+  return rows;
+}
+
 /** Workers pull the next job until the list is empty or `shouldStop` turns true; in-flight jobs finish. */
 export async function runBatchJobs<T>(
   jobs: readonly T[],

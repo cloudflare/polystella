@@ -1,5 +1,5 @@
 import { Button, Input, LayerCard, Select, Switch, Textarea } from "@cloudflare/kumo";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 
 import {
   MAX_MAX_TOKENS,
@@ -15,11 +15,13 @@ import { cardStyle, mutedStyle, rowStyle, sectionStyle, stackStyle, subheadingSt
 import { ErrorMessage } from "../../../components/ErrorMessage/ErrorMessage.js";
 import { NewWindowLink } from "../../../components/NewWindowLink/NewWindowLink.js";
 import { InfoTooltip, SectionHeader } from "../../../components/PageHeader/PageHeader.js";
+import { cardGridStyle, CollapsibleCard } from "../../../components/CollapsibleCard/CollapsibleCard.js";
 
 export function TranslationSettingsTab(): ReactNode {
   const [settings, setSettings] = useState<TranslationSettingsResponse | null>(null);
   const [working, setWorking] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [openLocales, setOpenLocales] = useState<ReadonlySet<string>>(new Set());
 
   useEffect(() => {
     let active = true;
@@ -85,163 +87,184 @@ export function TranslationSettingsTab(): ReactNode {
       <SectionHeader title="Translation settings" description="Choose a model and customize code-defined guidance without redeploying." />
       {error === null ? null : <ErrorMessage>{error}</ErrorMessage>}
       {settings === null ? null : (
-        <LayerCard style={cardStyle}>
-          <div style={stackStyle}>
-            <Switch
-              label="Debug mode"
-              labelTooltip="Administrators receive request-scoped prompts, normalized model responses, and batch diagnostics. Debug traces are not stored on the server."
-              checked={settings.debugEnabled}
-              disabled={working}
-              onCheckedChange={(debugEnabled) => setSettings((current) => (current === null ? null : { ...current, debugEnabled }))}
-            />
-            <Input
-              label="Max output tokens"
-              type="number"
-              min={MIN_MAX_TOKENS}
-              max={MAX_MAX_TOKENS}
-              step={1}
-              placeholder={`Default (${settings.defaultMaxTokens})`}
-              labelTooltip={`Raise this if long entries fail with truncated responses. Leave empty to use the default (${settings.defaultMaxTokens}).`}
-              value={settings.maxTokens?.toString() ?? ""}
-              disabled={working}
-              onChange={(event) => {
-                const text = event.target.value.trim();
-                const maxTokens = text.length === 0 ? null : Number(text);
-                setSettings((current) => (current === null ? null : { ...current, maxTokens }));
-              }}
-            />
-            <Switch
-              label="Remove the AI-translated flag when an editor changes AI text"
-              labelTooltip="Off: the flag stays, and the PolyStella panel on the entry shows which AI-written fields were edited, with Keep AI flag and Remove AI flag. On: saving different text in an AI-written field removes the flag right away."
-              checked={settings.clearAiFlagOnEdit}
-              disabled={working}
-              onCheckedChange={(clearAiFlagOnEdit) =>
-                setSettings((current) => (current === null ? null : { ...current, clearAiFlagOnEdit }))
-              }
-            />
-            <Switch
-              label="Translate the SEO title and meta description of published and scheduled entries"
-              labelTooltip="Off: the PolyStella panel translates SEO text only on drafts. On: it also translates it on published and scheduled entries. EmDash saves SEO text as soon as it changes, so on those entries the translation takes effect before anyone reviews it."
-              checked={settings.translateSeoWhenPublished}
-              disabled={working}
-              onCheckedChange={(translateSeoWhenPublished) =>
-                setSettings((current) => (current === null ? null : { ...current, translateSeoWhenPublished }))
-              }
-            />
-            <div style={subheadingStyle}>
-              <h3 style={{ fontSize: "inherit", margin: 0 }}>Additional translation instructions</h3>
-              <InfoTooltip
-                label="About additional translation instructions"
-                content="Sent with every translation in every language, together with that language's glossary."
+        <div style={cardGridStyle}>
+          <LayerCard style={cardStyle}>
+            <div style={stackStyle}>
+              <h3 style={cardHeadingStyle}>General</h3>
+              <Switch
+                label="Debug mode"
+                labelTooltip="Administrators receive request-scoped prompts, normalized model responses, and batch diagnostics. Debug traces are not stored on the server."
+                checked={settings.debugEnabled}
+                disabled={working}
+                onCheckedChange={(debugEnabled) => setSettings((current) => (current === null ? null : { ...current, debugEnabled }))}
+              />
+              <Input
+                label="Max output tokens"
+                type="number"
+                min={MIN_MAX_TOKENS}
+                max={MAX_MAX_TOKENS}
+                step={1}
+                placeholder={`Default (${settings.defaultMaxTokens})`}
+                labelTooltip={`Raise this if long entries fail with truncated responses. Leave empty to use the default (${settings.defaultMaxTokens}).`}
+                value={settings.maxTokens?.toString() ?? ""}
+                disabled={working}
+                onChange={(event) => {
+                  const text = event.target.value.trim();
+                  const maxTokens = text.length === 0 ? null : Number(text);
+                  setSettings((current) => (current === null ? null : { ...current, maxTokens }));
+                }}
+              />
+              <Switch
+                label="Remove the AI-translated flag when an editor changes AI text"
+                labelTooltip="Off: the flag stays, and the PolyStella panel on the entry shows which AI-written fields were edited, with Keep AI flag and Remove AI flag. On: saving different text in an AI-written field removes the flag right away."
+                checked={settings.clearAiFlagOnEdit}
+                disabled={working}
+                onCheckedChange={(clearAiFlagOnEdit) =>
+                  setSettings((current) => (current === null ? null : { ...current, clearAiFlagOnEdit }))
+                }
+              />
+              <Switch
+                label="Translate the SEO title and meta description of published and scheduled entries"
+                labelTooltip="Off: the PolyStella panel translates SEO text only on drafts. On: it also translates it on published and scheduled entries. EmDash saves SEO text as soon as it changes, so on those entries the translation takes effect before anyone reviews it."
+                checked={settings.translateSeoWhenPublished}
+                disabled={working}
+                onCheckedChange={(translateSeoWhenPublished) =>
+                  setSettings((current) => (current === null ? null : { ...current, translateSeoWhenPublished }))
+                }
               />
             </div>
-            <Select
-              label="Instruction behavior"
-              value={settings.instructions.mode}
-              renderValue={(value) => (isCustomizationMode(value) ? INSTRUCTION_MODE_LABELS[value] : "")}
-              disabled={working}
-              onValueChange={(value) => {
-                if (isCustomizationMode(value)) {
-                  setSettings((current) =>
-                    current === null ? null : { ...current, instructions: { ...current.instructions, mode: value } },
-                  );
-                }
-              }}
-            >
-              {CUSTOMIZATION_MODES.map((mode) => (
-                <Select.Option key={mode} value={mode}>
-                  {INSTRUCTION_MODE_LABELS[mode]}
-                </Select.Option>
-              ))}
-            </Select>
-            {settings.instructions.mode === "default" ? null : (
-              <Textarea
-                label="Custom instructions"
-                rows={5}
-                value={settings.instructions.text}
-                disabled={working}
-                onValueChange={(text) =>
-                  setSettings((current) => (current === null ? null : { ...current, instructions: { ...current.instructions, text } }))
-                }
-              />
-            )}
-            <span>
-              <NewWindowLink href={pluginPageUrl("/code-defaults")}>View code-defined additional translation instructions</NewWindowLink>
-            </span>
-          </div>
-        </LayerCard>
-      )}
-      {settings?.locales.map((locale) => (
-        <LayerCard key={locale.locale}>
-          <details>
-            <summary style={{ cursor: "pointer", padding: 20 }}>
-              <strong>{localeLabel(locale.locale)}</strong>
-            </summary>
-            <div style={{ ...stackStyle, padding: "0 20px 20px" }}>
-              <Select
-                label="Translation model"
-                value={locale.model ?? USE_CODE_DEFAULT_MODEL}
-                renderValue={(value) =>
-                  value === USE_CODE_DEFAULT_MODEL ? `Code default (${locale.defaultModel})` : typeof value === "string" ? value : ""
-                }
-                disabled={working}
-                onValueChange={(value) => {
-                  if (typeof value === "string") {
-                    updateLocale(locale.locale, { model: value === USE_CODE_DEFAULT_MODEL ? null : value, reasoning: null });
-                  }
-                }}
-              >
-                <Select.Option value={USE_CODE_DEFAULT_MODEL}>Code default ({locale.defaultModel})</Select.Option>
-                {settings.allowedModels.map((model) => (
-                  <Select.Option key={model} value={model}>
-                    {model}
-                  </Select.Option>
-                ))}
-              </Select>
-              {locale.model === null ? (
-                locale.defaultReasoning === null ? null : (
-                  <span style={mutedStyle}>Thinking: code default ({effortLabel(locale.defaultReasoning)})</span>
-                )
-              ) : (
-                <ThinkingSelect
-                  model={locale.model}
-                  value={locale.reasoning}
-                  disabled={working}
-                  onChange={(reasoning) => updateLocale(locale.locale, { reasoning })}
+          </LayerCard>
+          <LayerCard style={cardStyle}>
+            <div style={stackStyle}>
+              <div style={{ alignItems: "center", display: "flex", gap: 6 }}>
+                <h3 style={cardHeadingStyle}>Additional translation instructions</h3>
+                <InfoTooltip
+                  label="About additional translation instructions"
+                  content="Sent with every translation in every language, together with that language's glossary."
                 />
-              )}
+              </div>
               <Select
-                label="Glossary behavior"
-                value={locale.glossaryMode}
-                renderValue={(value) => (isCustomizationMode(value) ? GLOSSARY_MODE_LABELS[value] : "")}
+                label="Instruction behavior"
+                value={settings.instructions.mode}
+                renderValue={(value) => (isCustomizationMode(value) ? INSTRUCTION_MODE_LABELS[value] : "")}
                 disabled={working}
                 onValueChange={(value) => {
-                  if (isCustomizationMode(value)) updateLocale(locale.locale, { glossaryMode: value });
+                  if (isCustomizationMode(value)) {
+                    setSettings((current) =>
+                      current === null ? null : { ...current, instructions: { ...current.instructions, mode: value } },
+                    );
+                  }
                 }}
               >
                 {CUSTOMIZATION_MODES.map((mode) => (
                   <Select.Option key={mode} value={mode}>
-                    {GLOSSARY_MODE_LABELS[mode]}
+                    {INSTRUCTION_MODE_LABELS[mode]}
                   </Select.Option>
                 ))}
               </Select>
-              {locale.glossaryMode === "default" ? null : (
+              {settings.instructions.mode === "default" ? null : (
                 <Textarea
-                  label="Custom glossary"
-                  description="Plain text appended to or used instead of the code-defined glossary."
+                  label="Custom instructions"
                   rows={5}
-                  value={locale.glossaryText}
+                  value={settings.instructions.text}
                   disabled={working}
-                  onValueChange={(glossaryText) => updateLocale(locale.locale, { glossaryText })}
+                  onValueChange={(text) =>
+                    setSettings((current) => (current === null ? null : { ...current, instructions: { ...current.instructions, text } }))
+                  }
                 />
               )}
               <span>
-                <NewWindowLink href={pluginPageUrl("/code-defaults", { locale: locale.locale })}>View code-defined glossary</NewWindowLink>
+                <NewWindowLink href={pluginPageUrl("/code-defaults")}>View code-defined additional translation instructions</NewWindowLink>
               </span>
             </div>
-          </details>
-        </LayerCard>
-      ))}
+          </LayerCard>
+        </div>
+      )}
+      {settings === null || settings.locales.length === 0 ? null : <h3 style={subheadingStyle}>Languages</h3>}
+      <div style={cardGridStyle}>
+        {settings?.locales.map((locale) => (
+          <CollapsibleCard
+            key={locale.locale}
+            label={localeLabel(locale.locale)}
+            open={openLocales.has(locale.locale)}
+            onOpenChange={(open) =>
+              setOpenLocales((current) => {
+                const next = new Set(current);
+                if (open) next.add(locale.locale);
+                else next.delete(locale.locale);
+                return next;
+              })
+            }
+            header={
+              <>
+                <strong>{localeLabel(locale.locale)}</strong>
+                <small style={mutedStyle}>{locale.model ?? `Code default (${locale.defaultModel})`}</small>
+              </>
+            }
+          >
+            <Select
+              label="Translation model"
+              value={locale.model ?? USE_CODE_DEFAULT_MODEL}
+              renderValue={(value) =>
+                value === USE_CODE_DEFAULT_MODEL ? `Code default (${locale.defaultModel})` : typeof value === "string" ? value : ""
+              }
+              disabled={working}
+              onValueChange={(value) => {
+                if (typeof value === "string") {
+                  updateLocale(locale.locale, { model: value === USE_CODE_DEFAULT_MODEL ? null : value, reasoning: null });
+                }
+              }}
+            >
+              <Select.Option value={USE_CODE_DEFAULT_MODEL}>Code default ({locale.defaultModel})</Select.Option>
+              {settings.allowedModels.map((model) => (
+                <Select.Option key={model} value={model}>
+                  {model}
+                </Select.Option>
+              ))}
+            </Select>
+            {locale.model === null ? (
+              locale.defaultReasoning === null ? null : (
+                <span style={mutedStyle}>Thinking: code default ({effortLabel(locale.defaultReasoning)})</span>
+              )
+            ) : (
+              <ThinkingSelect
+                model={locale.model}
+                value={locale.reasoning}
+                disabled={working}
+                onChange={(reasoning) => updateLocale(locale.locale, { reasoning })}
+              />
+            )}
+            <Select
+              label="Glossary behavior"
+              value={locale.glossaryMode}
+              renderValue={(value) => (isCustomizationMode(value) ? GLOSSARY_MODE_LABELS[value] : "")}
+              disabled={working}
+              onValueChange={(value) => {
+                if (isCustomizationMode(value)) updateLocale(locale.locale, { glossaryMode: value });
+              }}
+            >
+              {CUSTOMIZATION_MODES.map((mode) => (
+                <Select.Option key={mode} value={mode}>
+                  {GLOSSARY_MODE_LABELS[mode]}
+                </Select.Option>
+              ))}
+            </Select>
+            {locale.glossaryMode === "default" ? null : (
+              <Textarea
+                label="Custom glossary"
+                description="Plain text appended to or used instead of the code-defined glossary."
+                rows={5}
+                value={locale.glossaryText}
+                disabled={working}
+                onValueChange={(glossaryText) => updateLocale(locale.locale, { glossaryText })}
+              />
+            )}
+            <span>
+              <NewWindowLink href={pluginPageUrl("/code-defaults", { locale: locale.locale })}>View code-defined glossary</NewWindowLink>
+            </span>
+          </CollapsibleCard>
+        ))}
+      </div>
       <div>
         <Button variant="primary" loading={working} disabled={settings === null} onClick={() => void save()}>
           Save translation settings
@@ -250,6 +273,8 @@ export function TranslationSettingsTab(): ReactNode {
     </section>
   );
 }
+
+const cardHeadingStyle: CSSProperties = { fontSize: 18, margin: 0 };
 
 const MODEL_DEFAULT_REASONING = "__polystella_model_default__";
 const reasoningRequests = new Map<string, Promise<ModelReasoningResponse>>();

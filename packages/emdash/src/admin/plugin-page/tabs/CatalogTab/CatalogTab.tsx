@@ -1,6 +1,6 @@
 import { Banner, Button, Input, LayerCard, Select, Switch, Table, Textarea, Tooltip } from "@cloudflare/kumo";
 import { QuestionIcon } from "@phosphor-icons/react";
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 
 import {
   MAX_CATALOG_KEYS,
@@ -42,6 +42,7 @@ export function CatalogTab(): ReactNode {
   const [error, setError] = useState<string | null>(null);
   const [debug, setDebug] = useState<TranslationDebugTrace | null>(null);
   const [search, setSearch] = useState("");
+  const [activeGroupKey, setActiveGroupKey] = useState<string | null>(null);
   const debouncedSearch = useDebouncedValue(search, 200);
 
   useEffect(() => {
@@ -271,6 +272,8 @@ export function CatalogTab(): ReactNode {
 
   if (catalog === null && error === null) return <p style={sectionStyle}>Loading catalog...</p>;
   const localeSummary = catalog?.locales.find((item) => item.locale === catalog.locale);
+  // Falls back to the first group alphabetically, on first load and when a search hides the chosen one.
+  const activeGroup = groups.find((group) => group.key === activeGroupKey) ?? groups[0];
   const actions = (
     <div style={rowStyle}>
       <Button
@@ -339,34 +342,81 @@ export function CatalogTab(): ReactNode {
             <Banner variant="secondary" title="Overrides are synced" description="Runtime overrides can be disabled for this locale." />
           ) : null}
           {actions}
-          <Input
-            label="Search catalog"
-            placeholder="Filter groups by title, key, source text, or keys within groups"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-          />
           {generationProgress === null ? null : <TranslationProgress {...generationProgress} />}
-          {groups.map((group) => (
-            <CatalogGroupCard
-              key={group.key}
-              group={group}
-              messageSyntax={catalog.messageSyntax}
-              selectedKeys={selectedKeys}
-              selectionFull={selected.length >= MAX_CATALOG_KEYS}
-              drafts={drafts}
-              enabledOverrides={enabledOverrides}
-              working={working}
-              onToggleSelected={toggleSelected}
-              onToggleOverride={toggleOverride}
-              onDraftChange={changeDraft}
-            />
-          ))}
-          {actions}
+          <div style={catalogLayoutStyle}>
+            <LayerCard style={{ ...cardStyle, flex: "1 1 240px", minWidth: 0 }}>
+              <div style={stackStyle}>
+                <Input
+                  label="Search catalog"
+                  placeholder="Title, key or source text"
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                />
+                <div role="group" aria-label="Translation groups" style={groupListStyle}>
+                  {groups.length === 0 ? <span style={mutedStyle}>No groups match.</span> : null}
+                  {groups.map((group) => {
+                    const active = group.key === activeGroup?.key;
+                    const selectedInGroup = group.entries.filter((entry) => selectedKeys.has(entry.key)).length;
+                    return (
+                      <button
+                        key={group.key}
+                        type="button"
+                        aria-pressed={active}
+                        style={active ? activeGroupButtonStyle : groupButtonStyle}
+                        onClick={() => setActiveGroupKey(group.key)}
+                      >
+                        <span style={{ overflowWrap: "anywhere" }}>{group.title ?? group.key}</span>
+                        <small style={mutedStyle}>
+                          {plural(group.entries.length, "key")}
+                          {selectedInGroup === 0 ? "" : `, ${selectedInGroup} selected`}
+                        </small>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </LayerCard>
+            {activeGroup === undefined ? null : (
+              <CatalogGroupCard
+                key={activeGroup.key}
+                group={activeGroup}
+                messageSyntax={catalog.messageSyntax}
+                selectedKeys={selectedKeys}
+                selectionFull={selected.length >= MAX_CATALOG_KEYS}
+                drafts={drafts}
+                enabledOverrides={enabledOverrides}
+                working={working}
+                onToggleSelected={toggleSelected}
+                onToggleOverride={toggleOverride}
+                onDraftChange={changeDraft}
+              />
+            )}
+          </div>
         </>
       )}
     </section>
   );
 }
+
+const catalogLayoutStyle: CSSProperties = { alignItems: "flex-start", display: "flex", flexWrap: "wrap", gap: 20 };
+const groupListStyle: CSSProperties = { display: "grid", gap: 2, maxHeight: "65vh", overflowY: "auto" };
+const groupButtonStyle: CSSProperties = {
+  background: "none",
+  border: "none",
+  borderRadius: 8,
+  color: "inherit",
+  cursor: "pointer",
+  display: "grid",
+  font: "inherit",
+  gap: 2,
+  padding: "8px 10px",
+  textAlign: "left",
+};
+const activeGroupButtonStyle: CSSProperties = {
+  ...groupButtonStyle,
+  background: "color-mix(in srgb, var(--color-kumo-brand, #2563eb) 14%, transparent)",
+  fontWeight: 600,
+};
 
 interface CatalogRowHandlers {
   onToggleSelected(keys: readonly string[], checked: boolean): void;
@@ -374,7 +424,7 @@ interface CatalogRowHandlers {
   onDraftChange(entry: CatalogEntryView, value: string): void;
 }
 
-/** Mounts its table only while open, so typing in one override doesn't re-render every key of every group. */
+/** One group's keys; only the active group is mounted, so typing in an override doesn't re-render every key. */
 const CatalogGroupCard = memo(function CatalogGroupCard({
   group,
   messageSyntax,
@@ -395,7 +445,6 @@ const CatalogGroupCard = memo(function CatalogGroupCard({
   enabledOverrides: ReadonlySet<string>;
   working: boolean;
 }): ReactNode {
-  const [open, setOpen] = useState(false);
   const selectableKeys = useMemo(
     () => group.entries.filter((entry) => entry.source !== null && entry.source.length > 0).map((entry) => entry.key),
     [group],
@@ -403,56 +452,54 @@ const CatalogGroupCard = memo(function CatalogGroupCard({
   const groupKeys = useMemo(() => group.entries.map((entry) => entry.key), [group]);
   const selectedCount = selectableKeys.filter((key) => selectedKeys.has(key)).length;
   return (
-    <LayerCard>
-      <details onToggle={(event) => setOpen(event.currentTarget.open)}>
-        <summary style={{ cursor: "pointer", padding: 20 }}>
-          <strong>{group.title ?? group.key}</strong> {group.title === null ? null : <small style={mutedStyle}>({group.key}) </small>}
+    <LayerCard style={{ ...cardStyle, flex: "4 1 560px", minWidth: 0 }}>
+      <div style={stackStyle}>
+        <h3 style={{ fontSize: 18, margin: 0 }}>
+          {group.title ?? group.key} {group.title === null ? null : <small style={mutedStyle}>({group.key}) </small>}
           <small style={mutedStyle}>{plural(group.entries.length, "key")}</small>
-        </summary>
-        {open ? (
-          <div style={{ overflowX: "auto", padding: "0 20px 20px" }}>
-            <Table layout="fixed" style={{ minWidth: 960 }}>
-              <Table.Header>
-                <Table.Row>
-                  <Table.CheckHead
-                    label={`Select all ${group.key} keys`}
-                    checked={selectableKeys.length > 0 && selectedCount === selectableKeys.length}
-                    indeterminate={selectedCount > 0 && selectedCount < selectableKeys.length}
-                    disabled={working || selectableKeys.length === 0}
-                    style={{ width: 48 }}
-                    onCheckedChange={(checked) => onToggleSelected(checked ? selectableKeys : groupKeys, checked)}
+        </h3>
+        <div style={{ overflowX: "auto" }}>
+          <Table layout="fixed" style={{ minWidth: 760 }}>
+            <Table.Header>
+              <Table.Row>
+                <Table.CheckHead
+                  label={`Select all ${group.key} keys`}
+                  checked={selectableKeys.length > 0 && selectedCount === selectableKeys.length}
+                  indeterminate={selectedCount > 0 && selectedCount < selectableKeys.length}
+                  disabled={working || selectableKeys.length === 0}
+                  style={{ width: 48 }}
+                  onCheckedChange={(checked) => onToggleSelected(checked ? selectableKeys : groupKeys, checked)}
+                />
+                <Table.Head style={{ width: "19%" }}>Key</Table.Head>
+                <Table.Head style={{ width: "26%" }}>Source</Table.Head>
+                <Table.Head style={{ width: "26%" }}>Deployed</Table.Head>
+                <Table.Head>Override</Table.Head>
+              </Table.Row>
+            </Table.Header>
+            <Table.Body>
+              {group.entries.map((entry) => {
+                const checked = selectedKeys.has(entry.key);
+                return (
+                  <CatalogRow
+                    key={entry.key}
+                    entry={entry}
+                    keyLabel={keyWithinGroup(entry.key, group.key)}
+                    messageSyntax={messageSyntax}
+                    checked={checked}
+                    selectDisabled={working || entry.source === null || entry.source.length === 0 || (!checked && selectionFull)}
+                    overrideEnabled={enabledOverrides.has(entry.key)}
+                    draft={drafts.get(entry.key) ?? ""}
+                    working={working}
+                    onToggleSelected={onToggleSelected}
+                    onToggleOverride={onToggleOverride}
+                    onDraftChange={onDraftChange}
                   />
-                  <Table.Head style={{ width: "19%" }}>Key</Table.Head>
-                  <Table.Head style={{ width: "26%" }}>Source</Table.Head>
-                  <Table.Head style={{ width: "26%" }}>Deployed</Table.Head>
-                  <Table.Head>Override</Table.Head>
-                </Table.Row>
-              </Table.Header>
-              <Table.Body>
-                {group.entries.map((entry) => {
-                  const checked = selectedKeys.has(entry.key);
-                  return (
-                    <CatalogRow
-                      key={entry.key}
-                      entry={entry}
-                      keyLabel={keyWithinGroup(entry.key, group.key)}
-                      messageSyntax={messageSyntax}
-                      checked={checked}
-                      selectDisabled={working || entry.source === null || entry.source.length === 0 || (!checked && selectionFull)}
-                      overrideEnabled={enabledOverrides.has(entry.key)}
-                      draft={drafts.get(entry.key) ?? ""}
-                      working={working}
-                      onToggleSelected={onToggleSelected}
-                      onToggleOverride={onToggleOverride}
-                      onDraftChange={onDraftChange}
-                    />
-                  );
-                })}
-              </Table.Body>
-            </Table>
-          </div>
-        ) : null}
-      </details>
+                );
+              })}
+            </Table.Body>
+          </Table>
+        </div>
+      </div>
     </LayerCard>
   );
 });

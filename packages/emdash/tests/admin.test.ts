@@ -30,7 +30,9 @@ import {
 } from "../src/admin/utils.js";
 import type { SchemaField } from "../src/admin/types.js";
 import type { CatalogEntryView, CatalogGroupView, TranslationDebugTrace } from "../src/contracts.js";
-import type { ReactElement } from "react";
+import { createElement, type ReactElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { CollapsibleCard } from "../src/admin/components/CollapsibleCard/CollapsibleCard.js";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -88,6 +90,24 @@ describe("EmDash admin entry", () => {
       { key: "a11y", title: "Accessibility", entries: entries.slice(0, 2) },
       { key: "header", title: null, entries: entries.slice(2) },
     ]);
+  });
+
+  it("sorts catalog groups alphabetically by title, or by key when there is no title", () => {
+    const entries = [catalogEntry("zeta.a"), catalogEntry("blocks.a"), catalogEntry("ai_notice.a")];
+    const groups: CatalogGroupView[] = [
+      { key: "zeta", title: "Article" },
+      { key: "ai_notice", title: "AI Translation Notice" },
+    ];
+    expect(groupCatalogEntries(entries, groups).map((group) => group.key)).toEqual(["ai_notice", "zeta", "blocks"]);
+  });
+
+  it("sorts catalog groups ignoring case and keeps equal names in first-seen order", () => {
+    const entries = [catalogEntry("b.x"), catalogEntry("B.x"), catalogEntry("a.x"), catalogEntry("C.x")];
+    const groups: CatalogGroupView[] = [
+      { key: "b", title: "Same" },
+      { key: "B", title: "same" },
+    ];
+    expect(groupCatalogEntries(entries, groups).map((group) => group.key)).toEqual(["a", "C", "b", "B"]);
   });
 
   it("filters catalog groups by group title, group key, or entry keys", () => {
@@ -155,6 +175,19 @@ describe("EmDash admin entry", () => {
     expect(takeTranslationDebug("posts", "entry-1", "fr-FR", "editor-1")).toBeNull();
     expect(takeTranslationDebug("posts", "entry-1", "fr-FR", "admin-1")).toEqual(trace);
     expect(takeTranslationDebug("posts", "entry-1", "fr-FR", "admin-1")).toBeNull();
+  });
+
+  it("renders a collapsible card toggle only when it has a body, and hides the body when closed", () => {
+    const card = (open: boolean, children?: ReactElement | null) =>
+      renderToStaticMarkup(createElement(CollapsibleCard, { header: "Pages", label: "Pages", open, onOpenChange: () => {} }, children));
+    const body = createElement("p", null, "Body text");
+
+    expect(card(true)).not.toContain("<button");
+    expect(card(true, null)).not.toContain("<button");
+    expect(card(false, body)).toContain('aria-label="Expand Pages"');
+    expect(card(false, body)).not.toContain("Body text");
+    expect(card(true, body)).toContain('aria-label="Collapse Pages"');
+    expect(card(true, body)).toContain("Body text");
   });
 
   it("renders a named native percentage progress indicator", () => {

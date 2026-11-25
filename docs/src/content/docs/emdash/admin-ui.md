@@ -22,7 +22,9 @@ No generated plugin settings page is registered.
 ## Collections
 
 Lets an Administrator enable project collections and choose their
-translatable fields. The source is always the code-defined
+translatable fields. Each collection is a card, closed at first; the
+control at its top right opens it, and turning a collection on opens
+it too. The source is always the code-defined
 `catalogs.defaultLocale`; plugin settings display it but cannot change
 it. Only fields the collection schema marks as translatable and of a
 supported type (`string`, `text`, Portable Text, repeater) are offered.
@@ -62,8 +64,11 @@ same route and saves as the content-editor panel. Choose:
 
 - **Entries** — entries you tick (the default) in a list of
   source-locale entries that shows each slug and searches by title or
-  slug, or the whole collection. The run button appears above and
-  below the list.
+  slug, or the whole collection. For the whole collection, the right
+  column shows how many source entries there are, how many are
+  published, the fields that are translated, and per target locale how
+  many entries are untranslated, with how many translations a run
+  creates.
 - **Target locales** — any of the configured non-default locales.
   None are ticked at first. **Select all** and **Clear all** change
   them together. With selected entries, **Select untranslated** ticks
@@ -109,8 +114,11 @@ seconds while a job runs.
 
 ## Translation settings
 
-Target-locale settings, each with its own model and glossary behavior. The
-code-defined default locale is source-only and is not listed here:
+A **General** card (debug mode, max output tokens, the AI-flag and SEO
+switches) and an **Additional translation instructions** card sit side
+by side. Below them, each target locale has a card, closed at first,
+with its model in the header and its own model and glossary behavior.
+The code-defined default locale is source-only and is not listed here:
 
 - **Translation model** — pick from `models.allowed`, or keep the
   code default (`models.defaults`). A model outside `allowed` cannot
@@ -175,7 +183,8 @@ text from `catalogs.defaultLocale` to any configured non-default
 locale. Each request can select any model in `models.allowed` without
 changing saved settings. The target locale's glossary and shared
 instructions apply. Output stays in the browser and does not change
-content, catalog overrides, or repository files.
+content, catalog overrides, or repository files. The source text and
+the output sit side by side, below the locale and model choices.
 
 The tab shows a named percentage stage while translation runs and a
 100% completion state. These percentages describe client request

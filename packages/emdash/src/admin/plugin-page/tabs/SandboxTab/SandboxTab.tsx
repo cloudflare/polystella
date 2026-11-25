@@ -12,6 +12,7 @@ import type { TranslationProgressState } from "../../../types.js";
 import { cardStyle, mutedStyle, rowStyle, sectionStyle, stackStyle } from "../../../styles.js";
 import { ErrorMessage } from "../../../components/ErrorMessage/ErrorMessage.js";
 import { SectionHeader } from "../../../components/PageHeader/PageHeader.js";
+import { cardGridStyle } from "../../../components/CollapsibleCard/CollapsibleCard.js";
 import { TranslationDebugView } from "../../../components/TranslationDebugView/TranslationDebugView.js";
 import { TranslationProgress } from "../../../components/TranslationProgress/TranslationProgress.js";
 
@@ -127,30 +128,38 @@ export function SandboxTab({ visible = true }: { visible?: boolean | undefined }
               </Select>
             </div>
           </div>
-          <Textarea
-            label="Source text"
-            description={`${sourceText.length}/${MAX_SANDBOX_CHARACTERS} characters`}
-            rows={6}
-            value={sourceText}
-            disabled={working}
-            onValueChange={setSourceText}
-          />
-          <Button
-            variant="primary"
-            loading={working}
-            disabled={
-              sourceText.length === 0 || sourceText.length > MAX_SANDBOX_CHARACTERS || targetLocale.length === 0 || model.length === 0
-            }
-            onClick={() => void translate()}
-          >
-            Translate
-          </Button>
-          {progress === null ? null : <TranslationProgress {...progress} />}
-          <div style={{ marginTop: 12 }}>
-            <Textarea label="Output" rows={6} value={output} readOnly />
-          </div>
         </div>
       </LayerCard>
+      <div style={cardGridStyle}>
+        <LayerCard style={cardStyle}>
+          <div style={stackStyle}>
+            <Textarea
+              label="Source text"
+              description={`${sourceText.length}/${MAX_SANDBOX_CHARACTERS} characters`}
+              rows={8}
+              value={sourceText}
+              disabled={working}
+              onValueChange={setSourceText}
+            />
+            <div>
+              <Button
+                variant="primary"
+                loading={working}
+                disabled={
+                  sourceText.length === 0 || sourceText.length > MAX_SANDBOX_CHARACTERS || targetLocale.length === 0 || model.length === 0
+                }
+                onClick={() => void translate()}
+              >
+                Translate
+              </Button>
+            </div>
+            {progress === null ? null : <TranslationProgress {...progress} />}
+          </div>
+        </LayerCard>
+        <LayerCard style={cardStyle}>
+          <Textarea label="Output" rows={8} value={output} readOnly />
+        </LayerCard>
+      </div>
     </section>
   );
 }

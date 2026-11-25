@@ -14,7 +14,9 @@ export function groupCatalogEntries(entries: readonly CatalogEntryView[], groups
     if (list === undefined) grouped.set(key, [entry]);
     else list.push(entry);
   }
-  return [...grouped].map(([key, groupEntries]) => ({ key, title: titleByKey.get(key) ?? null, entries: groupEntries }));
+  return [...grouped]
+    .map(([key, groupEntries]) => ({ key, title: titleByKey.get(key) ?? null, entries: groupEntries }))
+    .sort((a, b) => (a.title ?? a.key).localeCompare(b.title ?? b.key, undefined, { sensitivity: "base" }));
 }
 
 export function filterCatalogGroups(groups: readonly CatalogGroup[], query: string): CatalogGroup[] {
