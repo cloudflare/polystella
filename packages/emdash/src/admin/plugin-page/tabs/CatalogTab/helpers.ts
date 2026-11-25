@@ -14,7 +14,9 @@ export function groupCatalogEntries(entries: readonly CatalogEntryView[], groups
     if (list === undefined) grouped.set(key, [entry]);
     else list.push(entry);
   }
-  return [...grouped].map(([key, groupEntries]) => ({ key, title: titleByKey.get(key) ?? null, entries: groupEntries }));
+  return [...grouped]
+    .map(([key, groupEntries]) => ({ key, title: titleByKey.get(key) ?? null, entries: groupEntries }))
+    .sort((a, b) => (a.title ?? a.key).localeCompare(b.title ?? b.key, undefined, { sensitivity: "base" }));
 }
 
 export function filterCatalogGroups(groups: readonly CatalogGroup[], query: string): CatalogGroup[] {
@@ -31,4 +33,9 @@ export function filterCatalogGroups(groups: readonly CatalogGroup[], query: stri
 export function sourceContainsTokens(source: string | null, messageSyntax: "polystella" | "icu" = "polystella"): boolean {
   if (source === null) return false;
   return messageSyntax === "icu" ? /\{\s*[\p{L}\p{N}_]/u.test(source) : source.includes("{{");
+}
+
+/** `title` for `ai_translation_notice.title` in the `ai_translation_notice` group; the group already names the prefix. */
+export function keyWithinGroup(key: string, group: string): string {
+  return key.startsWith(`${group}.`) && key.length > group.length + 1 ? key.slice(group.length + 1) : key;
 }

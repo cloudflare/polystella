@@ -1,6 +1,6 @@
 import { fetchCollection, fetchCollections } from "@emdash-cms/admin";
 import { Button, Input, LayerCard, Select, Switch, Table } from "@cloudflare/kumo";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 
 import {
   MAX_CONTENT_FIELDS,
@@ -9,15 +9,19 @@ import {
   type CollectionPolicyResponse,
   type CollectionSettingsResponse,
 } from "../../../../contracts.js";
-import { COLLECTIONS_SAVED_EVENT, errorMessage, isTranslatable, pluginRequest, supportsTranslation } from "../../../utils.js";
+import { errorMessage, isPolicyField, localeLabel, plural, pluginPageUrl, pluginRequest } from "../../../utils.js";
+import { NewWindowIcon } from "../../../components/NewWindowLink/NewWindowLink.js";
+import { InfoLabel, SectionHeader } from "../../../components/PageHeader/PageHeader.js";
 import { cardStyle, mutedStyle, rowStyle, sectionStyle, stackStyle } from "../../../styles.js";
 import { ErrorMessage } from "../../../components/ErrorMessage/ErrorMessage.js";
 import { LocalePicker } from "../../../components/LocalePicker/LocalePicker.js";
 import { BatchJobs } from "./BatchJobs.js";
+import { CollectionSummary } from "./CollectionSummary.js";
 import { usePublicUrlContexts } from "./BatchResults.js";
 import { batchJobFinished, batchRunUrl, loadItems, saveBatchRun, untranslatedLocales, type BatchItem, type ItemPage } from "./helpers.js";
 
 const CONCURRENCY = 3;
+const batchLayoutStyle: CSSProperties = { alignItems: "flex-start", display: "flex", flexWrap: "wrap", gap: 20 };
 const JOB_POLL_MS = 5000;
 
 type Scope = "all" | "selected";
@@ -38,7 +42,7 @@ export function BatchTab(): ReactNode {
   const [collection, setCollection] = useState("");
   const [loaded, setLoaded] = useState<LoadedCollection | null>(null);
   const [locales, setLocales] = useState<string[]>([]);
-  const [scope, setScope] = useState<Scope>("all");
+  const [scope, setScope] = useState<Scope>("selected");
   const [updateExisting, setUpdateExisting] = useState(false);
   const [publish, setPublish] = useState(false);
   const [search, setSearch] = useState("");
@@ -50,7 +54,6 @@ export function BatchTab(): ReactNode {
   const [runner, setRunner] = useState<Runner>("browser");
   const [serverJobs, setServerJobs] = useState<BatchJobsResponse | null>(null);
   const [jobsRefresh, setJobsRefresh] = useState(0);
-  const [policiesVersion, setPoliciesVersion] = useState(0);
   const urlContexts = usePublicUrlContexts();
 
   useEffect(() => {
@@ -75,12 +78,6 @@ export function BatchTab(): ReactNode {
   }, [jobsActive]);
 
   useEffect(() => {
-    const reload = () => setPoliciesVersion((current) => current + 1);
-    window.addEventListener(COLLECTIONS_SAVED_EVENT, reload);
-    return () => window.removeEventListener(COLLECTIONS_SAVED_EVENT, reload);
-  }, []);
-
-  useEffect(() => {
     let active = true;
     Promise.all([fetchCollections(), pluginRequest<CollectionSettingsResponse>("settings/collections")])
       .then(([projectCollections, settings]) => {
@@ -95,7 +92,7 @@ export function BatchTab(): ReactNode {
     return () => {
       active = false;
     };
-  }, [policiesVersion]);
+  }, []);
 
   useEffect(() => {
     setLoaded(null);
@@ -115,7 +112,7 @@ export function BatchTab(): ReactNode {
       .then(([policy, schema]) => {
         if (!active) return;
         const fields = schema.fields
-          .filter((field) => policy.fields.includes(field.slug) && supportsTranslation(field) && isTranslatable(field))
+          .filter((field) => isPolicyField(field, policy))
           .map((field) => field.slug)
           .slice(0, MAX_CONTENT_FIELDS);
         const available = policy.targetLocales.map(({ locale }) => locale);
@@ -128,13 +125,18 @@ export function BatchTab(): ReactNode {
     return () => {
       active = false;
     };
-  }, [collection, policiesVersion]);
+  }, [collection]);
 
   useEffect(() => {
     if (loaded === null || scope !== "selected") return;
+    const { sourceLocale, targetLocales } = loaded.policy;
+    if (sourceLocale === null) {
+      setError("This collection has no source locale, so its entries can't be listed.");
+      return;
+    }
     let active = true;
     const timer = setTimeout(() => {
-      loadItems(collection, loaded.policy.sourceLocale, search, undefined)
+      loadItems(collection, sourceLocale, targetLocales, search, undefined)
         .then((next) => {
           if (active) setPage(next);
         })
@@ -149,9 +151,10 @@ export function BatchTab(): ReactNode {
   }, [collection, loaded, scope, search]);
 
   async function loadMore(): Promise<void> {
-    if (loaded === null || page?.nextCursor === undefined) return;
+    const sourceLocale = loaded?.policy.sourceLocale ?? null;
+    if (loaded === null || sourceLocale === null || page?.nextCursor === undefined) return;
     try {
-      const next = await loadItems(collection, loaded.policy.sourceLocale, search, page.nextCursor);
+      const next = await loadItems(collection, sourceLocale, loaded.policy.targetLocales, search, page.nextCursor);
       setPage((current) => ({ items: [...(current?.items ?? []), ...next.items], nextCursor: next.nextCursor }));
     } catch (cause) {
       setError(errorMessage(cause));
@@ -178,7 +181,7 @@ export function BatchTab(): ReactNode {
     const targets = policy.targetLocales.filter(({ locale }) => locales.includes(locale));
     const items = scope === "all" ? [] : [...selected.values()];
     const options = { collection, sourceLocale: policy.sourceLocale ?? undefined, fields, updateExisting, publish };
-    const runId = saveBatchRun({ collection, scope, items, targets, options, createdAt: Date.now() });
+    const runId = saveBatchRun({ collection, scope, items, targets, options, createdAt: Date.now(), localeTags: policy.localeTags });
     const url = batchRunUrl(window.location.pathname, runId);
     if (window.open(url, "_blank") === null) {
       setError(`Your browser blocked the new tab. Allow pop-ups for this site, or open ${url} yourself.`);
@@ -186,10 +189,10 @@ export function BatchTab(): ReactNode {
   }
 
   async function startServerJob(): Promise<void> {
-    const entries = scope === "all" ? "every source entry" : `${selected.size} entries`;
+    const entries = scope === "all" ? "every source entry" : `${selected.size} ${selected.size === 1 ? "entry" : "entries"}`;
     if (
       !window.confirm(
-        `PolyStella will queue missing translations for ${entries} into ${locales.length} locales on the server. They are ${publish ? "published" : "saved as drafts"} and existing translations are skipped. Continue?`,
+        `PolyStella will queue missing translations for ${entries} into ${plural(locales.length, "locale")} on the server. They are ${publish ? "published" : "saved as drafts"} and existing translations are skipped. Continue?`,
       )
     ) {
       return;
@@ -223,201 +226,243 @@ export function BatchTab(): ReactNode {
     locales.length > 0 &&
     (scope === "all" || selected.size > 0);
 
+  const runButton = (
+    <div style={rowStyle}>
+      <Button
+        variant="primary"
+        loading={running}
+        disabled={!canRun}
+        onClick={() => (runner === "queue" ? void startServerJob() : openBrowserRun())}
+      >
+        {runner === "queue" ? "Queue" : "Translate"} {scope === "all" ? "collection" : `${selected.size} selected`}
+        {runner === "browser" ? (
+          <>
+            {" in a new tab"}
+            <NewWindowIcon />
+          </>
+        ) : null}
+      </Button>
+    </div>
+  );
+
   return (
     <section style={sectionStyle}>
-      <div>
-        <h2>Batch translation</h2>
-        <p style={mutedStyle}>
-          Translate many entries at once from their latest saved source values.{" "}
-          {runner === "browser"
+      <SectionHeader
+        title="Batch translation"
+        description={`Translate many entries at once from their latest saved source values. ${
+          runner === "browser"
             ? "Browser runs open in a new tab, which must stay open until the run finishes."
-            : "The server queue keeps running after you close this tab."}
-        </p>
-      </div>
+            : "The server queue keeps running after you close this tab."
+        }`}
+      />
       {error === null ? null : <ErrorMessage>{error}</ErrorMessage>}
       {collections?.length === 0 ? (
-        <p style={mutedStyle}>Enable PolyStella for a collection in the Collections tab first.</p>
+        <p style={mutedStyle}>
+          Enable PolyStella for a collection first, in{" "}
+          <a href={pluginPageUrl("/settings", { tab: "collections" })}>Settings, Collections</a>.
+        </p>
       ) : (
-        <LayerCard style={cardStyle}>
-          <div style={stackStyle}>
-            <div style={rowStyle}>
-              <div style={{ minWidth: 220 }}>
-                <Select
-                  label="Collection"
-                  value={collection}
-                  disabled={running}
-                  onValueChange={(value) => {
-                    if (typeof value === "string") setCollection(value);
-                  }}
-                >
-                  {collections?.map((item) => (
-                    <Select.Option key={item.slug} value={item.slug}>
-                      {item.label}
-                    </Select.Option>
-                  ))}
-                </Select>
-              </div>
-              <div style={{ minWidth: 220 }}>
-                <Select
-                  label="Entries"
-                  value={scope}
-                  disabled={running}
-                  onValueChange={(value) => {
-                    if (value === "all" || value === "selected") setScope(value);
-                  }}
-                >
-                  <Select.Option value="all">Whole collection</Select.Option>
-                  <Select.Option value="selected">Selected entries</Select.Option>
-                </Select>
-              </div>
-              {serverJobs?.queueEnabled === true ? (
-                <div style={{ minWidth: 220 }}>
-                  <Select
-                    label="Run in"
-                    value={runner}
-                    disabled={running}
-                    onValueChange={(value) => {
-                      if (value === "browser" || value === "queue") setRunner(value);
-                    }}
-                  >
-                    <Select.Option value="browser">This browser</Select.Option>
-                    <Select.Option value="queue">Server queue</Select.Option>
-                  </Select>
-                </div>
-              ) : null}
-            </div>
-            {policy === undefined ? (
-              <span style={mutedStyle}>Loading collection settings...</span>
-            ) : (
-              <>
-                {loaded?.fields.length === 0 ? (
-                  <span style={mutedStyle}>No translatable fields are configured for this collection.</span>
-                ) : null}
-                <LocalePicker
-                  legend="Target locales"
-                  options={policy.targetLocales.map(({ locale, code }) => ({
-                    locale,
-                    label: locale === code ? locale : `${locale} (${code})`,
-                  }))}
-                  value={locales}
-                  disabled={running || checkingLocales}
-                  onChange={setLocales}
-                  actions={
-                    scope === "selected" ? (
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        loading={checkingLocales}
-                        disabled={running || selected.size === 0}
-                        onClick={() => void selectUntranslated()}
-                      >
-                        Select untranslated
-                      </Button>
-                    ) : null
-                  }
-                />
-                <Switch
-                  label="Publish translations immediately"
-                  labelTooltip="When off, translations are saved as drafts. If publishing fails, the draft is kept and its result says why."
-                  checked={publish}
-                  disabled={running}
-                  onCheckedChange={setPublish}
-                />
-                {runner === "browser" ? (
-                  <Switch
-                    label="Update existing translations"
-                    labelTooltip="Replaces the selected fields in translations that already exist. Entries edited during the run are skipped."
-                    checked={updateExisting}
-                    disabled={running}
-                    onCheckedChange={setUpdateExisting}
-                  />
-                ) : (
-                  <span style={mutedStyle}>The server queue only creates missing translations; existing ones are skipped.</span>
-                )}
-              </>
-            )}
-          </div>
-        </LayerCard>
-      )}
-      {scope === "selected" && policy !== undefined ? (
-        <LayerCard style={cardStyle}>
-          <div style={stackStyle}>
-            <Input
-              label="Search source entries"
-              placeholder="Filter by title or slug"
-              value={search}
-              disabled={running}
-              onChange={(event) => setSearch(event.target.value)}
-            />
-            <span style={mutedStyle}>{selected.size} selected</span>
-            <Table layout="fixed">
-              <Table.Header>
-                <Table.Row>
-                  <Table.CheckHead
-                    label="Select all shown entries"
-                    checked={allVisibleSelected}
-                    indeterminate={someVisibleSelected && !allVisibleSelected}
-                    disabled={running || visibleItems.length === 0}
-                    style={{ width: 40 }}
-                    onCheckedChange={(checked) =>
-                      setSelected((current) => {
-                        const next = new Map(current);
-                        for (const item of visibleItems) {
-                          if (checked) next.set(item.id, item);
-                          else next.delete(item.id);
-                        }
-                        return next;
-                      })
-                    }
-                  />
-                  <Table.Head>Entry</Table.Head>
-                  <Table.Head>Slug</Table.Head>
-                </Table.Row>
-              </Table.Header>
-              <Table.Body>
-                {visibleItems.map((item) => (
-                  <Table.Row key={item.id}>
-                    <Table.CheckCell
-                      label={`Select ${item.title}`}
-                      checked={selected.has(item.id)}
+        <div style={batchLayoutStyle}>
+          <div style={{ ...stackStyle, flex: "1 1 340px", minWidth: 0 }}>
+            <LayerCard style={cardStyle}>
+              <div style={stackStyle}>
+                <div style={rowStyle}>
+                  <div style={{ minWidth: 220 }}>
+                    <Select
+                      label="Collection"
+                      value={collection}
+                      renderValue={(value) =>
+                        collections?.find((item) => item.slug === value)?.label ?? (typeof value === "string" ? value : "")
+                      }
                       disabled={running}
-                      onCheckedChange={(checked) =>
-                        setSelected((current) => {
-                          const next = new Map(current);
-                          if (checked) next.set(item.id, item);
-                          else next.delete(item.id);
-                          return next;
-                        })
+                      onValueChange={(value) => {
+                        if (typeof value === "string") setCollection(value);
+                      }}
+                    >
+                      {collections?.map((item) => (
+                        <Select.Option key={item.slug} value={item.slug}>
+                          {item.label}
+                        </Select.Option>
+                      ))}
+                    </Select>
+                  </div>
+                  <div style={{ minWidth: 220 }}>
+                    <Select
+                      label="Entries"
+                      value={scope}
+                      renderValue={(value) => (value === "selected" ? "Selected entries" : "Whole collection")}
+                      disabled={running}
+                      onValueChange={(value) => {
+                        if (value === "all" || value === "selected") setScope(value);
+                      }}
+                    >
+                      <Select.Option value="all">Whole collection</Select.Option>
+                      <Select.Option value="selected">Selected entries</Select.Option>
+                    </Select>
+                  </div>
+                  {serverJobs?.queueEnabled === true ? (
+                    <div style={{ minWidth: 220 }}>
+                      <Select
+                        label="Run in"
+                        value={runner}
+                        renderValue={(value) => (value === "queue" ? "Server queue" : "This browser")}
+                        disabled={running}
+                        onValueChange={(value) => {
+                          if (value === "browser" || value === "queue") setRunner(value);
+                        }}
+                      >
+                        <Select.Option value="browser">This browser</Select.Option>
+                        <Select.Option value="queue">Server queue</Select.Option>
+                      </Select>
+                    </div>
+                  ) : null}
+                </div>
+                {policy === undefined ? (
+                  <span style={mutedStyle}>Loading collection settings...</span>
+                ) : (
+                  <>
+                    {loaded?.fields.length === 0 ? (
+                      <span style={mutedStyle}>No translatable fields are configured for this collection.</span>
+                    ) : null}
+                    <LocalePicker
+                      legend="Target locales"
+                      options={policy.targetLocales.map(({ locale, code }) => ({
+                        locale,
+                        label: localeLabel(locale, code),
+                      }))}
+                      value={locales}
+                      disabled={running || checkingLocales}
+                      onChange={setLocales}
+                      actions={
+                        scope === "selected" ? (
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            loading={checkingLocales}
+                            disabled={running || selected.size === 0}
+                            onClick={() => void selectUntranslated()}
+                          >
+                            Select untranslated
+                          </Button>
+                        ) : null
                       }
                     />
-                    <Table.Cell>{item.title}</Table.Cell>
-                    <Table.Cell>{item.slug === null ? <span style={mutedStyle}>No slug</span> : <code>{item.slug}</code>}</Table.Cell>
-                  </Table.Row>
-                ))}
-              </Table.Body>
-            </Table>
-            {page === null ? <span style={mutedStyle}>Loading entries...</span> : null}
-            {page?.nextCursor === undefined ? null : (
-              <div>
-                <Button size="sm" variant="secondary" disabled={running} onClick={() => void loadMore()}>
-                  Load more
-                </Button>
+                    <Switch
+                      aria-label="Publish translations immediately"
+                      label={
+                        <InfoLabel
+                          label="Publish translations immediately"
+                          info="When off, translations are saved as drafts. If publishing fails, the draft is kept and its result says why."
+                        />
+                      }
+                      checked={publish}
+                      disabled={running}
+                      onCheckedChange={setPublish}
+                    />
+                    {runner === "browser" ? (
+                      <Switch
+                        aria-label="Update existing translations"
+                        label={
+                          <InfoLabel
+                            label="Update existing translations"
+                            info="Replaces the selected fields in translations that already exist. Entries edited during the run are skipped."
+                          />
+                        }
+                        checked={updateExisting}
+                        disabled={running}
+                        onCheckedChange={setUpdateExisting}
+                      />
+                    ) : (
+                      <span style={mutedStyle}>The server queue only creates missing translations; existing ones are skipped.</span>
+                    )}
+                  </>
+                )}
               </div>
-            )}
+            </LayerCard>
+            {runButton}
           </div>
-        </LayerCard>
-      ) : null}
-      <div style={rowStyle}>
-        <Button
-          variant="primary"
-          loading={running}
-          disabled={!canRun}
-          onClick={() => (runner === "queue" ? void startServerJob() : openBrowserRun())}
-        >
-          {runner === "queue" ? "Queue" : "Translate"} {scope === "all" ? "collection" : `${selected.size} selected`}
-          {runner === "browser" ? " in a new tab" : ""}
-        </Button>
-      </div>
+          <div style={{ flex: "2 1 520px", minWidth: 0 }}>
+            {scope === "all" && loaded !== null ? (
+              <CollectionSummary
+                collection={collection}
+                label={collections?.find((item) => item.slug === collection)?.label ?? collection}
+                policy={loaded.policy}
+                fields={loaded.fields}
+                locales={locales}
+                updateExisting={runner === "browser" && updateExisting}
+              />
+            ) : null}
+            {scope === "selected" && policy !== undefined ? (
+              <LayerCard style={cardStyle}>
+                <div style={stackStyle}>
+                  <Input
+                    label="Search source entries"
+                    placeholder="Filter by title or slug"
+                    value={search}
+                    disabled={running}
+                    onChange={(event) => setSearch(event.target.value)}
+                  />
+                  <span style={mutedStyle}>{selected.size} selected</span>
+                  <Table layout="fixed">
+                    <Table.Header>
+                      <Table.Row>
+                        <Table.CheckHead
+                          label="Select all shown entries"
+                          checked={allVisibleSelected}
+                          indeterminate={someVisibleSelected && !allVisibleSelected}
+                          disabled={running || visibleItems.length === 0}
+                          style={{ width: 40 }}
+                          onCheckedChange={(checked) =>
+                            setSelected((current) => {
+                              const next = new Map(current);
+                              for (const item of visibleItems) {
+                                if (checked) next.set(item.id, item);
+                                else next.delete(item.id);
+                              }
+                              return next;
+                            })
+                          }
+                        />
+                        <Table.Head>Entry</Table.Head>
+                        <Table.Head>Slug</Table.Head>
+                      </Table.Row>
+                    </Table.Header>
+                    <Table.Body>
+                      {visibleItems.map((item) => (
+                        <Table.Row key={item.id}>
+                          <Table.CheckCell
+                            label={`Select ${item.title}`}
+                            checked={selected.has(item.id)}
+                            disabled={running}
+                            onCheckedChange={(checked) =>
+                              setSelected((current) => {
+                                const next = new Map(current);
+                                if (checked) next.set(item.id, item);
+                                else next.delete(item.id);
+                                return next;
+                              })
+                            }
+                          />
+                          <Table.Cell>{item.title}</Table.Cell>
+                          <Table.Cell>{item.slug === null ? <span style={mutedStyle}>No slug</span> : <code>{item.slug}</code>}</Table.Cell>
+                        </Table.Row>
+                      ))}
+                    </Table.Body>
+                  </Table>
+                  {page === null ? <span style={mutedStyle}>Loading entries...</span> : null}
+                  {page?.nextCursor === undefined ? null : (
+                    <div>
+                      <Button size="sm" variant="secondary" disabled={running} onClick={() => void loadMore()}>
+                        Load more
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              </LayerCard>
+            ) : null}
+          </div>
+        </div>
+      )}
       <BatchJobs jobs={serverJobs?.jobs ?? []} urlContexts={urlContexts} onChange={() => setJobsRefresh((current) => current + 1)} />
     </section>
   );

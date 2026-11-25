@@ -108,7 +108,12 @@ export interface ContentPlanOptions {
   blockFields?: BlockFieldPaths | undefined;
   /** Fields of EmDash's `blocks` type. Their block types are the site's own, so only `blockFields` applies to them. */
   blocksFieldSlugs?: readonly string[] | undefined;
+  /** Repeater field slug → subfields to translate: text values, or an image's alt and caption. Other subfields stay as they are. */
+  repeaterSubFields?: Readonly<Record<string, readonly string[]>> | undefined;
 }
+
+/** Image values keep their media metadata; only these text properties are translated. */
+const IMAGE_TEXT_PROPERTIES = ["alt", "caption"] as const;
 
 export interface ContentTranslateOptions {
   translator: Translator;
@@ -176,7 +181,15 @@ export async function planContentTranslation(options: ContentPlanOptions): Promi
       markdownTexts,
       blockFields: { ...EMDASH_BLOCK_FIELDS, ...options.blockFields },
     };
-    if (typeof value === "string") {
+    const subFields =
+      options.repeaterSubFields !== undefined && Object.hasOwn(options.repeaterSubFields, field)
+        ? options.repeaterSubFields[field]
+        : undefined;
+    if (subFields !== undefined) {
+      // An emptied optional repeater may be saved as null; it has nothing to translate.
+      if (value === null) continue;
+      collectRepeaterField(value, `field:${fieldIndex}`, field, subFields, collector);
+    } else if (typeof value === "string") {
       addSegment(`field:${fieldIndex}`, value, field, [field], collector);
     } else if (Array.isArray(value) && options.blocksFieldSlugs?.includes(field) === true) {
       collectBlocksField(value, `field:${fieldIndex}`, field, options.blockFields ?? {}, collector);
@@ -442,6 +455,25 @@ function notifyValidationIssue(callback: TranslateContentFieldsOptions["onValida
 
 function spanText(value: unknown): string {
   return isRecord(value) && value._type === "span" && typeof value.text === "string" ? value.text : "";
+}
+
+function collectRepeaterField(value: unknown, id: string, field: string, subFields: readonly string[], collector: Collector): void {
+  if (!Array.isArray(value)) throw new ContentTranslationInputError(`repeater field "${field}" is not a list`);
+  for (const [item, row] of value.entries()) {
+    if (!isRecord(row)) throw new ContentTranslationInputError(`repeater field "${field}" contains an invalid item`);
+    for (const subField of subFields) {
+      const subValue = Object.hasOwn(row, subField) ? row[subField] : undefined;
+      const subId = `${id}:item:${item}:${subField}`;
+      if (typeof subValue === "string") {
+        addSegment(subId, subValue, field, [field, item, subField], collector);
+      } else if (isRecord(subValue)) {
+        for (const property of IMAGE_TEXT_PROPERTIES) {
+          const text = subValue[property];
+          if (typeof text === "string") addSegment(`${subId}:${property}`, text, field, [field, item, subField, property], collector);
+        }
+      }
+    }
+  }
 }
 
 /** Returns whether the text produced a segment; blank text is left as-is. */

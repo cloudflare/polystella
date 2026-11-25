@@ -65,16 +65,17 @@ const polystellaOptions = {
 | `messageSyntax` | `"polystella"` \| `"icu"` | Default `"polystella"` (`{{name}}`). `"icu"` reads [standard ICU](/concepts/catalog-messages/#standard-icu-syntax) (`{name}`).           |
 
 `messageSyntax` applies to override validation, catalog generation, the
-Catalog tab's placeholder hint and the runtime `t()`.
+Catalog page's placeholder hint and the runtime `t()`.
 
 ## `models`
 
 The model bounds for translation.
 
-| Field      | Type                  | Notes                                                                                                                                                                                                                       |
-| ---------- | --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `allowed`  | string[]              | Non-empty, unique. Administrators cannot select a model outside this list. Cannot contain the reserved `__polystella_code_default__`.                                                                                       |
-| `defaults` | string or `ModelSpec` | A single model id, or `{ default, <locale>: model }`. A model can be `{ model, enable_thinking }` (see [Thinking](#thinking)). Every locale key must match a configured catalog locale and every model appear in `allowed`. |
+| Field            | Type                               | Notes                                                                                                                                                                                                                       |
+| ---------------- | ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `allowed`        | string[]                           | Non-empty, unique. Administrators cannot select a model outside this list. Cannot contain the reserved `__polystella_code_default__`.                                                                                       |
+| `defaults`       | string or `ModelSpec`              | A single model id, or `{ default, <locale>: model }`. A model can be `{ model, enable_thinking }` (see [Thinking](#thinking)). Every locale key must match a configured catalog locale and every model appear in `allowed`. |
+| `reasoningInput` | `{ <model>: { <choice>: input } }` | Optional. The exact input to send for each admin thinking choice of a model, instead of what the Workers AI catalog says (see [Admin thinking choice](#admin-thinking-choice)). Keys must be in `allowed`.                  |
 
 `models.defaults` may set a `default` fallback and locale-specific
 models. Each target locale receives its own model and glossary
@@ -129,6 +130,33 @@ params: {
 Keys must be allowed models. `messages`, `prompt`, `max_tokens`,
 `max_completion_tokens` and `stream` are set by PolyStella and are
 rejected. Params apply to both the binding and HTTP providers.
+
+### Admin thinking choice
+
+When an administrator picks a model for a locale in **Translation
+settings**, they can also pick its thinking. PolyStella reads each
+model's `reasoning_effort` entry from the Workers AI model catalog
+(`env.AI.models()` for the binding, the model search API for HTTP,
+whose token then needs Workers AI Read). Listed efforts are sent as
+`reasoning_effort`. A model whose thinking isn't mandatory also gets
+**Off**, sent as `enable_thinking: false`. A model without the entry
+has no thinking choice.
+
+With a custom `provider.endpoint`, the catalog is not read, so only
+models listed in `models.reasoningInput` get a choice. Catalog lookups
+time out after five seconds and a failed lookup is retried after a
+minute. A choice the model doesn't accept, or a catalog that can't be
+read, is logged and skipped, so translations still run with
+`models.params`. The admin's choice wins over `models.params` for the
+keys it sets. Locales on the code default show its thinking read-only.
+
+`models.reasoningInput` replaces the catalog for a model:
+
+```js
+reasoningInput: {
+  "@cf/openai/gpt-oss-120b": { low: { reasoning: { effort: "low" } }, high: { reasoning: { effort: "high" } } },
+},
+```
 
 ## `glossaryDefaults`
 
@@ -260,7 +288,7 @@ See [Catalog messages](/concepts/catalog-messages/#locale-tags).
 ## `batchQueueBinding`
 
 Optional. The name of a Cloudflare Queue producer binding. When set,
-the [Batch translation tab](/emdash/admin-ui/#batch-translation-tab)
+the [Batch translation page](/emdash/admin-ui/#batch-translation)
 can run jobs on the server, so they keep going after the browser tab
 closes. Server jobs only create missing translations, as drafts unless
 the administrator turns on **Publish translations immediately**.

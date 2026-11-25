@@ -16,16 +16,53 @@ import {
   takeTranslationDebug,
 } from "../src/admin.js";
 import { panelIsVisible } from "../src/admin/panels/ContentEditorPanel.js";
+import { keyWithinGroup } from "../src/admin/plugin-page/tabs/CatalogTab/helpers.js";
+import {
+  contentTypeUrl,
+  defaultSubFields,
+  isPolicyField,
+  isSettingsTab,
+  localeLabel,
+  plural,
+  pluginPageUrl,
+  rememberLocaleTags,
+  translatableSubFields,
+} from "../src/admin/utils.js";
+import type { SchemaField } from "../src/admin/types.js";
 import type { CatalogEntryView, CatalogGroupView, TranslationDebugTrace } from "../src/contracts.js";
-import type { ReactElement } from "react";
+import { createElement, type ReactElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { CollapsibleCard } from "../src/admin/components/CollapsibleCard/CollapsibleCard.js";
+import { InfoLabel } from "../src/admin/components/PageHeader/PageHeader.js";
+import { saveTranslationSettings } from "../src/admin/plugin-page/tabs/TranslationSettingsTab/TranslationSettingsTab.js";
+import type { TranslationSettingsResponse } from "../src/contracts.js";
 
 afterEach(() => vi.unstubAllGlobals());
 
 describe("EmDash admin entry", () => {
   it("exports the declared pages and editor panel", () => {
-    expect(Object.keys(pages)).toEqual(["/", "/batch-run"]);
+    expect(Object.keys(pages)).toEqual(["/", "/settings", "/catalog", "/batch-translation", "/batch-run", "/code-defaults"]);
     expect(contentEditorPanels).toHaveLength(1);
     expect(contentEditorPanels[0]).toMatchObject({ id: "polystella", title: "PolyStella", minRole: 40 });
+  });
+
+  it("builds plugin page links and reads the settings tab from the URL", () => {
+    expect(pluginPageUrl("/settings", { tab: "translation" })).toBe("/_emdash/admin/plugins/polystella/settings?tab=translation");
+    expect(pluginPageUrl("/code-defaults")).toBe("/_emdash/admin/plugins/polystella/code-defaults");
+    expect(contentTypeUrl("blog posts")).toBe("/_emdash/admin/content-types/blog%20posts");
+    expect(["translation", "collections", "sandbox", "catalog", null].map(isSettingsTab)).toEqual([true, true, true, false, false]);
+  });
+
+  it("pluralizes counts", () => {
+    expect([1, 0, 2].map((count) => plural(count, "entry", "entries"))).toEqual(["1 entry", "0 entries", "2 entries"]);
+    expect(plural(3, "key")).toBe("3 keys");
+    expect(plural(1234, "key")).toBe(`${(1234).toLocaleString()} keys`);
+  });
+
+  it("drops the group prefix from catalog keys only when the group names it", () => {
+    expect(keyWithinGroup("ai_translation_notice.title", "ai_translation_notice")).toBe("title");
+    expect(keyWithinGroup("ai_translation_notice", "ai_translation_notice")).toBe("ai_translation_notice");
+    expect(keyWithinGroup("ai_translation_noticeboard.title", "ai_translation_notice")).toBe("ai_translation_noticeboard.title");
   });
 
   it("shows the editor panel only for enabled collections, and still on a failed policy read", async () => {
@@ -56,6 +93,24 @@ describe("EmDash admin entry", () => {
       { key: "a11y", title: "Accessibility", entries: entries.slice(0, 2) },
       { key: "header", title: null, entries: entries.slice(2) },
     ]);
+  });
+
+  it("sorts catalog groups alphabetically by title, or by key when there is no title", () => {
+    const entries = [catalogEntry("zeta.a"), catalogEntry("blocks.a"), catalogEntry("ai_notice.a")];
+    const groups: CatalogGroupView[] = [
+      { key: "zeta", title: "Article" },
+      { key: "ai_notice", title: "AI Translation Notice" },
+    ];
+    expect(groupCatalogEntries(entries, groups).map((group) => group.key)).toEqual(["ai_notice", "zeta", "blocks"]);
+  });
+
+  it("sorts catalog groups ignoring case and keeps equal names in first-seen order", () => {
+    const entries = [catalogEntry("b.x"), catalogEntry("B.x"), catalogEntry("a.x"), catalogEntry("C.x")];
+    const groups: CatalogGroupView[] = [
+      { key: "b", title: "Same" },
+      { key: "B", title: "same" },
+    ];
+    expect(groupCatalogEntries(entries, groups).map((group) => group.key)).toEqual(["a", "C", "b", "B"]);
   });
 
   it("filters catalog groups by group title, group key, or entry keys", () => {
@@ -125,6 +180,71 @@ describe("EmDash admin entry", () => {
     expect(takeTranslationDebug("posts", "entry-1", "fr-FR", "admin-1")).toBeNull();
   });
 
+  it("renders a collapsible card toggle only when it has a body, and hides the body when closed", () => {
+    const card = (open: boolean, children?: ReactElement | null) =>
+      renderToStaticMarkup(createElement(CollapsibleCard, { header: "Pages", label: "Pages", open, onOpenChange: () => {} }, children));
+    const body = createElement("p", null, "Body text");
+
+    expect(card(true)).not.toContain("<button");
+    expect(card(true, null)).not.toContain("<button");
+    expect(card(false, body)).toContain('aria-label="Expand Pages"');
+    expect(card(false, body)).not.toContain("Body text");
+    expect(card(true, body)).toContain('aria-label="Collapse Pages"');
+    expect(card(true, body)).toContain("Body text");
+  });
+
+  it("renders an info label with its text and an 'About' button", () => {
+    const html = renderToStaticMarkup(createElement(InfoLabel, { label: "Max tokens", info: "Output limit" }));
+
+    expect(html).toContain("Max tokens");
+    expect(html).toContain('aria-label="About Max tokens"');
+    expect(html).toContain("<button");
+  });
+
+  it("saves only the editable translation settings fields", async () => {
+    const settings: TranslationSettingsResponse = {
+      defaultLocale: "en",
+      localeTags: {},
+      revision: "rev-1",
+      debugEnabled: true,
+      maxTokens: 4096,
+      defaultMaxTokens: 8192,
+      clearAiFlagOnEdit: true,
+      translateSeoWhenPublished: false,
+      allowedModels: ["m1"],
+      locales: [
+        {
+          locale: "fr",
+          defaultModel: "m0",
+          model: "m1",
+          reasoning: "low",
+          defaultReasoning: null,
+          defaultGlossary: "code glossary",
+          glossaryMode: "append",
+          glossaryText: "mine",
+        },
+      ],
+      instructions: { defaultText: "code instructions", mode: "replace", text: "custom" },
+    };
+    const fetchMock = vi.fn(async (_url: RequestInfo | URL, _init?: RequestInit) => Response.json({ data: settings }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(saveTranslationSettings(settings)).resolves.toEqual(settings);
+
+    const [url, init] = fetchMock.mock.calls[0] ?? [];
+    expect(String(url)).toContain("settings/translation");
+    expect(init?.method).toBe("PUT");
+    expect(JSON.parse(String(init?.body))).toEqual({
+      revision: "rev-1",
+      debugEnabled: true,
+      maxTokens: 4096,
+      clearAiFlagOnEdit: true,
+      translateSeoWhenPublished: false,
+      locales: { fr: { model: "m1", reasoning: "low", glossaryMode: "append", glossaryText: "mine" } },
+      instructions: { mode: "replace", text: "custom" },
+    });
+  });
+
   it("renders a named native percentage progress indicator", () => {
     type TestElement = ReactElement & {
       props: { children: Array<TestElement | string | unknown>; value?: number; max?: number };
@@ -141,6 +261,64 @@ describe("EmDash admin entry", () => {
     const labelText = (label.props.children as unknown[]).map(String).join("");
     expect(labelText).toBe("45%: Translating selected fields");
   });
+
+  it("labels locales with the language name and code", () => {
+    expect(localeLabel("fr")).toContain("(fr)");
+    expect(localeLabel("fr", "fr-FR")).toMatch(/\(fr, fr-FR\)$/);
+    expect(localeLabel("not a tag!")).toBe("not a tag!");
+  });
+
+  it("names a locale from its localeTags tag and keeps the code", () => {
+    const literal = localeLabel("es-la");
+    rememberLocaleTags({ "es-la": "es-419" });
+    const label = localeLabel("es-la");
+    expect(label).not.toBe(literal);
+    expect(label).toBe(`${new Intl.DisplayNames(undefined, { type: "language" }).of("es-419")} (es-la)`);
+    expect(localeLabel("ES-LA")).toMatch(/\(ES-LA\)$/);
+  });
+
+  describe("repeater subfields", () => {
+    const repeater = {
+      slug: "faq",
+      type: "repeater",
+      validation: {
+        subFields: [
+          { slug: "question", type: "string", label: "Question" },
+          { slug: "answer", type: "text" },
+          { slug: "image", type: "image", label: "Image" },
+          { slug: "link", type: "url", label: "Link" },
+        ],
+      },
+    } as unknown as SchemaField;
+
+    it("picks the text and image subfields", () => {
+      expect(translatableSubFields(repeater)).toEqual([
+        { slug: "question", label: "Question" },
+        { slug: "answer", label: "answer" },
+        { slug: "image", label: "Image" },
+      ]);
+      expect(translatableSubFields({ slug: "t", type: "string" } as unknown as SchemaField)).toEqual([]);
+      expect(translatableSubFields({ slug: "faq", type: "repeater" } as unknown as SchemaField)).toEqual([]);
+    });
+
+    it("starts a repeater without its links, ids and author names", () => {
+      const subFields = ["question", "url", "author_name", "slug", "ctaHref", "link", "link_text", "author_bio", "key_points", "image"];
+      const withCopied = {
+        ...repeater,
+        validation: { subFields: subFields.map((slug) => ({ slug, type: slug === "image" ? "image" : "string" })) },
+      } as unknown as SchemaField;
+      expect(defaultSubFields(withCopied)).toEqual(["question", "link_text", "author_bio", "key_points", "image"]);
+      const onlyCopied = { ...repeater, validation: { subFields: [{ slug: "url", type: "string" }] } } as unknown as SchemaField;
+      expect(defaultSubFields(onlyCopied)).toEqual([]);
+    });
+
+    it("needs a chosen translatable subfield before a repeater counts as a policy field", () => {
+      expect(isPolicyField(repeater, { fields: ["faq"] })).toBe(false);
+      expect(isPolicyField(repeater, { fields: ["faq"], subFields: { faq: ["link", "gone"] } })).toBe(false);
+      expect(isPolicyField(repeater, { fields: ["faq"], subFields: { faq: ["question"] } })).toBe(true);
+      expect(isPolicyField(repeater, { fields: [], subFields: { faq: ["question"] } })).toBe(false);
+    });
+  });
 });
 
 function catalogEntry(key: string): CatalogEntryView {
@@ -153,6 +331,7 @@ function debugTrace(): TranslationDebugTrace {
     operation: "content",
     provider: "workers-ai-binding",
     model: "model-a",
+    requestInput: null,
     maxOutputTokens: 8192,
     inputTokenBudget: 4000,
     maxSegmentsPerBatch: null,

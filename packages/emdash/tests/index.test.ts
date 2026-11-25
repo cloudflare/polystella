@@ -7,7 +7,7 @@ import {
   type EmDashCatalogLocale,
   type PolystellaEmdashOptions,
 } from "../src/index.js";
-import { deserializeOptions } from "../src/server/options.js";
+import { codeDefaultThinking, deserializeOptions } from "../src/server/options.js";
 
 function validOptions(): PolystellaEmdashOptions {
   return {
@@ -46,7 +46,11 @@ describe("polystellaEmdash", () => {
       format: "native",
       entrypoint: "@cloudflare/polystella-emdash",
       adminEntry: "@cloudflare/polystella-emdash/admin",
-      adminPages: [{ path: "/", label: "PolyStella" }],
+      adminPages: [
+        { path: "/settings", label: "Settings", icon: "gear", group: "PolyStella" },
+        { path: "/catalog", label: "Catalog", icon: "book-open-text", group: "PolyStella" },
+        { path: "/batch-translation", label: "Batch translation", icon: "translate", group: "PolyStella" },
+      ],
       capabilities: ["content:read", "content:revisions:read", "schema:read"],
       storage: {
         catalog_overrides: { indexes: ["locale"] },
@@ -63,6 +67,7 @@ describe("polystellaEmdash", () => {
       "settings/collections",
       "settings/translation",
       "policy",
+      "models/reasoning",
       "ai-translation",
       "ai-translation/pending",
       "ai-translation/status",
@@ -84,6 +89,7 @@ describe("polystellaEmdash", () => {
       "batch/translate",
       "batch/record",
       "batch/results",
+      "batch/entries",
       "overrides",
     ]);
     expect(plugin.admin.entry).toBe(descriptor.adminEntry);
@@ -214,6 +220,46 @@ describe("polystellaEmdash", () => {
     expect(() =>
       validatePolystellaEmdashOptions({ ...options, provider: { kind: "workers-ai-binding", binding: "AI", timeoutMs: 0 } }),
     ).toThrow("options.provider.timeoutMs must be a positive integer");
+  });
+
+  describe("thinking options", () => {
+    const withModels = (extra: Record<string, unknown>) => ({
+      ...validOptions(),
+      models: { allowed: ["model-a", "model-b"], defaults: "model-a", ...extra },
+    });
+
+    it("accepts and serializes reasoningInput", () => {
+      const models = { reasoningInput: { "model-a": { off: { enable_thinking: false } } } };
+      const runtimeOptions = polystellaEmdash(withModels(models)).options;
+      if (runtimeOptions === undefined) throw new Error("descriptor options are missing");
+      expect(deserializeOptions(runtimeOptions).models).toMatchObject(models);
+    });
+
+    it.each<[string, Record<string, unknown>]>([
+      ["a model that is not allowed", { reasoningInput: { "model-z": { off: {} } } }],
+      ["an invalid effort key", { reasoningInput: { "model-a": { "Off!": {} } } }],
+      ["a non-object input", { reasoningInput: { "model-a": { off: "x" } } }],
+      ["a non-boolean enable_thinking", { reasoningInput: { "model-a": { off: { enable_thinking: "no" } } } }],
+      ...["messages", "max_tokens", "prompt", "stream"].map((key): [string, Record<string, unknown>] => [
+        `a reserved ${key} field`,
+        { reasoningInput: { "model-a": { off: { [key]: 1 } } } },
+      ]),
+    ])("rejects %s", (_name, models) => {
+      expect(() => validatePolystellaEmdashOptions(withModels(models))).toThrow("[polystella-emdash]");
+    });
+
+    it("shows the code-default thinking from models.defaults and models.params", () => {
+      const options = (models: Record<string, unknown>) => withModels(models) as PolystellaEmdashOptions;
+      expect(codeDefaultThinking(options({}), "ja-JP")).toBeNull();
+      expect(codeDefaultThinking(options({ params: { "model-a": { reasoning_effort: "low" } } }), "ja-JP")).toBe("low");
+      expect(codeDefaultThinking(options({ params: { "model-a": { enable_thinking: false } } }), "ja-JP")).toBe("none");
+      expect(codeDefaultThinking(options({ params: { "model-a": { chat_template_kwargs: { enable_thinking: true } } } }), "ja-JP")).toBe(
+        "on",
+      );
+      const perLocale = options({ defaults: { default: "model-a", "ja-JP": { model: "model-a", enable_thinking: false } } });
+      expect(codeDefaultThinking(perLocale, "ja-JP")).toBe("none");
+      expect(codeDefaultThinking(perLocale, "fr-FR")).toBeNull();
+    });
   });
 
   it("keeps the batch queue binding through serialization", () => {

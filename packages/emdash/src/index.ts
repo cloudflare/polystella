@@ -40,7 +40,12 @@ const STORAGE = {
 // `content:revisions:read` lets the AI-translated flag fingerprint an unpublished draft.
 const CAPABILITIES: PluginCapability[] = ["content:read", "content:revisions:read", "schema:read"];
 
-const ADMIN_PAGES = [{ path: "/", label: "PolyStella" }];
+// `group` makes EmDash 1.6+ show the pages in one PolyStella sidebar folder; older versions list them flat.
+const ADMIN_PAGES = [
+  { path: "/settings", label: "Settings", icon: "gear", group: "PolyStella" },
+  { path: "/catalog", label: "Catalog", icon: "book-open-text", group: "PolyStella" },
+  { path: "/batch-translation", label: "Batch translation", icon: "translate", group: "PolyStella" },
+];
 
 export function polystellaEmdash(options: PolystellaEmdashOptions): PluginDescriptor<{ serialized: string }> {
   validatePolystellaEmdashOptions(options);

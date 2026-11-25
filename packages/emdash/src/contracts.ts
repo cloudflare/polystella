@@ -12,9 +12,16 @@ export type CustomizationMode = "default" | "append" | "replace";
 
 export interface CollectionPolicy {
   fields: string[];
+  /** Repeater field slug → the subfields PolyStella translates. Other subfields are copied from the source row. */
+  subFields?: Record<string, string[]> | undefined;
 }
 
-export interface CollectionSettingsResponse {
+/** For responses the admin names locales from: lowercased catalog code or content locale → the BCP 47 tag `localeTags` maps it to. */
+export interface WithLocaleTags {
+  localeTags: Record<string, string>;
+}
+
+export interface CollectionSettingsResponse extends WithLocaleTags {
   defaultLocale: string;
   locales: string[];
   policies: Record<string, CollectionPolicy>;
@@ -22,12 +29,13 @@ export interface CollectionSettingsResponse {
   revision: string | null;
 }
 
-export interface CollectionPolicyResponse {
+export interface CollectionPolicyResponse extends WithLocaleTags {
   enabled: boolean;
   sourceLocale: string | null;
   /** `locale` is how EmDash stores new content (Astro path); older rows may use the catalog `code`. */
   targetLocales: Array<{ locale: string; code: string }>;
   fields: string[];
+  subFields: Record<string, string[]>;
   /** Whether the panel may translate `seo.title` and `seo.description` on a published entry. */
   translateSeoWhenPublished: boolean;
 }
@@ -44,9 +52,20 @@ export interface TranslationLocaleSettings {
   locale: string;
   defaultModel: string;
   model: string | null;
+  /** Thinking effort for the overridden model; `null` uses the model's default. */
+  reasoning: string | null;
+  /** Thinking the code sets for the code-default model, from `models.defaults` / `models.params`; `null` when unset. */
+  defaultReasoning: string | null;
   defaultGlossary: string;
   glossaryMode: CustomizationMode;
   glossaryText: string;
+}
+
+export interface ModelReasoningResponse {
+  /** Efforts the model accepts (`"none"` turns thinking off); `null` when it has no switch. */
+  efforts: string[] | null;
+  /** Set when the Workers AI catalog couldn't be read. */
+  error?: string | undefined;
 }
 
 export interface AiTranslationStatus {
@@ -57,7 +76,7 @@ export interface AiTranslationStatus {
   editedFields: string[] | null;
 }
 
-export interface TranslationSettingsResponse {
+export interface TranslationSettingsResponse extends WithLocaleTags {
   defaultLocale: string;
   /** Host revision of the stored settings; send it back on PUT. `null` when nothing is stored. */
   revision: string | null;
@@ -116,6 +135,8 @@ export interface TranslationDebugTrace {
   operation: "content" | "catalog" | "sandbox";
   provider: "workers-ai-binding" | "workers-ai-http";
   model: string;
+  /** Extra Workers AI input sent with every request, such as thinking settings; `messages` and `max_tokens` aren't shown. */
+  requestInput: Record<string, unknown> | null;
   maxOutputTokens: number;
   inputTokenBudget: number;
   maxSegmentsPerBatch: number | null;
@@ -167,7 +188,7 @@ export interface CatalogGroupView {
   title: string | null;
 }
 
-export interface CatalogViewResponse {
+export interface CatalogViewResponse extends WithLocaleTags {
   defaultLocale: string;
   locale: string;
   locales: CatalogLocaleSummary[];
@@ -234,6 +255,8 @@ export interface BatchJobView {
   listing: boolean;
   /** Listing stopped at `MAX_BATCH_TRANSLATIONS`; later entries were not queued. */
   truncated: boolean;
+  /** Selected source entries, `"all"` for the whole collection, `null` for jobs started before PolyStella recorded this. */
+  entryCount: number | "all" | null;
   counts: Record<BatchJobOutcome, number>;
   failures: Array<{ entryId: string; locale: string; message: string | null }>;
 }
@@ -262,7 +285,12 @@ export interface BatchJobResultsResponse {
   nextCursor: string | null;
 }
 
-export interface BatchJobsResponse {
+export interface BatchJobEntriesResponse {
+  entries: Array<{ id: string; title: string }>;
+  nextCursor: string | null;
+}
+
+export interface BatchJobsResponse extends WithLocaleTags {
   /** False when the deployment has no `batchQueueBinding`; the admin then translates in the browser only. */
   queueEnabled: boolean;
   jobs: BatchJobView[];

@@ -8,6 +8,7 @@ import {
   ProviderTimeoutError,
   workersAIParamsForLocale,
   workersAIParamsProblem,
+  workersAIRequestParams,
 } from "../../src/providers/workers-ai.js";
 
 function makeFetchStub(body: unknown, init: { status?: number; statusText?: string; rawText?: string } = {}) {
@@ -404,5 +405,29 @@ describe("core retry integration", () => {
     const fetchImpl = makeFetchStub({}, { status: 503, statusText: "Unavailable" });
     await expect(translateBatch({ ...translationInput, translator: createWorkersHttp(fetchImpl) })).rejects.toThrow(/503/);
     expect(fetchImpl).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe("workersAIRequestParams", () => {
+  it("moves a top-level enable_thinking into chat_template_kwargs, keeping other kwargs", () => {
+    expect(workersAIRequestParams({ enable_thinking: false, temperature: 0.2 })).toEqual({
+      temperature: 0.2,
+      chat_template_kwargs: { enable_thinking: false },
+    });
+    expect(workersAIRequestParams({ enable_thinking: true, chat_template_kwargs: { clear_thinking: true } })).toEqual({
+      chat_template_kwargs: { clear_thinking: true, enable_thinking: true },
+    });
+  });
+
+  it("passes params without enable_thinking through, and undefined as undefined", () => {
+    const params = { chat_template_kwargs: { enable_thinking: false } };
+    expect(workersAIRequestParams(params)).toBe(params);
+    expect(workersAIRequestParams(undefined)).toBeUndefined();
+  });
+
+  it("throws on params that set enable_thinking twice", () => {
+    expect(() => workersAIRequestParams({ enable_thinking: true, chat_template_kwargs: { enable_thinking: false } })).toThrow(
+      "[polystella] Workers AI params",
+    );
   });
 });

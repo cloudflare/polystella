@@ -1,17 +1,40 @@
 import { ApiResponseError, apiFetch, parseApiResponse } from "@emdash-cms/admin";
 
-import { POLYSTELLA_API_BASE, type TranslationDebugTrace } from "../contracts.js";
+import { POLYSTELLA_API_BASE, POLYSTELLA_PLUGIN_ID, type CollectionPolicy, type TranslationDebugTrace } from "../contracts.js";
 import type { SchemaField } from "./types.js";
 
-/** Dispatched on `window` after collection policies are saved, so other tabs can reload them. */
-export const COLLECTIONS_SAVED_EVENT = "polystella:collections-saved";
+// EmDash's admin router is mounted here; it exports no helper for the base path.
+const ADMIN_BASE = "/_emdash/admin";
+
+export type SettingsTab = "translation" | "collections" | "sandbox";
+
+export function isSettingsTab(value: unknown): value is SettingsTab {
+  return value === "translation" || value === "collections" || value === "sandbox";
+}
+
+/** A PolyStella admin page, such as `pluginPageUrl("/settings", { tab: "translation" })`. */
+export function pluginPageUrl(page: string, search: Record<string, string> = {}): string {
+  const query = new URLSearchParams(search).toString();
+  return `${ADMIN_BASE}/plugins/${POLYSTELLA_PLUGIN_ID}${page}${query.length === 0 ? "" : `?${query}`}`;
+}
+
+export function contentTypeUrl(collection: string): string {
+  return `${ADMIN_BASE}/content-types/${encodeURIComponent(collection)}`;
+}
 
 export async function pluginRequest<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await apiFetch(`${POLYSTELLA_API_BASE}/${path}`, {
     ...init,
     headers: { "Content-Type": "application/json", ...init?.headers },
   });
-  return parseApiResponse<T>(response, "PolyStella request failed");
+  const value = await parseApiResponse<T>(response, "PolyStella request failed");
+  if (isRecord(value) && isRecord(value.localeTags)) rememberLocaleTags(value.localeTags);
+  return value;
+}
+
+/** "1 entry", "3 entries". */
+export function plural(count: number, singular: string, pluralForm = `${singular}s`): string {
+  return `${count.toLocaleString()} ${count === 1 ? singular : pluralForm}`;
 }
 
 export function errorMessage(value: unknown): string {
@@ -32,8 +55,85 @@ export function formatErrorDetails(value: unknown): string {
   return String(value);
 }
 
+const languageNames = new Intl.DisplayNames(undefined, { type: "language" });
+const knownLocaleTags = new Map<string, string>();
+
+/** Keeps the server's `localeTags` so labels name `es-la` as Latin American Spanish, not the code's literal reading. */
+export function rememberLocaleTags(tags: unknown): void {
+  if (!isRecord(tags)) return;
+  for (const [locale, tag] of Object.entries(tags)) if (typeof tag === "string") knownLocaleTags.set(locale.toLowerCase(), tag);
+}
+
+/** "French (fr)" in the admin's browser language; `code` adds the catalog code when it differs ("French (fr, fr-FR)"). */
+export function localeLabel(locale: string, code: string = locale): string {
+  const codes = locale.toLowerCase() === code.toLowerCase() ? locale : `${locale}, ${code}`;
+  const tag = knownLocaleTags.get(code.toLowerCase()) ?? knownLocaleTags.get(locale.toLowerCase()) ?? code;
+  let name: string | undefined;
+  try {
+    name = languageNames.of(tag);
+  } catch {
+    // Not a valid BCP 47 tag; show the code alone.
+  }
+  return name === undefined || name.toLowerCase() === tag.toLowerCase() ? codes : `${name} (${codes})`;
+}
+
 export function supportsTranslation(field: SchemaField): boolean {
-  return field.type === "string" || field.type === "text" || field.type === "portableText" || field.type === "blocks";
+  return (
+    field.type === "string" ||
+    field.type === "text" ||
+    field.type === "portableText" ||
+    field.type === "blocks" ||
+    translatableSubFields(field).length > 0
+  );
+}
+
+/** Enabled in the policy and translatable now; a repeater also needs one of its chosen subfields to still exist. */
+export function isPolicyField(field: SchemaField, policy: CollectionPolicy): boolean {
+  if (!policy.fields.includes(field.slug) || !supportsTranslation(field) || !isTranslatable(field)) return false;
+  if (field.type !== "repeater") return true;
+  const chosen = policy.subFields !== undefined && Object.hasOwn(policy.subFields, field.slug) ? policy.subFields[field.slug] : undefined;
+  return translatableSubFields(field).some(({ slug }) => chosen?.includes(slug) === true);
+}
+
+export interface RepeaterSubField {
+  slug: string;
+  label: string;
+}
+
+const TRANSLATABLE_SUBFIELD_TYPES = new Set(["string", "text", "image"]);
+
+// Slugs that end in these words hold an address or identifier, which a translation would break.
+const COPIED_SUBFIELD_ENDINGS = new Set(["url", "uri", "href", "slug", "id", "email", "handle", "username"]);
+const COPIED_SUBFIELD_SLUGS = new Set(["link", "author", "author_name"]);
+
+/** The subfields a newly enabled repeater starts with: all but links, ids and author names. */
+export function defaultSubFields(field: SchemaField): string[] {
+  const snake = (slug: string) =>
+    slug
+      .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+      .toLowerCase()
+      .replaceAll("-", "_");
+  return translatableSubFields(field)
+    .map(({ slug }) => slug)
+    .filter((slug) => {
+      const name = snake(slug);
+      return !COPIED_SUBFIELD_SLUGS.has(name) && !COPIED_SUBFIELD_ENDINGS.has(name.split("_").at(-1) ?? "");
+    });
+}
+
+/** A repeater's text and image subfields. EmDash sends `validation.subFields`, though its admin types omit it. */
+export function translatableSubFields(field: SchemaField): RepeaterSubField[] {
+  if (field.type !== "repeater") return [];
+  const validation: unknown = field.validation;
+  const subFields = isRecord(validation) && Array.isArray(validation.subFields) ? validation.subFields : [];
+  return subFields.flatMap((subField: unknown) =>
+    isRecord(subField) &&
+    typeof subField.slug === "string" &&
+    typeof subField.type === "string" &&
+    TRANSLATABLE_SUBFIELD_TYPES.has(subField.type)
+      ? [{ slug: subField.slug, label: typeof subField.label === "string" ? subField.label : subField.slug }]
+      : [],
+  );
 }
 
 export function isTranslatable(field: SchemaField): boolean {

@@ -196,6 +196,90 @@ describe("translateContentFields", () => {
     ).rejects.toThrow("more than 25 fields");
   });
 
+  describe("repeater fields", () => {
+    const row = () => ({
+      question: " Hi ",
+      answer: "Keep",
+      image: { id: "m1", alt: "Alt", caption: "Cap", src: "/x.png" },
+      url: "/a",
+    });
+    const translate = (value: unknown, translatorFake: Translator = translator("")) =>
+      translateContentFields({
+        values: { faq: value },
+        repeaterSubFields: { faq: ["question", "image"] },
+        translator: translatorFake,
+        glossary: EMPTY_GLOSSARY,
+        sourceLocale: "en-US",
+        targetLocale: "fr-FR",
+      });
+
+    it("translates only the chosen subfields, including image alt and caption", async () => {
+      const prompts: string[] = [];
+      const source = [row()];
+      const result = await translate(source, {
+        modelId: "test",
+        translate: async (_system, user) => {
+          prompts.push(user);
+          return "@@field:0:item:0:question@@\nSalut\n\n@@field:0:item:0:image:alt@@\nTexte alt\n\n@@field:0:item:0:image:caption@@\nLégende";
+        },
+      });
+
+      expect(result.patch).toEqual({
+        faq: [{ ...row(), question: " Salut ", image: { id: "m1", alt: "Texte alt", caption: "Légende", src: "/x.png" } }],
+      });
+      expect(source).toEqual([row()]);
+      expect(prompts).toHaveLength(1);
+      expect(prompts[0]).toContain("Hi");
+      expect(prompts[0]).toContain("Alt");
+      expect(prompts[0]).toContain("Cap");
+      for (const untouched of ["Keep", "/a", "m1", "/x.png"]) expect(prompts[0]).not.toContain(untouched);
+    });
+
+    it("rejects a repeater value that is not a list of objects", async () => {
+      await expect(translate("not a list")).rejects.toThrow("is not a list");
+      await expect(translate([row(), "text"])).rejects.toThrow("invalid item");
+    });
+
+    it("skips a repeater saved as null", async () => {
+      await expect(translate(null)).resolves.toMatchObject({ patch: { faq: null } });
+    });
+
+    it("skips items whose chosen subfield is missing or not a string or object", async () => {
+      const prompts: string[] = [];
+      const items = [{ question: 7 }, { answer: "Keep" }, { question: null }, { question: ["x"] }, { question: "Real" }];
+      const result = await translate(items, {
+        modelId: "test",
+        translate: async (_system, user) => {
+          prompts.push(user);
+          return "@@field:0:item:4:question@@\nVrai";
+        },
+      });
+      expect(result.patch).toEqual({ faq: [...items.slice(0, 4), { question: "Vrai" }] });
+      expect(prompts).toHaveLength(1);
+      expect(prompts[0]).not.toContain("@@field:0:item:0");
+    });
+
+    it("numbers segments per item and works next to a plain string field", async () => {
+      const prompts: string[] = [];
+      const result = await translateContentFields({
+        values: { title: "Title", faq: [{ question: "One" }, { question: "Two" }] },
+        repeaterSubFields: { faq: ["question"] },
+        translator: {
+          modelId: "test",
+          translate: async (_system, user) => {
+            prompts.push(user);
+            return "@@field:0@@\nTitre\n\n@@field:1:item:0:question@@\nUn\n\n@@field:1:item:1:question@@\nDeux";
+          },
+        },
+        glossary: EMPTY_GLOSSARY,
+        sourceLocale: "en-US",
+        targetLocale: "fr-FR",
+      });
+      expect(result.patch).toEqual({ title: "Titre", faq: [{ question: "Un" }, { question: "Deux" }] });
+      for (const id of ["field:0", "field:1:item:0:question", "field:1:item:1:question"]) expect(prompts[0]).toContain(`@@${id}@@`);
+    });
+  });
+
   describe("custom blocks", () => {
     const heroSource = {
       _type: "marketing.hero",

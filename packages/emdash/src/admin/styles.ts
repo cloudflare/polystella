@@ -2,6 +2,10 @@ import type { CSSProperties } from "react";
 
 export const pageStyle: CSSProperties = { margin: "0 auto", maxWidth: 1280, padding: "32px 24px 64px" };
 export const titleStyle: CSSProperties = { fontSize: 24 };
+export const pageTitleStyle: CSSProperties = { fontSize: 17, fontWeight: 600, margin: "0 0 4px" };
+export const sectionHeaderStyle: CSSProperties = { display: "grid", gap: 4, paddingBottom: 8 };
+export const sectionTitleStyle: CSSProperties = { fontSize: 30, lineHeight: 1.2, margin: 0 };
+export const subheadingStyle: CSSProperties = { alignItems: "center", display: "flex", fontSize: 18, gap: 6, margin: "24px 0 0" };
 export const tabLabelStyle: CSSProperties = { fontSize: 16 };
 export const sectionStyle: CSSProperties = { display: "grid", gap: 20, marginTop: 24 };
 export const cardStyle: CSSProperties = { padding: 20 };

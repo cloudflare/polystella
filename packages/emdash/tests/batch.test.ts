@@ -5,6 +5,7 @@ const admin = vi.hoisted(() => ({
   apiFetch: vi.fn(),
   createContent: vi.fn(),
   fetchContent: vi.fn(),
+  fetchContentList: vi.fn(),
   fetchTranslations: vi.fn(),
   publishContent: vi.fn(),
   updateContent: vi.fn(),
@@ -16,6 +17,7 @@ const { translateIntoDraft } = await import("../src/admin/content-translation.js
 const {
   batchRunUrl,
   clearBatchRun,
+  collectionTranslationStats,
   findExistingTranslation,
   planBatchJobs,
   publicContentUrl,
@@ -50,6 +52,77 @@ describe("batch translation", () => {
       "b:fr",
       "b:de",
     ]);
+  });
+
+  it("counts source entries and untranslated ones per locale across pages, by translation group", async () => {
+    const row = (id: string, locale: string, translationGroup: string | null, status = "draft") => ({
+      id,
+      locale,
+      translationGroup,
+      status,
+    });
+    const pages: Record<string, { items: ReturnType<typeof row>[]; nextCursor?: string }[]> = {
+      en: [
+        { items: [row("a", "en", "a", "published"), row("b", "en", null)], nextCursor: "2" },
+        { items: [row("c", "en", "c"), row("x", "fr", "c")] },
+      ],
+      // The server filters by exact locale, so the older "fr-FR" translation only comes back from its own query.
+      fr: [{ items: [row("c-fr", "fr", "c")] }],
+      "fr-FR": [{ items: [row("a-fr", "fr-FR", "a")] }],
+    };
+    admin.fetchContentList.mockImplementation(
+      async (_collection: string, { locale, cursor }: { locale: string; cursor?: string }) =>
+        (pages[locale] ?? [])[cursor === undefined ? 0 : Number(cursor) - 1] ?? { items: [] },
+    );
+    const targets = [
+      { locale: "fr", code: "fr-FR" },
+      { locale: "de", code: "de-DE" },
+    ];
+    await expect(collectionTranslationStats("posts", "en", targets)).resolves.toEqual({
+      sourceEntries: 3,
+      publishedSourceEntries: 1,
+      untranslated: { fr: 1, de: 3 },
+    });
+  });
+
+  it("counts every source entry as untranslated for a locale with no rows, and skips target lists with no targets", async () => {
+    const rows = [
+      { id: "a", locale: "en", translationGroup: "a", status: "published" },
+      { id: "b", locale: "en", translationGroup: null, status: "draft" },
+    ];
+    admin.fetchContentList.mockResolvedValue({ items: rows });
+    await expect(collectionTranslationStats("posts", "en", [])).resolves.toEqual({
+      sourceEntries: 2,
+      publishedSourceEntries: 1,
+      untranslated: {},
+    });
+    expect(admin.fetchContentList).toHaveBeenCalledTimes(1);
+  });
+
+  it("matches a translation to a source entry with no translation group by id, and ignores other locales", async () => {
+    const source = [
+      { id: "a", locale: "en", translationGroup: null, status: "draft" },
+      { id: "b", locale: "en", translationGroup: null, status: "draft" },
+    ];
+    const frRows = [
+      { id: "a-fr", locale: "fr-FR", translationGroup: "a", status: "draft" },
+      { id: "b-de", locale: "de", translationGroup: "b", status: "draft" },
+    ];
+    admin.fetchContentList.mockImplementation(async (_collection: string, { locale }: { locale: string }) => ({
+      items: locale === "en" ? source : frRows,
+    }));
+    const stats = await collectionTranslationStats("posts", "en", [{ locale: "fr", code: "fr-FR" }]);
+    expect(stats.untranslated).toEqual({ fr: 1 });
+  });
+
+  it("stops paging once the summary's signal is aborted", async () => {
+    const controller = new AbortController();
+    admin.fetchContentList.mockImplementation(async () => {
+      controller.abort();
+      return { items: [{ id: "a", locale: "en", translationGroup: null, status: "draft" }], nextCursor: "next" };
+    });
+    await expect(collectionTranslationStats("posts", "en", [], controller.signal)).rejects.toThrow();
+    expect(admin.fetchContentList).toHaveBeenCalledTimes(1);
   });
 
   it("matches existing translations by locale path or catalog code", () => {
@@ -95,7 +168,15 @@ describe("batch translation", () => {
       removeItem: (key) => void rows.delete(key),
       clear: () => rows.clear(),
     };
-    const plan = { collection: "posts", scope: "selected" as const, items: [job.item], targets: [job.target], options, createdAt: 1_000 };
+    const plan = {
+      collection: "posts",
+      scope: "selected" as const,
+      items: [job.item],
+      targets: [job.target],
+      options,
+      localeTags: { "es-la": "es-419" },
+      createdAt: 1_000,
+    };
     rows.set("polystella:batch-run:old", JSON.stringify({ ...plan, createdAt: -100_000_000 }));
     rows.set("polystella:batch-run:corrupt", "{");
     rows.set("unrelated", "keep");

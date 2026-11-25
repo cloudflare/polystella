@@ -15,6 +15,7 @@ export interface TranslationDebugCollectorOptions {
   operation: TranslationDebugTrace["operation"];
   provider: TranslationDebugTrace["provider"];
   model: string;
+  requestInput: Readonly<Record<string, unknown>> | null;
   maxOutputTokens: number;
   maxSegmentsPerBatch: number | null;
   sourceLocale: string;
@@ -75,6 +76,7 @@ export function createTranslationDebugCollector(options: TranslationDebugCollect
         operation: options.operation,
         provider: options.provider,
         model: options.model,
+        requestInput: options.requestInput === null ? null : { ...options.requestInput },
         maxOutputTokens: options.maxOutputTokens,
         inputTokenBudget: DEFAULT_INPUT_TOKEN_BUDGET,
         maxSegmentsPerBatch: options.maxSegmentsPerBatch,
@@ -92,6 +94,11 @@ export function createTranslationDebugCollector(options: TranslationDebugCollect
 }
 
 export function contentSegmentLabel(id: string, fields: string[]): string {
+  const item = /^field:(\d+):item:(\d+):([a-z][a-z0-9_]*)(?::(alt|caption))?$/.exec(id);
+  if (item !== null) {
+    const field = fields[Number(item[1])];
+    return field === undefined ? id : `${field} (item ${Number(item[2]) + 1}, ${item[3]}${item[4] === undefined ? "" : ` ${item[4]}`})`;
+  }
   const match = /^field:(\d+)(?::block:(\d+)(?::row:(\d+):cell:(\d+))?:span:(\d+))?$/.exec(id);
   if (match === null) return customBlockSegmentLabel(id, fields);
   const field = fields[Number(match[1])];

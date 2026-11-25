@@ -74,6 +74,10 @@ export function isAllowedFieldSlug(value: string): boolean {
   return value.length <= 63 && EMDASH_SLUG_PATTERN.test(value) && !RESERVED_FIELD_SLUGS.some((reserved) => reserved === value);
 }
 
+export function isAllowedSubFieldSlug(value: string): boolean {
+  return value.length <= 63 && EMDASH_SLUG_PATTERN.test(value);
+}
+
 export function readStoredRecord(value: unknown, label: string): Record<string, unknown> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) throw PluginRouteError.internal(`${label} is invalid`);
   return value as Record<string, unknown>;

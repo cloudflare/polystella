@@ -1,9 +1,10 @@
 import type { FieldSchemaInfo, KVAccess, PluginRoute, RouteContext, SettingsAccess, StorageCollection } from "emdash";
 import type { WorkersAIInput } from "@cloudflare/polystella-core/providers/workers-ai";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   MAX_SANDBOX_CHARACTERS,
+  type BatchJobEntriesResponse,
   type BatchJobResultsResponse,
   type BatchJobsResponse,
   type BatchJobView,
@@ -18,6 +19,9 @@ import {
   type TranslationSettingsResponse,
 } from "../src/contracts.js";
 import { createPluginRoutes, type PluginRouteDependencies } from "../src/server/routes/routes.js";
+import { clearReasoningCapabilities } from "../src/server/reasoning.js";
+import { translatorParams, withThinking } from "../src/server/routes/provider.js";
+import { workersAIParamsProblem } from "@cloudflare/polystella-core/providers/workers-ai";
 
 const objectCache = vi.hoisted(() => ({ invalidateObjectCache: vi.fn() }));
 vi.mock("emdash", async (importOriginal) => ({ ...(await importOriginal<object>()), ...objectCache }));
@@ -588,13 +592,16 @@ describe("EmDash plugin routes", () => {
       locales: ["en-US", "fr-FR"],
       policies: {},
       revision: null,
+      localeTags: {},
     });
     await expect(route(routes, "policy").handler(context({ collection: "posts" }, "GET", kv, storage))).resolves.toEqual({
       enabled: false,
       sourceLocale: null,
       targetLocales: [],
       fields: [],
+      subFields: {},
       translateSeoWhenPublished: false,
+      localeTags: {},
     });
     const saved = (await route(routes, "settings/collections").handler(
       context({ revision: null, policies: { posts: { fields: ["title", "body"] } } }, "PUT", kv, storage),
@@ -604,20 +611,25 @@ describe("EmDash plugin routes", () => {
       locales: ["en-US", "fr-FR"],
       policies: { posts: { fields: ["body", "title"] } },
       revision: expect.any(String),
+      localeTags: {},
     });
     await expect(route(routes, "policy").handler(context({ collection: "posts" }, "GET", kv, storage))).resolves.toEqual({
       enabled: true,
       sourceLocale: "en-US",
       targetLocales: [{ locale: "fr-FR", code: "fr-FR" }],
       fields: ["body", "title"],
+      subFields: {},
       translateSeoWhenPublished: false,
+      localeTags: {},
     });
     await expect(route(routes, "policy").handler(context({ collection: "toString" }, "GET", kv, storage))).resolves.toEqual({
       enabled: false,
       sourceLocale: null,
       targetLocales: [],
       fields: [],
+      subFields: {},
       translateSeoWhenPublished: false,
+      localeTags: {},
     });
     await expect(
       route(routes, "settings/collections").handler(
@@ -656,7 +668,9 @@ describe("EmDash plugin routes", () => {
       sourceLocale: null,
       targetLocales: [],
       fields: [],
+      subFields: {},
       translateSeoWhenPublished: false,
+      localeTags: {},
     });
   });
 
@@ -670,7 +684,9 @@ describe("EmDash plugin routes", () => {
       sourceLocale: "en-US",
       targetLocales: [{ locale: "fr-FR", code: "fr-FR" }],
       fields: ["title"],
+      subFields: {},
       translateSeoWhenPublished: false,
+      localeTags: {},
     });
   });
 
@@ -734,6 +750,23 @@ describe("EmDash plugin routes", () => {
     expect(translated.patch).toEqual({ title: "Titre traduit" });
     expect(translatedTexts.join("")).toContain("Fresh source title");
     expect(translatedTexts.join("")).not.toContain("Hello");
+  });
+
+  it("sends localeTags keyed by catalog code and content locale so the admin names locales right", async () => {
+    const routes = createPluginRoutes(
+      { ...options(), localeTags: { "fr-FR": "fr-CA" } },
+      { ...dependencies(), localeAliases: () => ({ "en-US": "en", "fr-FR": "fr" }) },
+    );
+    const kv = createKv();
+    const storage = createStorage();
+    await enablePosts(kv);
+    const tags = { "fr-fr": "fr-CA", fr: "fr-CA" };
+    await expect(route(routes, "policy").handler(context({ collection: "posts" }, "GET", kv, storage))).resolves.toMatchObject({
+      localeTags: tags,
+    });
+    for (const path of ["settings/collections", "settings/translation", "batch/jobs"]) {
+      await expect(route(routes, path).handler(context({}, "GET", kv, storage))).resolves.toMatchObject({ localeTags: tags });
+    }
   });
 
   it("matches path-stamped content to catalog locale codes", async () => {
@@ -1389,12 +1422,83 @@ describe("EmDash plugin routes", () => {
     await expect(route(routes, "translate-content").handler(withoutSchema)).rejects.toMatchObject({ status: 500 });
   });
 
+  it("stores repeater subfields and drops invalid stored ones", async () => {
+    const routes = createPluginRoutes(options(), dependencies());
+    const kv = createKv();
+    const storage = createStorage();
+    const put = (policies: unknown) =>
+      route(routes, "settings/collections").handler(context({ revision: null, policies }, "PUT", kv, storage));
+    const policy = () => route(routes, "policy").handler(context({ collection: "posts" }, "GET", kv, storage));
+
+    await put({ posts: { fields: ["faq", "title"], subFields: { faq: ["question"] } } });
+    await expect(policy()).resolves.toMatchObject({ fields: ["faq", "title"], subFields: { faq: ["question"] } });
+    await expect(put({ posts: { fields: ["title"], subFields: { faq: ["question"] } } })).rejects.toMatchObject({ status: 400 });
+    await expect(put({ posts: { fields: ["faq"], subFields: { faq: ["Bad!"] } } })).rejects.toMatchObject({ status: 400 });
+    await expect(put({ posts: { fields: ["faq"], subFields: { faq: [] } } })).rejects.toMatchObject({ status: 400 });
+
+    await kv.set("settings:collectionPolicies", {
+      posts: { fields: ["title", "faq"], subFields: { faq: ["Bad!"], title: "x", gone: ["question"] } },
+    });
+    await expect(policy()).resolves.toMatchObject({ enabled: true, fields: ["faq", "title"], subFields: {} });
+  });
+
+  describe("repeater fields in translate-content", () => {
+    const faqField = {
+      ...schemaField("faq", "repeater"),
+      validation: {
+        subFields: [
+          { slug: "question", type: "string", label: "Q" },
+          { slug: "link", type: "url", label: "L" },
+        ],
+      },
+    } as FieldSchemaInfo;
+
+    async function translateFaq(subFields: Record<string, string[]> | undefined) {
+      const routes = createPluginRoutes(options(), {
+        ...dependencies(),
+        getEnv: async () => ({ AI: { run: async () => ({ response: "@@field:0:item:0:question@@\nSalut" }) } }),
+      });
+      const kv = createKv();
+      await kv.set("settings:collectionPolicies", { posts: { fields: ["faq"], ...(subFields === undefined ? {} : { subFields }) } });
+      const routeContext = context(
+        { collection: "posts", entryId: "entry-1", targetLocale: "fr-FR", fields: ["faq"] },
+        "POST",
+        kv,
+        createStorage(),
+      );
+      const { content, schema } = routeContext;
+      if (content === undefined || schema === undefined) throw new Error("missing access");
+      const getCollection = schema.getCollection.bind(schema);
+      schema.getCollection = async (slug) => {
+        const collection = await getCollection(slug);
+        return collection === null ? null : { ...collection, fields: [...collection.fields, faqField] };
+      };
+      const getEntry = content.get.bind(content);
+      content.get = async (collection, id) => {
+        const item = await getEntry(collection, id);
+        return item === null ? null : { ...item, data: { faq: [{ question: "Hi", link: "/a" }] } };
+      };
+      return route(routes, "translate-content").handler(routeContext);
+    }
+
+    it("translates the chosen subfields and keeps the rest", async () => {
+      const translated = (await translateFaq({ faq: ["question"] })) as TranslateContentResponse;
+      expect(translated.patch).toEqual({ faq: [{ question: "Salut", link: "/a" }] });
+    });
+
+    it("refuses a repeater whose policy chose no usable subfields", async () => {
+      await expect(translateFaq(undefined)).rejects.toMatchObject({ status: 400, message: expect.stringContaining('"faq"') });
+      await expect(translateFaq({ faq: ["link"] })).rejects.toMatchObject({ status: 400 });
+    });
+  });
+
   it("declares HTTP methods on every route", () => {
     const routes = createPluginRoutes(options(), dependencies());
     expect(Object.fromEntries(Object.entries(routes).map(([name, value]) => [name, value.methods]))).toEqual({
       "settings/collections": ["GET", "PUT"],
       "settings/translation": ["GET", "PUT"],
       policy: ["GET"],
+      "models/reasoning": ["GET"],
       "ai-translation": ["POST"],
       "ai-translation/pending": ["POST"],
       "ai-translation/status": ["GET"],
@@ -1416,6 +1520,7 @@ describe("EmDash plugin routes", () => {
       "batch/translate": ["POST"],
       "batch/record": ["POST"],
       "batch/results": ["GET"],
+      "batch/entries": ["GET"],
       overrides: ["GET"],
     });
   });
@@ -2069,7 +2174,7 @@ describe("EmDash batch queue routes", () => {
   it("reports whether the queue is configured", async () => {
     const routes = createPluginRoutes(options(), dependencies());
     const result = await route(routes, "batch/jobs").handler(context({}, "GET", createKv(), createStorage()));
-    expect(result).toEqual({ queueEnabled: false, jobs: [] });
+    expect(result).toEqual({ queueEnabled: false, jobs: [], localeTags: {} });
   });
 
   it("refuses to start a job without a queue binding", async () => {
@@ -2097,6 +2202,68 @@ describe("EmDash batch queue routes", () => {
     const listed = (await call("batch/jobs", {}, "GET")) as BatchJobsResponse;
     expect(listed.queueEnabled).toBe(true);
     expect(listed.jobs.map(({ id }) => id)).toEqual([job.id]);
+  });
+
+  it("records the selected entries on the job", async () => {
+    const { kv, call, batch } = batchSetup();
+    await enablePosts(kv);
+    const hasEntries = (routeContext: RouteContext) => {
+      if (routeContext.content === undefined) throw new Error("missing content access");
+      routeContext.content.list = async () => ({ items: [{ id: "a" }] as never, hasMore: false });
+    };
+
+    const selected = (await call("batch/start", { collection: "posts", locales: ["fr-FR"], entryIds: ["a", "b", "a"] })) as BatchJobView;
+    const whole = (await call("batch/start", { collection: "posts", locales: ["fr-FR"] }, "POST", hasEntries)) as BatchJobView;
+
+    expect(selected.entryCount).toBe(2);
+    expect(await batch.jobs.get(selected.id)).toMatchObject({ entryIds: ["a", "b"] });
+    expect(whole.entryCount).toBe("all");
+    await batch.jobs.put("legacy", {
+      collection: "posts",
+      locales: ["fr-FR"],
+      total: 1,
+      status: "running",
+      createdAt: "2026-09-03T00:00:00.000Z",
+      createdBy: null,
+    });
+    const listed = (await call("batch/jobs", {}, "GET")) as BatchJobsResponse;
+    expect(listed.jobs.find(({ id }) => id === "legacy")?.entryCount).toBeNull();
+  });
+
+  it("pages the selected entries of a job with their titles", async () => {
+    const { kv, call } = batchSetup();
+    await enablePosts(kv);
+    const hasEntries = (routeContext: RouteContext) => {
+      if (routeContext.content === undefined) throw new Error("missing content access");
+      routeContext.content.list = async () => ({ items: [{ id: "a" }] as never, hasMore: false });
+    };
+    const ids = Array.from({ length: 51 }, (_, index) => `entry-${index}`);
+    const job = (await call("batch/start", { collection: "posts", locales: ["fr-FR"], entryIds: ids })) as BatchJobView;
+    const titled = (routeContext: RouteContext) => {
+      sourceEntry(routeContext);
+      const content = routeContext.content;
+      if (content === undefined) throw new Error("missing content access");
+      const get = content.get.bind(content);
+      content.get = async (collection, id) => {
+        const item = await get(collection, id);
+        return item === null ? null : { ...item, data: { title: `Title ${id}` } };
+      };
+    };
+
+    const first = (await call("batch/entries", { jobId: job.id }, "GET", titled)) as BatchJobEntriesResponse;
+    expect(first.entries).toHaveLength(50);
+    expect(first.entries[0]).toEqual({ id: "entry-0", title: "Title entry-0" });
+    expect(first.nextCursor).toBe("50");
+    await expect(call("batch/entries", { jobId: job.id, cursor: "50" }, "GET", titled)).resolves.toEqual({
+      entries: [{ id: "entry-50", title: "Title entry-50" }],
+      nextCursor: null,
+    });
+    await expect(call("batch/entries", { jobId: "missing" }, "GET")).rejects.toMatchObject({ status: 404 });
+    for (const cursor of ["abc", "-1", "1.5"]) {
+      await expect(call("batch/entries", { jobId: job.id, cursor }, "GET")).rejects.toMatchObject({ status: 400 });
+    }
+    const whole = (await call("batch/start", { collection: "posts", locales: ["fr-FR"] }, "POST", hasEntries)) as BatchJobView;
+    await expect(call("batch/entries", { jobId: whole.id }, "GET")).resolves.toEqual({ entries: [], nextCursor: null });
   });
 
   it("reports a job as finished once every translation has a result, and notes results after a cancel", async () => {
@@ -2414,5 +2581,254 @@ describe("EmDash batch queue routes", () => {
     await expect(
       call("batch/record", { jobId: "j", entryId: "e", locale: "fr-FR", outcome: "published", message: null }),
     ).rejects.toMatchObject({ status: 400 });
+  });
+});
+
+describe("EmDash thinking effort", () => {
+  const freshCatalog = () => [
+    {
+      name: "model-a",
+      properties: [{ property_id: "reasoning_effort", value: { supported_efforts: ["max", "high", "none"], mandatory: false } }],
+    },
+    { name: "model-b", properties: [{ property_id: "reasoning_effort", value: { mandatory: false, default_enabled: true } }] },
+  ];
+
+  beforeEach(clearReasoningCapabilities);
+
+  function setup(configure: (configured: PolystellaEmdashOptions) => void = () => undefined, catalogFails = false) {
+    const configured = options();
+    configure(configured);
+    const catalog = freshCatalog();
+    const inputs: Array<{ model: string; input: WorkersAIInput }> = [];
+    const routes = createPluginRoutes(configured, {
+      ...dependencies(),
+      getEnv: async () => ({
+        AI: {
+          models: async ({ search }: { search: string }) => {
+            if (catalogFails) throw new Error("catalog down");
+            return catalog.filter(({ name }) => name === search);
+          },
+          run: async (model: string, input: WorkersAIInput) => {
+            inputs.push({ model, input });
+            return { response: "@@sandbox:0@@\nBonjour" };
+          },
+        },
+      }),
+    });
+    const kv = createKv();
+    const storage = createStorage();
+    let revision: string | null = null;
+    const saveSettings = async (locale: Record<string, unknown>) => {
+      const saved = (await route(routes, "settings/translation").handler(
+        context(
+          {
+            revision,
+            locales: { "fr-FR": { glossaryMode: "default", glossaryText: "", ...locale } },
+            instructions: { mode: "default", text: "" },
+          },
+          "PUT",
+          kv,
+          storage,
+        ),
+      )) as TranslationSettingsResponse;
+      revision = saved.revision;
+      return saved;
+    };
+    const sandbox = (model: string) =>
+      route(routes, "translation-sandbox").handler(context({ targetLocale: "fr-FR", model, text: "Hello" }, "POST", kv, storage));
+    const efforts = (model: string) => route(routes, "models/reasoning").handler(context({ model }, "GET", kv, storage));
+    return { inputs, saveSettings, sandbox, efforts, catalog };
+  }
+
+  it("lists the efforts a model accepts", async () => {
+    const { efforts } = setup();
+    await expect(efforts("model-a")).resolves.toEqual({ efforts: ["max", "high", "none"] });
+    await expect(efforts("model-b")).resolves.toEqual({ efforts: ["none", "on"] });
+    await expect(efforts("model-z")).rejects.toMatchObject({ status: 400 });
+  });
+
+  it("answers with an error instead of failing when the catalog is unreachable", async () => {
+    const { efforts } = setup(undefined, true);
+    await expect(efforts("model-a")).resolves.toMatchObject({ efforts: null, error: expect.any(String) });
+  });
+
+  it("stores an effort only with a model override the model accepts", async () => {
+    const { saveSettings } = setup((configured) => {
+      configured.models.params = { "model-b": { enable_thinking: false } };
+    });
+    const withoutModel = await saveSettings({ model: null, reasoning: "high" });
+    expect(withoutModel.locales[0]).toMatchObject({ model: null, reasoning: null, defaultReasoning: "none" });
+    await expect(saveSettings({ model: "model-a", reasoning: "bogus" })).rejects.toMatchObject({ status: 400 });
+    await expect(saveSettings({ model: "model-b", reasoning: "high" })).rejects.toMatchObject({ status: 400 });
+    const saved = await saveSettings({ model: "model-a", reasoning: "high" });
+    expect(saved.locales[0]).toMatchObject({ model: "model-a", reasoning: "high" });
+  });
+
+  it("answers 503 when saving an effort while the catalog is unreachable, but not without one", async () => {
+    const { saveSettings } = setup(undefined, true);
+    await expect(saveSettings({ model: "model-a", reasoning: "high" })).rejects.toMatchObject({ status: 503 });
+    await expect(saveSettings({ model: "model-a", reasoning: null })).resolves.toMatchObject({ locales: [{ reasoning: null }] });
+  });
+
+  it("sends the admin's effort with the model override only, over models.params", async () => {
+    const { inputs, saveSettings, sandbox } = setup((configured) => {
+      configured.models.params = { "model-a": { reasoning_effort: "low" } };
+    });
+    await saveSettings({ model: "model-a", reasoning: "high" });
+    await sandbox("model-a");
+    await sandbox("model-b");
+    expect(inputs.map(({ model, input }) => [model, input.reasoning_effort])).toEqual([
+      ["model-a", "high"],
+      ["model-b", undefined],
+    ]);
+  });
+
+  it("turns thinking off with enable_thinking for a switch-only model, replacing the switch in models.params", async () => {
+    const { inputs, saveSettings, sandbox } = setup((configured) => {
+      configured.models.params = { "model-b": { chat_template_kwargs: { enable_thinking: true, clear_thinking: true } } };
+    });
+    await saveSettings({ model: "model-b", reasoning: "none" });
+    await sandbox("model-b");
+    expect(inputs[0]?.input.chat_template_kwargs).toEqual({ enable_thinking: false, clear_thinking: true });
+    expect(inputs[0]?.input).not.toHaveProperty("enable_thinking");
+    expect(inputs[0]?.input.max_tokens).toBe(8192);
+  });
+
+  it("sends nothing extra, and still translates, for an unsupported effort or a catalog failure", async () => {
+    const { inputs, saveSettings, sandbox, catalog } = setup();
+    await saveSettings({ model: "model-a", reasoning: "max" });
+    clearReasoningCapabilities();
+    catalog[0] = {
+      name: "model-a",
+      properties: [{ property_id: "reasoning_effort", value: { supported_efforts: ["high"], mandatory: true } }],
+    };
+    await expect(sandbox("model-a")).resolves.toMatchObject({ translation: "Bonjour" });
+    clearReasoningCapabilities();
+    catalog.length = 0;
+    catalog.push({ name: "model-a", properties: "broken" as never });
+    await expect(sandbox("model-a")).resolves.toMatchObject({ translation: "Bonjour" });
+    for (const { input } of inputs) expect(Object.keys(input).sort()).toEqual(["max_tokens", "messages"]);
+  });
+
+  it("shows the extra request input in the debug trace, in the form Workers AI receives", async () => {
+    const configured = options();
+    configured.models.params = { "model-a": { enable_thinking: false, temperature: 0.2 } };
+    const routes = createPluginRoutes(configured, {
+      ...dependencies(),
+      getEnv: async () => ({ AI: { run: async () => ({ response: "@@sandbox:0@@\nBonjour" }) } }),
+    });
+    const kv = createKv();
+    const storage = createStorage();
+    await enableDebug(routes, kv, storage);
+    const sandbox = (model: string) =>
+      route(routes, "translation-sandbox").handler(
+        context({ targetLocale: "fr-FR", model, text: "Hello" }, "POST", kv, storage),
+      ) as Promise<TranslationSandboxResponse>;
+    await expect(sandbox("model-a")).resolves.toMatchObject({
+      debug: { requestInput: { temperature: 0.2, chat_template_kwargs: { enable_thinking: false } } },
+    });
+    await expect(sandbox("model-b")).resolves.toMatchObject({ debug: { requestInput: null } });
+  });
+
+  it("shows the request input in content and catalog debug traces, only to administrators", async () => {
+    const configured = options();
+    configured.models.params = { "model-b": { enable_thinking: false, temperature: 0.2 } };
+    const responseFor = (input: WorkersAIInput) =>
+      JSON.stringify(input).includes("@@catalog:0@@") ? "@@catalog:0@@\nBonjour" : "@@field:0@@\nBonjour";
+    const routes = createPluginRoutes(configured, {
+      ...dependencies(),
+      getEnv: async () => ({ AI: { run: async (_model: string, input: WorkersAIInput) => ({ response: responseFor(input) }) } }),
+    });
+    const kv = createKv();
+    const storage = createStorage();
+    await enablePosts(kv);
+    await enableDebug(routes, kv, storage);
+    const expected = { debug: { requestInput: { temperature: 0.2, chat_template_kwargs: { enable_thinking: false } } } };
+    const content = { collection: "posts", entryId: "entry-1", targetLocale: "fr-FR", fields: ["title"] };
+    const catalog = { locale: "fr-FR", keys: ["greeting"] };
+
+    await expect(route(routes, "translate-content").handler(context(content, "POST", kv, storage))).resolves.toMatchObject(expected);
+    await expect(route(routes, "catalog/generate").handler(context(catalog, "POST", kv, storage))).resolves.toMatchObject(expected);
+
+    // catalog/generate is gated by the framework's plugins:manage permission instead of a role check in the handler.
+    expect(route(routes, "catalog/generate").permission).toBe("plugins:manage");
+    const editorContext = context(content, "POST", kv, storage);
+    if (editorContext.user === undefined) throw new Error("missing test user");
+    editorContext.user = { ...editorContext.user, role: 40 };
+    const result = await route(routes, "translate-content").handler(editorContext);
+    expect(result).not.toHaveProperty("debug");
+    expect(JSON.stringify(result)).not.toContain("temperature");
+  });
+
+  it("uses models.reasoningInput for the extra input", async () => {
+    const { inputs, saveSettings, sandbox } = setup((configured) => {
+      configured.models.reasoningInput = { "model-b": { off: { think: false } } };
+    });
+    await saveSettings({ model: "model-b", reasoning: "off" });
+    await sandbox("model-b");
+    expect(inputs[0]?.input.think).toBe(false);
+  });
+});
+
+describe("withThinking", () => {
+  const check = (params: Record<string, unknown>) => expect(workersAIParamsProblem(params)).toBeUndefined();
+
+  it("keeps one switch when the admin sets the top-level one over a nested base", () => {
+    const result = withThinking({ chat_template_kwargs: { enable_thinking: true, x: 1 } }, { enable_thinking: false });
+    expect(result).toEqual({ enable_thinking: false, chat_template_kwargs: { x: 1 } });
+    check(result);
+  });
+
+  it("drops the top-level switch when the admin sets the nested one", () => {
+    const result = withThinking({ enable_thinking: true }, { chat_template_kwargs: { enable_thinking: false } });
+    expect(result).toEqual({ chat_template_kwargs: { enable_thinking: false } });
+    check(result);
+  });
+
+  it("lets the admin's effort win and turns the code's thinking-off switch back on", () => {
+    const result = withThinking({ reasoning_effort: "low", enable_thinking: false, x: 1 }, { reasoning_effort: "high" });
+    expect(result).toEqual({ reasoning_effort: "high", x: 1 });
+    check(result);
+    expect(withThinking({ chat_template_kwargs: { enable_thinking: false, y: 2 } }, { reasoning_effort: "high" })).toEqual({
+      reasoning_effort: "high",
+      chat_template_kwargs: { y: 2 },
+    });
+    expect(withThinking({ enable_thinking: false }, { reasoning_effort: "none" })).toEqual({
+      reasoning_effort: "none",
+      enable_thinking: false,
+    });
+  });
+
+  it("works without base params", () => {
+    const result = withThinking(undefined, { reasoning_effort: "high" });
+    expect(result).toEqual({ reasoning_effort: "high" });
+    check(result);
+  });
+});
+
+describe("translatorParams", () => {
+  const configured = (params: Record<string, unknown>) => {
+    const result = options();
+    result.models.params = { "model-a": params };
+    return result;
+  };
+
+  it("returns models.params unchanged without an admin choice", () => {
+    expect(translatorParams(configured({ temperature: 0.2 }), "model-a", "fr-FR", undefined)).toEqual({ temperature: 0.2 });
+    expect(translatorParams(options(), "model-a", "fr-FR", undefined)).toBeUndefined();
+  });
+
+  it("layers the admin's thinking input over models.params", () => {
+    expect(translatorParams(configured({ temperature: 0.2 }), "model-a", "fr-FR", { reasoning_effort: "high" })).toEqual({
+      temperature: 0.2,
+      reasoning_effort: "high",
+    });
+  });
+
+  it("drops the code's enable_thinking:false when the admin picks an effort", () => {
+    expect(translatorParams(configured({ enable_thinking: false, x: 1 }), "model-a", "fr-FR", { reasoning_effort: "high" })).toEqual({
+      x: 1,
+      reasoning_effort: "high",
+    });
   });
 });

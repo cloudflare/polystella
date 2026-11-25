@@ -21,6 +21,8 @@ export interface StoredBatchJob {
   listing: BatchListing | null;
   /** Listing stopped at `MAX_BATCH_TRANSLATIONS`, so later entries were not queued. */
   truncated: boolean;
+  /** The selected source entries; `"all"` for a whole-collection job, `null` for jobs stored before this was recorded. */
+  entryIds: string[] | "all" | null;
 }
 
 export interface BatchListing {
@@ -162,7 +164,7 @@ export function readBatchMessage(value: unknown): BatchMessage | null {
 
 export function parseStoredJob(value: unknown): StoredBatchJob | null {
   if (!isRecord(value)) return null;
-  const { collection, locales, total, status, publish, createdAt, createdBy, listing, truncated } = value;
+  const { collection, locales, total, status, publish, createdAt, createdBy, listing, truncated, entryIds } = value;
   if (
     !isNonEmptyString(collection) ||
     !Array.isArray(locales) ||
@@ -185,6 +187,7 @@ export function parseStoredJob(value: unknown): StoredBatchJob | null {
     createdBy,
     listing: readListing(listing),
     truncated: truncated === true,
+    entryIds: entryIds === "all" ? "all" : Array.isArray(entryIds) && entryIds.every(isNonEmptyString) ? entryIds : null,
   };
 }
 

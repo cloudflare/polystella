@@ -6,18 +6,45 @@ sidebar:
   label: Admin UI
 ---
 
-The native admin registers one **PolyStella** page with five tabs —
-**Catalog**, **Collections**, **Batch translation**, **Translation
-settings**, and **Translation sandbox** — rendered with EmDash's Kumo
-design system. No generated plugin settings page is registered.
+The native admin adds a **PolyStella** sidebar group with three pages,
+rendered with EmDash's Kumo design system:
 
-## Collections tab
+- **Settings** (`/settings`) — the **Translation settings**,
+  **Collections**, and **Sandbox** tabs. `?tab=translation`,
+  `?tab=collections` or `?tab=sandbox` opens a tab directly.
+- **Catalog** (`/catalog`).
+- **Batch translation** (`/batch-translation`).
+
+EmDash before 1.6 lists the three pages without the group. The old `/`
+address still opens Settings. Links that open a new window show a ↗ icon.
+No generated plugin settings page is registered.
+
+## Collections
 
 Lets an Administrator enable project collections and choose their
-translatable fields. The source is always the code-defined
+translatable fields. Each collection is a card, closed at first; the
+control at its top right opens it, and turning a collection on opens
+it too. The source is always the code-defined
 `catalogs.defaultLocale`; plugin settings display it but cannot change
 it. Only fields the collection schema marks as translatable and of a
-supported type (`string`, `text`, Portable Text) are offered.
+supported type (`string`, `text`, Portable Text, repeater) are offered.
+
+A repeater lists its `string`, `text`, and `image` subfields. When the
+repeater is enabled, all are ticked except ones named like links, IDs or
+authors (`url`, `href`, `slug`, `id`, `author_name`, ...). Only ticked subfields are translated; an
+image translates its alt text and caption. Every other subfield (links,
+numbers, unticked text) is copied from the source row. Unticking every
+subfield turns the repeater off. The source entry is the source of
+truth: retranslating an existing translation replaces its whole
+repeater list with the translated source list, including items added or
+removed in the source. Use EmDash revisions to restore an earlier
+version. Images, blocks, SEO metadata, and
+images inside Portable Text are not translated yet; select, URL, slug,
+number, boolean, date, file, reference, and JSON fields hold no
+translatable text.
+
+Locales are shown by name and code, for example "French (fr)", in the
+browser's language.
 
 No collection is enabled until an Administrator saves a valid policy.
 Missing or malformed stored policy fails closed — the collection is
@@ -30,14 +57,18 @@ Administrator saved in the meantime, the save is rejected; reload the
 tab and reapply your change. The Translation settings tab behaves the
 same way.
 
-## Batch translation tab
+## Batch translation
 
 Translates many entries of one enabled collection at once, using the
 same route and saves as the content-editor panel. Choose:
 
-- **Entries** — the whole collection, or entries you tick in a list
-  of source-locale entries that shows each slug and searches by
-  title or slug.
+- **Entries** — entries you tick (the default) in a list of
+  source-locale entries that shows each slug and searches by title or
+  slug, or the whole collection. For the whole collection, the right
+  column shows how many source entries there are, how many are
+  published, the fields that are translated, and per target locale how
+  many entries are untranslated, with how many translations a run
+  creates.
 - **Target locales** — any of the configured non-default locales.
   None are ticked at first. **Select all** and **Clear all** change
   them together. With selected entries, **Select untranslated** ticks
@@ -71,8 +102,9 @@ When the deployment sets
 Cloudflare Queues and keeps running after you close the tab. Server
 jobs only create missing translations; existing ones are skipped.
 They follow **Publish translations immediately** too.
-The tab lists the last ten jobs with their progress, the first
-failures, **Show results** (every row with the same links as browser
+The tab lists the last ten jobs with their progress, whether they cover
+the whole collection or selected entries (**Show entries** lists them),
+the first failures, **Show results** (every row with the same links as browser
 runs), **Cancel** (queued entries finish without translating), and
 **Retry failed**. **Remove** takes a finished or cancelled job off the
 list, and **Clear finished jobs** removes all of them; the
@@ -80,22 +112,36 @@ translations they created stay. Jobs older than 30 days are deleted
 automatically when the list loads. The list refreshes every five
 seconds while a job runs.
 
-## Translation settings tab
+## Translation settings
 
-Target-locale settings, each with its own model and glossary behavior. The
-code-defined default locale is source-only and is not listed here:
+A **General** card (debug mode, max output tokens, the AI-flag and SEO
+switches) and an **Additional translation instructions** card sit side
+by side. Below them, each target locale has a card, closed at first,
+with its model in the header and its own model and glossary behavior.
+The code-defined default locale is source-only and is not listed here:
 
 - **Translation model** — pick from `models.allowed`, or keep the
   code default (`models.defaults`). A model outside `allowed` cannot
   be selected.
+- **Thinking** — shown when a locale overrides the model. _No
+  override_ (the code's `models.params` for the model apply), _Off_ when the model can turn thinking off, and each effort
+  the model lists in the Workers AI catalog (or in
+  `models.reasoningInput`). Changing the model resets it. With the code
+  default model, the thinking set by `models.defaults` or
+  `models.params` applies and is shown read-only.
 - **Glossary behavior** — use the code default, append custom plain
   text, or replace the code glossary. Structured YAML stays
   code-defined; only `notes` can be appended or replaced.
 - **Custom glossary** — plain text applied per the behavior above,
   up to 10,000 characters. Code-defined glossaries have no such cap:
   each request carries only the terms its text uses.
-- **Shared translation instructions** — use code defaults, append,
-  or replace the `rules` from configuration.
+- **Additional translation instructions** — use code defaults, append,
+  or replace the `rules` from configuration. They are sent with every
+  translation in every language, together with that language's glossary.
+
+**View code-defined additional translation instructions** and **View
+code-defined glossary** open the code's text in a new window, with the
+same append or replace controls and a **Save** button.
 
 **Max output tokens** caps how much text the model may return per
 request, for every translation. Leave it empty to use `provider.maxTokens`
@@ -131,14 +177,15 @@ replied but the reply failed a check, the log also carries the finish reason,
 token usage and reasoning size. Editors see only a
 short, safe message and the same ID.
 
-## Translation sandbox tab
+## Translation sandbox
 
 Lets an Administrator translate up to 30,000 characters of freeform
 text from `catalogs.defaultLocale` to any configured non-default
 locale. Each request can select any model in `models.allowed` without
 changing saved settings. The target locale's glossary and shared
 instructions apply. Output stays in the browser and does not change
-content, catalog overrides, or repository files.
+content, catalog overrides, or repository files. The source text and
+the output sit side by side, below the locale and model choices.
 
 The tab shows a named percentage stage while translation runs and a
 100% completion state. These percentages describe client request
@@ -147,7 +194,7 @@ stages; EmDash plugin routes do not stream provider or batch progress.
 ## Content-editor panel
 
 The panel appears for Editors and Administrators. It translates
-selected `string`, `text`, Portable Text and `blocks` fields in an existing
+selected `string`, `text`, Portable Text, `blocks` and repeater fields in an existing
 target-locale draft — the source locale is the code-defined
 `catalogs.defaultLocale`, and the target must differ from it.
 
@@ -226,12 +273,12 @@ inspect the trace after the panel reloads.
   unsaved changes are lost.
 - Before EmDash 1.5, the PolyStella section shows on every collection.
   On collections not enabled in plugin settings, the panel says so and
-  links Administrators to the Collections tab. From 1.5 on, the section
+  links Administrators to Settings, on the Collections tab. From 1.5 on, the section
   is hidden there.
 
 ## See also
 
-- [Catalog overrides](/emdash/catalog-overrides/) — the Catalog tab
+- [Catalog overrides](/emdash/catalog-overrides/) — the Catalog page
   in more detail.
 - [Configuration](/emdash/configuration/) — the deployment-side
   bounds these panels operate within.

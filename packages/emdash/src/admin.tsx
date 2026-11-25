@@ -1,7 +1,8 @@
 import type { ContentEditorPanelExtension } from "@emdash-cms/admin";
 
 import { BatchRunPage } from "./admin/plugin-page/BatchRunPage.js";
-import { Page } from "./admin/plugin-page/Page.js";
+import { CodeDefaultsPage } from "./admin/plugin-page/CodeDefaultsPage.js";
+import { BatchPage, CatalogPage, SettingsPage } from "./admin/plugin-page/Page.js";
 import { ContentEditorPanel, panelErrorMessage, panelIsVisible } from "./admin/panels/ContentEditorPanel.js";
 import { TranslationProgress } from "./admin/components/TranslationProgress/TranslationProgress.js";
 import {
@@ -23,15 +24,24 @@ export {
   storeTranslationDebug,
   takeTranslationDebug,
   TranslationProgress,
-  Page,
+  // `Page` predates the page split and now shows Settings.
+  SettingsPage as Page,
+  SettingsPage,
+  CatalogPage,
+  BatchPage,
   ContentEditorPanel,
 };
 export type { CatalogGroup } from "./admin/types.js";
 
-// `/batch-run` has no sidebar entry; the Batch translation tab opens it in a new tab.
+// Keys match ADMIN_PAGES in index.ts. `/` keeps old links working; `/batch-run` and `/code-defaults` open in a new window
+// and have no sidebar entry.
 export const pages = {
-  "/": Page,
+  "/": SettingsPage,
+  "/settings": SettingsPage,
+  "/catalog": CatalogPage,
+  "/batch-translation": BatchPage,
   "/batch-run": BatchRunPage,
+  "/code-defaults": CodeDefaultsPage,
 };
 
 export const contentEditorPanels = [

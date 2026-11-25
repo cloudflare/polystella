@@ -6,7 +6,7 @@ sidebar:
   label: Catalog overrides
 ---
 
-Repository JSON remains canonical. The **Catalog** tab lets an
+Repository JSON remains canonical. The **Catalog** page lets an
 Administrator generate, edit, clear, inspect deployment state, and
 export temporary per-key overrides on top of the deployed
 dictionaries. Overrides are stored in EmDash, never in the
@@ -17,8 +17,11 @@ repository. The locale selector lists translation targets only;
 
 Entries are grouped by their first key segment. A group with an
 `i18n_group_title` displays that title with the group key alongside;
-groups without one fall back to the key. A search box filters groups
-by title, group key, or any entry key. Source cells containing
+groups without one fall back to the key. The left column lists the
+groups alphabetically; click one to show its keys in the card on the
+right. The first group opens on load. Within a group, keys are shown
+without the group prefix. A search box above the list filters groups
+by title, group key, entry key or source text. Source cells containing
 `{{variables}}` placeholders show a question-mark icon before the text;
 hovering or clicking it explains that overrides should retain those
 placeholders. Saving an override that is not a valid
@@ -107,6 +110,6 @@ configured `filePath`.
 
 ## See also
 
-- [Admin UI](/emdash/admin-ui/) — the Catalog tab and debug traces.
+- [Admin UI](/emdash/admin-ui/) — the Catalog page and debug traces.
 - [Astro integration](/emdash/astro-integration/) — how overrides
   reach `Astro.locals.t`.

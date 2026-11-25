@@ -1,8 +1,9 @@
 import { Banner, Button, LayerCard } from "@cloudflare/kumo";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
-import { errorMessage } from "../utils.js";
-import { cardStyle, mutedStyle, pageStyle, rowStyle, sectionStyle, stackStyle, titleStyle } from "../styles.js";
+import { errorMessage, localeLabel, plural, pluginPageUrl, rememberLocaleTags } from "../utils.js";
+import { PageTitle, SectionHeader } from "../components/PageHeader/PageHeader.js";
+import { cardStyle, mutedStyle, pageStyle, rowStyle, sectionStyle, stackStyle } from "../styles.js";
 import { ErrorMessage } from "../components/ErrorMessage/ErrorMessage.js";
 import { TranslationProgress } from "../components/TranslationProgress/TranslationProgress.js";
 import { BatchResultsTable, usePublicUrlContexts } from "./tabs/BatchTab/BatchResults.js";
@@ -21,10 +22,14 @@ import {
 
 const CONCURRENCY = 3;
 
-/** A browser batch run in its own tab, opened from the Batch translation tab. */
+/** A browser batch run in its own tab, opened from the Batch translation page. */
 export function BatchRunPage(): ReactNode {
   const [runId] = useState(() => new URLSearchParams(window.location.search).get("run"));
-  const [plan] = useState<BatchRunPlan | null>(() => (runId === null ? null : readBatchRun(runId)));
+  const [plan] = useState<BatchRunPlan | null>(() => {
+    const stored = runId === null ? null : readBatchRun(runId);
+    rememberLocaleTags(stored?.localeTags);
+    return stored;
+  });
   const [items, setItems] = useState<BatchItem[] | null>(plan?.scope === "selected" ? plan.items : null);
   const [started, setStarted] = useState(false);
   const [running, setRunning] = useState(false);
@@ -37,8 +42,13 @@ export function BatchRunPage(): ReactNode {
 
   useEffect(() => {
     if (plan === null || plan.scope !== "all") return;
+    const { sourceLocale } = plan.options;
+    if (sourceLocale === undefined) {
+      setError("PolyStella could not tell which locale holds the source entries. Reload the Batch translation page and start again.");
+      return;
+    }
     let active = true;
-    loadAllItems(plan.collection, plan.options.sourceLocale ?? null)
+    loadAllItems(plan.collection, sourceLocale, plan.targets)
       .then((loaded) => {
         if (active) setItems(loaded);
       })
@@ -101,10 +111,16 @@ export function BatchRunPage(): ReactNode {
   if (plan === null) {
     return (
       <main style={pageStyle}>
-        <h1 style={titleStyle}>PolyStella - Batch run</h1>
-        <p style={mutedStyle}>
-          This run was already started or has expired. Start a new one from the Batch translation tab on the PolyStella page.
-        </p>
+        <PageTitle>PolyStella</PageTitle>
+        <SectionHeader
+          title="Batch run"
+          description={
+            <>
+              This run was already started or has expired. Start a new one from{" "}
+              <a href={pluginPageUrl("/batch-translation")}>Batch translation</a>.
+            </>
+          }
+        />
       </main>
     );
   }
@@ -115,8 +131,9 @@ export function BatchRunPage(): ReactNode {
 
   return (
     <main style={pageStyle}>
-      <h1 style={titleStyle}>PolyStella - Batch run</h1>
+      <PageTitle>PolyStella</PageTitle>
       <section style={sectionStyle}>
+        <SectionHeader title="Batch run" />
         <Banner
           variant={finished ? "secondary" : "alert"}
           title={finished ? "This run has finished" : "Keep this tab open"}
@@ -130,12 +147,12 @@ export function BatchRunPage(): ReactNode {
         <LayerCard style={cardStyle}>
           <div style={stackStyle}>
             <span>
-              <strong>{plan.collection}</strong> → {plan.targets.map(({ locale }) => locale).join(", ")}
+              <strong>{plan.collection}</strong> → {plan.targets.map(({ locale, code }) => localeLabel(locale, code)).join(", ")}
             </span>
             <span style={mutedStyle}>
               {items === null
                 ? "Loading source entries..."
-                : `${items.length} entries × ${plan.targets.length} locales = ${items.length * plan.targets.length} translations.`}{" "}
+                : `${plural(items.length, "entry", "entries")} × ${plural(plan.targets.length, "locale")} = ${plural(items.length * plan.targets.length, "translation")}.`}{" "}
               {action}
             </span>
             {started ? null : (

@@ -12,11 +12,12 @@ import {
 } from "../contracts.js";
 import { isCustomizationMode, resolveInstructions, runtimeOverrideSettingKey } from "../settings.js";
 import type { PolystellaEmdashOptions } from "./options.js";
-import { targetLocales } from "./options.js";
+import { codeDefaultThinking, isReasoningEffort, targetLocales } from "./options.js";
 import { MAX_TOKENS } from "./routes/provider.js";
 import {
   isAllowedCollectionSlug,
   isAllowedFieldSlug,
+  isAllowedSubFieldSlug,
   isRecord,
   isStringArray,
   readBoolean,
@@ -33,7 +34,10 @@ const MAX_COLLECTIONS = 100;
 export const MAX_GLOSSARY_CHARACTERS = 10_000;
 export const MAX_INSTRUCTION_CHARACTERS = 10_000;
 
-export async function collectionSettings(options: PolystellaEmdashOptions, settings: SettingsAccess): Promise<CollectionSettingsResponse> {
+export async function collectionSettings(
+  options: PolystellaEmdashOptions,
+  settings: SettingsAccess,
+): Promise<Omit<CollectionSettingsResponse, "localeTags">> {
   const stored = await settings.getVersioned<unknown>(COLLECTION_POLICIES_KEY);
   return {
     defaultLocale: options.catalogs.defaultLocale,
@@ -72,11 +76,28 @@ function parseCollectionPolicies(stored: unknown): Record<string, CollectionPoli
     Object.defineProperty(policies, collection, {
       configurable: true,
       enumerable: true,
-      value: { fields: [...new Set(value.fields)].sort() },
+      value: withSubFields([...new Set(value.fields)].sort(), storedSubFields(value.subFields)),
       writable: true,
     });
   }
   return policies;
+}
+
+function storedSubFields(value: unknown): Record<string, string[]> {
+  if (!isRecord(value)) return {};
+  return Object.fromEntries(
+    Object.entries(value).flatMap(([field, subFields]) =>
+      isAllowedFieldSlug(field) && isStringArray(subFields) && subFields.length > 0 && subFields.every(isAllowedSubFieldSlug)
+        ? [[field, [...new Set(subFields)].sort()]]
+        : [],
+    ),
+  );
+}
+
+/** Keeps only subfield lists for listed fields, and omits `subFields` when none remain. */
+function withSubFields(fields: string[], subFields: Record<string, string[]>): CollectionPolicy {
+  const kept = Object.entries(subFields).filter(([field]) => fields.includes(field));
+  return kept.length === 0 ? { fields } : { fields, subFields: Object.fromEntries(kept) };
 }
 
 export function readCollectionPolicies(value: unknown): Record<string, CollectionPolicy> {
@@ -101,10 +122,24 @@ export function readCollectionPolicies(value: unknown): Record<string, Collectio
     if (unsupportedField !== undefined) {
       throw PluginRouteError.badRequest(`field ${JSON.stringify(unsupportedField)} is not supported`);
     }
+    const subFields: Record<string, string[]> = {};
+    if (policy.subFields !== undefined) {
+      for (const [field, value] of Object.entries(readRecord(policy.subFields, `policies.${collection}.subFields`))) {
+        const label = `policies.${collection}.subFields.${field}`;
+        if (!fields.includes(field)) throw PluginRouteError.badRequest(`${label} needs ${JSON.stringify(field)} in fields`);
+        const slugs = [...new Set(readStringArray(value, label, false))].sort();
+        if (slugs.length > MAX_COLLECTION_POLICY_FIELDS) {
+          throw PluginRouteError.badRequest(`${label} cannot contain more than ${MAX_COLLECTION_POLICY_FIELDS} values`);
+        }
+        const unsupported = slugs.find((slug) => !isAllowedSubFieldSlug(slug));
+        if (unsupported !== undefined) throw PluginRouteError.badRequest(`subfield ${JSON.stringify(unsupported)} is not supported`);
+        Object.defineProperty(subFields, field, { configurable: true, enumerable: true, value: slugs, writable: true });
+      }
+    }
     Object.defineProperty(policies, collection, {
       configurable: true,
       enumerable: true,
-      value: { fields },
+      value: withSubFields(fields, subFields),
       writable: true,
     });
   }
@@ -114,7 +149,7 @@ export function readCollectionPolicies(value: unknown): Record<string, Collectio
 export async function translationSettingsView(
   options: PolystellaEmdashOptions,
   settings: SettingsAccess,
-): Promise<TranslationSettingsResponse> {
+): Promise<Omit<TranslationSettingsResponse, "localeTags">> {
   const versioned = await settings.getVersioned<unknown>(TRANSLATION_SETTINGS_KEY);
   const stored = parseTranslationSettings(options, versioned?.value);
   const locales = targetLocales(options).map((locale) => {
@@ -125,6 +160,8 @@ export async function translationSettingsView(
       locale,
       defaultModel: resolveModelId(options.models.defaults, locale),
       model: settings.model,
+      reasoning: settings.reasoning,
+      defaultReasoning: codeDefaultThinking(options, locale),
       defaultGlossary: defaultGlossary === undefined ? "" : JSON.stringify(defaultGlossary, null, 2),
       glossaryMode: settings.glossaryMode,
       glossaryText: settings.glossaryText,
@@ -152,6 +189,8 @@ export async function saveTranslationSettings(
   options: PolystellaEmdashOptions,
   settings: SettingsAccess,
   input: Record<string, unknown>,
+  /** Throws when `model` doesn't accept `effort`. */
+  validateReasoning: (model: string, effort: string, label: string) => Promise<void>,
 ): Promise<void> {
   const expectedRevision = readRevision(input.revision);
   const debugEnabled = input.debugEnabled === undefined ? false : readBoolean(input.debugEnabled, "debugEnabled");
@@ -181,8 +220,21 @@ export async function saveTranslationSettings(
     const glossaryMode = readCustomizationMode(localeSettings.glossaryMode, `locales.${locale}.glossaryMode`);
     // Only the typed text is capped: code-defined defaults are trusted, and prompts carry only the terms a batch uses.
     const glossaryText = readText(localeSettings.glossaryText, `locales.${locale}.glossaryText`, MAX_GLOSSARY_CHARACTERS);
-    return { locale, model, glossaryMode, glossaryText };
+    const rawReasoning = localeSettings.reasoning;
+    const reasoning =
+      model === null || rawReasoning === undefined || rawReasoning === null
+        ? null
+        : readString(rawReasoning, `locales.${locale}.reasoning`);
+    if (reasoning !== null && !isReasoningEffort(reasoning)) throw PluginRouteError.badRequest(`locales.${locale}.reasoning is invalid`);
+    return { locale, model, reasoning, glossaryMode, glossaryText };
   });
+
+  // Only new choices are checked, so a catalog outage or a retired effort doesn't block unrelated edits.
+  const previous = (await storedTranslationSettings(options, settings)).locales;
+  for (const { locale, model, reasoning } of values) {
+    const unchanged = previous[locale]?.model === model && previous[locale]?.reasoning === reasoning;
+    if (model !== null && reasoning !== null && !unchanged) await validateReasoning(model, reasoning, `locales.${locale}.reasoning`);
+  }
 
   const instructionInput = readRecord(input.instructions, "instructions");
   const instructionMode = readCustomizationMode(instructionInput.mode, "instructions.mode");
@@ -219,6 +271,8 @@ async function compareAndSetSetting(settings: SettingsAccess, key: string, expec
 
 export interface StoredLocaleSettings {
   model: string | null;
+  /** Thinking effort for the overridden `model`; `null` uses the model's default. Always `null` without a model override. */
+  reasoning: string | null;
   glossaryMode: CustomizationMode;
   glossaryText: string;
 }
@@ -249,12 +303,17 @@ function parseTranslationSettings(options: PolystellaEmdashOptions, stored: unkn
     targetLocales(options).map((locale) => {
       const localeSettings = isRecord(storedLocales[locale]) ? storedLocales[locale] : {};
       const storedModel = localeSettings.model;
+      const storedReasoning = localeSettings.reasoning;
       const storedMode = localeSettings.glossaryMode;
       const storedText = localeSettings.glossaryText;
       return [
         locale,
         {
           model: typeof storedModel === "string" && options.models.allowed.includes(storedModel) ? storedModel : null,
+          reasoning:
+            typeof storedModel === "string" && options.models.allowed.includes(storedModel) && typeof storedReasoning === "string"
+              ? storedReasoning
+              : null,
           glossaryMode: isCustomizationMode(storedMode) ? storedMode : "default",
           glossaryText: typeof storedText === "string" ? storedText : "",
         },

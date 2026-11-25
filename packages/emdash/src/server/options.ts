@@ -1,4 +1,4 @@
-import type { Glossary, ModelChoice, ModelChoiceSpec } from "@cloudflare/polystella-core";
+import { resolveModelId, type Glossary, type ModelChoice, type ModelChoiceSpec } from "@cloudflare/polystella-core";
 import {
   checkLocaleTags,
   compileIgnoreKeys,
@@ -10,7 +10,7 @@ import {
   type LocaleTags,
   type MessageSyntax,
 } from "@cloudflare/polystella-core/catalog";
-import { workersAIParamsProblem } from "@cloudflare/polystella-core/providers/workers-ai";
+import { workersAIParamsForLocale, workersAIParamsProblem } from "@cloudflare/polystella-core/providers/workers-ai";
 
 import { USE_CODE_DEFAULT_MODEL } from "../contracts.js";
 
@@ -66,6 +66,8 @@ export interface PolystellaEmdashOptions {
     defaults: ModelChoiceSpec;
     /** Extra Workers AI input per allowed model, such as `{ enable_thinking: false }`. */
     params?: Readonly<Record<string, Readonly<Record<string, unknown>>>> | undefined;
+    /** Model id → admin thinking choice → the exact input to send. Overrides the Workers AI catalog for that model. */
+    reasoningInput?: Readonly<Record<string, Readonly<Record<string, Readonly<Record<string, unknown>>>>>> | undefined;
   };
   glossaryDefaults?: Readonly<Record<string, Glossary>> | undefined;
   /** Let any letters follow a glossary term when deciding whether a batch uses it, so `Worker` matches "Workers". Default false. */
@@ -83,6 +85,8 @@ export interface PolystellaEmdashOptions {
   /** Cloudflare Queue producer binding for server-side batch translation. The Worker must also export the queue consumer. */
   batchQueueBinding?: string | undefined;
 }
+
+export const REASONING_EFFORT_PATTERN = /^[a-z][a-z_]*$/;
 
 export interface SerializedPolystellaEmdashOptions {
   serialized: string;
@@ -159,6 +163,24 @@ export function validatePolystellaEmdashOptions(value: unknown): asserts value i
     const params = modelParams[model] as Readonly<Record<string, unknown>> | undefined;
     const problem = workersAIParamsProblem({ ...params, enable_thinking: choice.enable_thinking });
     if (problem !== undefined) fail(`options.models.defaults.${locale} ${problem}`);
+  }
+  if (models.reasoningInput !== undefined) {
+    for (const [model, rawEfforts] of Object.entries(readRecord(models.reasoningInput, "options.models.reasoningInput"))) {
+      if (!allowedModels.includes(model)) fail(`options.models.reasoningInput.${model} must exist in options.models.allowed`);
+      const efforts = readRecord(rawEfforts, `options.models.reasoningInput.${model}`);
+      for (const [effort, input] of Object.entries(efforts)) {
+        const label = `options.models.reasoningInput.${model}.${effort}`;
+        readReasoningEffort(effort, `${label} key`);
+        const fields = readRecord(input, label);
+        const problem = workersAIParamsProblem(fields);
+        if (problem !== undefined) fail(`${label} ${problem}`);
+        try {
+          JSON.stringify(fields);
+        } catch {
+          fail(`${label} must be JSON-serializable`);
+        }
+      }
+    }
   }
 
   if (options.glossaryDefaults !== undefined) {
@@ -239,6 +261,7 @@ export function serializeOptions(options: PolystellaEmdashOptions): SerializedPo
       allowed: [...options.models.allowed],
       defaults: structuredClone(options.models.defaults),
       ...(options.models.params === undefined ? {} : { params: structuredClone(options.models.params) }),
+      ...(options.models.reasoningInput === undefined ? {} : { reasoningInput: structuredClone(options.models.reasoningInput) }),
     },
     ...(options.glossaryDefaults === undefined
       ? {}
@@ -414,6 +437,30 @@ function readModelSpec(value: unknown, label: string): ModelChoiceSpec {
     }
   }
   return models as { default: ModelChoice } & Record<string, ModelChoice>;
+}
+
+function readReasoningEffort(value: unknown, label: string): string {
+  const effort = readString(value, label);
+  if (!isReasoningEffort(effort)) fail(`${label} must be a lowercase effort name such as "none" or "high"`);
+  return effort;
+}
+
+/** The thinking the code sets for a locale's default model, for display; `null` when the code leaves it to the model. */
+export function codeDefaultThinking(options: PolystellaEmdashOptions, locale: string): string | null {
+  const model = resolveModelId(options.models.defaults, locale);
+  const params = workersAIParamsForLocale(options.models.params?.[model], options.models.defaults, locale, model);
+  if (typeof params?.reasoning_effort === "string") return params.reasoning_effort;
+  const kwargs = params?.chat_template_kwargs;
+  const enabled = params?.enable_thinking ?? (isPlainRecord(kwargs) ? kwargs.enable_thinking : undefined);
+  return enabled === false ? "none" : enabled === true ? "on" : null;
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+export function isReasoningEffort(value: string): boolean {
+  return value.length <= 32 && REASONING_EFFORT_PATTERN.test(value);
 }
 
 function modelSpecEntries(models: ModelChoiceSpec): Array<[string, ModelChoice]> {
