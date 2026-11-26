@@ -35,7 +35,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { CollapsibleCard } from "../src/admin/components/CollapsibleCard/CollapsibleCard.js";
 import { InfoLabel } from "../src/admin/components/PageHeader/PageHeader.js";
 import { saveTranslationSettings } from "../src/admin/plugin-page/tabs/TranslationSettingsTab/TranslationSettingsTab.js";
-import type { TranslationSettingsResponse } from "../src/contracts.js";
+import type { BatchJobView, TranslationSettingsResponse } from "../src/contracts.js";
+import { BatchJobs } from "../src/admin/plugin-page/tabs/BatchTab/BatchJobs.js";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -201,6 +202,73 @@ describe("EmDash admin entry", () => {
     expect(html).toContain("<button");
   });
 
+  describe("BatchJobs", () => {
+    const createdAt = "2026-03-04T15:30:00.000Z";
+    const startedAt = new Date(createdAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+    const job = (overrides: Partial<BatchJobView> = {}): BatchJobView => ({
+      id: "job-1",
+      collection: "posts",
+      locales: ["fr", "de"],
+      total: 4,
+      status: "finished",
+      createdAt,
+      publish: false,
+      updateExisting: false,
+      listing: false,
+      truncated: false,
+      entryCount: 2,
+      counts: { created: 2, updated: 1, skipped: 1, failed: 0 },
+      failures: [],
+      ...overrides,
+    });
+    const render = (view: BatchJobView) =>
+      renderToStaticMarkup(
+        createElement(BatchJobs, { jobs: [view], collectionLabels: { posts: "Blog posts" }, urlContexts: {}, onChange: () => {} }),
+      );
+
+    it("titles a job with its collection label and formatted start time", () => {
+      expect(render(job())).toContain(`Blog posts · ${startedAt}`);
+      expect(
+        renderToStaticMarkup(createElement(BatchJobs, { jobs: [job()], collectionLabels: {}, urlContexts: {}, onChange: () => {} })),
+      ).toContain(`posts · ${startedAt}`);
+    });
+
+    it("shows the status badge for each job state", () => {
+      const counts = { created: 0, updated: 0, skipped: 0, failed: 0 };
+      expect(render(job({ status: "running", total: 4, counts }))).toContain("Running");
+      expect(render(job())).toContain("Finished<");
+      expect(render(job({ counts: { created: 1, updated: 0, skipped: 0, failed: 3 } }))).toContain("Finished, 3 failed");
+      expect(render(job({ status: "cancelled" }))).toContain("Cancelled");
+    });
+
+    it("collapses more than 3 locales into a count", () => {
+      const html = render(job({ locales: ["fr", "de", "es", "it", "pt"] }));
+      expect(html).toContain("5 locales");
+      // The names stay out of the visible text, but screen readers get them in the label.
+      expect(html.replace(/aria-label="[^"]*"/g, "")).not.toContain(localeLabel("pt"));
+      expect(html).toContain(`aria-label="5 locales: `);
+      expect(render(job({ locales: ["fr", "de", "es"] }))).not.toContain("3 locales");
+    });
+
+    it("starts a running job expanded with tabs and a finished job collapsed", () => {
+      const running = render(job({ status: "running" }));
+      expect(running).toContain('aria-expanded="true"');
+      expect(running).toContain('role="tablist"');
+      expect(running).toContain("Entries (2)");
+      expect(running).toContain("Results (4)");
+
+      const finished = render(job());
+      expect(finished).toContain('aria-expanded="false"');
+      expect(finished).not.toContain('role="tablist"');
+    });
+
+    it("summarises outcome counts in the bar's aria-label", () => {
+      expect(render(job())).toContain('aria-label="4 of 4 done: 2 created, 1 updated, 1 skipped, 0 failed"');
+    });
+
+    // Entry links need effects and a router, which static rendering lacks; not covered here.
+  });
+
   it("saves only the editable translation settings fields", async () => {
     const settings: TranslationSettingsResponse = {
       defaultLocale: "en",
@@ -211,6 +279,9 @@ describe("EmDash admin entry", () => {
       defaultMaxTokens: 8192,
       clearAiFlagOnEdit: true,
       translateSeoWhenPublished: false,
+      model: "m1",
+      reasoning: "high",
+      defaultModel: "m0",
       allowedModels: ["m1"],
       locales: [
         {
@@ -240,6 +311,8 @@ describe("EmDash admin entry", () => {
       maxTokens: 4096,
       clearAiFlagOnEdit: true,
       translateSeoWhenPublished: false,
+      model: "m1",
+      reasoning: "high",
       locales: { fr: { model: "m1", reasoning: "low", glossaryMode: "append", glossaryText: "mine" } },
       instructions: { mode: "replace", text: "custom" },
     });

@@ -3,9 +3,13 @@ import {
   MAX_BATCH_MESSAGE_CHARACTERS,
   readBatchListMessage,
   readBatchMessage,
+  readTranslationLink,
   type BatchCreatePayload,
   type BatchMessage,
+  type BatchUpdatePayload,
 } from "./server/batch.js";
+
+const UPDATE_RECORD_ATTEMPTS = 3;
 
 /** The parts of a Cloudflare Queues `Message` the consumer uses. */
 export interface PolystellaQueueMessage {
@@ -35,6 +39,18 @@ export interface PolystellaBatchRuntime {
     collection: string,
     id: string,
   ): Promise<{ success: true } | { success: false; error?: { code: string; message: string } | undefined }>;
+  handleContentGet(
+    collection: string,
+    id: string,
+    locale?: string,
+  ): Promise<
+    { success: true; data?: { _rev?: string | undefined } } | { success: false; error?: { code: string; message: string } | undefined }
+  >;
+  handleContentUpdate(
+    collection: string,
+    id: string,
+    body: { data: Record<string, unknown>; _rev: string; locale: string },
+  ): Promise<{ success: true } | { success: false; error: { code: string; message: string } }>;
 }
 
 /**
@@ -72,7 +88,24 @@ async function processMessage(runtime: PolystellaBatchRuntime, body: unknown): P
     console.error("[polystella-emdash] dropping a malformed batch message");
     return;
   }
-  const response = await callRoute(runtime, "batch/translate", message);
+  let response = await callRoute(runtime, "batch/translate", message);
+  const target = readRevisionTarget(response);
+  if (target !== null) {
+    // Read before translating, so an edit made while the model works makes the save fail instead of being overwritten.
+    const current = await runtime.handleContentGet(target.collection, target.id, target.locale);
+    const rev = current.success ? current.data?._rev : undefined;
+    if (rev === undefined) {
+      const reason = current.success ? "EmDash returned no revision token" : (current.error?.message ?? "unknown error");
+      await record(runtime, message, "failed", `Could not read the existing translation: ${reason}`.slice(0, MAX_BATCH_MESSAGE_CHARACTERS));
+      return;
+    }
+    response = await callRoute(runtime, "batch/translate", { ...message, rev });
+  }
+  const update = readUpdatePayload(response);
+  if (update !== null) {
+    await saveUpdate(runtime, message, update, response);
+    return;
+  }
   const create = readCreatePayload(response);
   if (create === null) return;
 
@@ -81,7 +114,7 @@ async function processMessage(runtime: PolystellaBatchRuntime, body: unknown): P
   if (created.success) {
     const entryId = created.data?.item.id;
     if (entryId !== undefined) await recordAiTranslation(runtime, collection, entryId);
-    const publish = isRecord(response) && response.publish === true ? await publishCreated(runtime, collection, entryId) : null;
+    const publish = isRecord(response) && response.publish === true ? await publishSaved(runtime, collection, entryId) : null;
     const translation =
       entryId === undefined ? null : { id: entryId, locale: draft.locale, slug: draft.slug, published: publish?.published === true };
     const notice = isRecord(response) && typeof response.notice === "string" ? response.notice : null;
@@ -91,6 +124,42 @@ async function processMessage(runtime: PolystellaBatchRuntime, body: unknown): P
     // CONFLICT means the locale was created after the route checked, by an editor or a duplicate delivery.
     const outcome = created.error.code === "CONFLICT" ? "skipped" : "failed";
     await record(runtime, message, outcome, created.error.message.slice(0, MAX_BATCH_MESSAGE_CHARACTERS));
+  }
+}
+
+async function saveUpdate(
+  runtime: PolystellaBatchRuntime,
+  message: BatchMessage,
+  update: BatchUpdatePayload,
+  response: unknown,
+): Promise<void> {
+  const { collection, id, locale, data, _rev, translation } = update;
+  const saved = await runtime.handleContentUpdate(collection, id, { data, _rev, locale });
+  if (!saved.success) {
+    // CONFLICT means an editor saved the translation while it was being translated; their edit is kept.
+    const conflict = saved.error.code === "CONFLICT";
+    const detail = conflict ? "The translation changed while PolyStella translated it, so it was left as it was." : saved.error.message;
+    await record(runtime, message, conflict ? "skipped" : "failed", detail.slice(0, MAX_BATCH_MESSAGE_CHARACTERS), translation);
+    return;
+  }
+  await recordAiTranslation(runtime, collection, id);
+  const publish = isRecord(response) && response.publish === true ? await publishSaved(runtime, collection, id) : null;
+  const notice = isRecord(response) && typeof response.notice === "string" ? response.notice : null;
+  const detail = [notice, publish?.message ?? null].filter((part) => part !== null).join(" ");
+  const row = { ...translation, published: translation.published || publish?.published === true };
+  // Retrying the message would read a fresh `_rev` and overwrite edits made after this save, so only the record is retried.
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      await record(runtime, message, "updated", detail === "" ? null : detail.slice(0, MAX_BATCH_MESSAGE_CHARACTERS), row);
+      return;
+    } catch (error) {
+      if (attempt >= UPDATE_RECORD_ATTEMPTS) {
+        console.error(
+          `[polystella-emdash] saved ${id} but could not record it; the job will not finish on its own: ${error instanceof Error ? error.message : "unknown error"}`,
+        );
+        return;
+      }
+    }
   }
 }
 
@@ -105,8 +174,8 @@ async function recordAiTranslation(runtime: PolystellaBatchRuntime, collection: 
   }
 }
 
-/** A failed publish leaves the draft in place, so it is noted on the created row rather than retried. */
-async function publishCreated(
+/** A failed publish leaves the draft in place, so it is noted on the row rather than retried. */
+async function publishSaved(
   runtime: PolystellaBatchRuntime,
   collection: string,
   id: string | undefined,
@@ -142,6 +211,33 @@ async function callRoute(runtime: PolystellaBatchRuntime, path: string, body: un
   const result = await runtime.handlePluginApiRoute(POLYSTELLA_PLUGIN_ID, "POST", path, request);
   if (!result.success) throw new Error(`${path} failed: ${result.error?.code ?? "UNKNOWN"} ${result.error?.message ?? ""}`.trim());
   return result.data;
+}
+
+function readRevisionTarget(value: unknown): { collection: string; id: string; locale: string } | null {
+  if (!isRecord(value) || value.readRevision === undefined) return null;
+  const target = value.readRevision;
+  if (!isRecord(target) || typeof target.collection !== "string" || typeof target.id !== "string" || typeof target.locale !== "string") {
+    throw new Error("batch/translate returned an invalid revision request");
+  }
+  return { collection: target.collection, id: target.id, locale: target.locale };
+}
+
+function readUpdatePayload(value: unknown): BatchUpdatePayload | null {
+  if (!isRecord(value) || value.update === undefined) return null;
+  const update = value.update;
+  const translation = isRecord(update) ? readTranslationLink(update.translation) : null;
+  if (
+    !isRecord(update) ||
+    translation === null ||
+    typeof update.collection !== "string" ||
+    typeof update.id !== "string" ||
+    typeof update.locale !== "string" ||
+    !isRecord(update.data) ||
+    typeof update._rev !== "string"
+  ) {
+    throw new Error("batch/translate returned an invalid update");
+  }
+  return { collection: update.collection, id: update.id, locale: update.locale, data: update.data, _rev: update._rev, translation };
 }
 
 function readCreatePayload(value: unknown): BatchCreatePayload | null {

@@ -62,8 +62,11 @@ export interface PolystellaEmdashOptions {
   catalog?: EmDashCatalogOptions | undefined;
   models: {
     allowed: readonly string[];
-    /** Locale entries may be `{ model, enable_thinking }`, applied while the locale uses that model. */
-    defaults: ModelChoiceSpec;
+    /**
+     * Fallback until an administrator picks a default model in Translation settings; without it, the first allowed model.
+     * Locale entries may be `{ model, enable_thinking }`, applied while the locale uses that model.
+     */
+    defaults?: ModelChoiceSpec | undefined;
     /** Extra Workers AI input per allowed model, such as `{ enable_thinking: false }`. */
     params?: Readonly<Record<string, Readonly<Record<string, unknown>>>> | undefined;
     /** Model id → admin thinking choice → the exact input to send. Overrides the Workers AI catalog for that model. */
@@ -145,7 +148,7 @@ export function validatePolystellaEmdashOptions(value: unknown): asserts value i
   if (allowedModels.includes(USE_CODE_DEFAULT_MODEL)) {
     fail(`options.models.allowed cannot contain reserved value ${JSON.stringify(USE_CODE_DEFAULT_MODEL)}`);
   }
-  const defaultModels = readModelSpec(models.defaults, "options.models.defaults");
+  const defaultModels = models.defaults === undefined ? undefined : readModelSpec(models.defaults, "options.models.defaults");
   const configuredLocales = new Set(Object.keys(locales));
   const modelParams = models.params === undefined ? {} : readRecord(models.params, "options.models.params");
   for (const [model, params] of Object.entries(modelParams)) {
@@ -153,7 +156,7 @@ export function validatePolystellaEmdashOptions(value: unknown): asserts value i
     const problem = workersAIParamsProblem(readRecord(params, `options.models.params.${model}`));
     if (problem !== undefined) fail(`options.models.params.${model} ${problem}`);
   }
-  for (const [locale, choice] of modelSpecEntries(defaultModels)) {
+  for (const [locale, choice] of defaultModels === undefined ? [] : modelSpecEntries(defaultModels)) {
     if (locale !== "default" && !configuredLocales.has(locale)) {
       fail(`options.models.defaults.${locale} must match a configured catalog locale`);
     }
@@ -259,7 +262,7 @@ export function serializeOptions(options: PolystellaEmdashOptions): SerializedPo
     },
     models: {
       allowed: [...options.models.allowed],
-      defaults: structuredClone(options.models.defaults),
+      ...(options.models.defaults === undefined ? {} : { defaults: structuredClone(options.models.defaults) }),
       ...(options.models.params === undefined ? {} : { params: structuredClone(options.models.params) }),
       ...(options.models.reasoningInput === undefined ? {} : { reasoningInput: structuredClone(options.models.reasoningInput) }),
     },
@@ -445,10 +448,27 @@ function readReasoningEffort(value: unknown, label: string): string {
   return effort;
 }
 
-/** The thinking the code sets for a locale's default model, for display; `null` when the code leaves it to the model. */
+/** The model a locale uses when no administrator picked one: `models.defaults`, else the first allowed model. */
+export function codeFallbackModel(options: PolystellaEmdashOptions, locale: string): string {
+  const { defaults, allowed } = options.models;
+  // `allowed` is validated non-empty.
+  return defaults === undefined ? (allowed[0] ?? "") : resolveModelId(defaults, locale);
+}
+
+/** `models.params` for `model`, with the `enable_thinking` a `models.defaults` locale entry sets while it uses that model. */
+export function codeModelParams(
+  options: PolystellaEmdashOptions,
+  model: string,
+  locale: string,
+): Readonly<Record<string, unknown>> | undefined {
+  const params = options.models.params?.[model];
+  return options.models.defaults === undefined ? params : workersAIParamsForLocale(params, options.models.defaults, locale, model);
+}
+
+/** The thinking the code sets for a locale's fallback model, for display; `null` when the code leaves it to the model. */
 export function codeDefaultThinking(options: PolystellaEmdashOptions, locale: string): string | null {
-  const model = resolveModelId(options.models.defaults, locale);
-  const params = workersAIParamsForLocale(options.models.params?.[model], options.models.defaults, locale, model);
+  const model = codeFallbackModel(options, locale);
+  const params = codeModelParams(options, model, locale);
   if (typeof params?.reasoning_effort === "string") return params.reasoning_effort;
   const kwargs = params?.chat_template_kwargs;
   const enabled = params?.enable_thinking ?? (isPlainRecord(kwargs) ? kwargs.enable_thinking : undefined);

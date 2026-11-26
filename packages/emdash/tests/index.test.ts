@@ -7,7 +7,8 @@ import {
   type EmDashCatalogLocale,
   type PolystellaEmdashOptions,
 } from "../src/index.js";
-import { codeDefaultThinking, deserializeOptions } from "../src/server/options.js";
+import { codeDefaultThinking, codeFallbackModel, deserializeOptions } from "../src/server/options.js";
+import { effectiveModelChoice, type StoredTranslationSettings } from "../src/server/settings-storage.js";
 
 function validOptions(): PolystellaEmdashOptions {
   return {
@@ -259,6 +260,48 @@ describe("polystellaEmdash", () => {
       const perLocale = options({ defaults: { default: "model-a", "ja-JP": { model: "model-a", enable_thinking: false } } });
       expect(codeDefaultThinking(perLocale, "ja-JP")).toBe("none");
       expect(codeDefaultThinking(perLocale, "fr-FR")).toBeNull();
+    });
+  });
+
+  it("makes models.defaults optional: the first allowed model is the code fallback", () => {
+    const withoutDefaults: PolystellaEmdashOptions = { ...validOptions(), models: { allowed: ["model-b", "model-a"] } };
+    expect(() => validatePolystellaEmdashOptions(withoutDefaults)).not.toThrow();
+    const runtimeOptions = polystellaEmdash(withoutDefaults).options;
+    if (runtimeOptions === undefined) throw new Error("descriptor options are missing");
+    const restored = deserializeOptions(runtimeOptions);
+    expect(restored.models).not.toHaveProperty("defaults");
+    expect(codeFallbackModel(restored, "ja-JP")).toBe("model-b");
+    expect(
+      codeDefaultThinking({ ...restored, models: { ...restored.models, params: { "model-b": { reasoning_effort: "low" } } } }, "ja-JP"),
+    ).toBe("low");
+    expect(codeFallbackModel(validOptions(), "ja-JP")).toBe("model-b");
+    expect(codeFallbackModel(validOptions(), "fr-FR")).toBe("model-a");
+  });
+
+  describe("effectiveModelChoice", () => {
+    const stored = (
+      global: { model: string | null; reasoning: string | null },
+      locale: { model: string | null; reasoning: string | null },
+    ) =>
+      ({
+        ...global,
+        locales: { "ja-JP": { ...locale, glossaryMode: "default", glossaryText: "" } },
+      }) as unknown as StoredTranslationSettings;
+    const none = { model: null, reasoning: null };
+
+    it("prefers the locale's model and effort, then the global ones, then the code fallback", () => {
+      const configured = validOptions();
+      expect(
+        effectiveModelChoice(configured, stored({ model: "model-a", reasoning: "high" }, { model: "model-b", reasoning: "low" }), "ja-JP"),
+      ).toEqual({
+        model: "model-b",
+        reasoning: "low",
+      });
+      expect(effectiveModelChoice(configured, stored({ model: "model-a", reasoning: "high" }, none), "ja-JP")).toEqual({
+        model: "model-a",
+        reasoning: "high",
+      });
+      expect(effectiveModelChoice(configured, stored(none, none), "ja-JP")).toEqual({ model: "model-b", reasoning: null });
     });
   });
 

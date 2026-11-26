@@ -4,8 +4,9 @@ import type { BatchJobOutcome, BatchTranslationLink } from "../contracts.js";
 
 // Cloudflare Queues accept at most 100 messages per sendBatch call.
 const QUEUE_SEND_LIMIT = 100;
-const OUTCOMES = new Set<string>(["created", "skipped", "failed"]);
+const OUTCOMES = new Set<string>(["created", "updated", "skipped", "failed"]);
 export const MAX_BATCH_MESSAGE_CHARACTERS = 1000;
+const MAX_REV_LENGTH = 256;
 
 export interface StoredBatchJob {
   collection: string;
@@ -13,8 +14,10 @@ export interface StoredBatchJob {
   locales: string[];
   total: number;
   status: "running" | "cancelled";
-  /** Publish each created translation instead of leaving it as a draft. */
+  /** Publish each created or updated translation instead of leaving it as a draft. */
   publish: boolean;
+  /** Retranslate the enabled fields of translations that already exist, instead of skipping them. */
+  updateExisting: boolean;
   createdAt: string;
   createdBy: string | null;
   /** The next page of source entries for a whole-collection job; `null` once every entry is queued. */
@@ -55,6 +58,8 @@ export interface BatchMessage {
   locale: string;
   /** Which part of a long entry this message translates; 0 when absent. */
   part?: number;
+  /** The existing translation's `_rev`, read by the consumer before part 0 of an update; later parts keep it in the parts row. */
+  rev?: string;
 }
 
 /** Translations of the parts done so far, kept in the results collection until the entry is created. */
@@ -66,6 +71,8 @@ export interface StoredBatchParts {
   part: number;
   fingerprint: string;
   translations: Record<string, string>;
+  /** The `_rev` the update must still match; absent when creating. */
+  rev?: string;
 }
 
 /** What the queue consumer passes to `runtime.handleContentCreate`. */
@@ -78,8 +85,21 @@ export interface BatchCreatePayload {
   authorId?: string;
 }
 
+/** What the queue consumer passes to `runtime.handleContentUpdate`; `_rev` was read before translating. */
+export interface BatchUpdatePayload {
+  collection: string;
+  id: string;
+  locale: string;
+  data: Record<string, unknown>;
+  _rev: string;
+  translation: BatchTranslationLink;
+}
+
 export interface BatchTranslateResponse {
   create: BatchCreatePayload | null;
+  update?: BatchUpdatePayload;
+  /** The consumer reads this entry's `_rev` and sends the message again with it. */
+  readRevision?: { collection: string; id: string; locale: string };
   publish?: boolean;
   /** Recorded with the created row, for an editor to check by hand. */
   notice?: string;
@@ -123,7 +143,7 @@ export function batchPartsId(message: BatchMessage): string {
 
 export function parseStoredParts(value: unknown): StoredBatchParts | null {
   if (!isRecord(value)) return null;
-  const { jobId, entryId, locale, part, fingerprint, translations } = value;
+  const { jobId, entryId, locale, part, fingerprint, translations, rev } = value;
   if (
     !isNonEmptyString(jobId) ||
     !isNonEmptyString(entryId) ||
@@ -132,11 +152,20 @@ export function parseStoredParts(value: unknown): StoredBatchParts | null {
     !Number.isSafeInteger(part) ||
     typeof fingerprint !== "string" ||
     !isRecord(translations) ||
-    !Object.values(translations).every((text) => typeof text === "string")
+    !Object.values(translations).every((text) => typeof text === "string") ||
+    (rev !== undefined && typeof rev !== "string")
   ) {
     return null;
   }
-  return { jobId, entryId, locale, part, fingerprint, translations: translations as Record<string, string> };
+  return {
+    jobId,
+    entryId,
+    locale,
+    part,
+    fingerprint,
+    translations: translations as Record<string, string>,
+    ...(rev === undefined ? {} : { rev }),
+  };
 }
 
 export function readBatchListMessage(value: unknown): BatchListMessage | null {
@@ -156,15 +185,16 @@ function readListing(value: unknown): BatchListing | null {
 
 export function readBatchMessage(value: unknown): BatchMessage | null {
   if (!isRecord(value)) return null;
-  const { jobId, entryId, locale, part } = value;
+  const { jobId, entryId, locale, part, rev } = value;
   if (!isNonEmptyString(jobId) || !isNonEmptyString(entryId) || !isNonEmptyString(locale)) return null;
-  if (part === undefined) return { jobId, entryId, locale };
-  return typeof part === "number" && Number.isSafeInteger(part) && part >= 0 ? { jobId, entryId, locale, part } : null;
+  if (part !== undefined && (typeof part !== "number" || !Number.isSafeInteger(part) || part < 0)) return null;
+  if (rev !== undefined && (!isNonEmptyString(rev) || rev.length > MAX_REV_LENGTH)) return null;
+  return { jobId, entryId, locale, ...(part === undefined ? {} : { part }), ...(rev === undefined ? {} : { rev }) };
 }
 
 export function parseStoredJob(value: unknown): StoredBatchJob | null {
   if (!isRecord(value)) return null;
-  const { collection, locales, total, status, publish, createdAt, createdBy, listing, truncated, entryIds } = value;
+  const { collection, locales, total, status, publish, updateExisting, createdAt, createdBy, listing, truncated, entryIds } = value;
   if (
     !isNonEmptyString(collection) ||
     !Array.isArray(locales) ||
@@ -183,6 +213,7 @@ export function parseStoredJob(value: unknown): StoredBatchJob | null {
     total,
     status,
     publish: publish === true,
+    updateExisting: updateExisting === true,
     createdAt,
     createdBy,
     listing: readListing(listing),

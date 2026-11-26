@@ -138,7 +138,7 @@ function isBatchRunPlan(value: unknown): value is BatchRunPlan {
 }
 
 export function batchJobDone(job: BatchJobView): number {
-  return job.counts.created + job.counts.skipped + job.counts.failed;
+  return job.counts.created + job.counts.updated + job.counts.skipped + job.counts.failed;
 }
 
 export function batchJobFinished(job: BatchJobView): boolean {

@@ -1,4 +1,3 @@
-import { resolveModelId } from "@cloudflare/polystella-core";
 import { PluginRouteError, type SettingsAccess } from "emdash";
 
 import {
@@ -12,7 +11,7 @@ import {
 } from "../contracts.js";
 import { isCustomizationMode, resolveInstructions, runtimeOverrideSettingKey } from "../settings.js";
 import type { PolystellaEmdashOptions } from "./options.js";
-import { codeDefaultThinking, isReasoningEffort, targetLocales } from "./options.js";
+import { codeDefaultThinking, codeFallbackModel, isReasoningEffort, targetLocales } from "./options.js";
 import { MAX_TOKENS } from "./routes/provider.js";
 import {
   isAllowedCollectionSlug,
@@ -158,7 +157,7 @@ export async function translationSettingsView(
     const defaultGlossary = options.glossaryDefaults?.[locale];
     return {
       locale,
-      defaultModel: resolveModelId(options.models.defaults, locale),
+      defaultModel: codeFallbackModel(options, locale),
       model: settings.model,
       reasoning: settings.reasoning,
       defaultReasoning: codeDefaultThinking(options, locale),
@@ -175,6 +174,9 @@ export async function translationSettingsView(
     defaultMaxTokens: defaultMaxTokens(options),
     clearAiFlagOnEdit: stored.clearAiFlagOnEdit,
     translateSeoWhenPublished: stored.translateSeoWhenPublished,
+    model: stored.model,
+    reasoning: stored.reasoning,
+    defaultModel: codeFallbackModel(options, "default"),
     allowedModels: [...options.models.allowed],
     locales,
     instructions: {
@@ -201,6 +203,7 @@ export async function saveTranslationSettings(
   if (maxTokens !== null && !isMaxTokens(maxTokens)) {
     throw PluginRouteError.badRequest(`maxTokens must be null or an integer from ${MIN_MAX_TOKENS} to ${MAX_MAX_TOKENS}`);
   }
+  const globalModel = readModelChoice(options, input.model, input.reasoning, "");
   const localeInput = readRecord(input.locales, "locales");
   const configuredLocales = targetLocales(options);
   if (
@@ -212,28 +215,23 @@ export async function saveTranslationSettings(
 
   const values = configuredLocales.map((locale) => {
     const localeSettings = readRecord(localeInput[locale], `locales.${locale}`);
-    const rawModel = localeSettings.model;
-    const model = rawModel === null ? null : readString(rawModel, `locales.${locale}.model`);
-    if (model !== null && !options.models.allowed.includes(model)) {
-      throw PluginRouteError.badRequest(`locales.${locale}.model must be allowed by deployment configuration`);
-    }
+    if (localeSettings.model === undefined) throw PluginRouteError.badRequest(`locales.${locale}.model must be a string or null`);
+    const { model, reasoning } = readModelChoice(options, localeSettings.model, localeSettings.reasoning, `locales.${locale}.`);
     const glossaryMode = readCustomizationMode(localeSettings.glossaryMode, `locales.${locale}.glossaryMode`);
     // Only the typed text is capped: code-defined defaults are trusted, and prompts carry only the terms a batch uses.
     const glossaryText = readText(localeSettings.glossaryText, `locales.${locale}.glossaryText`, MAX_GLOSSARY_CHARACTERS);
-    const rawReasoning = localeSettings.reasoning;
-    const reasoning =
-      model === null || rawReasoning === undefined || rawReasoning === null
-        ? null
-        : readString(rawReasoning, `locales.${locale}.reasoning`);
-    if (reasoning !== null && !isReasoningEffort(reasoning)) throw PluginRouteError.badRequest(`locales.${locale}.reasoning is invalid`);
     return { locale, model, reasoning, glossaryMode, glossaryText };
   });
 
   // Only new choices are checked, so a catalog outage or a retired effort doesn't block unrelated edits.
-  const previous = (await storedTranslationSettings(options, settings)).locales;
-  for (const { locale, model, reasoning } of values) {
-    const unchanged = previous[locale]?.model === model && previous[locale]?.reasoning === reasoning;
-    if (model !== null && reasoning !== null && !unchanged) await validateReasoning(model, reasoning, `locales.${locale}.reasoning`);
+  const previous = await storedTranslationSettings(options, settings);
+  const choices = [
+    { label: "reasoning", next: globalModel, before: previous },
+    ...values.map((next) => ({ label: `locales.${next.locale}.reasoning`, next, before: previous.locales[next.locale] })),
+  ];
+  for (const { label, next, before } of choices) {
+    const unchanged = before?.model === next.model && before?.reasoning === next.reasoning;
+    if (next.model !== null && next.reasoning !== null && !unchanged) await validateReasoning(next.model, next.reasoning, label);
   }
 
   const instructionInput = readRecord(input.instructions, "instructions");
@@ -248,9 +246,28 @@ export async function saveTranslationSettings(
     maxTokens,
     clearAiFlagOnEdit,
     translateSeoWhenPublished,
+    model: globalModel.model,
+    reasoning: globalModel.reasoning,
     locales: Object.fromEntries(values.map(({ locale, ...localeSettings }) => [locale, localeSettings])),
     instructions: { mode: instructionMode, text: instructionText },
   } satisfies StoredTranslationSettings);
+}
+
+/** An allowed model or `null`, and a thinking effort that only goes with a model. `prefix` names the fields in errors. */
+function readModelChoice(
+  options: PolystellaEmdashOptions,
+  rawModel: unknown,
+  rawReasoning: unknown,
+  prefix: string,
+): { model: string | null; reasoning: string | null } {
+  const model = rawModel === undefined || rawModel === null ? null : readString(rawModel, `${prefix}model`);
+  if (model !== null && !options.models.allowed.includes(model)) {
+    throw PluginRouteError.badRequest(`${prefix}model must be allowed by deployment configuration`);
+  }
+  const reasoning =
+    model === null || rawReasoning === undefined || rawReasoning === null ? null : readString(rawReasoning, `${prefix}reasoning`);
+  if (reasoning !== null && !isReasoningEffort(reasoning)) throw PluginRouteError.badRequest(`${prefix}reasoning is invalid`);
+  return { model, reasoning };
 }
 
 /** Revisions are opaque host tokens; `null` means "I saw no stored value". */
@@ -284,6 +301,10 @@ export interface StoredTranslationSettings {
   clearAiFlagOnEdit: boolean;
   /** EmDash saves a patched SEO title or description at once, so on a published entry it goes live before review. */
   translateSeoWhenPublished: boolean;
+  /** The administrator's default model for every locale without its own; `null` uses the code fallback. */
+  model: string | null;
+  /** Thinking effort for `model`; always `null` without one. */
+  reasoning: string | null;
   locales: Record<string, StoredLocaleSettings>;
   instructions: { mode: CustomizationMode; text: string };
 }
@@ -302,18 +323,12 @@ function parseTranslationSettings(options: PolystellaEmdashOptions, stored: unkn
   const locales = Object.fromEntries(
     targetLocales(options).map((locale) => {
       const localeSettings = isRecord(storedLocales[locale]) ? storedLocales[locale] : {};
-      const storedModel = localeSettings.model;
-      const storedReasoning = localeSettings.reasoning;
       const storedMode = localeSettings.glossaryMode;
       const storedText = localeSettings.glossaryText;
       return [
         locale,
         {
-          model: typeof storedModel === "string" && options.models.allowed.includes(storedModel) ? storedModel : null,
-          reasoning:
-            typeof storedModel === "string" && options.models.allowed.includes(storedModel) && typeof storedReasoning === "string"
-              ? storedReasoning
-              : null,
+          ...parseModelChoice(options, localeSettings),
           glossaryMode: isCustomizationMode(storedMode) ? storedMode : "default",
           glossaryText: typeof storedText === "string" ? storedText : "",
         },
@@ -326,6 +341,7 @@ function parseTranslationSettings(options: PolystellaEmdashOptions, stored: unkn
     maxTokens: isMaxTokens(storedRoot.maxTokens) ? storedRoot.maxTokens : null,
     clearAiFlagOnEdit: storedRoot.clearAiFlagOnEdit === true,
     translateSeoWhenPublished: storedRoot.translateSeoWhenPublished === true,
+    ...parseModelChoice(options, storedRoot),
     locales,
     instructions: {
       mode: isCustomizationMode(storedInstructions.mode)
@@ -336,6 +352,28 @@ function parseTranslationSettings(options: PolystellaEmdashOptions, stored: unkn
       text: instructionText,
     },
   };
+}
+
+/** A model the deployment no longer allows is dropped, with its thinking. */
+function parseModelChoice(
+  options: PolystellaEmdashOptions,
+  stored: Record<string, unknown>,
+): { model: string | null; reasoning: string | null } {
+  const { model, reasoning } = stored;
+  if (typeof model !== "string" || !options.models.allowed.includes(model)) return { model: null, reasoning: null };
+  return { model, reasoning: typeof reasoning === "string" ? reasoning : null };
+}
+
+/** The model and admin thinking choice a locale translates with: its own override, the admin default, then the code fallback. */
+export function effectiveModelChoice(
+  options: PolystellaEmdashOptions,
+  stored: StoredTranslationSettings,
+  locale: string,
+): { model: string; reasoning: string | null } {
+  const own = stored.locales[locale];
+  if (own !== undefined && own.model !== null) return { model: own.model, reasoning: own.reasoning };
+  if (stored.model !== null) return { model: stored.model, reasoning: stored.reasoning };
+  return { model: codeFallbackModel(options, locale), reasoning: null };
 }
 
 /** For save hooks, which only need this one setting. */

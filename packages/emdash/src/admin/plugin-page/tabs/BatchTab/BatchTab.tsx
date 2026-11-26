@@ -23,6 +23,15 @@ import { batchJobFinished, batchRunUrl, loadItems, saveBatchRun, untranslatedLoc
 const CONCURRENCY = 3;
 const batchLayoutStyle: CSSProperties = { alignItems: "flex-start", display: "flex", flexWrap: "wrap", gap: 20 };
 const JOB_POLL_MS = 5000;
+const selectedListStyle: CSSProperties = {
+  display: "grid",
+  gap: 4,
+  listStyle: "none",
+  margin: 0,
+  maxHeight: 240,
+  overflowY: "auto",
+  padding: 0,
+};
 
 type Scope = "all" | "selected";
 type Runner = "browser" | "queue";
@@ -192,7 +201,7 @@ export function BatchTab(): ReactNode {
     const entries = scope === "all" ? "every source entry" : `${selected.size} ${selected.size === 1 ? "entry" : "entries"}`;
     if (
       !window.confirm(
-        `PolyStella will queue missing translations for ${entries} into ${plural(locales.length, "locale")} on the server. They are ${publish ? "published" : "saved as drafts"} and existing translations are skipped. Continue?`,
+        `PolyStella will queue translations for ${entries} into ${plural(locales.length, "locale")} on the server. They are ${publish ? "published" : "saved as drafts"}, and existing translations are ${updateExisting ? "retranslated" : "skipped"}. Continue?`,
       )
     ) {
       return;
@@ -202,7 +211,13 @@ export function BatchTab(): ReactNode {
     try {
       await pluginRequest<BatchJobView>("batch/start", {
         method: "POST",
-        body: JSON.stringify({ collection, locales, publish, ...(scope === "selected" ? { entryIds: [...selected.keys()] } : {}) }),
+        body: JSON.stringify({
+          collection,
+          locales,
+          publish,
+          updateExisting,
+          ...(scope === "selected" ? { entryIds: [...selected.keys()] } : {}),
+        }),
       });
       setJobsRefresh((current) => current + 1);
     } catch (cause) {
@@ -225,6 +240,24 @@ export function BatchTab(): ReactNode {
     loaded.fields.length > 0 &&
     locales.length > 0 &&
     (scope === "all" || selected.size > 0);
+
+  function setItemSelected(item: BatchItem, checked: boolean): void {
+    setSelected((current) => {
+      const next = new Map(current);
+      if (checked) next.set(item.id, item);
+      else next.delete(item.id);
+      return next;
+    });
+  }
+
+  const jobs = (
+    <BatchJobs
+      jobs={serverJobs?.jobs ?? []}
+      collectionLabels={Object.fromEntries((collections ?? []).map((item) => [item.slug, item.label]))}
+      urlContexts={urlContexts}
+      onChange={() => setJobsRefresh((current) => current + 1)}
+    />
+  );
 
   const runButton = (
     <div style={rowStyle}>
@@ -257,10 +290,13 @@ export function BatchTab(): ReactNode {
       />
       {error === null ? null : <ErrorMessage>{error}</ErrorMessage>}
       {collections?.length === 0 ? (
-        <p style={mutedStyle}>
-          Enable PolyStella for a collection first, in{" "}
-          <a href={pluginPageUrl("/settings", { tab: "collections" })}>Settings, Collections</a>.
-        </p>
+        <>
+          <p style={mutedStyle}>
+            Enable PolyStella for a collection first, in{" "}
+            <a href={pluginPageUrl("/settings", { tab: "collections" })}>Settings, Collections</a>.
+          </p>
+          {jobs}
+        </>
       ) : (
         <div style={batchLayoutStyle}>
           <div style={{ ...stackStyle, flex: "1 1 340px", minWidth: 0 }}>
@@ -352,34 +388,31 @@ export function BatchTab(): ReactNode {
                       label={
                         <InfoLabel
                           label="Publish translations immediately"
-                          info="When off, translations are saved as drafts. If publishing fails, the draft is kept and its result says why."
+                          info="When off, translations are saved as drafts. When on, the translation's whole draft is published, including edits someone saved earlier without publishing. If publishing fails, the draft is kept and its result says why."
                         />
                       }
                       checked={publish}
                       disabled={running}
                       onCheckedChange={setPublish}
                     />
-                    {runner === "browser" ? (
-                      <Switch
-                        aria-label="Update existing translations"
-                        label={
-                          <InfoLabel
-                            label="Update existing translations"
-                            info="Replaces the selected fields in translations that already exist. Entries edited during the run are skipped."
-                          />
-                        }
-                        checked={updateExisting}
-                        disabled={running}
-                        onCheckedChange={setUpdateExisting}
-                      />
-                    ) : (
-                      <span style={mutedStyle}>The server queue only creates missing translations; existing ones are skipped.</span>
-                    )}
+                    <Switch
+                      aria-label="Update existing translations"
+                      label={
+                        <InfoLabel
+                          label="Update existing translations"
+                          info="Replaces the fields enabled for this collection in translations that already exist. Translations edited during the run are skipped."
+                        />
+                      }
+                      checked={updateExisting}
+                      disabled={running}
+                      onCheckedChange={setUpdateExisting}
+                    />
                   </>
                 )}
               </div>
             </LayerCard>
             {runButton}
+            {jobs}
           </div>
           <div style={{ flex: "2 1 520px", minWidth: 0 }}>
             {scope === "all" && loaded !== null ? (
@@ -389,7 +422,7 @@ export function BatchTab(): ReactNode {
                 policy={loaded.policy}
                 fields={loaded.fields}
                 locales={locales}
-                updateExisting={runner === "browser" && updateExisting}
+                updateExisting={updateExisting}
               />
             ) : null}
             {scope === "selected" && policy !== undefined ? (
@@ -402,7 +435,32 @@ export function BatchTab(): ReactNode {
                     disabled={running}
                     onChange={(event) => setSearch(event.target.value)}
                   />
-                  <span style={mutedStyle}>{selected.size} selected</span>
+                  <div style={rowStyle}>
+                    <span style={mutedStyle}>{selected.size} selected</span>
+                    {selected.size === 0 ? null : (
+                      <Button size="sm" variant="ghost" disabled={running} onClick={() => setSelected(new Map())}>
+                        Clear selection
+                      </Button>
+                    )}
+                  </div>
+                  {selected.size === 0 ? null : (
+                    <ul aria-label="Selected entries" style={selectedListStyle}>
+                      {[...selected.values()].map((item) => (
+                        <li key={item.id} style={{ ...rowStyle, justifyContent: "space-between" }}>
+                          <span>{item.title}</span>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            aria-label={`Remove ${item.title}`}
+                            disabled={running}
+                            onClick={() => setItemSelected(item, false)}
+                          >
+                            Remove
+                          </Button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                   <Table layout="fixed">
                     <Table.Header>
                       <Table.Row>
@@ -434,14 +492,7 @@ export function BatchTab(): ReactNode {
                             label={`Select ${item.title}`}
                             checked={selected.has(item.id)}
                             disabled={running}
-                            onCheckedChange={(checked) =>
-                              setSelected((current) => {
-                                const next = new Map(current);
-                                if (checked) next.set(item.id, item);
-                                else next.delete(item.id);
-                                return next;
-                              })
-                            }
+                            onCheckedChange={(checked) => setItemSelected(item, checked)}
                           />
                           <Table.Cell>{item.title}</Table.Cell>
                           <Table.Cell>{item.slug === null ? <span style={mutedStyle}>No slug</span> : <code>{item.slug}</code>}</Table.Cell>
@@ -463,7 +514,6 @@ export function BatchTab(): ReactNode {
           </div>
         </div>
       )}
-      <BatchJobs jobs={serverJobs?.jobs ?? []} urlContexts={urlContexts} onChange={() => setJobsRefresh((current) => current + 1)} />
     </section>
   );
 }

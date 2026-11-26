@@ -114,9 +114,10 @@ administrator policy.
 - Shared instruction customization (append or replace).
 - Whether runtime overrides are enabled per locale.
 
-`models.defaults` may set a `default` fallback and locale-specific
-models. Each target locale receives its own model and glossary
-settings. Administrators can use the deployment glossary unchanged
+Administrators pick a default model for every language in the admin,
+and may pick another one per language. `models.defaults` is only the
+fallback until they do. Each target locale receives its own model and
+glossary settings. Administrators can use the deployment glossary unchanged
 or append/replace `Glossary.notes` with plain text; structured YAML
 remains code-defined.
 
