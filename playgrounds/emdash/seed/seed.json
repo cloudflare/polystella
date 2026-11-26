@@ -1,0 +1,554 @@
+{
+  "$schema": "https://emdashcms.com/seed.schema.json",
+  "version": "1",
+  "meta": {
+    "name": "PolyStella demo",
+    "description": "Content used to exercise the PolyStella EmDash plugin",
+    "author": "PolyStella"
+  },
+  "settings": {
+    "title": "PolyStella EmDash demo",
+    "tagline": "Translate content and UI strings from the EmDash admin."
+  },
+  "blockTypes": [
+    {
+      "slug": "hero",
+      "label": "Hero",
+      "category": "Layout",
+      "currentVersion": 1,
+      "versions": [
+        {
+          "version": 1,
+          "fields": [
+            {
+              "slug": "heading",
+              "label": "Heading",
+              "type": "string",
+              "required": true
+            },
+            {
+              "slug": "body",
+              "label": "Body",
+              "type": "portableText"
+            },
+            {
+              "slug": "link_label",
+              "label": "Link label",
+              "type": "string"
+            },
+            {
+              "slug": "link_url",
+              "label": "Link URL",
+              "type": "url"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "note",
+      "label": "Note",
+      "category": "Content",
+      "currentVersion": 1,
+      "versions": [
+        {
+          "version": 1,
+          "fields": [
+            {
+              "slug": "title",
+              "label": "Title",
+              "type": "string"
+            },
+            {
+              "slug": "markdown",
+              "label": "Markdown",
+              "type": "text"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "cards",
+      "label": "Cards",
+      "category": "Layout",
+      "currentVersion": 1,
+      "versions": [
+        {
+          "version": 1,
+          "fields": [
+            {
+              "slug": "items",
+              "label": "Items",
+              "type": "repeater",
+              "validation": {
+                "maxItems": 6,
+                "subFields": [
+                  {
+                    "slug": "title",
+                    "label": "Title",
+                    "type": "string",
+                    "required": true
+                  },
+                  {
+                    "slug": "description",
+                    "label": "Description",
+                    "type": "text"
+                  },
+                  {
+                    "slug": "icon",
+                    "label": "Icon",
+                    "type": "string"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "collections": [
+    {
+      "slug": "posts",
+      "label": "Posts",
+      "labelSingular": "Post",
+      "urlPattern": "/posts/{slug}",
+      "supports": ["drafts", "revisions", "preview", "search", "seo"],
+      "fields": [
+        {
+          "slug": "title",
+          "label": "Title",
+          "type": "string",
+          "required": true,
+          "searchable": true
+        },
+        {
+          "slug": "excerpt",
+          "label": "Excerpt",
+          "type": "text"
+        },
+        {
+          "slug": "content",
+          "label": "Content",
+          "type": "portableText",
+          "searchable": true
+        },
+        {
+          "slug": "faq",
+          "label": "FAQ",
+          "type": "repeater",
+          "validation": {
+            "maxItems": 10,
+            "subFields": [
+              {
+                "slug": "question",
+                "label": "Question",
+                "type": "string",
+                "required": true
+              },
+              {
+                "slug": "answer",
+                "label": "Answer",
+                "type": "text",
+                "required": true
+              },
+              {
+                "slug": "source",
+                "label": "Source URL",
+                "type": "url"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "slug": "landing",
+      "label": "Landing pages",
+      "labelSingular": "Landing page",
+      "supports": ["drafts", "revisions", "preview"],
+      "fields": [
+        {
+          "slug": "title",
+          "label": "Title",
+          "type": "string",
+          "required": true
+        },
+        {
+          "slug": "layout",
+          "label": "Layout",
+          "type": "blocks",
+          "validation": {
+            "allowedTypes": ["hero", "note", "cards"],
+            "maxItems": 20
+          }
+        }
+      ]
+    }
+  ],
+  "content": {
+    "posts": [
+      {
+        "id": "welcome",
+        "slug": "welcome",
+        "locale": "en-US",
+        "status": "published",
+        "data": {
+          "title": "Welcome to the PolyStella demo",
+          "excerpt": "A post with marks, links, a list, built-in blocks, a code block and a {{token}}.",
+          "content": [
+            {
+              "_type": "block",
+              "_key": "b1",
+              "style": "normal",
+              "children": [
+                {
+                  "_type": "span",
+                  "_key": "s1",
+                  "text": "PolyStella translates saved EmDash content with "
+                },
+                {
+                  "_type": "span",
+                  "_key": "s2",
+                  "text": "your own glossary",
+                  "marks": ["strong"]
+                },
+                {
+                  "_type": "span",
+                  "_key": "s3",
+                  "text": ". Read the "
+                },
+                {
+                  "_type": "span",
+                  "_key": "s4",
+                  "text": "EmDash docs",
+                  "marks": ["l1"]
+                },
+                {
+                  "_type": "span",
+                  "_key": "s5",
+                  "text": " for the full story."
+                }
+              ],
+              "markDefs": [
+                {
+                  "_type": "link",
+                  "_key": "l1",
+                  "href": "https://docs.emdashcms.com/"
+                }
+              ]
+            },
+            {
+              "_type": "block",
+              "_key": "b2",
+              "style": "h2",
+              "children": [
+                {
+                  "_type": "span",
+                  "_key": "s6",
+                  "text": "What gets translated"
+                }
+              ]
+            },
+            {
+              "_type": "block",
+              "_key": "b3",
+              "style": "normal",
+              "children": [
+                {
+                  "_type": "span",
+                  "_key": "s7",
+                  "text": "Titles, excerpts and rich text, one field at a time."
+                }
+              ],
+              "listItem": "bullet",
+              "level": 1
+            },
+            {
+              "_type": "block",
+              "_key": "b4",
+              "style": "normal",
+              "children": [
+                {
+                  "_type": "span",
+                  "_key": "s8",
+                  "text": "Placeholders like {{name}} must survive translation untouched."
+                }
+              ],
+              "listItem": "bullet",
+              "level": 1
+            },
+            {
+              "_type": "block",
+              "_key": "b5",
+              "style": "normal",
+              "children": [
+                {
+                  "_type": "span",
+                  "_key": "s9",
+                  "text": "Keep   odd   spacing and "
+                },
+                {
+                  "_type": "span",
+                  "_key": "s10",
+                  "text": "italic text",
+                  "marks": ["em"]
+                },
+                {
+                  "_type": "span",
+                  "_key": "s11",
+                  "text": " intact too."
+                }
+              ]
+            },
+            {
+              "_type": "pullquote",
+              "_key": "q1",
+              "text": "Translate the words, keep the structure.",
+              "citation": "The PolyStella team"
+            },
+            {
+              "_type": "buttons",
+              "_key": "btns1",
+              "layout": "horizontal",
+              "buttons": [
+                {
+                  "_type": "button",
+                  "_key": "btn1",
+                  "text": "Read the docs",
+                  "url": "https://docs.emdashcms.com/",
+                  "style": "fill"
+                },
+                {
+                  "_type": "button",
+                  "_key": "btn2",
+                  "text": "See the source",
+                  "url": "https://github.com/cloudflare/polystella",
+                  "style": "outline"
+                }
+              ]
+            },
+            {
+              "_type": "columns",
+              "_key": "cols1",
+              "columns": [
+                {
+                  "_type": "column",
+                  "_key": "col1",
+                  "content": [
+                    {
+                      "_type": "block",
+                      "_key": "c1p",
+                      "style": "normal",
+                      "children": [
+                        {
+                          "_type": "span",
+                          "_key": "c1ps",
+                          "text": "Left column: text inside a built-in columns block."
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "_type": "column",
+                  "_key": "col2",
+                  "content": [
+                    {
+                      "_type": "block",
+                      "_key": "c2p",
+                      "style": "normal",
+                      "children": [
+                        {
+                          "_type": "span",
+                          "_key": "c2ps",
+                          "text": "Right column: this one is translated too."
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "_type": "code",
+              "_key": "c1",
+              "language": "ts",
+              "code": "const greeting = t(\"home.greeting\", { name: \"Ada\" });"
+            }
+          ],
+          "faq": [
+            {
+              "question": "What does PolyStella translate?",
+              "answer": "Saved text fields, Portable Text, repeaters and declared blocks.",
+              "source": "https://docs.emdashcms.com/"
+            },
+            {
+              "question": "Are links changed?",
+              "answer": "No. URLs and {{tokens}} stay exactly as written.",
+              "source": "https://example.com/links"
+            }
+          ]
+        }
+      },
+      {
+        "id": "launch-notes",
+        "slug": "launch-notes",
+        "locale": "en-US",
+        "status": "published",
+        "data": {
+          "title": "Launch notes",
+          "excerpt": "A short post with no sibling translations.",
+          "content": [
+            {
+              "_type": "block",
+              "_key": "n1",
+              "style": "normal",
+              "children": [
+                {
+                  "_type": "span",
+                  "_key": "n1s",
+                  "text": "A second post so batch translation has more than one source entry to pick up."
+                }
+              ]
+            },
+            {
+              "_type": "block",
+              "_key": "n3",
+              "style": "normal",
+              "children": [
+                {
+                  "_type": "span",
+                  "_key": "n3s",
+                  "text": "It is short on purpose."
+                }
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "id": "partner-update",
+        "slug": "partner-update",
+        "locale": "en-US",
+        "status": "published",
+        "data": {
+          "title": "A partner joins the program",
+          "excerpt": "A post with a custom block that blockFields does not list.",
+          "content": [
+            {
+              "_type": "block",
+              "_key": "pu1",
+              "style": "normal",
+              "children": [
+                {
+                  "_type": "span",
+                  "_key": "pu1s",
+                  "text": "We are glad to welcome a new partner. The badge below is a custom block, so PolyStella copies it and says so."
+                }
+              ]
+            },
+            {
+              "_type": "partner.badge",
+              "_key": "badge1",
+              "label": "Official partner",
+              "url": "https://example.com/partners"
+            }
+          ]
+        }
+      },
+      {
+        "id": "welcome-pt",
+        "slug": "bem-vindo",
+        "locale": "pt-BR",
+        "translationOf": "welcome",
+        "status": "draft",
+        "data": {
+          "title": "Bem-vindo à demonstração PolyStella",
+          "excerpt": "",
+          "content": [
+            {
+              "_type": "block",
+              "_key": "p1",
+              "style": "normal",
+              "children": [
+                {
+                  "_type": "span",
+                  "_key": "p1s",
+                  "text": "O PolyStella traduz conteúdo salvo do EmDash com o seu próprio glossário."
+                }
+              ]
+            }
+          ],
+          "faq": [
+            {
+              "question": "O que o PolyStella traduz?",
+              "answer": "Texto salvo.",
+              "source": "https://docs.emdashcms.com/"
+            }
+          ]
+        }
+      }
+    ],
+    "landing": [
+      {
+        "id": "home",
+        "slug": "home",
+        "locale": "en-US",
+        "status": "published",
+        "data": {
+          "title": "Landing page",
+          "layout": [
+            {
+              "_type": "hero",
+              "_version": 1,
+              "_key": "hero-1",
+              "heading": "Translate every block, not just paragraphs",
+              "body": [
+                {
+                  "_type": "block",
+                  "_key": "hb1",
+                  "style": "normal",
+                  "children": [
+                    {
+                      "_type": "span",
+                      "_key": "hb1s",
+                      "text": "Headings, buttons and cards come from declared block types, not from Portable Text."
+                    }
+                  ]
+                }
+              ],
+              "link_label": "See how it works",
+              "link_url": "https://docs.emdashcms.com/guides/blocks/"
+            },
+            {
+              "_type": "note",
+              "_version": 1,
+              "_key": "note-1",
+              "title": "Heads up",
+              "markdown": "Use **bold**, [links](https://example.com/docs) and `code`. URLs must stay intact, and so must {{name}}.\n\n- First item\n- Second item"
+            },
+            {
+              "_type": "cards",
+              "_version": 1,
+              "_key": "cards-1",
+              "items": [
+                {
+                  "title": "Fast",
+                  "description": "Translate a whole collection in one run.",
+                  "icon": "bolt"
+                },
+                {
+                  "title": "Safe",
+                  "description": "Drafts are reviewed before they go live.",
+                  "icon": "shield"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

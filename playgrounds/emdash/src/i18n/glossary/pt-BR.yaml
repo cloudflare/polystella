@@ -1,0 +1,11 @@
+version: "1"
+doNotTranslate:
+  - PolyStella
+  - EmDash
+  - Workers AI
+preferredTranslations:
+  draft: rascunho
+  glossary: glossário
+styleRules:
+  - category: tone
+    instruction: Use "você" and a friendly, professional tone.

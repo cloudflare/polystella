@@ -1,0 +1,81 @@
+---
+import { getRelativeLocaleUrl } from "astro:i18n";
+import { getEmDashCollection, getEmDashEntry } from "emdash";
+import { PortableText } from "emdash/ui";
+
+import { defaultLocale, locales } from "../../locales.mjs";
+
+const { t, lhref } = Astro.locals;
+const locale = Astro.currentLocale ?? defaultLocale;
+const dir = new Intl.Locale(locale).getTextInfo().direction;
+
+const segments = (Astro.params.path ?? "").split("/").filter(Boolean);
+if (segments[0] !== undefined && locales.includes(segments[0])) segments.shift();
+const [section, slug] = segments;
+
+const isPost = section === "posts" && slug !== undefined;
+const entry = isPost ? (await getEmDashEntry("posts", slug, { locale })).entry : null;
+const posts = isPost ? [] : (await getEmDashCollection("posts", { locale, status: "published" })).entries;
+if (isPost && !entry) Astro.response.status = 404;
+---
+
+<html lang={locale} dir={dir}>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="polystella-playground" content="emdash" />
+    <title>{t("site.title")}</title>
+    <style>
+      body { font-family: system-ui, sans-serif; margin: 2rem auto; max-width: 42rem; padding: 0 1rem; }
+      nav a { margin-inline-end: 0.75rem; }
+      nav a[aria-current="page"] { font-weight: 700; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1><a href={lhref("/")}>{t("site.title")}</a></h1>
+      <p>{t("site.tagline")}</p>
+      <nav aria-label="Language">
+        {locales.map((code) => <a href={getRelativeLocaleUrl(code, "/")} aria-current={code === locale ? "page" : undefined}>{code}</a>)}
+      </nav>
+      <p>{t("home.greeting", { name: "Ada" })}</p>
+    </header>
+    <main>
+      {
+        isPost ? (
+          entry ? (
+            <article>
+              <h2>{entry.data.title}</h2>
+              <PortableText value={entry.data.content} />
+              {Array.isArray(entry.data.faq) && entry.data.faq.length > 0 && (
+                <dl>
+                  {entry.data.faq.map((item: { question: string; answer: string }) => (
+                    <>
+                      <dt>{item.question}</dt>
+                      <dd>{item.answer}</dd>
+                    </>
+                  ))}
+                </dl>
+              )}
+            </article>
+          ) : (
+            <p>{t("post.notFound")}</p>
+          )
+        ) : (
+          <>
+            <h2>{t("home.heading")}</h2>
+            <p>{t("home.postCount", { count: posts.length })}</p>
+            <ul>
+              {posts.map((post) => (
+                <li>
+                  <a href={lhref(`/posts/${post.data.slug}`)}>{post.data.title}</a>
+                  {post.data.excerpt && <p>{post.data.excerpt}</p>}
+                </li>
+              ))}
+            </ul>
+          </>
+        )
+      }
+      {isPost && <p><a href={lhref("/")}>{t("post.back")}</a></p>}
+    </main>
+  </body>
+</html>

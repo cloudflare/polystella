@@ -1,0 +1,17 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "polystella-emdash-playground",
+  "main": "./src/worker.ts",
+  "compatibility_date": "2026-02-24",
+  "compatibility_flags": ["nodejs_compat"],
+  "d1_databases": [{ "binding": "DB", "database_name": "polystella-emdash-playground" }],
+  "r2_buckets": [{ "binding": "MEDIA", "bucket_name": "polystella-emdash-media" }],
+  "ai": { "binding": "AI" },
+  "queues": {
+    "producers": [{ "binding": "POLYSTELLA_BATCH", "queue": "polystella-batch" }],
+    "consumers": [{ "queue": "polystella-batch" }],
+  },
+  // Placeholder credentials for the fake AI endpoint. Real credentials come from .env under different names.
+  "vars": { "POLYSTELLA_FAKE_ACCOUNT_ID": "fake-account", "POLYSTELLA_FAKE_API_TOKEN": "fake-token" },
+  "triggers": { "crons": ["* * * * *"] },
+}

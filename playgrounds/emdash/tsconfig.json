@@ -1,0 +1,7 @@
+{
+  "extends": "astro/tsconfigs/strict",
+  "compilerOptions": {
+    "types": ["node", "@cloudflare/polystella-emdash/client"]
+  },
+  "include": [".astro/types.d.ts", "src", "emdash-env.d.ts"]
+}

@@ -1,0 +1,18 @@
+{
+  "site": {
+    "i18n_group_title": "Site chrome",
+    "title": "PolyStella EmDash demo",
+    "tagline": "Translate content and UI strings from the EmDash admin."
+  },
+  "home": {
+    "i18n_group_title": "Home page",
+    "heading": "Recent posts",
+    "postCount": "{{count, plural, =0 {No posts in this language yet.} one {# post} other {# posts}}}",
+    "greeting": "Welcome back, {{name}}!"
+  },
+  "post": {
+    "i18n_group_title": "Post page",
+    "back": "Back to all posts",
+    "notFound": "That post does not exist in this language."
+  }
+}

@@ -1,0 +1,14 @@
+version: "1"
+doNotTranslate:
+  - PolyStella
+  - EmDash
+  - Workers AI
+preferredTranslations:
+  draft: 下書き
+  glossary: 用語集
+styleRules:
+  - category: tone
+    instruction: Use polite です/ます form.
+  - category: punctuation
+    instruction: Use full-width Japanese punctuation (、。「」).
+    example: PolyStellaは、保存済みのコンテンツを翻訳します。
