@@ -219,6 +219,8 @@ describe("EmDash admin entry", () => {
       entryCount: 2,
       counts: { created: 2, updated: 1, skipped: 1, failed: 0 },
       failures: [],
+      settings: null,
+      retryOf: null,
       ...overrides,
     });
     const render = (view: BatchJobView) =>

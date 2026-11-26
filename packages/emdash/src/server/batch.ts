@@ -1,6 +1,6 @@
 import { PluginRouteError, type StorageCollection } from "emdash";
 
-import type { BatchJobOutcome, BatchTranslationLink } from "../contracts.js";
+import type { BatchJobOutcome, BatchJobSettings, BatchTranslationLink } from "../contracts.js";
 
 // Cloudflare Queues accept at most 100 messages per sendBatch call.
 const QUEUE_SEND_LIMIT = 100;
@@ -26,6 +26,8 @@ export interface StoredBatchJob {
   truncated: boolean;
   /** The selected source entries; `"all"` for a whole-collection job, `null` for jobs stored before this was recorded. */
   entryIds: string[] | "all" | null;
+  settings: BatchJobSettings | null;
+  retryOf: string | null;
 }
 
 export interface BatchListing {
@@ -60,6 +62,8 @@ export interface BatchMessage {
   part?: number;
   /** The existing translation's `_rev`, read by the consumer before part 0 of an update; later parts keep it in the parts row. */
   rev?: string;
+  /** Id of the translation an earlier job created, to translate again in place. */
+  redo?: string;
 }
 
 /** Translations of the parts done so far, kept in the results collection until the entry is created. */
@@ -185,16 +189,50 @@ function readListing(value: unknown): BatchListing | null {
 
 export function readBatchMessage(value: unknown): BatchMessage | null {
   if (!isRecord(value)) return null;
-  const { jobId, entryId, locale, part, rev } = value;
+  const { jobId, entryId, locale, part, rev, redo } = value;
   if (!isNonEmptyString(jobId) || !isNonEmptyString(entryId) || !isNonEmptyString(locale)) return null;
   if (part !== undefined && (typeof part !== "number" || !Number.isSafeInteger(part) || part < 0)) return null;
   if (rev !== undefined && (!isNonEmptyString(rev) || rev.length > MAX_REV_LENGTH)) return null;
-  return { jobId, entryId, locale, ...(part === undefined ? {} : { part }), ...(rev === undefined ? {} : { rev }) };
+  if (redo !== undefined && !isNonEmptyString(redo)) return null;
+  return {
+    jobId,
+    entryId,
+    locale,
+    ...(part === undefined ? {} : { part }),
+    ...(rev === undefined ? {} : { rev }),
+    ...(redo === undefined ? {} : { redo }),
+  };
+}
+
+/** Stored settings were checked when the job started; this only drops malformed values. */
+export function readJobSettings(value: unknown): BatchJobSettings | null {
+  if (!isRecord(value)) return null;
+  const { model, reasoning, maxTokens, instructions } = value;
+  return {
+    model: isNonEmptyString(model) ? model : null,
+    reasoning: isNonEmptyString(model) && isNonEmptyString(reasoning) ? reasoning : null,
+    maxTokens: typeof maxTokens === "number" && Number.isSafeInteger(maxTokens) && maxTokens > 0 ? maxTokens : null,
+    instructions: typeof instructions === "string" ? instructions : "",
+  };
 }
 
 export function parseStoredJob(value: unknown): StoredBatchJob | null {
   if (!isRecord(value)) return null;
-  const { collection, locales, total, status, publish, updateExisting, createdAt, createdBy, listing, truncated, entryIds } = value;
+  const {
+    collection,
+    locales,
+    total,
+    status,
+    publish,
+    updateExisting,
+    createdAt,
+    createdBy,
+    listing,
+    truncated,
+    entryIds,
+    settings,
+    retryOf,
+  } = value;
   if (
     !isNonEmptyString(collection) ||
     !Array.isArray(locales) ||
@@ -219,6 +257,8 @@ export function parseStoredJob(value: unknown): StoredBatchJob | null {
     listing: readListing(listing),
     truncated: truncated === true,
     entryIds: entryIds === "all" ? "all" : Array.isArray(entryIds) && entryIds.every(isNonEmptyString) ? entryIds : null,
+    settings: readJobSettings(settings),
+    retryOf: isNonEmptyString(retryOf) ? retryOf : null,
   };
 }
 

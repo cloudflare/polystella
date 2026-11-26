@@ -9,17 +9,23 @@ import {
   type BatchJobOutcome,
   type BatchJobResultsResponse,
   type BatchJobResultView,
+  type BatchJobSettings,
   type BatchJobView,
 } from "../../../../contracts.js";
 import { errorMessage, localeLabel, plural, pluginRequest } from "../../../utils.js";
 import { mutedStyle, rowStyle, stackStyle } from "../../../styles.js";
 import { ErrorMessage } from "../../../components/ErrorMessage/ErrorMessage.js";
+import { jobSettingsSummary } from "../../../components/JobSettings/JobSettings.js";
 import { NewWindowIcon } from "../../../components/NewWindowLink/NewWindowLink.js";
 import { TextTooltip } from "../../../components/PageHeader/PageHeader.js";
 import { TranslationLinks } from "./BatchResults.js";
 import { batchJobDone, batchJobFinished, type PublicUrlContext } from "./helpers.js";
+import { RetryForm } from "./RetryForm.js";
 
 const MAX_LISTED_LOCALES = 3;
+
+type JobAction = "cancel" | "retry" | "delete";
+type RetryOptions = { settings?: BatchJobSettings | null; redo?: boolean };
 
 const OUTCOMES: ReadonlyArray<{ outcome: BatchJobOutcome; color: string; info: string }> = [
   { outcome: "created", color: "var(--color-kumo-success, #1e8e3e)", info: "New translations this job saved." },
@@ -29,7 +35,7 @@ const OUTCOMES: ReadonlyArray<{ outcome: BatchJobOutcome; color: string; info: s
     color: "var(--color-kumo-badge-neutral, #a3a3a8)",
     info: "Already translated, or edited while the job ran. Nothing was changed.",
   },
-  { outcome: "failed", color: "var(--color-kumo-danger, #d93025)", info: "Results says why. Retry failed runs them again." },
+  { outcome: "failed", color: "var(--color-kumo-danger, #d93025)", info: "Results says why. Retry... runs them again." },
 ];
 
 export function BatchJobs({
@@ -47,15 +53,17 @@ export function BatchJobs({
   const [working, setWorking] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  async function act(jobIds: readonly string[], action: "cancel" | "retry" | "delete", key: string): Promise<void> {
+  async function act(jobIds: readonly string[], action: JobAction, key: string, options: RetryOptions = {}): Promise<boolean> {
     setWorking(key);
     setError(null);
     try {
       for (const jobId of jobIds) {
-        await pluginRequest(`batch/${action}`, { method: "POST", body: JSON.stringify({ jobId }) });
+        await pluginRequest(`batch/${action}`, { method: "POST", body: JSON.stringify({ jobId, ...options }) });
       }
+      return true;
     } catch (cause) {
       setError(errorMessage(cause));
+      return false;
     } finally {
       setWorking(null);
       onChange();
@@ -117,14 +125,20 @@ function JobRow({
   label: string;
   urlContext: PublicUrlContext | undefined;
   working: string | null;
-  act(jobIds: readonly string[], action: "cancel" | "retry" | "delete", key: string): Promise<void>;
+  act(jobIds: readonly string[], action: JobAction, key: string, options?: RetryOptions): Promise<boolean>;
 }): ReactNode {
   const [open, setOpen] = useState(job.status === "running");
+  const [retrying, setRetrying] = useState(false);
   const bodyId = useId();
   const done = batchJobDone(job);
   const finished = batchJobFinished(job);
   const title = `${label} · ${startedAt(job.createdAt)}`;
   const localeNames = job.locales.map((locale) => localeLabel(locale)).join(", ");
+  const written = job.counts.created + job.counts.updated;
+  // A cancel drops queued translations without a result; a selected-entries retry queues them again.
+  const notRun = job.status === "cancelled" && typeof job.entryCount === "number" ? Math.max(0, job.total - done) : 0;
+  const settingsSummary = jobSettingsSummary(job.settings);
+  const canRetry = (finished || job.status === "cancelled") && (job.counts.failed > 0 || notRun > 0 || written > 0 || job.listing);
 
   return (
     <li style={last ? undefined : itemStyle}>
@@ -174,6 +188,20 @@ function JobRow({
                 </TextTooltip>
               </>
             ) : null}
+            {job.retryOf === null ? null : (
+              <>
+                <span aria-hidden="true">·</span>
+                <span>Retry</span>
+              </>
+            )}
+            {settingsSummary === null ? null : (
+              <>
+                <span aria-hidden="true">·</span>
+                <TextTooltip content={job.settings?.instructions ? `${settingsSummary}: ${job.settings.instructions}` : settingsSummary}>
+                  Run settings
+                </TextTooltip>
+              </>
+            )}
           </small>
         </div>
         <div style={{ display: "grid", gap: 4, justifyItems: "end" }}>
@@ -204,8 +232,8 @@ function JobRow({
           {job.status === "cancelled" && done < job.total ? (
             <small style={mutedStyle}>
               {job.entryCount === "all" || job.listing
-                ? "The job was cancelled, so some translations didn't finish. Start another whole-collection job to finish them."
-                : `${job.total - done} of ${job.total} translations didn't finish because the job was cancelled. Start another job for those entries and locales to finish them.`}
+                ? "The job was cancelled, so some translations didn't finish. Retry... lists the rest of the collection, but entries already listed when it was cancelled need another whole-collection job."
+                : `${job.total - done} of ${job.total} translations didn't finish because the job was cancelled. Retry... runs them.`}
             </small>
           ) : null}
           <JobTabs job={job} done={done} urlContext={urlContext} />
@@ -215,9 +243,9 @@ function JobRow({
                 Cancel
               </Button>
             ) : null}
-            {job.counts.failed > 0 && (finished || job.status === "cancelled") ? (
-              <Button size="sm" variant="secondary" loading={working === job.id} onClick={() => void act([job.id], "retry", job.id)}>
-                Retry {job.counts.failed} failed
+            {canRetry && !retrying ? (
+              <Button size="sm" variant="secondary" disabled={working !== null} onClick={() => setRetrying(true)}>
+                Retry...
               </Button>
             ) : null}
             {canRemove(job) ? (
@@ -226,6 +254,22 @@ function JobRow({
               </Button>
             ) : null}
           </div>
+          {retrying ? (
+            <RetryForm
+              failed={job.counts.failed}
+              notRun={notRun}
+              moreToList={job.listing}
+              written={written}
+              initialSettings={job.settings}
+              working={working === job.id}
+              onRetry={(settings, redo) =>
+                void act([job.id], "retry", job.id, { settings, redo }).then((retried) => {
+                  if (retried) setRetrying(false);
+                })
+              }
+              onCancel={() => setRetrying(false)}
+            />
+          ) : null}
         </div>
       ) : null}
     </li>

@@ -15,6 +15,7 @@ import { InfoLabel, SectionHeader } from "../../../components/PageHeader/PageHea
 import { cardStyle, mutedStyle, rowStyle, sectionStyle, stackStyle } from "../../../styles.js";
 import { ErrorMessage } from "../../../components/ErrorMessage/ErrorMessage.js";
 import { LocalePicker } from "../../../components/LocalePicker/LocalePicker.js";
+import { EMPTY_JOB_SETTINGS, JobSettingsFields, jobSettingsPayload } from "../../../components/JobSettings/JobSettings.js";
 import { BatchJobs } from "./BatchJobs.js";
 import { CollectionSummary } from "./CollectionSummary.js";
 import { usePublicUrlContexts } from "./BatchResults.js";
@@ -63,6 +64,7 @@ export function BatchTab(): ReactNode {
   const [runner, setRunner] = useState<Runner>("browser");
   const [serverJobs, setServerJobs] = useState<BatchJobsResponse | null>(null);
   const [jobsRefresh, setJobsRefresh] = useState(0);
+  const [jobSettings, setJobSettings] = useState(EMPTY_JOB_SETTINGS);
   const urlContexts = usePublicUrlContexts();
 
   useEffect(() => {
@@ -189,7 +191,14 @@ export function BatchTab(): ReactNode {
     const { policy, fields } = loaded;
     const targets = policy.targetLocales.filter(({ locale }) => locales.includes(locale));
     const items = scope === "all" ? [] : [...selected.values()];
-    const options = { collection, sourceLocale: policy.sourceLocale ?? undefined, fields, updateExisting, publish };
+    const options = {
+      collection,
+      sourceLocale: policy.sourceLocale ?? undefined,
+      fields,
+      updateExisting,
+      publish,
+      settings: jobSettingsPayload(jobSettings),
+    };
     const runId = saveBatchRun({ collection, scope, items, targets, options, createdAt: Date.now(), localeTags: policy.localeTags });
     const url = batchRunUrl(window.location.pathname, runId);
     if (window.open(url, "_blank") === null) {
@@ -216,6 +225,7 @@ export function BatchTab(): ReactNode {
           locales,
           publish,
           updateExisting,
+          settings: jobSettingsPayload(jobSettings),
           ...(scope === "selected" ? { entryIds: [...selected.keys()] } : {}),
         }),
       });
@@ -407,6 +417,13 @@ export function BatchTab(): ReactNode {
                       disabled={running}
                       onCheckedChange={setUpdateExisting}
                     />
+                    <details>
+                      <summary>Run settings{jobSettingsPayload(jobSettings) === null ? "" : " (changed)"}</summary>
+                      <div style={{ ...stackStyle, marginTop: 12 }}>
+                        <span style={mutedStyle}>Change Translation settings for this run only. Empty fields keep them.</span>
+                        <JobSettingsFields value={jobSettings} disabled={running} onChange={setJobSettings} />
+                      </div>
+                    </details>
                   </>
                 )}
               </div>

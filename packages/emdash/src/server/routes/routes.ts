@@ -42,8 +42,12 @@ import {
   MAX_SANDBOX_CHARACTERS,
   MAX_BATCH_FAILURES_SHOWN,
   MAX_BATCH_TRANSLATIONS,
+  MAX_JOB_INSTRUCTION_CHARACTERS,
+  MAX_MAX_TOKENS,
+  MIN_MAX_TOKENS,
   type AiTranslationStatus,
   type BatchJobOutcome,
+  type BatchJobSettings,
   type BatchJobEntriesResponse,
   type BatchJobResultsResponse,
   type BatchJobsResponse,
@@ -82,6 +86,7 @@ import {
   recordBatchResult,
   type BatchMessage,
   type BatchTranslateResponse,
+  type BatchUpdatePayload,
   type StoredBatchJob,
   type StoredBatchParts,
 } from "../batch.js";
@@ -106,6 +111,7 @@ import {
   collectionSettings,
   defaultMaxTokens,
   effectiveModelChoice,
+  isMaxTokens,
   readCollectionPolicies,
   readRevision,
   runtimeLocaleEnabled,
@@ -390,7 +396,12 @@ export function createPluginRoutes(
             );
           }
 
-          const settings = await translationSettings(options, targetLocale, ctx.settings, ctx.log, dependencies);
+          // Model and token choices are an administrator's, as in Translation settings.
+          if (input.settings !== undefined && input.settings !== null && (ctx.user?.role ?? 0) < ADMIN_ROLE) {
+            throw PluginRouteError.forbidden("only administrators can change translation settings for a run");
+          }
+          const jobSettings = await readJobSettingsInput(input.settings, options, await dependencies.getEnv(), dependencies, ctx.log);
+          const settings = await translationSettings(options, targetLocale, ctx.settings, ctx.log, dependencies, jobSettings);
           if (settings.debugEnabled && (ctx.user?.role ?? 0) >= ADMIN_ROLE) {
             debug = createTranslationDebugCollector({
               operation: "content",
@@ -670,7 +681,7 @@ export function createPluginRoutes(
           if (!options.models.allowed.includes(model)) {
             throw PluginRouteError.badRequest("model must be allowed by deployment configuration");
           }
-          const settings = await translationSettings(options, targetLocale, ctx.settings, ctx.log, dependencies, model);
+          const settings = await translationSettings(options, targetLocale, ctx.settings, ctx.log, dependencies, { model });
           if (settings.debugEnabled && (ctx.user?.role ?? 0) >= ADMIN_ROLE) {
             debug = createTranslationDebugCollector({
               operation: "sandbox",
@@ -758,7 +769,9 @@ export function createPluginRoutes(
           throw PluginRouteError.badRequest(`entryIds cannot be longer than ${MAX_ENTRY_ID_LENGTH} characters`);
         }
         await enabledCollectionPolicy(ctx.settings, collection);
-        const queue = batchQueue(options.batchQueueBinding, await dependencies.getEnv());
+        const env = await dependencies.getEnv();
+        const queue = batchQueue(options.batchQueueBinding, env);
+        const settings = await readJobSettingsInput(input.settings, options, env, dependencies, ctx.log);
         if (selectedIds === undefined) {
           const first = await contentAccess(ctx).list(collection, { where: { locale: sourceContentLocale() }, limit: 1 });
           if (first.items.length === 0) throw PluginRouteError.badRequest("the collection has no source entries to translate");
@@ -781,6 +794,8 @@ export function createPluginRoutes(
           listing: selectedIds === undefined ? { page: 0, cursor: null } : null,
           truncated: false,
           entryIds: selectedIds ?? "all",
+          settings,
+          retryOf: null,
         };
         await jobs.put(jobId, job);
         await enqueueBatchMessages(
@@ -805,31 +820,68 @@ export function createPluginRoutes(
     "batch/retry": {
       permission: "plugins:manage",
       methods: ["POST"],
+      // Starts a new job for the failed rows, and with `redo` the translations the job wrote, so each attempt keeps its settings.
       async handler(ctx) {
-        const jobId = readString(readRecord(ctx.input, "request body").jobId, "jobId");
+        const input = readRecord(ctx.input, "request body");
+        const jobId = readString(input.jobId, "jobId");
+        const redo = input.redo === undefined ? false : readBoolean(input.redo, "redo");
+        const env = await dependencies.getEnv();
+        const queue = batchQueue(options.batchQueueBinding, env);
+        const settings = await readJobSettingsInput(input.settings, options, env, dependencies, ctx.log);
         const { jobs, results } = batchStorage(ctx.storage);
-        const queue = batchQueue(options.batchQueueBinding, await dependencies.getEnv());
-        const failed: BatchMessage[] = [];
+        const original = await readBatchJob(jobs, jobId);
+        if (original === null) throw PluginRouteError.notFound("batch job not found");
+        if ((await batchJobView(results, jobId, original)).status === "running") {
+          throw PluginRouteError.conflict("Cancel the job before retrying it, or wait for it to finish.");
+        }
+        const retryId = crypto.randomUUID();
+        const messages: BatchMessage[] = [];
+        const recorded = new Set<string>();
         let cursor: string | undefined;
         do {
-          const page = await results.query({
-            where: { jobId, outcome: "failed" },
-            limit: 100,
-            ...(cursor === undefined ? {} : { cursor }),
-          });
+          const page = await results.query({ where: { jobId }, limit: 100, ...(cursor === undefined ? {} : { cursor }) });
           for (const { data } of page.items) {
             const row = parseStoredResult(data);
-            if (row !== null) failed.push({ jobId, entryId: row.entryId, locale: row.locale });
+            if (row === null) continue;
+            recorded.add(JSON.stringify([row.entryId, row.locale]));
+            const message = { jobId: retryId, entryId: row.entryId, locale: row.locale };
+            if (row.outcome === "failed") messages.push(message);
+            // Rows recorded before links existed can't say which translation to redo.
+            else if (redo && row.outcome !== "skipped" && row.translation !== null) messages.push({ ...message, redo: row.translation.id });
           }
           cursor = page.hasMore ? page.cursor : undefined;
         } while (cursor !== undefined);
-        const job = await updateBatchJobStatus(jobs, jobId, "running");
-        // Failed rows stay until their retry records a new outcome over them. Listing resumes where it stopped.
+        // A cancel drops queued messages without a row, so those translations never ran.
+        if (original.status === "cancelled" && Array.isArray(original.entryIds)) {
+          for (const entryId of original.entryIds) {
+            for (const locale of original.locales) {
+              if (!recorded.has(JSON.stringify([entryId, locale]))) messages.push({ jobId: retryId, entryId, locale });
+            }
+          }
+        }
+        if (messages.length === 0 && original.listing === null) throw PluginRouteError.badRequest("this job has nothing to retry");
+        const job: StoredBatchJob = {
+          collection: original.collection,
+          locales: original.locales,
+          total: messages.length,
+          status: "running",
+          publish: original.publish,
+          updateExisting: original.updateExisting,
+          createdAt: dependencies.now().toISOString(),
+          createdBy: ctx.user?.id ?? original.createdBy,
+          // A job cancelled while listing hands the rest of the collection to its retry.
+          listing: original.listing === null ? null : { page: 0, cursor: original.listing.cursor },
+          truncated: false,
+          entryIds: original.listing === null ? [...new Set(messages.map(({ entryId }) => entryId))] : "all",
+          settings,
+          retryOf: jobId,
+        };
+        await jobs.put(retryId, job);
         await enqueueBatchMessages(queue, [
-          ...failed,
-          ...(job.listing === null ? [] : [{ kind: "list" as const, jobId, page: job.listing.page }]),
+          ...messages,
+          ...(job.listing === null ? [] : [{ kind: "list" as const, jobId: retryId, page: 0 }]),
         ]);
-        return batchJobView(results, jobId, job);
+        return batchJobView(results, retryId, job);
       },
     },
     // Removes a finished or cancelled job and its result rows from the jobs list. Translations it created stay.
@@ -939,7 +991,25 @@ export function createPluginRoutes(
                   slug: existing.slug,
                   published: existing.status === "published",
                 };
-          if (existingLink !== null) {
+          if (message.redo !== undefined) {
+            if (existingLink?.id !== message.redo) {
+              if (part > 0) await results.delete(batchPartsId(message));
+              return await record("skipped", "The translation this job created no longer exists, so it was not redone.", existingLink);
+            }
+            if (part > 0 && stored?.rev === undefined) return await record("failed", SOURCE_CHANGED);
+            if (rev === undefined) {
+              return {
+                create: null,
+                readRevision: { collection, id: existingLink.id, locale: existingLink.locale },
+              } satisfies BatchTranslateResponse;
+            }
+            // Checked after the consumer read `_rev` and on every part: an earlier edit shows here, a later one conflicts on save.
+            const problem = await redoProblem(ctx, collection, message.redo);
+            if (problem !== null) {
+              if (part > 0) await results.delete(batchPartsId(message));
+              return await record("skipped", problem, existingLink);
+            }
+          } else if (existingLink !== null) {
             if (job.updateExisting && part > 0 && stored === null) return await record("failed", SOURCE_CHANGED);
             // A translation that appeared after part 0 of a create was made by someone else, so it is left alone.
             if (!job.updateExisting || (part > 0 && rev === undefined)) {
@@ -977,7 +1047,7 @@ export function createPluginRoutes(
             }
             for (const [id, text] of Object.entries(stored.translations)) translations.set(id, text);
           }
-          const settings = await translationSettings(options, message.locale, ctx.settings, ctx.log, dependencies);
+          const settings = await translationSettings(options, message.locale, ctx.settings, ctx.log, dependencies, job.settings);
           const result = await translateContentPart(plan, part, {
             translator: settings.translator,
             glossary: settings.glossary,
@@ -989,7 +1059,7 @@ export function createPluginRoutes(
           });
           for (const [id, text] of result.translations) translations.set(id, text);
           if (part + 1 < plan.parts.length) {
-            const { jobId, entryId, locale } = message;
+            const { jobId, entryId, locale, redo: redoId } = message;
             const next: StoredBatchParts = {
               jobId,
               entryId,
@@ -1001,7 +1071,7 @@ export function createPluginRoutes(
             };
             await results.put(batchPartsId(message), next);
             await enqueueBatchMessages(batchQueue(options.batchQueueBinding, await dependencies.getEnv()), [
-              { jobId, entryId, locale, part: part + 1 },
+              { jobId, entryId, locale, part: part + 1, ...(redoId === undefined ? {} : { redo: redoId }) },
             ]);
             return { create: null } satisfies BatchTranslateResponse;
           }
@@ -1175,6 +1245,19 @@ async function savedEntryData(
   return { ...item.data, ...Object.fromEntries(Object.entries(revision.data).filter(([key]) => !key.startsWith("_"))) };
 }
 
+/** Why a retry must leave a translation an earlier job wrote alone: published, scheduled, or edited since; `null` to redo it. */
+async function redoProblem(ctx: RouteContext, collection: string, translationId: string): Promise<string | null> {
+  const content = contentAccess(ctx);
+  const item = await content.get(collection, translationId);
+  if (item === null) return "The translation this job created no longer exists, so it was not redone.";
+  if (item.status !== "draft") return "The translation is published or scheduled, so it was not redone.";
+  const hashes = readFieldHashes(recordValue(await ctx.storage[AI_TRANSLATIONS_COLLECTION]?.get(translationId)).fieldHashes);
+  const data = hashes === null ? null : await savedEntryData(content, collection, item);
+  if (hashes === null || data === null) return "PolyStella can't tell whether the translation was edited, so it was not redone.";
+  if ((await changedFields(data, hashes)).length > 0) return "The translation was edited after PolyStella wrote it, so it was not redone.";
+  return null;
+}
+
 async function aiTranslationTarget(ctx: RouteContext, input: Record<string, unknown>) {
   const collection = readString(input.collection, "collection");
   const entryId = readString(input.entryId, "entryId");
@@ -1202,7 +1285,7 @@ async function aiTranslationInput(ctx: RouteContext, options: PolystellaEmdashOp
     collection: target.collection,
     entryId: target.entryId,
     locale,
-    model: effectiveModelChoice(options, stored, locale).model,
+    model: (await runModelOverride(ctx, input, options)) ?? effectiveModelChoice(options, stored, locale).model,
     aiTranslatedAt: dependencies.now().toISOString(),
   };
   return { ...target, input, fields, meta };
@@ -1212,6 +1295,23 @@ async function aiTranslationInput(ctx: RouteContext, options: PolystellaEmdashOp
 function contentNotice(plan: ContentPlan, patch: Record<string, unknown>): string | null {
   const notices = [unlistedBlocksNotice(plan), samePageLinksNotice(patch)].filter((notice) => notice !== null);
   return notices.length === 0 ? null : notices.join(" ");
+}
+
+/** The model a batch run chose: the queue sends its `jobId`, an administrator's browser run sends `model`. */
+async function runModelOverride(
+  ctx: RouteContext,
+  input: Record<string, unknown>,
+  options: PolystellaEmdashOptions,
+): Promise<string | null> {
+  if (input.jobId !== undefined) {
+    const job = await readBatchJob(batchStorage(ctx.storage).jobs, readString(input.jobId, "jobId"));
+    return job?.settings?.model ?? null;
+  }
+  if (input.model === undefined) return null;
+  const model = readString(input.model, "model");
+  if ((ctx.user?.role ?? 0) < ADMIN_ROLE) throw PluginRouteError.forbidden("only administrators can choose the model of a run");
+  if (!options.models.allowed.includes(model)) throw PluginRouteError.badRequest("model must be allowed by deployment configuration");
+  return model;
 }
 
 function recordValue(value: unknown): Record<string, unknown> {
@@ -1254,6 +1354,8 @@ async function batchJobView(results: StorageCollection, id: string, job: StoredB
     collection: job.collection,
     locales: job.locales,
     total: job.total,
+    settings: job.settings,
+    retryOf: job.retryOf,
     status:
       job.status === "cancelled"
         ? "cancelled"
@@ -1455,7 +1557,7 @@ async function translationSettings(
   settings: SettingsAccess,
   log: LogAccess,
   dependencies: PluginRouteDependencies,
-  modelOverride?: string | undefined,
+  overrides: Partial<BatchJobSettings> | null = null,
 ): Promise<{
   translator: Translator;
   glossary: Glossary;
@@ -1470,22 +1572,28 @@ async function translationSettings(
   const stored = storedSettings.locales[locale];
   if (stored === undefined) throw PluginRouteError.internal(`translation settings for ${locale} are unavailable`);
   const choice = effectiveModelChoice(options, storedSettings, locale);
+  const modelOverride = overrides?.model ?? null;
+  // A job's stored model may have been removed from the deployment since it started.
+  if (modelOverride !== null && !options.models.allowed.includes(modelOverride)) {
+    throw PluginRouteError.badRequest(`model ${modelOverride} is no longer allowed by deployment configuration`);
+  }
   const model = modelOverride ?? choice.model;
   if (stored.glossaryText.length > MAX_GLOSSARY_CHARACTERS) {
     throw PluginRouteError.badRequest(`glossary text for ${locale} cannot exceed ${MAX_GLOSSARY_CHARACTERS} characters`);
   }
   const glossary = resolveGlossary(options.glossaryDefaults?.[locale], stored.glossaryMode, stored.glossaryText.trim());
-  const promptInstruction = resolveInstructions(
+  const configuredInstruction = resolveInstructions(
     options.rules ?? [],
     storedSettings.instructions.mode,
     storedSettings.instructions.text.trim(),
   );
-  if (promptInstruction.length > MAX_INSTRUCTION_CHARACTERS) {
+  if (configuredInstruction.length > MAX_INSTRUCTION_CHARACTERS) {
     throw PluginRouteError.badRequest(`translation instructions cannot exceed ${MAX_INSTRUCTION_CHARACTERS} characters`);
   }
-  const maxTokens = storedSettings.maxTokens ?? defaultMaxTokens(options);
+  const promptInstruction = [configuredInstruction, overrides?.instructions?.trim() ?? ""].filter((text) => text.length > 0).join("\n");
+  const maxTokens = overrides?.maxTokens ?? storedSettings.maxTokens ?? defaultMaxTokens(options);
   // An admin's thinking choice goes with the model they picked; the code default comes from `models.params`.
-  const effort = model === choice.model ? choice.reasoning : null;
+  const effort = overrides?.reasoning ?? (model === choice.model ? choice.reasoning : null);
   const thinking = await reasoningInput(options, env, model, effort, dependencies, log);
   const translator = createTranslator(options, env, model, locale, log, dependencies, maxTokens, thinking);
   return {
@@ -1497,6 +1605,37 @@ async function translationSettings(
     maxTokens,
     ...(promptInstruction.length === 0 ? {} : { promptInstruction }),
   };
+}
+
+/** Settings an administrator chose for a job; `null` when they change nothing. */
+async function readJobSettingsInput(
+  value: unknown,
+  options: PolystellaEmdashOptions,
+  env: Record<string, unknown> | undefined,
+  dependencies: PluginRouteDependencies,
+  log: LogAccess,
+): Promise<BatchJobSettings | null> {
+  if (value === undefined || value === null) return null;
+  const input = readRecord(value, "settings");
+  const model = input.model === undefined || input.model === null ? null : readString(input.model, "settings.model");
+  if (model !== null && !options.models.allowed.includes(model)) {
+    throw PluginRouteError.badRequest("settings.model must be allowed by deployment configuration");
+  }
+  const reasoning = input.reasoning === undefined || input.reasoning === null ? null : readString(input.reasoning, "settings.reasoning");
+  if (reasoning !== null) {
+    if (model === null) throw PluginRouteError.badRequest("settings.reasoning needs settings.model");
+    const capability = await readReasoningCapability(options, env, model, dependencies, log);
+    if (capability?.has(reasoning) !== true)
+      throw PluginRouteError.badRequest(`settings.reasoning is not a thinking effort ${model} accepts`);
+  }
+  const maxTokens = input.maxTokens === undefined || input.maxTokens === null ? null : input.maxTokens;
+  if (maxTokens !== null && !isMaxTokens(maxTokens)) {
+    throw PluginRouteError.badRequest(`settings.maxTokens must be null or an integer from ${MIN_MAX_TOKENS} to ${MAX_MAX_TOKENS}`);
+  }
+  const instructions =
+    input.instructions === undefined ? "" : readText(input.instructions, "settings.instructions", MAX_JOB_INSTRUCTION_CHARACTERS).trim();
+  if (model === null && maxTokens === null && instructions.length === 0) return null;
+  return { model, reasoning, maxTokens, instructions };
 }
 
 /** Catalog failures become a 503 so callers can tell them apart from "no switch". */

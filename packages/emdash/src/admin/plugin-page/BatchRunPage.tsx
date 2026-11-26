@@ -4,9 +4,12 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { errorMessage, localeLabel, plural, pluginPageUrl, rememberLocaleTags } from "../utils.js";
 import { PageTitle, SectionHeader } from "../components/PageHeader/PageHeader.js";
 import { cardStyle, mutedStyle, pageStyle, rowStyle, sectionStyle, stackStyle } from "../styles.js";
+import type { BatchJobSettings } from "../../contracts.js";
 import { ErrorMessage } from "../components/ErrorMessage/ErrorMessage.js";
+import { jobSettingsSummary } from "../components/JobSettings/JobSettings.js";
 import { TranslationProgress } from "../components/TranslationProgress/TranslationProgress.js";
 import { BatchResultsTable, usePublicUrlContexts } from "./tabs/BatchTab/BatchResults.js";
+import { RetryForm } from "./tabs/BatchTab/RetryForm.js";
 import {
   clearBatchRun,
   loadAllItems,
@@ -21,6 +24,10 @@ import {
 } from "./tabs/BatchTab/helpers.js";
 
 const CONCURRENCY = 3;
+
+function isWritten(result: BatchResult): boolean {
+  return (result.outcome === "created" || result.outcome === "updated") && result.translation !== null;
+}
 
 /** A browser batch run in its own tab, opened from the Batch translation page. */
 export function BatchRunPage(): ReactNode {
@@ -37,6 +44,8 @@ export function BatchRunPage(): ReactNode {
   const [total, setTotal] = useState(0);
   const [results, setResults] = useState<BatchResult[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [settings, setSettings] = useState<BatchJobSettings | null>(plan?.options.settings ?? null);
+  const [retrying, setRetrying] = useState(false);
   const stopRequested = useRef(false);
   const urlContexts = usePublicUrlContexts();
 
@@ -67,7 +76,7 @@ export function BatchRunPage(): ReactNode {
     return () => window.removeEventListener("beforeunload", warn);
   }, [running]);
 
-  async function run(jobs: readonly BatchJob[]): Promise<void> {
+  async function run(jobs: readonly BatchJob[], runSettings: BatchJobSettings | null): Promise<void> {
     if (plan === null) return;
     setError(null);
     setRunning(true);
@@ -78,7 +87,7 @@ export function BatchRunPage(): ReactNode {
         jobs,
         CONCURRENCY,
         async (job) => {
-          const result = await runBatchJob(job, plan.options);
+          const result = await runBatchJob(job, { ...plan.options, settings: runSettings });
           setResults((current) => [...current, result]);
         },
         () => stopRequested.current,
@@ -98,14 +107,21 @@ export function BatchRunPage(): ReactNode {
     clearBatchRun(runId);
     setStarted(true);
     setTotal(jobs.length);
-    void run(jobs);
+    void run(jobs, settings);
   }
 
-  function retryFailed(): void {
-    const failed = results.filter((result) => result.outcome === "failed");
+  function retry(retrySettings: BatchJobSettings | null, redo: boolean): void {
+    const retried = results.filter((result) => result.outcome === "failed" || (redo && isWritten(result)));
+    const jobs = retried.map(({ item, target, outcome, translation }) => ({
+      item,
+      target,
+      ...(outcome === "failed" || translation === null ? {} : { redo: translation }),
+    }));
     // Retried rows leave the table and come back with their new outcome, so the run total stays the same.
-    setResults((current) => current.filter((result) => result.outcome !== "failed"));
-    void run(failed);
+    setResults((current) => current.filter((result) => !retried.includes(result)));
+    setSettings(retrySettings);
+    setRetrying(false);
+    void run(jobs, retrySettings);
   }
 
   if (plan === null) {
@@ -126,8 +142,10 @@ export function BatchRunPage(): ReactNode {
   }
 
   const failed = results.filter((result) => result.outcome === "failed").length;
+  const written = results.filter(isWritten).length;
   const finished = started && !running;
   const action = `${plan.options.updateExisting ? "Create missing translations and update existing ones" : "Create missing translations, skipping existing ones"}, ${plan.options.publish ? "and publish them" : "as drafts"}.`;
+  const settingsSummary = jobSettingsSummary(settings);
 
   return (
     <main style={pageStyle}>
@@ -154,6 +172,7 @@ export function BatchRunPage(): ReactNode {
                 ? "Loading source entries..."
                 : `${plural(items.length, "entry", "entries")} × ${plural(plan.targets.length, "locale")} = ${plural(items.length * plan.targets.length, "translation")}.`}{" "}
               {action}
+              {settingsSummary === null ? null : ` Settings: ${settingsSummary}.`}
             </span>
             {started ? null : (
               <div>
@@ -181,12 +200,24 @@ export function BatchRunPage(): ReactNode {
             {stopping && running ? (
               <small style={mutedStyle}>Translations already started finish first. With a slow model, that can take a few minutes.</small>
             ) : null}
-            {!running && failed > 0 ? (
-              <Button variant="secondary" onClick={retryFailed}>
-                Retry {failed} failed
+            {!running && !retrying && (failed > 0 || written > 0) ? (
+              <Button variant="secondary" onClick={() => setRetrying(true)}>
+                Retry...
               </Button>
             ) : null}
           </div>
+        ) : null}
+        {retrying && !running ? (
+          <LayerCard style={cardStyle}>
+            <RetryForm
+              failed={failed}
+              written={written}
+              initialSettings={settings}
+              working={false}
+              onRetry={retry}
+              onCancel={() => setRetrying(false)}
+            />
+          </LayerCard>
         ) : null}
         {total === 0 ? null : (
           <TranslationProgress percent={Math.round((results.length / total) * 100)} label={`${results.length}/${total} translations`} />

@@ -84,6 +84,11 @@ same route and saves as the content-editor panel. Choose:
   translations are saved as drafts. When on, each created or updated
   translation is published right after it is saved. If publishing
   fails, the draft stays and its result row says why.
+- **Run settings** — closed at first. Changes Translation settings for
+  this run only: one **Model** for every target locale (with its
+  **Thinking**), **Max output tokens**, and **Extra instructions**
+  added after the translation instructions, such as "Don't translate
+  product names". Empty fields keep Translation settings.
 
 **Translate … in a new tab** opens a run page in a new browser tab, so
 you can keep using the admin. The run page shows what it will do and
@@ -93,8 +98,11 @@ closing, reloading, or leaving it stops the run. **Stop** lets
 in-flight translations finish and starts no new ones. Each entry and
 locale gets a result row (created, updated, skipped, or failed) with
 links that open in a new tab: **Edit**, **View live** for a published
-translation, and **Preview draft** for an unpublished one. **Retry
-failed** reruns only the failed rows. A run page that was already
+translation, and **Preview draft** for an unpublished one. **Retry...**
+opens the run settings, filled in with the ones the run used, and
+reruns the failed rows. **Also redo the translations it wrote**
+translates the rows the run created or updated again, in place; any
+that were published, scheduled, or edited since are skipped. A run page that was already
 started, or never started within a day, can't be reopened. Debug
 traces are not collected for batch runs.
 
@@ -109,14 +117,19 @@ editor saves meanwhile is skipped instead of overwritten.
 The tab lists the last ten jobs under the run button. Each row is
 named after the collection and the time the job started, with its
 status, locales, entries, whether it publishes or updates existing
-translations (hover for details), and a bar split into created,
+translations (hover for details), whether it is a retry, its run
+settings (hover for details), and a bar split into created,
 updated, skipped and failed. A running job opens on its own; open any
 other to see its tabs: **Entries** (the selected source entries, each
 opening in the editor in a new tab), **Results** (every row with the
 same links as browser runs), and **Failures**. It also offers
 **Cancel** (queued entries finish without translating; the job then
-says how many translations didn't finish), **Retry failed**, and
-**Remove**, which takes a finished or cancelled job off the list.
+says how many translations didn't finish), **Retry...** on a finished
+or cancelled job, and **Remove**, which takes a finished or cancelled job off the list.
+A retry is a new job, marked as a retry, with its own run settings: it
+reruns the failed rows, on a cancelled job also the selected entries
+that never ran, and, if you choose, redoes the translations the job
+wrote, with the same checks as browser runs.
 **Clear finished jobs** removes all of them; the translations they
 created stay. Jobs older than 30 days are deleted
 automatically when the list loads. The list refreshes every five
