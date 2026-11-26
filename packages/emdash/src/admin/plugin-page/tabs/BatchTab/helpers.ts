@@ -1,6 +1,7 @@
 import { ApiResponseError, fetchContent, fetchContentList, fetchTranslations, publishContent } from "@emdash-cms/admin";
 
 import {
+  MAX_BATCH_TRANSLATIONS,
   POLYSTELLA_PLUGIN_ID,
   type AiTranslationStatus,
   type BatchJobSettings,
@@ -10,7 +11,7 @@ import {
 } from "../../../../contracts.js";
 import { createTranslatedEntry, translateExistingEntry } from "../../../content-translation.js";
 import { panelErrorMessage } from "../../../panels/ContentEditorPanel.js";
-import { pluginRequest } from "../../../utils.js";
+import { plural, pluginRequest } from "../../../utils.js";
 
 export type BatchTargetLocale = CollectionPolicyResponse["targetLocales"][number];
 
@@ -71,6 +72,7 @@ export interface BatchJobOptions {
 /** What the Batch tab hands to the run tab. `items` is empty for a whole-collection run; the run tab lists them. */
 export interface BatchRunPlan {
   collection: string;
+  collectionLabel?: string | undefined;
   scope: "all" | "selected";
   items: BatchItem[];
   targets: BatchTargetLocale[];
@@ -143,6 +145,57 @@ function isBatchRunPlan(value: unknown): value is BatchRunPlan {
   );
 }
 
+/** The server's own limit message, so browser runs stop at the same size queued jobs do. */
+export function batchSizeError(translations: number): string | null {
+  return translations > MAX_BATCH_TRANSLATIONS
+    ? `A batch job cannot contain more than ${MAX_BATCH_TRANSLATIONS.toLocaleString()} translations; select fewer entries or locales.`
+    : null;
+}
+
+export function countOutcomes(results: readonly { outcome: BatchOutcome }[]): Record<BatchOutcome, number> {
+  const counts = { created: 0, updated: 0, skipped: 0, failed: 0 };
+  for (const { outcome } of results) counts[outcome] += 1;
+  return counts;
+}
+
+export interface BatchRunEndState {
+  variant: "default" | "alert" | "error";
+  title: string;
+  description: string;
+}
+
+/** `null` while the run hasn't ended. `done` counts rows with a result; the rest never started. */
+export function batchRunEndState(run: {
+  started: boolean;
+  running: boolean;
+  total: number;
+  done: number;
+  failed: number;
+  error: string | null;
+}): BatchRunEndState | null {
+  if (!run.started || run.running) return null;
+  const left = run.total - run.done;
+  const failedNote = run.failed === 0 ? "" : ` ${plural(run.failed, "translation")} failed; retry them below.`;
+  if (run.error !== null) {
+    return {
+      variant: "error",
+      title: "The run stopped with an error",
+      description: `${run.done} of ${run.total} translations ran before the error; ${left} did not start.${failedNote}`,
+    };
+  }
+  if (left > 0) {
+    return {
+      variant: "alert",
+      title: `Stopped after ${run.done} of ${run.total}`,
+      description: `${left} not started. Translations that finished are saved.${failedNote}`,
+    };
+  }
+  if (run.failed > 0) {
+    return { variant: "alert", title: `Finished with ${run.failed} failed`, description: `The other translations are saved.${failedNote}` };
+  }
+  return { variant: "default", title: "Finished", description: "Every translation ran. You can close this tab." };
+}
+
 export function batchJobDone(job: BatchJobView): number {
   return job.counts.created + job.counts.updated + job.counts.skipped + job.counts.failed;
 }
@@ -153,6 +206,42 @@ export function batchJobFinished(job: BatchJobView): boolean {
 
 export function planBatchJobs(items: readonly BatchItem[], targets: readonly BatchTargetLocale[]): BatchJob[] {
   return items.flatMap((item) => targets.map((target) => ({ item, target })));
+}
+
+export function batchJobKey(job: BatchJob): string {
+  return `${job.item.id}:${job.target.locale}`;
+}
+
+/** Planned jobs that have no result yet, in plan order. */
+export function jobsLeft(planned: readonly BatchJob[], results: readonly BatchJob[]): BatchJob[] {
+  const ran = new Set(results.map(batchJobKey));
+  return planned.filter((job) => !ran.has(batchJobKey(job)));
+}
+
+export function isWrittenResult(result: BatchResult): boolean {
+  return (result.outcome === "created" || result.outcome === "updated") && result.translation !== null;
+}
+
+/**
+ * A browser-run retry: failed rows keep any redo they had, and with `redo` the rows the run wrote are redone.
+ * Retried rows leave `results` and come back with their new outcome; `planned` keeps their redo for a later continue.
+ */
+export function planRetry(
+  planned: readonly BatchJob[],
+  results: readonly BatchResult[],
+  redo: boolean,
+): { jobs: BatchJob[]; planned: BatchJob[]; results: BatchResult[] } {
+  const retried = results.filter((result) => result.outcome === "failed" || (redo && isWrittenResult(result)));
+  const jobs: BatchJob[] = retried.map(({ item, target, outcome, translation, redo: previousRedo }) => {
+    const again = outcome === "failed" ? previousRedo : (translation ?? undefined);
+    return again === undefined ? { item, target } : { item, target, redo: again };
+  });
+  const byKey = new Map(jobs.map((job) => [batchJobKey(job), job]));
+  return {
+    jobs,
+    planned: planned.map((job) => byKey.get(batchJobKey(job)) ?? job),
+    results: results.filter((result) => !retried.includes(result)),
+  };
 }
 
 /** Older rows may store the catalog code ("fr-FR") instead of the Astro locale path ("fr"). */
@@ -238,6 +327,12 @@ export interface CollectionTranslationStats {
   publishedSourceEntries: number;
   /** Source entries with no translation, keyed by target locale. */
   untranslated: Record<string, number>;
+}
+
+/** Translations a whole-collection run makes: every source entry × locale, `toCreate` of them new. */
+export function collectionRunCounts(stats: CollectionTranslationStats, locales: readonly string[]): { total: number; toCreate: number } {
+  const toCreate = locales.reduce((sum, locale) => sum + (stats.untranslated[locale] ?? 0), 0);
+  return { total: locales.length * stats.sourceEntries, toCreate };
 }
 
 /** Counts from one paged list per locale, matched by translation group, instead of a request per entry. */

@@ -40,7 +40,6 @@ import {
   MAX_CONTENT_FIELDS,
   isSeoField,
   MAX_SANDBOX_CHARACTERS,
-  MAX_BATCH_FAILURES_SHOWN,
   MAX_BATCH_TRANSLATIONS,
   MAX_JOB_INSTRUCTION_CHARACTERS,
   MAX_MAX_TOKENS,
@@ -1142,10 +1141,18 @@ export function createPluginRoutes(
         const query = readRecord(ctx.input, "query");
         const jobId = readString(query.jobId, "jobId");
         const cursor = query.cursor === undefined ? undefined : readString(query.cursor, "cursor");
+        const outcome = query.outcome;
+        if (outcome !== undefined && outcome !== "created" && outcome !== "updated" && outcome !== "skipped" && outcome !== "failed") {
+          throw PluginRouteError.badRequest("outcome must be created, updated, skipped, or failed");
+        }
         const { jobs, results } = batchStorage(ctx.storage);
         const job = await readBatchJob(jobs, jobId);
         if (job === null) throw PluginRouteError.notFound("batch job not found");
-        const page = await results.query({ where: { jobId }, limit: BATCH_RESULTS_PAGE_SIZE, ...(cursor === undefined ? {} : { cursor }) });
+        const page = await results.query({
+          where: { jobId, ...(outcome === undefined ? {} : { outcome }) },
+          limit: BATCH_RESULTS_PAGE_SIZE,
+          ...(cursor === undefined ? {} : { cursor }),
+        });
         const rows = page.items.flatMap(({ data }) => {
           const row = parseStoredResult(data);
           return row === null ? [] : [row];
@@ -1342,12 +1349,11 @@ async function updateBatchJobStatus(jobs: StorageCollection, jobId: string, stat
 
 async function batchJobView(results: StorageCollection, id: string, job: StoredBatchJob): Promise<BatchJobView> {
   const countOutcome = (outcome: BatchJobOutcome) => results.count({ jobId: id, outcome });
-  const [created, updated, skipped, failed, failures] = await Promise.all([
+  const [created, updated, skipped, failed] = await Promise.all([
     countOutcome("created"),
     countOutcome("updated"),
     countOutcome("skipped"),
     countOutcome("failed"),
-    results.query({ where: { jobId: id, outcome: "failed" }, limit: MAX_BATCH_FAILURES_SHOWN }),
   ]);
   return {
     id,
@@ -1369,10 +1375,6 @@ async function batchJobView(results: StorageCollection, id: string, job: StoredB
     truncated: job.truncated,
     entryCount: Array.isArray(job.entryIds) ? job.entryIds.length : job.entryIds,
     counts: { created, updated, skipped, failed },
-    failures: failures.items.flatMap(({ data }) => {
-      const row = parseStoredResult(data);
-      return row === null ? [] : [{ entryId: row.entryId, locale: row.locale, message: row.message }];
-    }),
   };
 }
 

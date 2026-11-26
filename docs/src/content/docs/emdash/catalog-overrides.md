@@ -19,9 +19,15 @@ Entries are grouped by their first key segment. A group with an
 `i18n_group_title` displays that title with the group key alongside;
 groups without one fall back to the key. The left column lists the
 groups alphabetically; click one to show its keys in the card on the
-right. The first group opens on load. Within a group, keys are shown
+right. In a column narrower than 720px, a **Translation group** select
+replaces the list and each key is a stacked row instead of a table
+row. The first group opens on load. Within a group, keys are shown
 without the group prefix. A search box above the list filters groups
-by title, group key, entry key or source text. Source cells containing
+by title or group key, and keys by key or source text; when a group's
+own name matches, all its keys stay. An override's text box stays
+closed behind **Edit** until you change it. The action bar stays at the
+bottom of the screen with the number of unsaved changes and a
+**Discard** button, and says why a disabled action is disabled. Source cells containing
 `{{variables}}` placeholders show a question-mark icon before the text;
 hovering or clicking it explains that overrides should retain those
 placeholders. Saving an override that is not a valid
@@ -39,19 +45,27 @@ Each entry in the catalog view is one of:
 | `synced`  | An override exists and matches the deployed value.                |
 | `missing` | An override exists for a key absent from the deployed dictionary. |
 
+The override switch shows whether an override exists. A **Synced** or
+**Not deployed** badge marks the other two states, and **Unsaved**
+marks a change you haven't saved.
+
 **Clear synced overrides** deletes every `synced` override for the
 selected locale in one step, typically after a deploy has absorbed
-them. Any override edited while the clear runs is kept and reported.
+them. It reports how many it cleared. Any override edited while the
+clear runs is kept and reported.
 
 Saves are conditional: if another Administrator changed the same
 override after you loaded the catalog, the save is rejected with a
-conflict instead of overwriting their value. Reload and reapply.
+conflict instead of overwriting their value. Select **Reload catalog**
+and reapply.
 
 ## Runtime enablement
 
 Runtime overrides are disabled per locale until an Administrator
-explicitly enables them. A locale with runtime overrides disabled
-serves the deployed dictionary untouched.
+explicitly enables them with **Apply overrides**. Opening the Catalog
+page shows the saved setting and never changes it. The switch can be
+turned on once the locale has a saved override. A locale with runtime
+overrides disabled serves the deployed dictionary untouched.
 
 ## How the Astro integration reads them
 
@@ -101,7 +115,9 @@ configured `filePath`.
   locale keys; unknown keys are rejected.
 - Per-key override length is capped at 20,000 characters and the
   total across a locale at 100,000, distributed across keys.
-- The catalog view and generation cap at 100 keys per request.
+- The catalog view and generation cap at 100 keys per request. The
+  page shows how many are selected, and says when a group's selection
+  is full.
 - Keys matching [`catalog.ignoreKeys`](/emdash/configuration/#catalog)
   can't be overridden; JSON export keeps them as they are.
 - Overrides are validated in the configured

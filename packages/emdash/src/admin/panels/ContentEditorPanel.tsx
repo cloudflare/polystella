@@ -18,6 +18,7 @@ import {
   formatErrorDetails,
   isPolicyField,
   localeLabel,
+  plural,
   pluginPageUrl,
   pluginRequest,
   removeTranslationDebug,
@@ -36,7 +37,15 @@ const ADMIN_ROLE = 50;
 
 interface PanelError {
   message: string;
+  /** One line per locale when several drafts failed. */
+  items?: string[] | undefined;
   details: string;
+}
+
+interface PanelWarning {
+  lines: string[];
+  /** The editor shows saved values only after a reload. */
+  reload: boolean;
 }
 
 /** EmDash 1.5+ hides the section until this is true. A failed policy read still shows the panel, so it can show the error. */
@@ -61,7 +70,7 @@ export function ContentEditorPanel({ collection, entry, locale, editorDraft }: C
   const [schema, setSchema] = useState<CollectionSchema | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
   const [error, setError] = useState<PanelError | null>(null);
-  const [warning, setWarning] = useState<string | null>(null);
+  const [warning, setWarning] = useState<PanelWarning | null>(null);
   const [applied, setApplied] = useState<string | null>(null);
   const [loadAttempt, setLoadAttempt] = useState(0);
   const [hidden, setHidden] = useState(false);
@@ -136,7 +145,7 @@ export function ContentEditorPanel({ collection, entry, locale, editorDraft }: C
     }
     if (
       !window.confirm(
-        `PolyStella translates the latest saved ${policy?.sourceLocale ?? "source"} values into this ${targetLocale} draft, replaces the selected fields, and reloads the editor. Unsaved changes will be lost. Continue?`,
+        `PolyStella translates the latest saved ${policy === null || policy.sourceLocale === null ? "source" : localeLabel(policy.sourceLocale)} values into this ${localeLabel(targetLocale)} draft, replaces the selected fields, and reloads the editor. Unsaved changes will be lost. Continue?`,
       )
     ) {
       return;
@@ -174,7 +183,7 @@ export function ContentEditorPanel({ collection, entry, locale, editorDraft }: C
       // A reload would hide the warning, so the editor asks for one instead.
       const warning = [result.flagWarning, result.notice].filter((part) => part !== null).join(" ");
       if (warning !== "") {
-        setWarning(`${warning} Reload the page to see the translated fields.`);
+        setWarning({ lines: [`${warning} Reload the page to see the translated fields.`], reload: true });
         return;
       }
       window.location.reload();
@@ -223,7 +232,7 @@ export function ContentEditorPanel({ collection, entry, locale, editorDraft }: C
         ].join(" "),
       );
       const warning = [result.flagWarning, result.notice].filter((part) => part !== null).join(" ");
-      if (warning !== "") setWarning(warning);
+      if (warning !== "") setWarning({ lines: [warning], reload: false });
     } catch (cause) {
       setError(panelError(cause));
     } finally {
@@ -239,19 +248,16 @@ export function ContentEditorPanel({ collection, entry, locale, editorDraft }: C
     setWarning(null);
     setDebug(null);
     setCreated([]);
-    const failed: string[] = [];
-    const unflagged: string[] = [];
-    const noticed: string[] = [];
-    let notice = "";
-    let flagWarning = "";
-    let lastError = "";
+    const failures: Array<{ locale: string; cause: unknown }> = [];
+    const warnings: string[] = [];
     let lastCreated: { id: string; locale: string } | null = null;
     try {
       // One locale at a time keeps the progress readable and avoids provider rate limits.
       for (const [index, locale] of createLocales.entries()) {
         const step = (percent: number, label: string) =>
           setTranslationProgress({ percent: Math.round(((index + percent / 100) / createLocales.length) * 100), label });
-        step(15, `Loading the latest saved entry for ${locale}`);
+        const name = localeLabel(locale);
+        step(15, `Loading the latest saved entry for ${name}`);
         try {
           const result = await createTranslatedEntry({
             collection,
@@ -259,11 +265,11 @@ export function ContentEditorPanel({ collection, entry, locale, editorDraft }: C
             sourceLocale: entry.locale ?? undefined,
             locale,
             fields: selected,
-            onTranslating: () => step(45, `Translating selected fields into ${locale}`),
-            onPart: (part, partCount) => step(45, `Translating part ${part + 1} of ${partCount} into ${locale}`),
+            onTranslating: () => step(45, `Translating selected fields into ${name}`),
+            onPart: (part, partCount) => step(45, `Translating part ${part + 1} of ${partCount} into ${name}`),
             onTranslated: (trace) => {
               if (trace !== undefined) setDebug(trace);
-              step(85, `Creating the ${locale} draft`);
+              step(85, `Creating the ${name} draft`);
             },
           });
           if (result.entry === null) throw new Error(result.error);
@@ -271,31 +277,24 @@ export function ContentEditorPanel({ collection, entry, locale, editorDraft }: C
           if (result.debug !== undefined && currentUser.data !== undefined && currentUser.data.role >= ADMIN_ROLE) {
             storeTranslationDebug(collection, result.entry.id, createdLocale, currentUser.data.id, result.debug);
           }
-          if (result.flagWarning !== null) {
-            unflagged.push(createdLocale);
-            flagWarning = result.flagWarning;
-          }
-          if (result.notice !== null) {
-            noticed.push(createdLocale);
-            notice = result.notice;
-          }
+          const warning = [result.flagWarning, result.notice].filter((part) => part !== null).join(" ");
+          if (warning !== "") warnings.push(`${localeLabel(createdLocale)}: ${warning}`);
           const draft = { id: result.entry.id, locale: createdLocale };
           lastCreated = draft;
           setCreated((current) => [...current, draft]);
           setExistingLocales((current) => [...current, locale.toLowerCase(), createdLocale.toLowerCase()]);
         } catch (cause) {
-          failed.push(locale);
-          lastError = panelErrorMessage(cause, locale);
+          failures.push({ locale, cause });
         }
       }
-      setCreateLocales(failed);
-      const warnings = [
-        ...(unflagged.length > 0 ? [`${flagWarning} Affected locales: ${unflagged.join(", ")}.`] : []),
-        ...(noticed.length > 0 ? [`${notice} Drafts: ${noticed.join(", ")}.`] : []),
-      ];
-      if (warnings.length > 0) setWarning(warnings.join(" "));
-      if (failed.length > 0) {
-        setError(panelError(new Error(`${failed.length} of ${createLocales.length} drafts failed (${failed.join(", ")}): ${lastError}`)));
+      setCreateLocales(failures.map(({ locale }) => locale));
+      if (warnings.length > 0) setWarning({ lines: warnings, reload: false });
+      if (failures.length > 0) {
+        setError({
+          message: `Couldn't create ${createFailureScope(failures.length, createLocales.length)}:`,
+          items: failures.map(({ locale, cause }) => `${localeLabel(locale)}: ${panelErrorMessage(cause, localeLabel(locale))}`),
+          details: failures.map(({ locale, cause }) => `${locale}\n${formatErrorDetails(cause)}`).join("\n\n"),
+        });
       } else if (createLocales.length === 1 && lastCreated !== null && warnings.length === 0) {
         await navigate({
           to: "/content/$collection/$id",
@@ -309,6 +308,7 @@ export function ContentEditorPanel({ collection, entry, locale, editorDraft }: C
     }
   }
 
+  const isAdmin = currentUser.data !== undefined && currentUser.data.role >= ADMIN_ROLE;
   if (hidden) return null;
   if (policy === null || schema === null) {
     return error === null ? (
@@ -319,7 +319,6 @@ export function ContentEditorPanel({ collection, entry, locale, editorDraft }: C
   }
   // EmDash always renders the section header, so explain an empty panel instead of hiding it.
   if (!policy.enabled) {
-    const isAdmin = currentUser.data !== undefined && currentUser.data.role >= ADMIN_ROLE;
     return (
       <div style={stackStyle}>
         <small style={mutedStyle}>
@@ -328,11 +327,7 @@ export function ContentEditorPanel({ collection, entry, locale, editorDraft }: C
             ? "Enable it and choose its fields in PolyStella's Settings, on the Collections tab."
             : "Ask an administrator to enable it."}
         </small>
-        {isAdmin ? (
-          <span>
-            <NewWindowLink href={pluginPageUrl("/settings", { tab: "collections" })}>Open PolyStella settings</NewWindowLink>
-          </span>
-        ) : null}
+        {isAdmin ? <SettingsLink tab="collections" /> : null}
       </div>
     );
   }
@@ -358,34 +353,61 @@ export function ContentEditorPanel({ collection, entry, locale, editorDraft }: C
         </div>
       </div>
     );
+  // Shown even once every locale has an entry, so a warning about the last created draft isn't lost.
+  const notices = (
+    <>
+      {warning === null ? null : (
+        <Banner
+          variant="alert"
+          size="sm"
+          title="Check this translation"
+          description={<LinesList lines={warning.lines} />}
+          action={
+            <div style={rowStyle}>
+              {warning.reload ? (
+                <Button size="sm" variant="secondary" onClick={() => window.location.reload()}>
+                  Reload
+                </Button>
+              ) : null}
+              <Button size="sm" variant="ghost" onClick={() => setWarning(null)}>
+                Dismiss
+              </Button>
+            </div>
+          }
+        />
+      )}
+      {debug === null || !isAdmin ? null : <TranslationDebugView trace={debug} onDismiss={() => setDebug(null)} />}
+    </>
+  );
   if (isSourceEntry && creatableLocales.length === 0) {
     return (
       <div style={stackStyle}>
+        {notices}
         {createdDrafts}
-        <small style={mutedStyle}>Every configured locale already has an entry. Open one from Translations to update it.</small>
+        {policy.targetLocales.length === 0 ? (
+          <>
+            <small style={mutedStyle}>
+              No translation languages are configured, so there's nothing to translate into.{" "}
+              {isAdmin ? "Languages come from the site's PolyStella configuration." : "Ask an administrator to add one."}
+            </small>
+            {isAdmin ? <SettingsLink tab="translation" /> : null}
+          </>
+        ) : (
+          <small style={mutedStyle}>Every configured locale already has an entry. Open one from Translations to update it.</small>
+        )}
       </div>
     );
   }
   const run = isSourceEntry ? createTranslations : translate;
+  const fieldOptions = [
+    ...eligibleFields.map((field) => ({ slug: field.slug, label: `${field.label} (${field.slug})`, disabled: false })),
+    ...(isSourceEntry ? [] : seoFields.map((field) => ({ slug: field.slug, label: field.label, disabled: !seoAllowed }))),
+  ];
 
   return (
     <div style={stackStyle}>
       {error === null ? null : <PanelErrorMessage error={error} onDismiss={() => setError(null)} onRetry={() => void run()} />}
-      {warning === null ? null : (
-        <Banner
-          variant="alert"
-          title="Check this translation"
-          description={warning}
-          action={
-            <Button size="sm" variant="secondary" onClick={() => setWarning(null)}>
-              Dismiss
-            </Button>
-          }
-        />
-      )}
-      {debug === null || currentUser.data === undefined || currentUser.data.role < ADMIN_ROLE ? null : (
-        <TranslationDebugView trace={debug} onDismiss={() => setDebug(null)} />
-      )}
+      {notices}
       {isSourceEntry ? (
         <>
           <p style={mutedStyle}>Create a translated draft from this entry.</p>
@@ -419,32 +441,28 @@ export function ContentEditorPanel({ collection, entry, locale, editorDraft }: C
           {applied}
         </p>
       )}
-      {eligibleFields.map((field) => (
-        <Checkbox
-          key={field.slug}
-          label={`${field.label} (${field.slug})`}
-          checked={selected.includes(field.slug)}
-          disabled={translating || (!selected.includes(field.slug) && selected.length >= MAX_CONTENT_FIELDS)}
-          onCheckedChange={(checked) =>
-            setSelected((current) => (checked ? [...new Set([...current, field.slug])] : current.filter((value) => value !== field.slug)))
+      {fieldOptions.length === 0 ? null : (
+        <Checkbox.Group
+          legend="Fields to translate"
+          description={
+            fieldOptions.length > MAX_CONTENT_FIELDS
+              ? `${plural(fieldsToTranslate.length, "field")} selected. One translation takes up to ${MAX_CONTENT_FIELDS} fields, so the rest turn off at that limit.`
+              : `${plural(fieldsToTranslate.length, "field")} selected.`
           }
-        />
-      ))}
-      {isSourceEntry
-        ? null
-        : seoFields.map((field) => (
-            <Checkbox
-              key={field.slug}
-              label={field.label}
-              checked={seoAllowed && selected.includes(field.slug)}
-              disabled={translating || !seoAllowed || (!selected.includes(field.slug) && selected.length >= MAX_CONTENT_FIELDS)}
-              onCheckedChange={(checked) =>
-                setSelected((current) =>
-                  checked ? [...new Set([...current, field.slug])] : current.filter((value) => value !== field.slug),
-                )
-              }
+          value={fieldsToTranslate}
+          disabled={translating}
+          onValueChange={setSelected}
+        >
+          {fieldOptions.map((option) => (
+            <Checkbox.Item
+              key={option.slug}
+              value={option.slug}
+              label={option.label}
+              disabled={option.disabled || (!selected.includes(option.slug) && selected.length >= MAX_CONTENT_FIELDS)}
             />
           ))}
+        </Checkbox.Group>
+      )}
       {!isSourceEntry && seoFields.length > 0 && !seoAllowed ? (
         <details>
           <summary style={{ ...mutedStyle, cursor: "pointer" }}>
@@ -457,8 +475,14 @@ export function ContentEditorPanel({ collection, entry, locale, editorDraft }: C
           </small>
         </details>
       ) : null}
-      {eligibleFields.length === 0 && seoFields.length === 0 ? (
-        <small>No supported fields are configured for this collection.</small>
+      {fieldOptions.length === 0 ? (
+        <>
+          <small>
+            No supported fields are configured for this collection.
+            {isAdmin ? " Choose its fields in PolyStella's Settings, on the Collections tab." : " Ask an administrator to choose them."}
+          </small>
+          {isAdmin ? <SettingsLink tab="collections" /> : null}
+        </>
       ) : null}
       {translationProgress === null ? null : <TranslationProgress {...translationProgress} />}
       <Button
@@ -467,7 +491,11 @@ export function ContentEditorPanel({ collection, entry, locale, editorDraft }: C
         disabled={fieldsToTranslate.length === 0 || currentUser.data === undefined || (isSourceEntry && createLocales.length === 0)}
         onClick={() => void run()}
       >
-        {isSourceEntry ? createButtonLabel(createLocales) : "Translate"}
+        {isSourceEntry
+          ? createButtonLabel(createLocales)
+          : fieldsToTranslate.length === 0
+            ? "Select fields to translate"
+            : `Translate ${plural(fieldsToTranslate.length, "field")}`}
       </Button>
     </div>
   );
@@ -477,10 +505,12 @@ function PanelErrorMessage({ error, onDismiss, onRetry }: { error: PanelError; o
   return (
     <Banner
       variant="error"
+      size="sm"
       title="PolyStella couldn't complete that request"
       description={
         <div style={stackStyle}>
           <span>{error.message}</span>
+          {error.items === undefined ? null : <LinesList lines={error.items} />}
           <details>
             <summary>Show error details</summary>
             <pre style={codeStyle}>{error.details}</pre>
@@ -499,6 +529,31 @@ function PanelErrorMessage({ error, onDismiss, onRetry }: { error: PanelError; o
       }
     />
   );
+}
+
+function LinesList({ lines }: { lines: readonly string[] }): ReactNode {
+  if (lines.length === 1) return <span>{lines[0]}</span>;
+  return (
+    <ul style={{ margin: 0, paddingInlineStart: 20 }}>
+      {lines.map((line) => (
+        <li key={line}>{line}</li>
+      ))}
+    </ul>
+  );
+}
+
+function SettingsLink({ tab }: { tab: "translation" | "collections" }): ReactNode {
+  return (
+    <span>
+      <NewWindowLink href={pluginPageUrl("/settings", { tab })}>Open PolyStella settings</NewWindowLink>
+    </span>
+  );
+}
+
+/** "the draft", "any of the 3 drafts", "2 of 3 drafts". */
+function createFailureScope(failed: number, total: number): string {
+  if (failed < total) return `${failed.toLocaleString()} of ${plural(total, "draft")}`;
+  return total === 1 ? "the draft" : `any of the ${plural(total, "draft")}`;
 }
 
 function draftFailureMessage(result: Exclude<DraftTranslationResult, { status: "applied" }>): string {

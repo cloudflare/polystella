@@ -1,6 +1,13 @@
 import { ApiResponseError, apiFetch, parseApiResponse } from "@emdash-cms/admin";
 
-import { POLYSTELLA_API_BASE, POLYSTELLA_PLUGIN_ID, type CollectionPolicy, type TranslationDebugTrace } from "../contracts.js";
+import {
+  MAX_MAX_TOKENS,
+  MIN_MAX_TOKENS,
+  POLYSTELLA_API_BASE,
+  POLYSTELLA_PLUGIN_ID,
+  type CollectionPolicy,
+  type TranslationDebugTrace,
+} from "../contracts.js";
 import type { SchemaField } from "./types.js";
 
 // EmDash's admin router is mounted here; it exports no helper for the base path.
@@ -62,6 +69,20 @@ const knownLocaleTags = new Map<string, string>();
 export function rememberLocaleTags(tags: unknown): void {
   if (!isRecord(tags)) return;
   for (const [locale, tag] of Object.entries(tags)) if (typeof tag === "string") knownLocaleTags.set(locale.toLowerCase(), tag);
+}
+
+/** `@cf/meta/llama-3.1-8b-instruct` → `llama-3.1-8b-instruct`; ids without a vendor prefix stay as they are. */
+export function shortModelName(model: string): string {
+  return model.replace(/^@[^/]+\/[^/]+\//, "");
+}
+
+/** Why `maxTokens` can't be used, or `undefined`; `null` falls back to the saved or code default. */
+export function maxTokensError(maxTokens: number | null): string | undefined {
+  if (maxTokens === null) return undefined;
+  if (!Number.isInteger(maxTokens) || maxTokens < MIN_MAX_TOKENS || maxTokens > MAX_MAX_TOKENS) {
+    return `Enter a whole number from ${MIN_MAX_TOKENS.toLocaleString()} to ${MAX_MAX_TOKENS.toLocaleString()}, or leave it empty.`;
+  }
+  return undefined;
 }
 
 /** "French (fr)" in the admin's browser language; `code` adds the catalog code when it differs ("French (fr, fr-FR)"). */

@@ -245,7 +245,6 @@ export type TranslationSandboxResponse =
 
 /** Most entry × locale translations one queued batch job may contain. */
 export const MAX_BATCH_TRANSLATIONS = 5000;
-export const MAX_BATCH_FAILURES_SHOWN = 20;
 
 export type BatchJobOutcome = "created" | "updated" | "skipped" | "failed";
 
@@ -282,7 +281,6 @@ export interface BatchJobView {
   /** Selected source entries, `"all"` for the whole collection, `null` for jobs started before PolyStella recorded this. */
   entryCount: number | "all" | null;
   counts: Record<BatchJobOutcome, number>;
-  failures: Array<{ entryId: string; locale: string; message: string | null }>;
 }
 
 /** The translation a batch row created, updated, or found. `locale` is the content locale. */

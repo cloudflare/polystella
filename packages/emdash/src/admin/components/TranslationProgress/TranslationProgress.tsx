@@ -7,7 +7,7 @@ export function TranslationProgress({ percent, label }: TranslationProgressState
   return (
     <div style={{ display: "grid", gap: 4 }}>
       <progress aria-label={label} value={percent} max={100} style={{ width: "100%" }} />
-      <small style={mutedStyle}>
+      <small role="status" style={mutedStyle}>
         {percent}%: {label}
       </small>
     </div>

@@ -15,11 +15,26 @@ import { InfoLabel, SectionHeader } from "../../../components/PageHeader/PageHea
 import { cardStyle, mutedStyle, rowStyle, sectionStyle, stackStyle } from "../../../styles.js";
 import { ErrorMessage } from "../../../components/ErrorMessage/ErrorMessage.js";
 import { LocalePicker } from "../../../components/LocalePicker/LocalePicker.js";
-import { EMPTY_JOB_SETTINGS, JobSettingsFields, jobSettingsPayload } from "../../../components/JobSettings/JobSettings.js";
+import {
+  EMPTY_JOB_SETTINGS,
+  JobSettingsFields,
+  jobSettingsError,
+  jobSettingsPayload,
+} from "../../../components/JobSettings/JobSettings.js";
 import { BatchJobs } from "./BatchJobs.js";
 import { CollectionSummary } from "./CollectionSummary.js";
 import { usePublicUrlContexts } from "./BatchResults.js";
-import { batchJobFinished, batchRunUrl, loadItems, saveBatchRun, untranslatedLocales, type BatchItem, type ItemPage } from "./helpers.js";
+import {
+  batchRunUrl,
+  batchSizeError,
+  collectionRunCounts,
+  loadItems,
+  saveBatchRun,
+  untranslatedLocales,
+  type BatchItem,
+  type CollectionTranslationStats,
+  type ItemPage,
+} from "./helpers.js";
 
 const CONCURRENCY = 3;
 const batchLayoutStyle: CSSProperties = { alignItems: "flex-start", display: "flex", flexWrap: "wrap", gap: 20 };
@@ -49,6 +64,13 @@ interface LoadedCollection {
 
 export function BatchTab(): ReactNode {
   const [collections, setCollections] = useState<CollectionOption[] | null>(null);
+  const [collectionsError, setCollectionsError] = useState<string | null>(null);
+  const [collectionsReload, setCollectionsReload] = useState(0);
+  const [policyError, setPolicyError] = useState<string | null>(null);
+  const [policyReload, setPolicyReload] = useState(0);
+  const [collectionStats, setCollectionStats] = useState<CollectionTranslationStats | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
   const [collection, setCollection] = useState("");
   const [loaded, setLoaded] = useState<LoadedCollection | null>(null);
   const [locales, setLocales] = useState<string[]>([]);
@@ -90,6 +112,7 @@ export function BatchTab(): ReactNode {
 
   useEffect(() => {
     let active = true;
+    setCollectionsError(null);
     Promise.all([fetchCollections(), pluginRequest<CollectionSettingsResponse>("settings/collections")])
       .then(([projectCollections, settings]) => {
         if (!active) return;
@@ -98,24 +121,28 @@ export function BatchTab(): ReactNode {
         setCollection((current) => (enabled.some((item) => item.slug === current) ? current : (enabled[0]?.slug ?? "")));
       })
       .catch((cause: unknown) => {
-        if (active) setError(errorMessage(cause));
+        if (active) setCollectionsError(errorMessage(cause));
       });
     return () => {
       active = false;
     };
-  }, []);
+  }, [collectionsReload]);
 
   useEffect(() => {
     setLoaded(null);
     setLocales([]);
     setPage(null);
     setSelected(new Map());
+    setError(null);
+    setNotice(null);
+    setCollectionStats(null);
   }, [collection]);
 
   // Reloads on policy saves too, keeping the selection.
   useEffect(() => {
     if (collection.length === 0) return;
     let active = true;
+    setPolicyError(null);
     Promise.all([
       pluginRequest<CollectionPolicyResponse>(`policy?collection=${encodeURIComponent(collection)}`),
       fetchCollection(collection, true),
@@ -131,12 +158,12 @@ export function BatchTab(): ReactNode {
         setLocales((current) => current.filter((locale) => available.includes(locale)));
       })
       .catch((cause: unknown) => {
-        if (active) setError(errorMessage(cause));
+        if (active) setPolicyError(errorMessage(cause));
       });
     return () => {
       active = false;
     };
-  }, [collection]);
+  }, [collection, policyReload]);
 
   useEffect(() => {
     if (loaded === null || scope !== "selected") return;
@@ -163,12 +190,15 @@ export function BatchTab(): ReactNode {
 
   async function loadMore(): Promise<void> {
     const sourceLocale = loaded?.policy.sourceLocale ?? null;
-    if (loaded === null || sourceLocale === null || page?.nextCursor === undefined) return;
+    if (loaded === null || sourceLocale === null || page?.nextCursor === undefined || loadingMore) return;
+    setLoadingMore(true);
     try {
       const next = await loadItems(collection, sourceLocale, loaded.policy.targetLocales, search, page.nextCursor);
       setPage((current) => ({ items: [...(current?.items ?? []), ...next.items], nextCursor: next.nextCursor }));
     } catch (cause) {
       setError(errorMessage(cause));
+    } finally {
+      setLoadingMore(false);
     }
   }
 
@@ -176,8 +206,11 @@ export function BatchTab(): ReactNode {
     if (loaded === null) return;
     setCheckingLocales(true);
     setError(null);
+    setNotice(null);
     try {
-      setLocales(await untranslatedLocales(collection, [...selected.keys()], loaded.policy.targetLocales, CONCURRENCY));
+      const missing = await untranslatedLocales(collection, [...selected.keys()], loaded.policy.targetLocales, CONCURRENCY);
+      setLocales(missing);
+      if (missing.length === 0) setNotice("The selected entries are already translated into every target locale.");
     } catch (cause) {
       setError(errorMessage(cause));
     } finally {
@@ -199,7 +232,23 @@ export function BatchTab(): ReactNode {
       publish,
       settings: jobSettingsPayload(jobSettings),
     };
-    const runId = saveBatchRun({ collection, scope, items, targets, options, createdAt: Date.now(), localeTags: policy.localeTags });
+    const collectionLabel = collections?.find((item) => item.slug === collection)?.label;
+    let runId: string;
+    try {
+      runId = saveBatchRun({
+        collection,
+        collectionLabel,
+        scope,
+        items,
+        targets,
+        options,
+        createdAt: Date.now(),
+        localeTags: policy.localeTags,
+      });
+    } catch (cause) {
+      setError(`The run couldn't be handed to a new tab because this browser's storage is unavailable or full: ${errorMessage(cause)}`);
+      return;
+    }
     const url = batchRunUrl(window.location.pathname, runId);
     if (window.open(url, "_blank") === null) {
       setError(`Your browser blocked the new tab. Allow pop-ups for this site, or open ${url} yourself.`);
@@ -237,19 +286,47 @@ export function BatchTab(): ReactNode {
     }
   }
 
-  if (collections === null && error === null) return <p style={sectionStyle}>Loading collections...</p>;
+  if (collections === null) {
+    return collectionsError === null ? (
+      <p style={sectionStyle}>Loading collections...</p>
+    ) : (
+      <section style={sectionStyle}>
+        <ErrorMessage>{collectionsError}</ErrorMessage>
+        <div>
+          <Button variant="secondary" onClick={() => setCollectionsReload((current) => current + 1)}>
+            Retry
+          </Button>
+        </div>
+      </section>
+    );
+  }
 
   const policy = loaded?.policy;
   const visibleItems = page?.items ?? [];
   const allVisibleSelected = visibleItems.length > 0 && visibleItems.every((item) => selected.has(item.id));
   const someVisibleSelected = visibleItems.some((item) => selected.has(item.id));
+  const runCounts = scope === "all" && collectionStats !== null ? collectionRunCounts(collectionStats, locales) : null;
+  const translations = scope === "selected" ? selected.size * locales.length : (runCounts?.total ?? 0);
+  // The queue stops a whole-collection job at the limit itself; everything else is refused past it.
+  const sizeError = scope === "all" && runner === "queue" ? null : batchSizeError(translations);
+  const blockReason =
+    (jobSettingsError(jobSettings) === undefined ? null : "Fix Max output tokens in Run settings.") ??
+    sizeError ??
+    (runCounts === null || locales.length === 0
+      ? null
+      : runCounts.total === 0
+        ? "This collection has no source entries to translate."
+        : runCounts.toCreate === 0 && !updateExisting
+          ? "Every entry already has these translations. Turn on Update existing translations to translate them again."
+          : null);
   const canRun =
     !running &&
     !checkingLocales &&
     loaded !== null &&
     loaded.fields.length > 0 &&
     locales.length > 0 &&
-    (scope === "all" || selected.size > 0);
+    (scope === "all" || selected.size > 0) &&
+    blockReason === null;
 
   function setItemSelected(item: BatchItem, checked: boolean): void {
     setSelected((current) => {
@@ -263,7 +340,7 @@ export function BatchTab(): ReactNode {
   const jobs = (
     <BatchJobs
       jobs={serverJobs?.jobs ?? []}
-      collectionLabels={Object.fromEntries((collections ?? []).map((item) => [item.slug, item.label]))}
+      collectionLabels={Object.fromEntries(collections.map((item) => [item.slug, item.label]))}
       urlContexts={urlContexts}
       onChange={() => setJobsRefresh((current) => current + 1)}
     />
@@ -285,6 +362,7 @@ export function BatchTab(): ReactNode {
           </>
         ) : null}
       </Button>
+      {blockReason === null ? null : <small style={mutedStyle}>{blockReason}</small>}
     </div>
   );
 
@@ -299,7 +377,7 @@ export function BatchTab(): ReactNode {
         }`}
       />
       {error === null ? null : <ErrorMessage>{error}</ErrorMessage>}
-      {collections?.length === 0 ? (
+      {collections.length === 0 ? (
         <>
           <p style={mutedStyle}>
             Enable PolyStella for a collection first, in{" "}
@@ -318,14 +396,14 @@ export function BatchTab(): ReactNode {
                       label="Collection"
                       value={collection}
                       renderValue={(value) =>
-                        collections?.find((item) => item.slug === value)?.label ?? (typeof value === "string" ? value : "")
+                        collections.find((item) => item.slug === value)?.label ?? (typeof value === "string" ? value : "")
                       }
                       disabled={running}
                       onValueChange={(value) => {
                         if (typeof value === "string") setCollection(value);
                       }}
                     >
-                      {collections?.map((item) => (
+                      {collections.map((item) => (
                         <Select.Option key={item.slug} value={item.slug}>
                           {item.label}
                         </Select.Option>
@@ -364,7 +442,23 @@ export function BatchTab(): ReactNode {
                   ) : null}
                 </div>
                 {policy === undefined ? (
-                  <span style={mutedStyle}>Loading collection settings...</span>
+                  policyError === null ? (
+                    <span style={mutedStyle}>Loading collection settings...</span>
+                  ) : (
+                    <>
+                      <ErrorMessage>{policyError}</ErrorMessage>
+                      <div>
+                        <Button size="sm" variant="secondary" onClick={() => setPolicyReload((current) => current + 1)}>
+                          Retry
+                        </Button>
+                      </div>
+                    </>
+                  )
+                ) : policy.targetLocales.length === 0 ? (
+                  <span style={mutedStyle}>
+                    No target locales are set up yet. Add them in{" "}
+                    <a href={pluginPageUrl("/settings", { tab: "translation" })}>Settings, Translation</a>.
+                  </span>
                 ) : (
                   <>
                     {loaded?.fields.length === 0 ? (
@@ -393,6 +487,7 @@ export function BatchTab(): ReactNode {
                         ) : null
                       }
                     />
+                    {notice === null ? null : <small style={mutedStyle}>{notice}</small>}
                     <Switch
                       aria-label="Publish translations immediately"
                       label={
@@ -435,11 +530,12 @@ export function BatchTab(): ReactNode {
             {scope === "all" && loaded !== null ? (
               <CollectionSummary
                 collection={collection}
-                label={collections?.find((item) => item.slug === collection)?.label ?? collection}
+                label={collections.find((item) => item.slug === collection)?.label ?? collection}
                 policy={loaded.policy}
                 fields={loaded.fields}
                 locales={locales}
                 updateExisting={updateExisting}
+                onStats={setCollectionStats}
               />
             ) : null}
             {scope === "selected" && policy !== undefined ? (
@@ -518,9 +614,22 @@ export function BatchTab(): ReactNode {
                     </Table.Body>
                   </Table>
                   {page === null ? <span style={mutedStyle}>Loading entries...</span> : null}
+                  {page?.items.length === 0 ? (
+                    <span style={mutedStyle}>
+                      {search.trim().length === 0
+                        ? "This collection has no source entries yet."
+                        : `No source entries match "${search.trim()}".`}
+                    </span>
+                  ) : null}
                   {page?.nextCursor === undefined ? null : (
                     <div>
-                      <Button size="sm" variant="secondary" disabled={running} onClick={() => void loadMore()}>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        loading={loadingMore}
+                        disabled={running || loadingMore}
+                        onClick={() => void loadMore()}
+                      >
                         Load more
                       </Button>
                     </div>

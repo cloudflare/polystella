@@ -2,17 +2,20 @@ import { fetchManifest, getPreviewUrl, Link } from "@emdash-cms/admin";
 import { Button, Table } from "@cloudflare/kumo";
 import { useEffect, useState, type ReactNode } from "react";
 
-import type { BatchTranslationLink } from "../../../../contracts.js";
+import type { BatchJobOutcome, BatchTranslationLink } from "../../../../contracts.js";
 import { mutedStyle, rowStyle, stackStyle } from "../../../styles.js";
 import { localeLabel } from "../../../utils.js";
 import { NewWindowIcon } from "../../../components/NewWindowLink/NewWindowLink.js";
 import { publicContentUrl, type PublicUrlContext } from "./helpers.js";
+import { OutcomeBadge } from "./Outcome.js";
+
+const ROWS_PER_STEP = 100;
 
 export interface BatchResultRow {
   key: string;
   title: string;
   locale: string;
-  outcome: string;
+  outcome: BatchJobOutcome;
   message: string | null;
   translation: BatchTranslationLink | null;
 }
@@ -49,35 +52,55 @@ export function BatchResultsTable({
   rows: readonly BatchResultRow[];
   urlContext: PublicUrlContext | undefined;
 }): ReactNode {
+  const [shown, setShown] = useState(ROWS_PER_STEP);
   return (
-    <div style={{ overflowX: "auto" }}>
-      <Table layout="fixed" style={{ minWidth: 720 }}>
-        <Table.Header>
-          <Table.Row>
-            <Table.Head style={{ width: "35%" }}>Entry</Table.Head>
-            <Table.Head style={{ width: "15%" }}>Locale</Table.Head>
-            <Table.Head style={{ width: "15%" }}>Result</Table.Head>
-            <Table.Head>Details</Table.Head>
-          </Table.Row>
-        </Table.Header>
-        <Table.Body>
-          {rows.map((row) => (
-            <Table.Row key={row.key}>
-              <Table.Cell>{row.title}</Table.Cell>
-              <Table.Cell>{localeLabel(row.locale)}</Table.Cell>
-              <Table.Cell>{row.outcome}</Table.Cell>
-              <Table.Cell>
-                <div style={stackStyle}>
-                  {row.message === null ? null : <span style={mutedStyle}>{row.message}</span>}
-                  {row.translation === null ? null : (
-                    <TranslationLinks collection={collection} translation={row.translation} urlContext={urlContext} />
-                  )}
-                </div>
-              </Table.Cell>
+    <div style={stackStyle}>
+      <div style={{ overflowX: "auto" }}>
+        <Table layout="fixed" style={{ minWidth: 720 }}>
+          <Table.Header>
+            <Table.Row>
+              <Table.Head style={{ width: "35%" }}>Entry</Table.Head>
+              <Table.Head style={{ width: "15%" }}>Locale</Table.Head>
+              <Table.Head style={{ width: "15%" }}>Result</Table.Head>
+              <Table.Head>Details</Table.Head>
             </Table.Row>
-          ))}
-        </Table.Body>
-      </Table>
+          </Table.Header>
+          <Table.Body>
+            {rows.slice(0, shown).map((row) => (
+              <Table.Row key={row.key}>
+                <Table.Cell>{row.title}</Table.Cell>
+                <Table.Cell>{localeLabel(row.locale)}</Table.Cell>
+                <Table.Cell>
+                  <OutcomeBadge outcome={row.outcome} />
+                </Table.Cell>
+                <Table.Cell>
+                  <div style={stackStyle}>
+                    {row.message === null ? null : <span style={mutedStyle}>{row.message}</span>}
+                    {row.translation === null ? null : (
+                      <TranslationLinks
+                        collection={collection}
+                        translation={row.translation}
+                        urlContext={urlContext}
+                        label={`${row.title}, ${localeLabel(row.locale)}`}
+                      />
+                    )}
+                  </div>
+                </Table.Cell>
+              </Table.Row>
+            ))}
+          </Table.Body>
+        </Table>
+      </div>
+      {rows.length <= shown ? null : (
+        <div style={rowStyle}>
+          <Button size="sm" variant="secondary" onClick={() => setShown((current) => current + ROWS_PER_STEP)}>
+            Show more
+          </Button>
+          <small style={mutedStyle}>
+            Showing {shown.toLocaleString()} of {rows.length.toLocaleString()}
+          </small>
+        </div>
+      )}
     </div>
   );
 }
@@ -87,10 +110,13 @@ export function TranslationLinks({
   collection,
   translation,
   urlContext,
+  label,
 }: {
   collection: string;
   translation: BatchTranslationLink;
   urlContext: PublicUrlContext | undefined;
+  /** Entry title and locale, so screen readers can tell the repeated links apart. */
+  label: string;
 }): ReactNode {
   const liveUrl = translation.published && urlContext !== undefined ? publicContentUrl(translation, urlContext) : null;
   return (
@@ -101,18 +127,24 @@ export function TranslationLinks({
         search={{ locale: translation.locale }}
         target="_blank"
         rel="noopener noreferrer"
+        aria-label={`Edit ${label}`}
       >
         Edit
         <NewWindowIcon />
       </Link>
       {liveUrl === null ? null : (
-        <a href={liveUrl} target="_blank" rel="noopener noreferrer">
+        <a href={liveUrl} target="_blank" rel="noopener noreferrer" aria-label={`View live: ${label}`}>
           View live
           <NewWindowIcon />
         </a>
       )}
       {translation.published ? null : (
-        <Button size="sm" variant="ghost" onClick={() => void openPreview(collection, translation, urlContext)}>
+        <Button
+          size="sm"
+          variant="ghost"
+          aria-label={`Preview draft of ${label}`}
+          onClick={() => void openPreview(collection, translation, urlContext)}
+        >
           Preview draft
           <NewWindowIcon />
         </Button>

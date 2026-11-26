@@ -2717,7 +2717,8 @@ describe("EmDash batch queue routes", () => {
     expect(await call("batch/translate", message, "POST", (routeContext) => sourceEntry(routeContext))).toEqual({ create: null });
     const listed = (await call("batch/jobs", {}, "GET")) as BatchJobsResponse;
     expect(listed.jobs[0]?.counts.failed).toBe(1);
-    expect(listed.jobs[0]?.failures[0]?.message).toContain("no segment markers");
+    const failed = (await call("batch/results", { jobId: job.id, outcome: "failed" }, "GET")) as BatchJobResultsResponse;
+    expect(failed.results[0]?.message).toContain("no segment markers");
 
     sent.length = 0;
     const retry = (await call("batch/retry", { jobId: job.id })) as BatchJobView;
@@ -2769,6 +2770,60 @@ describe("EmDash batch queue routes", () => {
       nextCursor: null,
     });
     await expect(call("batch/results", { jobId: "missing" }, "GET")).rejects.toMatchObject({ status: 404 });
+
+    const onlyCreated = (await call("batch/results", { jobId: job.id, outcome: "created" }, "GET", (routeContext) =>
+      sourceEntry(routeContext),
+    )) as BatchJobResultsResponse;
+    expect(onlyCreated.results.map(({ entryId }) => entryId)).toEqual(["other"]);
+    await expect(call("batch/results", { jobId: job.id, outcome: "bogus" }, "GET")).rejects.toMatchObject({ status: 400 });
+  });
+
+  it("filters batch results by outcome and pages the filtered rows with the cursor", async () => {
+    const { kv, call, batch } = batchSetup();
+    await enablePosts(kv);
+    const ids = Array.from({ length: 6 }, (_, index) => `entry-${index}`);
+    const job = (await call("batch/start", { collection: "posts", locales: ["fr-FR"], entryIds: ids })) as BatchJobView;
+    const outcomes = ["failed", "created", "failed", "skipped", "failed", "updated"] as const;
+    for (const [index, outcome] of outcomes.entries()) {
+      await call("batch/record", { jobId: job.id, entryId: `entry-${index}`, locale: "fr-FR", outcome, message: null });
+    }
+
+    // The in-memory storage ignores `limit` and `cursor`, so page by hand to check the route forwards both.
+    const seen: unknown[] = [];
+    const query = batch.results.query.bind(batch.results);
+    batch.results.query = async (options = {}) => {
+      seen.push(options);
+      const all = (await query(options.where === undefined ? {} : { where: options.where })).items;
+      const start = options.cursor === undefined ? 0 : Number(options.cursor);
+      const items = all.slice(start, start + 2);
+      const hasMore = start + 2 < all.length;
+      return { items, hasMore, ...(hasMore ? { cursor: String(start + 2) } : {}) };
+    };
+    const page = (input: Record<string, unknown>) =>
+      call("batch/results", { jobId: job.id, ...input }, "GET", (routeContext) =>
+        sourceEntry(routeContext),
+      ) as Promise<BatchJobResultsResponse>;
+
+    const first = await page({ outcome: "failed" });
+    expect(first.results.map(({ entryId }) => entryId)).toEqual(["entry-0", "entry-2"]);
+    expect(first.nextCursor).toBe("2");
+    const second = await page({ outcome: "failed", cursor: first.nextCursor });
+    expect(second.results.map(({ entryId, outcome }) => [entryId, outcome])).toEqual([["entry-4", "failed"]]);
+    expect(second.nextCursor).toBeNull();
+    expect(seen).toMatchObject([
+      { where: { jobId: job.id, outcome: "failed" } },
+      { where: { jobId: job.id, outcome: "failed" }, cursor: "2" },
+    ]);
+
+    // Without a filter every outcome comes back, and a filter with no matches is an empty page, not an error.
+    seen.length = 0;
+    expect((await page({})).results).toHaveLength(2);
+    expect(seen[0]).toMatchObject({ where: { jobId: job.id } });
+    expect(seen[0]).not.toHaveProperty("where.outcome");
+
+    for (const outcome of ["", "Created", "pending", null, ["failed"]]) {
+      await expect(page({ outcome })).rejects.toMatchObject({ status: 400 });
+    }
   });
 
   it("removes only finished or cancelled jobs, with their results", async () => {

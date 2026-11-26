@@ -1,5 +1,5 @@
 import { Button, LayerCard, Select, Textarea } from "@cloudflare/kumo";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 
 import type { CustomizationMode, TranslationSettingsResponse } from "../../contracts.js";
 import { ErrorMessage } from "../components/ErrorMessage/ErrorMessage.js";
@@ -18,30 +18,48 @@ import {
 export function CodeDefaultsPage(): ReactNode {
   const [query] = useState(() => new URLSearchParams(window.location.search));
   const [settings, setSettings] = useState<TranslationSettingsResponse | null>(null);
+  // As loaded or last saved, to tell whether there are unsaved changes.
+  const [storedSettings, setStoredSettings] = useState<TranslationSettingsResponse | null>(null);
   const [working, setWorking] = useState(false);
   const [saved, setSaved] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const locale = query.get("locale");
 
   useEffect(() => {
     let active = true;
+    setLoadError(null);
     pluginRequest<TranslationSettingsResponse>("settings/translation")
       .then((value) => {
-        if (active) setSettings(value);
+        if (!active) return;
+        setSettings(value);
+        setStoredSettings(value);
       })
       .catch((cause: unknown) => {
-        if (active) setError(errorMessage(cause));
+        if (active) setLoadError(errorMessage(cause));
       });
     return () => {
       active = false;
     };
-  }, []);
+  }, [loadAttempt]);
+
+  const current = editableText(settings, locale);
+  const stored = editableText(storedSettings, locale);
+  const dirty = current.mode !== stored.mode || current.text !== stored.text;
+
+  useEffect(() => {
+    if (!dirty) return;
+    const warn = (event: BeforeUnloadEvent): void => event.preventDefault();
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [dirty]);
 
   const localeSettings = locale === null ? undefined : settings?.locales.find((item) => item.locale === locale);
   const title = locale === null ? "Code-defined additional translation instructions" : `Code-defined glossary: ${localeLabel(locale)}`;
   const editable = settings !== null && (locale === null || localeSettings !== undefined);
-  const mode = locale === null ? settings?.instructions.mode : localeSettings?.glossaryMode;
-  const customText = (locale === null ? settings?.instructions.text : localeSettings?.glossaryText) ?? "";
+  const mode = current.mode;
+  const customText = current.text;
   const modeLabels = locale === null ? INSTRUCTION_MODE_LABELS : GLOSSARY_MODE_LABELS;
   const codeText =
     settings === null
@@ -49,7 +67,7 @@ export function CodeDefaultsPage(): ReactNode {
       : locale === null
         ? settings.instructions.defaultText || "No code-defined instructions."
         : localeSettings === undefined
-          ? `${locale} is not a configured locale.`
+          ? `${localeLabel(locale)} is not a configured locale.`
           : localeSettings.defaultGlossary || "No code-defined glossary.";
 
   function update(change: { mode?: CustomizationMode; text?: string }): void {
@@ -75,13 +93,15 @@ export function CodeDefaultsPage(): ReactNode {
   async function save(): Promise<void> {
     if (settings === null) return;
     setWorking(true);
-    setError(null);
+    setSaveError(null);
     setSaved(false);
     try {
-      setSettings(await saveTranslationSettings(settings));
+      const next = await saveTranslationSettings(settings);
+      setSettings(next);
+      setStoredSettings(next);
       setSaved(true);
     } catch (cause) {
-      setError(errorMessage(cause));
+      setSaveError(errorMessage(cause));
     } finally {
       setWorking(false);
     }
@@ -96,18 +116,36 @@ export function CodeDefaultsPage(): ReactNode {
           description={
             <>
               The code-defined text comes from the site's code and can't be changed here. Add to it or replace it below; this is the same
-              setting as in <a href={pluginPageUrl("/settings", { tab: "translation" })}>Translation settings</a>.
+              setting as in{" "}
+              <a
+                href={pluginPageUrl("/settings", { tab: "translation" })}
+                onClick={(event) => {
+                  if (dirty && !window.confirm("Leave without saving your changes?")) event.preventDefault();
+                }}
+              >
+                Translation settings
+              </a>
+              .
             </>
           }
         />
-        {error === null ? null : <ErrorMessage>{error}</ErrorMessage>}
-        {error !== null && settings === null ? null : (
-          <LayerCard style={cardStyle}>
+        {loadError === null ? null : (
+          <>
+            <ErrorMessage>{loadError}</ErrorMessage>
+            <div>
+              <Button variant="secondary" onClick={() => setLoadAttempt((attempt) => attempt + 1)}>
+                Retry
+              </Button>
+            </div>
+          </>
+        )}
+        {loadError !== null && settings === null ? null : (
+          <LayerCard style={readingCardStyle}>
             <pre style={codeStyle}>{codeText ?? "Loading..."}</pre>
           </LayerCard>
         )}
         {!editable || mode === undefined ? null : (
-          <LayerCard style={cardStyle}>
+          <LayerCard style={readingCardStyle}>
             <div style={stackStyle}>
               <Select
                 label={locale === null ? "Instruction behavior" : "Glossary behavior"}
@@ -133,11 +171,14 @@ export function CodeDefaultsPage(): ReactNode {
                   onValueChange={(text) => update({ text })}
                 />
               )}
+              {saveError === null ? null : <ErrorMessage>{saveError}</ErrorMessage>}
               <div style={rowStyle}>
-                <Button variant="primary" loading={working} onClick={() => void save()}>
+                <Button variant="primary" loading={working} disabled={!dirty} onClick={() => void save()}>
                   Save
                 </Button>
-                {saved ? <small style={mutedStyle}>Saved.</small> : null}
+                <small role="status" style={mutedStyle}>
+                  {saved ? "Saved" : null}
+                </small>
               </div>
             </div>
           </LayerCard>
@@ -145,4 +186,16 @@ export function CodeDefaultsPage(): ReactNode {
       </section>
     </main>
   );
+}
+
+const readingCardStyle: CSSProperties = { ...cardStyle, maxWidth: 880 };
+
+/** The mode and custom text this page edits: the instructions, or `locale`'s glossary. */
+function editableText(
+  settings: TranslationSettingsResponse | null,
+  locale: string | null,
+): { mode: CustomizationMode | undefined; text: string } {
+  if (locale === null) return { mode: settings?.instructions.mode, text: settings?.instructions.text ?? "" };
+  const item = settings?.locales.find((candidate) => candidate.locale === locale);
+  return { mode: item?.glossaryMode, text: item?.glossaryText ?? "" };
 }

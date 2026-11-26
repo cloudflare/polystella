@@ -7,13 +7,20 @@ import { cardStyle, mutedStyle, pageStyle, rowStyle, sectionStyle, stackStyle } 
 import type { BatchJobSettings } from "../../contracts.js";
 import { ErrorMessage } from "../components/ErrorMessage/ErrorMessage.js";
 import { jobSettingsSummary } from "../components/JobSettings/JobSettings.js";
-import { TranslationProgress } from "../components/TranslationProgress/TranslationProgress.js";
 import { BatchResultsTable, usePublicUrlContexts } from "./tabs/BatchTab/BatchResults.js";
+import { OutcomeBar, OutcomeCounts, visuallyHiddenStyle } from "./tabs/BatchTab/Outcome.js";
 import { RetryForm } from "./tabs/BatchTab/RetryForm.js";
 import {
+  batchJobKey,
+  batchRunEndState,
+  batchSizeError,
   clearBatchRun,
+  countOutcomes,
+  isWrittenResult,
+  jobsLeft,
   loadAllItems,
   planBatchJobs,
+  planRetry,
   readBatchRun,
   runBatchJob,
   runBatchJobs,
@@ -24,10 +31,6 @@ import {
 } from "./tabs/BatchTab/helpers.js";
 
 const CONCURRENCY = 3;
-
-function isWritten(result: BatchResult): boolean {
-  return (result.outcome === "created" || result.outcome === "updated") && result.translation !== null;
-}
 
 /** A browser batch run in its own tab, opened from the Batch translation page. */
 export function BatchRunPage(): ReactNode {
@@ -41,7 +44,7 @@ export function BatchRunPage(): ReactNode {
   const [started, setStarted] = useState(false);
   const [running, setRunning] = useState(false);
   const [stopping, setStopping] = useState(false);
-  const [total, setTotal] = useState(0);
+  const [planned, setPlanned] = useState<BatchJob[]>([]);
   const [results, setResults] = useState<BatchResult[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [settings, setSettings] = useState<BatchJobSettings | null>(plan?.options.settings ?? null);
@@ -106,22 +109,22 @@ export function BatchRunPage(): ReactNode {
     // A reload must not silently start the same run again.
     clearBatchRun(runId);
     setStarted(true);
-    setTotal(jobs.length);
+    setPlanned(jobs);
     void run(jobs, settings);
   }
 
+  function continueRun(): void {
+    // Entries that never started belong to the run, not to a retry, so they keep the run's own settings.
+    void run(jobsLeft(planned, results), plan?.options.settings ?? null);
+  }
+
   function retry(retrySettings: BatchJobSettings | null, redo: boolean): void {
-    const retried = results.filter((result) => result.outcome === "failed" || (redo && isWritten(result)));
-    const jobs = retried.map(({ item, target, outcome, translation }) => ({
-      item,
-      target,
-      ...(outcome === "failed" || translation === null ? {} : { redo: translation }),
-    }));
-    // Retried rows leave the table and come back with their new outcome, so the run total stays the same.
-    setResults((current) => current.filter((result) => !retried.includes(result)));
+    const next = planRetry(planned, results, redo);
+    setPlanned(next.planned);
+    setResults(next.results);
     setSettings(retrySettings);
     setRetrying(false);
-    void run(jobs, retrySettings);
+    void run(next.jobs, retrySettings);
   }
 
   if (plan === null) {
@@ -141,9 +144,12 @@ export function BatchRunPage(): ReactNode {
     );
   }
 
-  const failed = results.filter((result) => result.outcome === "failed").length;
-  const written = results.filter(isWritten).length;
-  const finished = started && !running;
+  const written = results.filter(isWrittenResult).length;
+  const counts = countOutcomes(results);
+  const total = planned.length;
+  const left = total - results.length;
+  const endState = batchRunEndState({ started, running, total, done: results.length, failed: counts.failed, error });
+  const sizeError = items === null ? null : batchSizeError(items.length * plan.targets.length);
   const action = `${plan.options.updateExisting ? "Create missing translations and update existing ones" : "Create missing translations, skipping existing ones"}, ${plan.options.publish ? "and publish them" : "as drafts"}.`;
   const settingsSummary = jobSettingsSummary(settings);
 
@@ -152,20 +158,24 @@ export function BatchRunPage(): ReactNode {
       <PageTitle>PolyStella</PageTitle>
       <section style={sectionStyle}>
         <SectionHeader title="Batch run" />
-        <Banner
-          variant={finished ? "secondary" : "alert"}
-          title={finished ? "This run has finished" : "Keep this tab open"}
-          description={
-            finished
-              ? "You can close this tab. The translations are saved."
-              : "The translations run in this browser tab. Closing it, reloading it, or leaving this page stops the run after the translations in progress."
-          }
-        />
+        {endState === null ? (
+          <Banner
+            variant="alert"
+            title="Keep this tab open"
+            description="The translations run in this browser tab. Closing it, reloading it, or leaving this page stops the run after the translations in progress."
+          />
+        ) : (
+          <Banner variant={endState.variant} title={endState.title} description={endState.description} />
+        )}
+        <div role="status" aria-live="polite" style={visuallyHiddenStyle}>
+          {endState === null ? "" : `${endState.title}. ${endState.description}`}
+        </div>
         {error === null ? null : <ErrorMessage>{error}</ErrorMessage>}
         <LayerCard style={cardStyle}>
           <div style={stackStyle}>
             <span>
-              <strong>{plan.collection}</strong> → {plan.targets.map(({ locale, code }) => localeLabel(locale, code)).join(", ")}
+              <strong>{plan.collectionLabel ?? plan.collection}</strong> →{" "}
+              {plan.targets.map(({ locale, code }) => localeLabel(locale, code)).join(", ")}
             </span>
             <span style={mutedStyle}>
               {items === null
@@ -175,10 +185,11 @@ export function BatchRunPage(): ReactNode {
               {settingsSummary === null ? null : ` Settings: ${settingsSummary}.`}
             </span>
             {started ? null : (
-              <div>
-                <Button variant="primary" disabled={items === null || items.length === 0} onClick={start}>
+              <div style={rowStyle}>
+                <Button variant="primary" disabled={items === null || items.length === 0 || sizeError !== null} onClick={start}>
                   Start translating
                 </Button>
+                {sizeError === null ? null : <small style={mutedStyle}>{sizeError}</small>}
               </div>
             )}
           </div>
@@ -200,7 +211,12 @@ export function BatchRunPage(): ReactNode {
             {stopping && running ? (
               <small style={mutedStyle}>Translations already started finish first. With a slow model, that can take a few minutes.</small>
             ) : null}
-            {!running && !retrying && (failed > 0 || written > 0) ? (
+            {!running && !retrying && left > 0 ? (
+              <Button variant="primary" onClick={continueRun}>
+                Translate the {left} left
+              </Button>
+            ) : null}
+            {!running && !retrying && (counts.failed > 0 || written > 0) ? (
               <Button variant="secondary" onClick={() => setRetrying(true)}>
                 Retry...
               </Button>
@@ -210,7 +226,7 @@ export function BatchRunPage(): ReactNode {
         {retrying && !running ? (
           <LayerCard style={cardStyle}>
             <RetryForm
-              failed={failed}
+              failed={counts.failed}
               written={written}
               initialSettings={settings}
               working={false}
@@ -220,14 +236,20 @@ export function BatchRunPage(): ReactNode {
           </LayerCard>
         ) : null}
         {total === 0 ? null : (
-          <TranslationProgress percent={Math.round((results.length / total) * 100)} label={`${results.length}/${total} translations`} />
+          <>
+            <small style={mutedStyle}>
+              {results.length}/{total} translations
+            </small>
+            <OutcomeBar counts={counts} total={total} width="100%" />
+            <OutcomeCounts counts={counts} />
+          </>
         )}
         {results.length === 0 ? null : (
           <BatchResultsTable
             collection={plan.collection}
             urlContext={urlContexts[plan.collection]}
             rows={results.map((result) => ({
-              key: `${result.item.id}:${result.target.locale}`,
+              key: batchJobKey(result),
               title: result.item.title,
               locale: result.target.locale,
               outcome: result.outcome,

@@ -4,7 +4,8 @@ import { useEffect, useState, type ReactNode } from "react";
 import type { CollectionPolicyResponse } from "../../../../contracts.js";
 import { cardStyle, mutedStyle, stackStyle } from "../../../styles.js";
 import { errorMessage, localeLabel, plural } from "../../../utils.js";
-import { collectionTranslationStats, type CollectionTranslationStats } from "./helpers.js";
+import { ErrorMessage } from "../../../components/ErrorMessage/ErrorMessage.js";
+import { collectionRunCounts, collectionTranslationStats, type CollectionTranslationStats } from "./helpers.js";
 
 /** What translating the whole collection would cover, shown in place of the entry list. */
 export function CollectionSummary({
@@ -14,6 +15,7 @@ export function CollectionSummary({
   fields,
   locales,
   updateExisting,
+  onStats,
 }: {
   collection: string;
   label: string;
@@ -21,6 +23,8 @@ export function CollectionSummary({
   fields: readonly string[];
   locales: readonly string[];
   updateExisting: boolean;
+  /** The counts once loaded; `null` while counting or after an error. */
+  onStats(stats: CollectionTranslationStats | null): void;
 }): ReactNode {
   const [stats, setStats] = useState<CollectionTranslationStats | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -31,19 +35,23 @@ export function CollectionSummary({
     const controller = new AbortController();
     setStats(null);
     setError(null);
+    onStats(null);
     collectionTranslationStats(collection, sourceLocale, targetLocales, controller.signal)
       .then((value) => {
-        if (!controller.signal.aborted) setStats(value);
+        if (controller.signal.aborted) return;
+        setStats(value);
+        onStats(value);
       })
       .catch((cause: unknown) => {
         if (!controller.signal.aborted) setError(errorMessage(cause));
       });
     return () => controller.abort();
-  }, [collection, sourceLocale, targetLocales]);
+  }, [collection, sourceLocale, targetLocales, onStats]);
 
   const shownLocales = targetLocales.filter(({ locale }) => locales.length === 0 || locales.includes(locale));
-  const toCreate = stats === null ? 0 : locales.reduce((total, locale) => total + (stats.untranslated[locale] ?? 0), 0);
-  const toUpdate = stats === null ? 0 : locales.length * stats.sourceEntries - toCreate;
+  const counts = stats === null ? { total: 0, toCreate: 0 } : collectionRunCounts(stats, locales);
+  const toCreate = counts.toCreate;
+  const toUpdate = counts.total - toCreate;
 
   return (
     <LayerCard style={cardStyle}>
@@ -52,7 +60,7 @@ export function CollectionSummary({
         {sourceLocale === null ? (
           <span style={mutedStyle}>This collection has no source locale, so its entries can't be counted.</span>
         ) : null}
-        {error === null ? null : <span style={mutedStyle}>Couldn't count entries: {error}</span>}
+        {error === null ? null : <ErrorMessage>Couldn't count entries: {error}</ErrorMessage>}
         {stats === null && error === null && sourceLocale !== null ? <span style={mutedStyle}>Counting entries...</span> : null}
         {stats === null ? null : (
           <>
