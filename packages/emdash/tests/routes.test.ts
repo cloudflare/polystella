@@ -2720,12 +2720,14 @@ describe("EmDash batch queue routes", () => {
     expect(listed.jobs[0]?.failures[0]?.message).toContain("no segment markers");
 
     sent.length = 0;
-    await call("batch/retry", { jobId: job.id });
-    expect(sent).toEqual([message]);
+    const retry = (await call("batch/retry", { jobId: job.id })) as BatchJobView;
+    expect(retry).toMatchObject({ retryOf: job.id, total: 1, status: "running", settings: null, entryCount: 1 });
+    const retried = { ...message, jobId: retry.id };
+    expect(sent).toEqual([retried]);
 
-    await call("batch/record", { ...message, outcome: "created", message: null });
-    expect(await batch.results.count({ jobId: job.id, outcome: "created" })).toBe(1);
-    expect(await batch.results.count({ jobId: job.id, outcome: "failed" })).toBe(0);
+    await call("batch/record", { ...retried, outcome: "created", message: null });
+    expect(await batch.results.count({ jobId: retry.id, outcome: "created" })).toBe(1);
+    expect(await batch.results.count({ jobId: job.id, outcome: "failed" })).toBe(1);
   });
 
   it("lists job results with source titles and links to the translations", async () => {
@@ -2807,6 +2809,447 @@ describe("EmDash batch queue routes", () => {
     await expect(
       call("batch/record", { jobId: "j", entryId: "e", locale: "fr-FR", outcome: "published", message: null }),
     ).rejects.toMatchObject({ status: 400 });
+  });
+
+  describe("job settings, retries and redo", () => {
+    beforeEach(clearReasoningCapabilities);
+
+    const catalog = [
+      {
+        name: "model-a",
+        properties: [{ property_id: "reasoning_effort", value: { supported_efforts: ["high", "none"], mandatory: false } }],
+      },
+    ];
+
+    function settingsSetup(env: Record<string, unknown> = {}) {
+      const inputs: Array<{ model: string; input: WorkersAIInput }> = [];
+      const AI = {
+        models: async ({ search }: { search: string }) => catalog.filter(({ name }) => name === search),
+        run: async (model: string, input: WorkersAIInput) => {
+          inputs.push({ model, input });
+          return { response: "@@field:0@@\nBonjour" };
+        },
+      };
+      return { inputs, ...batchSetup({ AI, ...env }) };
+    }
+
+    const settings = { model: "model-a", reasoning: "high", maxTokens: 1234, instructions: "  Be formal.  " };
+    const start = { collection: "posts", locales: ["fr-FR"], entryIds: ["entry-src"] };
+    const message = (jobId: string) => ({ jobId, entryId: "entry-src", locale: "fr-FR" });
+    const savedTranslation = { title: "Bonjour" };
+
+    it("validates job settings on start and retry, and stores trimmed ones on the job", async () => {
+      const { kv, call } = settingsSetup();
+      await enablePosts(kv);
+      const rejected: unknown[] = [
+        "text",
+        { model: "model-z" },
+        { reasoning: "high" },
+        { model: "model-a", reasoning: "max" },
+        { model: "model-a", reasoning: 1 },
+        { maxTokens: 255 },
+        { maxTokens: 131_073 },
+        { maxTokens: 1000.5 },
+        { maxTokens: "1000" },
+        { instructions: "x".repeat(2001) },
+        { instructions: 5 },
+      ];
+      for (const bad of rejected) await expect(call("batch/start", { ...start, settings: bad })).rejects.toMatchObject({ status: 400 });
+
+      for (const empty of [undefined, null, {}, { model: null, reasoning: null, maxTokens: null, instructions: "  " }]) {
+        const job = (await call("batch/start", { ...start, settings: empty })) as BatchJobView;
+        expect(job.settings).toBeNull();
+      }
+      const job = (await call("batch/start", { ...start, settings })) as BatchJobView;
+      expect(job.settings).toEqual({ ...settings, instructions: "Be formal." });
+      const edge = (await call("batch/start", { ...start, settings: { maxTokens: 256, instructions: "x".repeat(2000) } })) as BatchJobView;
+      expect(edge.settings).toMatchObject({ model: null, reasoning: null, maxTokens: 256 });
+
+      await call("batch/cancel", { jobId: job.id });
+      await expect(call("batch/retry", { jobId: job.id, settings: { model: "model-z" } })).rejects.toMatchObject({ status: 400 });
+      await expect(call("batch/retry", { jobId: job.id, settings: { reasoning: "high" } })).rejects.toMatchObject({ status: 400 });
+    });
+
+    it("answers 503 for a thinking effort while the model catalog is unreachable", async () => {
+      const { kv, call } = batchSetup({
+        AI: {
+          models: async () => {
+            throw new Error("catalog down");
+          },
+        },
+      });
+      await enablePosts(kv);
+      await expect(call("batch/start", { ...start, settings: { model: "model-a", reasoning: "high" } })).rejects.toMatchObject({
+        status: 503,
+      });
+    });
+
+    it("sends the job's model, effort, token limit and extra instructions to the AI, after the configured ones", async () => {
+      const { inputs, kv, call } = settingsSetup();
+      await enablePosts(kv);
+      const plain = (await call("batch/start", start)) as BatchJobView;
+      const custom = (await call("batch/start", { ...start, settings })) as BatchJobView;
+
+      await call("batch/translate", message(plain.id), "POST", sourceEntry);
+      await call("batch/translate", message(custom.id), "POST", sourceEntry);
+
+      const [before, after] = inputs;
+      expect(before?.model).toBe("model-b");
+      expect(before?.input.messages[0]?.content).not.toContain("Be formal.");
+      expect(after?.model).toBe("model-a");
+      expect(after?.input).toMatchObject({ max_tokens: 1234, reasoning_effort: "high" });
+      const system = after?.input.messages[0]?.content ?? "";
+      expect(system).toContain("Keep product names unchanged.");
+      expect(system.indexOf("Be formal.")).toBeGreaterThan(system.indexOf("Keep product names unchanged."));
+    });
+
+    it("refuses a job whose stored model is no longer allowed", async () => {
+      const { kv, call, batch } = settingsSetup();
+      await enablePosts(kv);
+      const job = (await call("batch/start", { ...start, settings })) as BatchJobView;
+      await batch.jobs.put(job.id, {
+        ...((await batch.jobs.get(job.id)) as Record<string, unknown>),
+        settings: { ...settings, model: "model-gone" },
+      });
+      await expect(call("batch/translate", message(job.id), "POST", sourceEntry)).resolves.toEqual({ create: null });
+      const rows = (await batch.results.query({ where: { jobId: job.id } })).items.map(({ data }) => data);
+      expect(rows).toEqual([expect.objectContaining({ outcome: "failed", message: expect.stringContaining("no longer allowed") })]);
+    });
+
+    it("lets only administrators change settings for translate-content", async () => {
+      const { inputs, kv, call } = settingsSetup();
+      await enablePosts(kv);
+      const input = { collection: "posts", entryId: "entry-1", targetLocale: "fr-FR", fields: ["title"] };
+      const asRole = (role: number) => (routeContext: RouteContext) => {
+        if (routeContext.user === undefined) throw new Error("missing test user");
+        routeContext.user = { ...routeContext.user, role };
+      };
+
+      await expect(call("translate-content", { ...input, settings }, "POST", asRole(40))).rejects.toMatchObject({ status: 403 });
+      expect(inputs).toEqual([]);
+      await expect(call("translate-content", input, "POST", asRole(40))).resolves.toMatchObject({ patch: { title: "Bonjour" } });
+      await expect(call("translate-content", { ...input, settings: null }, "POST", asRole(40))).resolves.toMatchObject({
+        patch: { title: "Bonjour" },
+      });
+      await expect(call("translate-content", { ...input, settings: { model: "model-z" } }, "POST", asRole(50))).rejects.toMatchObject({
+        status: 400,
+      });
+      await call("translate-content", { ...input, settings }, "POST", asRole(50));
+      expect(inputs.at(-1)).toMatchObject({ model: "model-a", input: { max_tokens: 1234, reasoning_effort: "high" } });
+    });
+
+    it("records the model a job chose, and a model only administrators pick for a browser run", async () => {
+      const { kv, call } = settingsSetup();
+      await enablePosts(kv);
+      const aiTranslations = createStorage();
+      const record = async (input: Record<string, unknown>, role = 50) => {
+        await call("ai-translation", { collection: "posts", entryId: "entry-1", ...input }, "POST", (routeContext) => {
+          routeContext.storage.ai_translations = aiTranslations;
+          if (routeContext.user !== undefined) routeContext.user = { ...routeContext.user, role };
+        });
+        return (await aiTranslations.get("entry-1")) as { model: string };
+      };
+      const plain = (await call("batch/start", start)) as BatchJobView;
+      const custom = (await call("batch/start", { ...start, settings })) as BatchJobView;
+
+      expect((await record({ jobId: plain.id })).model).toBe("model-b");
+      expect((await record({ jobId: custom.id })).model).toBe("model-a");
+      expect((await record({ jobId: "missing" })).model).toBe("model-b");
+      expect((await record({ model: "model-a" })).model).toBe("model-a");
+      await expect(record({ model: "model-b" }, 40)).rejects.toMatchObject({ status: 403 });
+      await expect(record({ model: "model-z" })).rejects.toMatchObject({ status: 400 });
+      await expect(record({ jobId: 1 })).rejects.toMatchObject({ status: 400 });
+    });
+
+    it("counts updated results and finishes the job with them", async () => {
+      const { kv, call } = settingsSetup();
+      await enablePosts(kv);
+      const job = (await call("batch/start", start)) as BatchJobView;
+      await call("batch/record", { ...message(job.id), outcome: "updated", message: null });
+      const listed = (await call("batch/jobs", {}, "GET")) as BatchJobsResponse;
+      expect(listed.jobs[0]).toMatchObject({ status: "finished", counts: { created: 0, updated: 1, skipped: 0, failed: 0 } });
+    });
+
+    describe("retry", () => {
+      async function finishedJob(rows: Array<[string, string, boolean]>) {
+        const setup = settingsSetup();
+        await enablePosts(setup.kv);
+        const job = (await setup.call("batch/start", {
+          collection: "posts",
+          locales: ["fr-FR"],
+          entryIds: rows.map(([entryId]) => entryId),
+          publish: true,
+        })) as BatchJobView;
+        for (const [entryId, outcome, linked] of rows) {
+          await setup.call("batch/record", {
+            jobId: job.id,
+            entryId,
+            locale: "fr-FR",
+            outcome,
+            message: outcome === "failed" ? "boom" : null,
+            ...(linked ? { translation: { id: `${entryId}-fr`, locale: "fr-FR", slug: "hello", published: false } } : {}),
+          });
+        }
+        setup.sent.length = 0;
+        return { ...setup, job };
+      }
+
+      it("starts a new job for the failed rows only, with its own settings", async () => {
+        const { sent, call, batch, job } = await finishedJob([
+          ["a", "failed", false],
+          ["b", "created", true],
+          ["c", "skipped", false],
+        ]);
+
+        const retry = (await call("batch/retry", { jobId: job.id, settings })) as BatchJobView;
+
+        expect(retry).toMatchObject({ retryOf: job.id, total: 1, publish: true, collection: "posts", locales: ["fr-FR"], entryCount: 1 });
+        expect(retry.id).not.toBe(job.id);
+        expect(retry.settings).toMatchObject({ model: "model-a" });
+        expect(sent).toEqual([{ jobId: retry.id, entryId: "a", locale: "fr-FR" }]);
+        expect(await batch.jobs.get(retry.id)).toMatchObject({ entryIds: ["a"], listing: null, retryOf: job.id });
+        // The original keeps its results.
+        expect(await batch.results.count({ jobId: job.id, outcome: "failed" })).toBe(1);
+      });
+
+      it("redoes created and updated rows that have a translation link when asked", async () => {
+        const { sent, call, job } = await finishedJob([
+          ["a", "failed", false],
+          ["b", "created", true],
+          ["c", "created", false],
+          ["d", "updated", true],
+          ["e", "skipped", true],
+        ]);
+
+        const retry = (await call("batch/retry", { jobId: job.id, redo: true })) as BatchJobView;
+
+        const messages = sent as Array<{ jobId: string; entryId: string; locale: string; redo?: string }>;
+        expect(messages.map(({ entryId, redo }) => [entryId, redo])).toEqual([
+          ["a", undefined],
+          ["b", "b-fr"],
+          ["d", "d-fr"],
+        ]);
+        expect(messages.every((sentMessage) => sentMessage.jobId === retry.id && sentMessage.locale === "fr-FR")).toBe(true);
+        expect(retry).toMatchObject({ total: 3, entryCount: 3 });
+        await expect(call("batch/retry", { jobId: job.id, redo: "yes" })).rejects.toMatchObject({ status: 400 });
+      });
+
+      it("refuses a running job, a missing job, and a job with nothing to retry", async () => {
+        const running = await finishedJob([["a", "failed", false]]);
+        const open = (await running.call("batch/start", start)) as BatchJobView;
+        await expect(running.call("batch/retry", { jobId: open.id })).rejects.toMatchObject({ status: 409 });
+        await expect(running.call("batch/retry", { jobId: "missing" })).rejects.toMatchObject({ status: 404 });
+
+        const done = await finishedJob([
+          ["a", "created", true],
+          ["b", "skipped", false],
+        ]);
+        await expect(done.call("batch/retry", { jobId: done.job.id })).rejects.toMatchObject({ status: 400 });
+        await expect(done.call("batch/retry", { jobId: done.job.id, redo: true })).resolves.toMatchObject({ total: 1 });
+      });
+
+      it("also queues the translations a cancelled job never reached", async () => {
+        const { sent, kv, call, batch } = settingsSetup();
+        await enablePosts(kv);
+        const entryIds = ["a", "b", "c", "d"];
+        const job = (await call("batch/start", { ...start, entryIds, locales: ["fr-FR"] })) as BatchJobView;
+        const record = (entryId: string, outcome: string) =>
+          call("batch/record", { jobId: job.id, entryId, locale: "fr-FR", outcome, message: null });
+        await record("a", "created");
+        await record("b", "skipped");
+        await record("c", "failed");
+        await call("batch/cancel", { jobId: job.id });
+        sent.length = 0;
+
+        const retry = (await call("batch/retry", { jobId: job.id })) as BatchJobView;
+
+        const queued = (sent as Array<{ jobId: string; entryId: string }>).map(({ jobId, entryId }) => [jobId, entryId]);
+        expect(queued).toEqual([
+          [retry.id, "c"],
+          [retry.id, "d"],
+        ]);
+        expect(retry).toMatchObject({ total: 2, entryCount: 2, status: "running" });
+        expect(await batch.jobs.get(retry.id)).toMatchObject({ entryIds: ["c", "d"] });
+
+        // Nothing else to queue once every pair has a result, and a finished job never requeues unrecorded pairs.
+        await call("batch/cancel", { jobId: retry.id });
+        await call("batch/record", { jobId: retry.id, entryId: "c", locale: "fr-FR", outcome: "created", message: null });
+        await call("batch/record", { jobId: retry.id, entryId: "d", locale: "fr-FR", outcome: "created", message: null });
+        await expect(call("batch/retry", { jobId: retry.id })).rejects.toMatchObject({ status: 400 });
+      });
+
+      it("hands the rest of a collection a cancelled job was still listing to its retry", async () => {
+        const { sent, call, batch } = settingsSetup();
+        await batch.jobs.put("cancelled", {
+          collection: "posts",
+          locales: ["fr-FR"],
+          total: 0,
+          status: "cancelled",
+          publish: false,
+          createdAt: "2026-09-03T00:00:00.000Z",
+          createdBy: null,
+          listing: { page: 4, cursor: "c4" },
+          truncated: false,
+          entryIds: "all",
+        });
+
+        const retry = (await call("batch/retry", { jobId: "cancelled" })) as BatchJobView;
+
+        expect(sent).toEqual([{ kind: "list", jobId: retry.id, page: 0 }]);
+        expect(retry).toMatchObject({ listing: true, entryCount: "all", status: "running" });
+        expect(await batch.jobs.get(retry.id)).toMatchObject({ listing: { page: 0, cursor: "c4" }, entryIds: "all" });
+      });
+    });
+
+    describe("redo in batch/translate", () => {
+      interface RedoOptions {
+        status?: "draft" | "published";
+        data?: Record<string, unknown>;
+        record?: unknown;
+        missing?: boolean;
+        siblingId?: string;
+      }
+
+      // Saved data of the French entry; other ids keep the source entry's `get`.
+      function frenchEntry(routeContext: RouteContext, { status = "draft", data = savedTranslation, missing }: RedoOptions) {
+        const content = routeContext.content;
+        if (content === undefined) throw new Error("missing content access");
+        const get = content.get;
+        content.get = async (collection, id) => {
+          if (id !== "entry-fr") return get(collection, id);
+          if (missing === true) return null;
+          return {
+            id,
+            type: "posts",
+            slug: "hello-fr",
+            status,
+            locale: "fr-FR",
+            data,
+            createdAt: "2026-09-03T00:00:00.000Z",
+            updatedAt: "2026-09-03T00:00:00.000Z",
+            publishedAt: null,
+          };
+        };
+      }
+
+      async function redoSetup(publish = false) {
+        const setup = settingsSetup();
+        await setup.kv.set("settings:collectionPolicies", { posts: { fields: ["title"] } });
+        const job = (await setup.call("batch/start", { ...start, publish })) as BatchJobView;
+        const redo = async (options: RedoOptions = {}, rev: string | null = "rev-7") => {
+          const ai = createStorage();
+          await ai.put("entry-fr", "record" in options ? options.record : { fieldHashes: await hashFields(savedTranslation, ["title"]) });
+          const body = { ...message(job.id), redo: "entry-fr", ...(rev === null ? {} : { rev }) };
+          return setup.call("batch/translate", body, "POST", (routeContext) => {
+            sourceEntry(routeContext, [{ id: options.siblingId ?? "entry-fr", locale: "fr-FR" }]);
+            frenchEntry(routeContext, options);
+            routeContext.storage.ai_translations = ai;
+          });
+        };
+        return { ...setup, job, redo };
+      }
+
+      it("returns the translated fields to save in place, with the revision read before translating", async () => {
+        const { redo, inputs, batch, job } = await redoSetup(true);
+
+        await expect(redo({}, null)).resolves.toEqual({
+          create: null,
+          readRevision: { collection: "posts", id: "entry-fr", locale: "fr-FR" },
+        });
+        expect(inputs).toHaveLength(0);
+
+        const result = await redo();
+
+        expect(result).toEqual({
+          create: null,
+          update: {
+            collection: "posts",
+            id: "entry-fr",
+            data: { title: "Bonjour" },
+            locale: "fr-FR",
+            _rev: "rev-7",
+            translation: { id: "entry-fr", locale: "fr-FR", slug: "hello", published: false },
+          },
+          publish: true,
+        });
+        expect(inputs).toHaveLength(1);
+        expect(await batch.results.count({ jobId: job.id })).toBe(0);
+      });
+
+      it("skips, and records why, when the translation can't be safely redone", async () => {
+        const { redo, batch, job } = await redoSetup();
+        const unchanged = { fieldHashes: await hashFields(savedTranslation, ["title"]) };
+        const cases: Array<[RedoOptions, string]> = [
+          [{ siblingId: "entry-fr-new" }, "no longer exists"],
+          [{ missing: true }, "no longer exists"],
+          [{ status: "published" }, "published or scheduled"],
+          [{ record: null }, "can't tell whether"],
+          [{ record: { fieldHashes: null } }, "can't tell whether"],
+          [{ data: { title: "Edited by an editor" }, record: unchanged }, "edited after PolyStella"],
+        ];
+        for (const [options, reason] of cases) {
+          const old = await batch.results.query({ where: { jobId: job.id } });
+          await batch.results.deleteMany(old.items.map(({ id }) => id));
+          expect(await redo(options)).toEqual({ create: null });
+          const rows = (await batch.results.query({ where: { jobId: job.id } })).items.map(({ data }) => data);
+          expect(rows).toEqual([expect.objectContaining({ outcome: "skipped", message: expect.stringContaining(reason) })]);
+        }
+        expect(await batch.results.count({ jobId: job.id, outcome: "failed" })).toBe(0);
+      });
+
+      it("keeps redo on the next-part message and checks the translation again on every part", async () => {
+        const echo = {
+          models: async () => [],
+          run: async (_model: string, input: { messages: Array<{ content: string }> }) => ({
+            response: [...(input.messages.at(-1)?.content ?? "").matchAll(/^@@([^@\n]+?)@@\s*$/gm)]
+              .map(([, id]) => `@@${id}@@\nFR`)
+              .join("\n\n"),
+          }),
+        };
+        const setup = settingsSetup({ AI: echo });
+        await setup.kv.set("settings:collectionPolicies", { posts: { fields: ["title", "body"] } });
+        const job = (await setup.call("batch/start", { ...start, publish: true })) as BatchJobView;
+        setup.sent.length = 0;
+        const paragraph = (key: string) => ({
+          _type: "block",
+          _key: key,
+          style: "normal",
+          markDefs: [],
+          children: [{ _type: "span", _key: `${key}s`, text: "x".repeat(9_000), marks: [] }],
+        });
+        const redoMessage = { ...message(job.id), redo: "entry-fr" };
+        const redo = async (extra: Record<string, unknown>, data: Record<string, unknown> = savedTranslation, jobId = job.id) => {
+          const ai = createStorage();
+          await ai.put("entry-fr", { fieldHashes: await hashFields(savedTranslation, ["title", "body"]) });
+          return setup.call("batch/translate", { ...redoMessage, jobId, ...extra }, "POST", (routeContext) => {
+            sourceEntry(routeContext, [{ id: "entry-fr", locale: "fr-FR" }]);
+            const content = routeContext.content;
+            if (content === undefined) throw new Error("missing content access");
+            const get = content.get;
+            content.get = async (collection, id) => {
+              const item = await get(collection, id);
+              return item === null ? null : { ...item, data: { ...item.data, body: ["a", "b", "c", "d"].map(paragraph) } };
+            };
+            frenchEntry(routeContext, { data });
+            routeContext.storage.ai_translations = ai;
+          });
+        };
+
+        await expect(redo({ rev: "rev-9" })).resolves.toEqual({ create: null });
+        expect(setup.sent).toEqual([{ ...redoMessage, part: 1 }]);
+        // An editor changed a field between the parts.
+        await expect(redo({ part: 1 }, { title: "Edited" })).resolves.toEqual({ create: null });
+        expect(await setup.batch.results.count({ jobId: job.id, outcome: "skipped" })).toBe(1);
+        // The stored parts of the skipped entry are dropped with it.
+        expect(await setup.batch.results.count({ jobId: job.id })).toBe(1);
+
+        // A skipped row ends the job's entry, so the untouched redo runs in a fresh job.
+        const second = (await setup.call("batch/start", { ...start, publish: true })) as BatchJobView;
+        await redo({ rev: "rev-9" }, undefined, second.id);
+        const last = await redo({ part: 1 }, undefined, second.id);
+        expect(last).toMatchObject({ create: null, update: { id: "entry-fr", _rev: "rev-9", data: { title: "FR" } }, publish: true });
+      });
+    });
   });
 });
 

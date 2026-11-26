@@ -113,7 +113,7 @@ async function processMessage(runtime: PolystellaBatchRuntime, body: unknown): P
   const created = await runtime.handleContentCreate(collection, draft);
   if (created.success) {
     const entryId = created.data?.item.id;
-    if (entryId !== undefined) await recordAiTranslation(runtime, collection, entryId);
+    if (entryId !== undefined) await recordAiTranslation(runtime, collection, entryId, message.jobId);
     const publish = isRecord(response) && response.publish === true ? await publishSaved(runtime, collection, entryId) : null;
     const translation =
       entryId === undefined ? null : { id: entryId, locale: draft.locale, slug: draft.slug, published: publish?.published === true };
@@ -142,7 +142,7 @@ async function saveUpdate(
     await record(runtime, message, conflict ? "skipped" : "failed", detail.slice(0, MAX_BATCH_MESSAGE_CHARACTERS), translation);
     return;
   }
-  await recordAiTranslation(runtime, collection, id);
+  await recordAiTranslation(runtime, collection, id, message.jobId);
   const publish = isRecord(response) && response.publish === true ? await publishSaved(runtime, collection, id) : null;
   const notice = isRecord(response) && typeof response.notice === "string" ? response.notice : null;
   const detail = [notice, publish?.message ?? null].filter((part) => part !== null).join(" ");
@@ -164,9 +164,9 @@ async function saveUpdate(
 }
 
 /** The draft already exists, so a failure here is logged instead of retrying the message (which would skip it). */
-async function recordAiTranslation(runtime: PolystellaBatchRuntime, collection: string, entryId: string): Promise<void> {
+async function recordAiTranslation(runtime: PolystellaBatchRuntime, collection: string, entryId: string, jobId: string): Promise<void> {
   try {
-    await callRoute(runtime, "ai-translation", { collection, entryId });
+    await callRoute(runtime, "ai-translation", { collection, entryId, jobId });
   } catch (error) {
     console.error(
       `[polystella-emdash] could not mark ${entryId} as AI-translated: ${error instanceof Error ? error.message : "unknown error"}`,

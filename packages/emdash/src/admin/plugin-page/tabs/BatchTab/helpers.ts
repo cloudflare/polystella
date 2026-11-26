@@ -1,13 +1,16 @@
-import { ApiResponseError, fetchContentList, fetchTranslations, publishContent } from "@emdash-cms/admin";
+import { ApiResponseError, fetchContent, fetchContentList, fetchTranslations, publishContent } from "@emdash-cms/admin";
 
 import {
   POLYSTELLA_PLUGIN_ID,
+  type AiTranslationStatus,
+  type BatchJobSettings,
   type BatchJobView,
   type BatchTranslationLink,
   type CollectionPolicyResponse,
 } from "../../../../contracts.js";
 import { createTranslatedEntry, translateExistingEntry } from "../../../content-translation.js";
 import { panelErrorMessage } from "../../../panels/ContentEditorPanel.js";
+import { pluginRequest } from "../../../utils.js";
 
 export type BatchTargetLocale = CollectionPolicyResponse["targetLocales"][number];
 
@@ -20,6 +23,8 @@ export interface BatchItem {
 export interface BatchJob {
   item: BatchItem;
   target: BatchTargetLocale;
+  /** A translation this run wrote, to translate again if nobody edited or published it since. */
+  redo?: BatchTranslation | undefined;
 }
 
 export type BatchOutcome = "created" | "updated" | "skipped" | "failed";
@@ -60,6 +65,7 @@ export interface BatchJobOptions {
   fields: readonly string[];
   updateExisting: boolean;
   publish: boolean;
+  settings?: BatchJobSettings | null | undefined;
 }
 
 /** What the Batch tab hands to the run tab. `items` is empty for a whole-collection run; the run tab lists them. */
@@ -305,10 +311,11 @@ export async function runBatchJobs<T>(
 
 /** Never throws: every failure becomes a result row so one bad entry can't stop the batch. */
 export async function runBatchJob(job: BatchJob, options: BatchJobOptions): Promise<BatchResult> {
-  const { collection, fields } = options;
+  const { collection, fields, settings } = options;
   let creating = false;
-  let translation: BatchResult["translation"] = null;
+  let translation: BatchResult["translation"] = job.redo ?? null;
   try {
+    if (job.redo !== undefined) return await redoTranslation(job, job.redo, options);
     const { translations } = await fetchTranslations(collection, job.item.id);
     const existing = findExistingTranslation(translations, job.target);
     if (existing !== undefined) {
@@ -322,6 +329,7 @@ export async function runBatchJob(job: BatchJob, options: BatchJobOptions): Prom
         sourceLocale: options.sourceLocale,
         locale: job.target.locale,
         fields,
+        settings,
       });
       if (result.entry === null) return { ...job, outcome: "failed", message: result.error, translation };
       const created = { id: result.entry.id, locale: result.entry.locale ?? job.target.locale, slug: result.entry.slug, published: false };
@@ -330,7 +338,7 @@ export async function runBatchJob(job: BatchJob, options: BatchJobOptions): Prom
       return { ...job, outcome: "created", message: joinMessages(result.flagWarning, result.notice, publish.message), translation };
     }
     if (!options.updateExisting) return { ...job, outcome: "skipped", message: "A translation already exists.", translation };
-    const result = await translateExistingEntry({ collection, entryId: existing.id, locale: existing.locale, fields });
+    const result = await translateExistingEntry({ collection, entryId: existing.id, locale: existing.locale, fields, settings });
     if (result.entry === null) return { ...job, outcome: "failed", message: result.error, translation };
     const publish = await publishIfAsked(collection, existing, options.publish);
     const updated = translation === null ? null : { ...translation, published: translation.published || publish.published };
@@ -344,6 +352,38 @@ export async function runBatchJob(job: BatchJob, options: BatchJobOptions): Prom
       translation,
     };
   }
+}
+
+/** Same checks as the server queue's redo: still a draft, and no AI-written field changed since. */
+async function redoTranslation(job: BatchJob, translation: BatchTranslation, options: BatchJobOptions): Promise<BatchResult> {
+  const { collection, fields, settings } = options;
+  const query = new URLSearchParams({ collection, entryId: translation.id });
+  // The revision is read first: an edit after it makes the save conflict, an edit before it shows in the status.
+  const saved = await fetchContent(collection, translation.id, { locale: translation.locale });
+  const status = await pluginRequest<AiTranslationStatus>(`ai-translation/status?${query.toString()}`);
+  const skip = (message: string): BatchResult => ({ ...job, outcome: "skipped", message, translation });
+  if (saved._rev === undefined) throw new Error("EmDash did not return a revision token; no fields were changed.");
+  if (saved.status !== "draft") return skip("The translation is published or scheduled, so it was not redone.");
+  if (!status.aiTranslated || status.editedFields === null) {
+    return skip("PolyStella can't tell whether the translation was edited, so it was not redone.");
+  }
+  if (status.editedFields.length > 0) return skip("The translation was edited after PolyStella wrote it, so it was not redone.");
+  const result = await translateExistingEntry({
+    collection,
+    entryId: translation.id,
+    locale: translation.locale,
+    fields,
+    settings,
+    rev: saved._rev,
+  });
+  if (result.entry === null) return { ...job, outcome: "failed", message: result.error, translation };
+  const publish = await publishIfAsked(collection, translation, options.publish);
+  return {
+    ...job,
+    outcome: "updated",
+    message: joinMessages(result.flagWarning, result.notice, publish.message),
+    translation: { ...translation, published: publish.published },
+  };
 }
 
 /** A failed publish leaves the saved draft in place, so it is reported on the row instead of failing it. */

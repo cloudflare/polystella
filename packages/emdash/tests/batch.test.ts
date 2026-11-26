@@ -13,6 +13,7 @@ const admin = vi.hoisted(() => ({
 
 vi.mock("@emdash-cms/admin", async (importOriginal) => ({ ...(await importOriginal<object>()), ...admin }));
 
+const { parseStoredJob, readBatchMessage, readJobSettings } = await import("../src/server/batch.js");
 const { translateIntoDraft } = await import("../src/admin/content-translation.js");
 const {
   batchRunUrl,
@@ -445,5 +446,50 @@ describe("translating into the open editor", () => {
     await translateIntoDraft({ ...input, editorDraft: draft });
     expect(pendingRequests().filter(({ body }) => (body as { cancel?: boolean }).cancel === true)).toEqual([]);
     consoleError.mockRestore();
+  });
+});
+
+describe("stored batch jobs and messages", () => {
+  const stored = {
+    collection: "posts",
+    locales: ["fr-FR"],
+    total: 1,
+    status: "running",
+    createdAt: "2026-09-03T00:00:00.000Z",
+    createdBy: null,
+  };
+
+  it("reads the translation to redo from a queue message, and rejects a bad one", () => {
+    const message = { jobId: "j", entryId: "e", locale: "fr-FR" };
+    expect(readBatchMessage({ ...message, redo: "fr-1" })).toEqual({ ...message, redo: "fr-1" });
+    expect(readBatchMessage({ ...message, redo: "fr-1", part: 2 })).toEqual({ ...message, redo: "fr-1", part: 2 });
+    expect(readBatchMessage(message)).toEqual(message);
+    expect(readBatchMessage(message)).not.toHaveProperty("redo");
+    for (const redo of ["", 1, null]) expect(readBatchMessage({ ...message, redo })).toBeNull();
+  });
+
+  it("keeps well-formed job settings and drops malformed values", () => {
+    expect(readJobSettings({ model: "m", reasoning: "high", maxTokens: 512, instructions: "Be formal." })).toEqual({
+      model: "m",
+      reasoning: "high",
+      maxTokens: 512,
+      instructions: "Be formal.",
+    });
+    expect(readJobSettings({ model: "", reasoning: "high", maxTokens: 1.5, instructions: 3 })).toEqual({
+      model: null,
+      reasoning: null,
+      maxTokens: null,
+      instructions: "",
+    });
+    for (const maxTokens of [0, -5]) expect(readJobSettings({ model: "m", maxTokens })).toMatchObject({ maxTokens: null });
+    expect(readJobSettings(null)).toBeNull();
+    expect(readJobSettings("x")).toBeNull();
+  });
+
+  it("parses jobs stored before settings and retries existed with none", () => {
+    expect(parseStoredJob(stored)).toMatchObject({ settings: null, retryOf: null });
+    const settings = { model: "m", reasoning: null, maxTokens: null, instructions: "" };
+    expect(parseStoredJob({ ...stored, settings, retryOf: "job-0" })).toMatchObject({ settings, retryOf: "job-0" });
+    expect(parseStoredJob({ ...stored, retryOf: "" })).toMatchObject({ retryOf: null });
   });
 });

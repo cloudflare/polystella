@@ -386,7 +386,7 @@ export function defaultMaxTokens(options: PolystellaEmdashOptions): number {
   return options.provider.maxTokens ?? MAX_TOKENS;
 }
 
-function isMaxTokens(value: unknown): value is number {
+export function isMaxTokens(value: unknown): value is number {
   return typeof value === "number" && Number.isInteger(value) && value >= MIN_MAX_TOKENS && value <= MAX_MAX_TOKENS;
 }
 

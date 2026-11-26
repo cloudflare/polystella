@@ -337,7 +337,9 @@ by the queue too, 100 source entries at a time, so its total grows
 until listing ends. A job holds at most 5,000 translations: listing
 stops there, and the job card says later entries were not queued.
 Translation errors are recorded as failed rows that
-**Retry failed** requeues. Infrastructure errors (for example, the
+**Retry...** queues again as a new job. A retry that redoes a
+translation updates it with `runtime.handleContentUpdate` and EmDash's
+`_rev` token, so an edit made while it translates is kept. Infrastructure errors (for example, the
 database is unreachable) use the queue's own retries.
 
 ## Collections are not a config option

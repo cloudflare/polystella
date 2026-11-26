@@ -249,11 +249,27 @@ export const MAX_BATCH_FAILURES_SHOWN = 20;
 
 export type BatchJobOutcome = "created" | "updated" | "skipped" | "failed";
 
+export const MAX_JOB_INSTRUCTION_CHARACTERS = 2000;
+
+/** One job's changes to Translation settings; `null` or `""` keeps the setting. */
+export interface BatchJobSettings {
+  /** Used for every locale of the job. */
+  model: string | null;
+  /** Thinking effort for `model`; `null` uses Translation settings' choice when it picks the same model, else the model's default. */
+  reasoning: string | null;
+  maxTokens: number | null;
+  /** Added after the configured translation instructions. */
+  instructions: string;
+}
+
 export interface BatchJobView {
   id: string;
   collection: string;
   locales: string[];
   total: number;
+  settings: BatchJobSettings | null;
+  /** The job this one retried. */
+  retryOf: string | null;
   /** `finished` once every queued translation has a result and listing is done. */
   status: "running" | "cancelled" | "finished";
   createdAt: string;

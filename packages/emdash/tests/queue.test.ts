@@ -63,7 +63,7 @@ describe("PolyStella batch queue consumer", () => {
     expect(value.handleContentCreate).toHaveBeenCalledWith(collection, createBody);
     expect(routeCalls).toEqual([
       { path: "batch/translate", body },
-      { path: "ai-translation", body: { collection: "posts", entryId: "entry-fr" } },
+      { path: "ai-translation", body: { collection: "posts", entryId: "entry-fr", jobId: "job-1" } },
       {
         path: "batch/record",
         body: {
@@ -149,7 +149,7 @@ describe("PolyStella batch queue consumer", () => {
       expect(routeCalls).toEqual([
         { path: "batch/translate", body },
         { path: "batch/translate", body: { ...body, rev: "rev-1" } },
-        { path: "ai-translation", body: { collection: "posts", entryId: "entry-fr" } },
+        { path: "ai-translation", body: { collection: "posts", entryId: "entry-fr", jobId: "job-1" } },
         { path: "batch/record", body: { ...body, outcome: "updated", message: "Published.", translation: link } },
       ]);
       expect(message.ack).toHaveBeenCalled();
