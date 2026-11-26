@@ -51,8 +51,12 @@ async function startFakeAi() {
       const response = fakeTranslation(readContent(messages, "user"), targetLocale(readContent(messages, "system")));
       res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({ result: { response }, success: true }));
     } catch (error) {
-      res.writeHead(500, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ success: false, errors: [{ message: error instanceof Error ? error.message : String(error) }] }));
+      // The details stay in this console; the client gets a fixed message.
+      console.error("[playground] fake Workers AI could not handle a request:", error);
+      const invalidJson = error instanceof SyntaxError;
+      const message = invalidJson ? "request body is not valid JSON" : "the fake Workers AI failed; see its console";
+      res.writeHead(invalidJson ? 400 : 500, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, errors: [{ message }] }));
     }
   });
   const started = await new Promise((resolve, reject) => {
