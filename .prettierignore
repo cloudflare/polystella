@@ -6,6 +6,8 @@ docs/.astro/
 node_modules/
 pnpm-lock.yaml
 llms-full.txt
+playgrounds/emdash/.emdash/
+playgrounds/emdash/emdash-env.d.ts
 
 # Auto-generated from the zod schema by `pnpm --filter polystella-docs prebuild`.
 # Re-running prettier would just churn it.

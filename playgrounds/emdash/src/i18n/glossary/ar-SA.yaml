@@ -1,0 +1,14 @@
+version: "1"
+doNotTranslate:
+  - PolyStella
+  - EmDash
+  - Workers AI
+preferredTranslations:
+  draft: مسودة
+  glossary: مسرد المصطلحات
+styleRules:
+  - category: script
+    instruction: Write Modern Standard Arabic and keep product names in Latin letters.
+  - category: punctuation
+    instruction: Use the Arabic comma (،) and question mark (؟).
+notes: Keep {{placeholders}} and Latin product names exactly as written, even inside right-to-left text.

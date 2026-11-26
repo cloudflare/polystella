@@ -1,0 +1,5 @@
+data.db
+data.db-*
+uploads/
+.emdash/migrations.json
+emdash-env.d.ts

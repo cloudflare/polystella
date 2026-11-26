@@ -1,0 +1,40 @@
+{
+  "name": "polystella-playground-emdash",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "PolyStella EmDash integration playground.",
+  "emdash": {
+    "seed": "seed/seed.json"
+  },
+  "scripts": {
+    "dev": "node scripts/with-fake-ai.mjs astro dev",
+    "dev:cloudflare": "node scripts/with-fake-ai.mjs astro dev --config astro.cloudflare.config.mjs",
+    "fake-ai": "node scripts/with-fake-ai.mjs",
+    "seed:extras": "node scripts/seed-extras.mjs",
+    "smoke": "node scripts/smoke.mjs",
+    "smoke:real": "node scripts/smoke.mjs --real",
+    "link-env": "node scripts/link-shared-env.mjs",
+    "check:models": "node scripts/check-models.mjs",
+    "build": "astro build",
+    "build:cloudflare": "astro build --config astro.cloudflare.config.mjs",
+    "typecheck": "astro check"
+  },
+  "devDependencies": {
+    "@astrojs/check": "^0.9.10",
+    "@astrojs/cloudflare": "14.3.1",
+    "@astrojs/node": "11.1.5",
+    "@astrojs/react": "6.0.5",
+    "@cloudflare/kumo": "2.19.0",
+    "@cloudflare/polystella-emdash": "workspace:*",
+    "@emdash-cms/admin": "1.6.0",
+    "@emdash-cms/cloudflare": "1.6.0",
+    "@types/node": "^26.1.0",
+    "astro": "^7.4.7",
+    "emdash": "1.6.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "typescript": "^6.0.3",
+    "wrangler": "^4.156.1"
+  }
+}
