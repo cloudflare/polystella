@@ -54,6 +54,7 @@ interface Collector {
   spanLists: SpanList[];
   markdownTexts: MarkdownText[];
   blockFields: BlockFieldPaths;
+  unlistedBlockTypes: Set<string>;
 }
 
 /** Custom Portable Text block type → text paths inside it, like `cards[].title`. */
@@ -75,6 +76,22 @@ export const EMDASH_BLOCK_FIELDS: BlockFieldPaths = {
   embed: ["caption"],
   iframe: ["title"],
 };
+
+// EmDash block types that hold no prose to translate, so copying them is expected.
+const EMDASH_UNTRANSLATED_BLOCK_TYPES = new Set(["break", "code", "file", "htmlBlock", "reference"]);
+const MAX_NOTICE_BLOCK_TYPES = 5;
+
+/** Custom block types with no `blockFields` entry are copied from the source, so a translation can look incomplete. */
+export function unlistedBlocksNotice(plan: Pick<ContentPlan, "unlistedBlockTypes">): string | null {
+  const types = plan.unlistedBlockTypes;
+  if (types.length === 0) return null;
+  const shown = types
+    .slice(0, MAX_NOTICE_BLOCK_TYPES)
+    .map((type) => `"${type}"`)
+    .join(", ");
+  const more = types.length > MAX_NOTICE_BLOCK_TYPES ? ` and ${types.length - MAX_NOTICE_BLOCK_TYPES} more` : "";
+  return `Blocks of type ${shown}${more} were copied untranslated because blockFields has no entry for them. If they hold text, add them to blockFields.`;
+}
 
 /**
  * Sites build heading ids themselves (EmDash adds none), often from the heading text, so a translated
@@ -146,6 +163,8 @@ export interface ContentPlan {
   locations: Map<string, SegmentLocation>;
   spanLists: SpanList[];
   markdownTexts: MarkdownText[];
+  /** Custom block types copied as they are because `blockFields` doesn't list them. */
+  unlistedBlockTypes: string[];
 }
 
 /** Translates every part in one go; routes translate one part per request instead. */
@@ -167,6 +186,7 @@ export async function planContentTranslation(options: ContentPlanOptions): Promi
   const locations = new Map<string, SegmentLocation>();
   const spanLists: SpanList[] = [];
   const markdownTexts: MarkdownText[] = [];
+  const unlistedBlockTypes = new Set<string>();
   const fields = Object.entries(options.values);
   if (fields.length > MAX_CONTENT_FIELDS) {
     throw new ContentTranslationInputError(`cannot translate more than ${MAX_CONTENT_FIELDS} fields at once`);
@@ -180,6 +200,7 @@ export async function planContentTranslation(options: ContentPlanOptions): Promi
       spanLists,
       markdownTexts,
       blockFields: { ...EMDASH_BLOCK_FIELDS, ...options.blockFields },
+      unlistedBlockTypes,
     };
     const subFields =
       options.repeaterSubFields !== undefined && Object.hasOwn(options.repeaterSubFields, field)
@@ -213,7 +234,17 @@ export async function planContentTranslation(options: ContentPlanOptions): Promi
     new TextEncoder().encode(JSON.stringify(segments.map(({ id, text }) => [id, text]))),
   );
   const fingerprint = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
-  return { values: options.values, segments, parts: splitIntoParts(groups), characters, fingerprint, locations, spanLists, markdownTexts };
+  return {
+    values: options.values,
+    segments,
+    parts: splitIntoParts(groups),
+    characters,
+    fingerprint,
+    locations,
+    spanLists,
+    markdownTexts,
+    unlistedBlockTypes: [...unlistedBlockTypes].sort(),
+  };
 }
 
 export async function translateContentPart(
@@ -358,6 +389,7 @@ function collectCustomBlock(
   collector: Collector,
 ): void {
   const fieldPaths = Object.hasOwn(blockFields, block._type) ? blockFields[block._type] : undefined;
+  if (fieldPaths === undefined && !EMDASH_UNTRANSLATED_BLOCK_TYPES.has(block._type)) collector.unlistedBlockTypes.add(block._type);
   for (const fieldPath of fieldPaths ?? []) {
     const { path, markdown } =
       typeof fieldPath === "string" ? { path: fieldPath, markdown: false } : { path: fieldPath.path, markdown: true };

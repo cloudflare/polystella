@@ -4,7 +4,13 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import { contentSegmentLabel } from "../src/server/routes/debug-collector.js";
-import { EMDASH_BLOCK_FIELDS, samePageLinksNotice, translateContentFields } from "../src/server/translate-content.js";
+import {
+  EMDASH_BLOCK_FIELDS,
+  planContentTranslation,
+  samePageLinksNotice,
+  translateContentFields,
+  unlistedBlocksNotice,
+} from "../src/server/translate-content.js";
 
 function translator(response: string): Translator {
   return { modelId: "test", translate: async () => response };
@@ -29,6 +35,37 @@ describe("samePageLinksNotice", () => {
       "Review 2 same-page links (#…) by hand: if a link points at a heading, the translated heading may have a different anchor.",
     );
     expect(samePageLinksNotice({ title: "Plain", body: [{ _type: "block", markDefs: [{ href: "/a" }] }] })).toBeNull();
+  });
+});
+
+describe("unlistedBlocksNotice", () => {
+  const blocks = (...types: string[]) => types.map((_type, index) => ({ _type, _key: `k${index}`, text: "Hi" }));
+
+  it("lists custom block types without a blockFields entry, sorted and unique", async () => {
+    const body = [
+      ...blocks("zeta", "alpha", "zeta", "listed", "empty"),
+      ...blocks("code", "htmlBlock", "image", "break", "file", "reference"),
+    ];
+    const plan = await planContentTranslation({ values: { body }, blockFields: { listed: ["text"], empty: [] } });
+    expect(plan.unlistedBlockTypes).toEqual(["alpha", "zeta"]);
+    expect(unlistedBlocksNotice(plan)).toContain('Blocks of type "alpha", "zeta" were copied untranslated');
+  });
+
+  it("finds unlisted types in `blocks` fields, and is null when nothing is unlisted", async () => {
+    const plan = await planContentTranslation({ values: { layout: blocks("hero") }, blocksFieldSlugs: ["layout"] });
+    expect(plan.unlistedBlockTypes).toEqual(["hero"]);
+    const none = await planContentTranslation({ values: { title: "Hi", body: blocks("code") } });
+    expect(none.unlistedBlockTypes).toEqual([]);
+    expect(unlistedBlocksNotice(none)).toBeNull();
+  });
+
+  it("shows five types, then how many more", () => {
+    const notice = (count: number) =>
+      unlistedBlocksNotice({ unlistedBlockTypes: Array.from({ length: count }, (_, index) => `t${index}`) });
+    expect(notice(5)).toContain('"t0", "t1", "t2", "t3", "t4" were');
+    expect(notice(5)).not.toContain("more");
+    expect(notice(8)).toContain('"t4" and 3 more were');
+    expect(notice(8)).not.toContain("t5");
   });
 });
 

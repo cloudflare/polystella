@@ -20,15 +20,23 @@ function runtime(
   create: Awaited<ReturnType<PolystellaBatchRuntime["handleContentCreate"]>> = { success: true, data: { item: { id: "entry-fr" } } },
   translated: unknown = { create: draft },
   published: Awaited<ReturnType<PolystellaBatchRuntime["handleContentPublish"]>> = { success: true },
+  updated: Awaited<ReturnType<PolystellaBatchRuntime["handleContentUpdate"]>> = { success: true },
 ) {
   const routeCalls: Array<{ path: string; body: unknown }> = [];
   const value = {
     handlePluginApiRoute: vi.fn(async (_pluginId: string, _method: string, path: string, request: Request) => {
-      routeCalls.push({ path, body: await request.json() });
-      return { success: true, data: path === "batch/translate" ? translated : { recorded: true } };
+      const requestBody: unknown = await request.json();
+      routeCalls.push({ path, body: requestBody });
+      const data = typeof translated === "function" ? (translated as (body: unknown) => unknown)(requestBody) : translated;
+      return { success: true, data: path === "batch/translate" ? data : { recorded: true } };
     }),
     handleContentCreate: vi.fn(async () => create),
     handleContentPublish: vi.fn(async () => published),
+    handleContentGet: vi.fn(async (): Promise<Awaited<ReturnType<PolystellaBatchRuntime["handleContentGet"]>>> => ({
+      success: true,
+      data: { _rev: "rev-1" },
+    })),
+    handleContentUpdate: vi.fn(async () => updated),
   } satisfies PolystellaBatchRuntime;
   return { value, routeCalls };
 }
@@ -114,6 +122,80 @@ describe("PolyStella batch queue consumer", () => {
     expect(value.handleContentCreate).not.toHaveBeenCalled();
     expect(routeCalls.map(({ path }) => path)).toEqual(["batch/translate"]);
     expect(message.ack).toHaveBeenCalled();
+  });
+
+  describe("updating existing translations", () => {
+    const link = { id: "entry-fr", locale: "fr", slug: "hello", published: true };
+    const update = { collection: "posts", id: "entry-fr", locale: "fr", data: { title: "Bonjour" }, _rev: "rev-1", translation: link };
+    // The route asks for the existing translation's revision first, then translates with it.
+    const twoStep = (response: Record<string, unknown>) => (requestBody: unknown) =>
+      typeof requestBody === "object" && requestBody !== null && "rev" in requestBody
+        ? response
+        : { create: null, readRevision: { collection: "posts", id: "entry-fr", locale: "fr" } };
+
+    it("reads the revision before translating, saves with it, and records the row as updated", async () => {
+      const message = queueMessage();
+      const { value, routeCalls } = runtime(undefined, twoStep({ create: null, update, publish: true }));
+
+      await processPolystellaBatch({ messages: [message] }, value);
+
+      expect(value.handleContentGet).toHaveBeenCalledWith("posts", "entry-fr", "fr");
+      expect(value.handleContentUpdate).toHaveBeenCalledWith("posts", "entry-fr", {
+        data: { title: "Bonjour" },
+        _rev: "rev-1",
+        locale: "fr",
+      });
+      expect(value.handleContentPublish).toHaveBeenCalledWith("posts", "entry-fr");
+      expect(routeCalls).toEqual([
+        { path: "batch/translate", body },
+        { path: "batch/translate", body: { ...body, rev: "rev-1" } },
+        { path: "ai-translation", body: { collection: "posts", entryId: "entry-fr" } },
+        { path: "batch/record", body: { ...body, outcome: "updated", message: "Published.", translation: link } },
+      ]);
+      expect(message.ack).toHaveBeenCalled();
+    });
+
+    it("skips a translation an editor changed meanwhile, and fails one whose revision can't be read", async () => {
+      const conflict = runtime(undefined, twoStep({ create: null, update }), undefined, {
+        success: false,
+        error: { code: "CONFLICT", message: "version conflict" },
+      });
+      await processPolystellaBatch({ messages: [queueMessage()] }, conflict.value);
+      expect(conflict.routeCalls.map(({ path }) => path)).toEqual(["batch/translate", "batch/translate", "batch/record"]);
+      expect(conflict.routeCalls.at(-1)?.body).toMatchObject({ outcome: "skipped", translation: link });
+
+      const unreadable = runtime(undefined, twoStep({ create: null, update }));
+      unreadable.value.handleContentGet.mockResolvedValueOnce({ success: false, error: { code: "NOT_FOUND", message: "gone" } });
+      await processPolystellaBatch({ messages: [queueMessage()] }, unreadable.value);
+      expect(unreadable.value.handleContentUpdate).not.toHaveBeenCalled();
+      expect(unreadable.routeCalls.at(-1)?.body).toMatchObject({
+        outcome: "failed",
+        message: "Could not read the existing translation: gone",
+      });
+    });
+
+    it("retries only the record after a saved update, so a redelivery can't overwrite later edits", async () => {
+      const message = queueMessage();
+      const { value, routeCalls } = runtime(undefined, twoStep({ create: null, update }));
+      const route = value.handlePluginApiRoute.getMockImplementation();
+      let recordFailures = 1;
+      value.handlePluginApiRoute.mockImplementation(async (pluginId, method, path, request) => {
+        if (path === "batch/record" && recordFailures > 0) {
+          recordFailures -= 1;
+          routeCalls.push({ path, body: await request.json() });
+          return { success: false, data: { code: "INTERNAL_ERROR", message: "db down" } };
+        }
+        if (route === undefined) throw new Error("missing mock");
+        return route(pluginId, method, path, request);
+      });
+
+      await processPolystellaBatch({ messages: [message] }, value);
+
+      expect(value.handleContentUpdate).toHaveBeenCalledTimes(1);
+      expect(routeCalls.filter(({ path }) => path === "batch/record")).toHaveLength(2);
+      expect(message.ack).toHaveBeenCalled();
+      expect(message.retry).not.toHaveBeenCalled();
+    });
   });
 
   it("retries when a route fails and drops malformed messages", async () => {

@@ -71,15 +71,17 @@ Catalog page's placeholder hint and the runtime `t()`.
 
 The model bounds for translation.
 
-| Field            | Type                               | Notes                                                                                                                                                                                                                       |
-| ---------------- | ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `allowed`        | string[]                           | Non-empty, unique. Administrators cannot select a model outside this list. Cannot contain the reserved `__polystella_code_default__`.                                                                                       |
-| `defaults`       | string or `ModelSpec`              | A single model id, or `{ default, <locale>: model }`. A model can be `{ model, enable_thinking }` (see [Thinking](#thinking)). Every locale key must match a configured catalog locale and every model appear in `allowed`. |
-| `reasoningInput` | `{ <model>: { <choice>: input } }` | Optional. The exact input to send for each admin thinking choice of a model, instead of what the Workers AI catalog says (see [Admin thinking choice](#admin-thinking-choice)). Keys must be in `allowed`.                  |
+| Field            | Type                               | Notes                                                                                                                                                                                                                                          |
+| ---------------- | ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `allowed`        | string[]                           | Non-empty, unique. Administrators cannot select a model outside this list. Cannot contain the reserved `__polystella_code_default__`.                                                                                                          |
+| `defaults`       | string or `ModelSpec`              | Optional fallback. A single model id, or `{ default, <locale>: model }`. A model can be `{ model, enable_thinking }` (see [Thinking](#thinking)). Every locale key must match a configured catalog locale and every model appear in `allowed`. |
+| `reasoningInput` | `{ <model>: { <choice>: input } }` | Optional. The exact input to send for each admin thinking choice of a model, instead of what the Workers AI catalog says (see [Admin thinking choice](#admin-thinking-choice)). Keys must be in `allowed`.                                     |
 
-`models.defaults` may set a `default` fallback and locale-specific
-models. Each target locale receives its own model and glossary
-settings.
+Administrators pick the default model in **Translation settings**, and
+each language uses it unless they pick another model for that
+language. `models.defaults` is only the fallback until they pick one;
+without it, the fallback is the first model in `allowed`. It may set a
+`default` and locale-specific models.
 
 ### Thinking
 
@@ -217,7 +219,10 @@ EmDash's own block types are translated without configuration:
 
 A `blockFields` entry for one of these types replaces its default, and
 an empty list (`image: []`) copies that type unchanged. `code`,
-`htmlBlock` and `file` blocks are never translated.
+`htmlBlock` and `file` blocks are never translated. When an entry has
+blocks of a type with no entry, its translation result (in the panel
+and in batch results) names those types, because their text stays in
+the source language.
 
 A path can also be an object that marks a Markdown string:
 
@@ -290,8 +295,10 @@ See [Catalog messages](/concepts/catalog-messages/#locale-tags).
 Optional. The name of a Cloudflare Queue producer binding. When set,
 the [Batch translation page](/emdash/admin-ui/#batch-translation)
 can run jobs on the server, so they keep going after the browser tab
-closes. Server jobs only create missing translations, as drafts unless
-the administrator turns on **Publish translations immediately**.
+closes. Server jobs create missing translations, and retranslate
+existing ones when the administrator turns on **Update existing
+translations**. They are saved as drafts unless the administrator turns
+on **Publish translations immediately**.
 
 EmDash plugins cannot declare bindings or queue consumers, so the site
 wires both. In `wrangler.jsonc`, point a producer and a consumer at the
@@ -352,7 +359,7 @@ replace. Configure collection and field policy in the
 - `filePath` must be a repository-relative path.
 - `models.allowed` must be non-empty and unique, and must not
   contain `__polystella_code_default__`.
-- Every `models.defaults.<locale>` must match a configured catalog
+- Every `models.defaults.<locale>` (when set) must match a configured catalog
   locale and appear in `models.allowed`.
 - Every `glossaryDefaults` key must match a configured catalog
   locale, and each glossary must be at most 1,000,000 characters.

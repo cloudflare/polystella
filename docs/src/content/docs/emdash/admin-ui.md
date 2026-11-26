@@ -64,7 +64,9 @@ same route and saves as the content-editor panel. Choose:
 
 - **Entries** — entries you tick (the default) in a list of
   source-locale entries that shows each slug and searches by title or
-  slug, or the whole collection. For the whole collection, the right
+  slug, or the whole collection. Ticked entries are listed under
+  **… selected**, where **Remove** and **Clear selection** untick them,
+  so the selection stays visible when you search for something else. For the whole collection, the right
   column shows how many source entries there are, how many are
   published, the fields that are translated, and per target locale how
   many entries are untranslated, with how many translations a run
@@ -100,35 +102,50 @@ When the deployment sets
 [`batchQueueBinding`](/emdash/configuration/#batchqueuebinding), a
 **Run in** choice adds **Server queue**. The job is queued on
 Cloudflare Queues and keeps running after you close the tab. Server
-jobs only create missing translations; existing ones are skipped.
-They follow **Publish translations immediately** too.
-The tab lists the last ten jobs with their progress, whether they cover
-the whole collection or selected entries (**Show entries** lists them),
-the first failures, **Show results** (every row with the same links as browser
-runs), **Cancel** (queued entries finish without translating), and
-**Retry failed**. **Remove** takes a finished or cancelled job off the
-list, and **Clear finished jobs** removes all of them; the
-translations they created stay. Jobs older than 30 days are deleted
+jobs follow **Update existing translations** and **Publish
+translations immediately** too. An update reads the translation's
+`_rev` before translating and saves with it, so a translation an
+editor saves meanwhile is skipped instead of overwritten.
+The tab lists the last ten jobs under the run button. Each row is
+named after the collection and the time the job started, with its
+status, locales, entries, whether it publishes or updates existing
+translations (hover for details), and a bar split into created,
+updated, skipped and failed. A running job opens on its own; open any
+other to see its tabs: **Entries** (the selected source entries, each
+opening in the editor in a new tab), **Results** (every row with the
+same links as browser runs), and **Failures**. It also offers
+**Cancel** (queued entries finish without translating; the job then
+says how many translations didn't finish), **Retry failed**, and
+**Remove**, which takes a finished or cancelled job off the list.
+**Clear finished jobs** removes all of them; the translations they
+created stay. Jobs older than 30 days are deleted
 automatically when the list loads. The list refreshes every five
 seconds while a job runs.
 
 ## Translation settings
 
-A **General** card (debug mode, max output tokens, the AI-flag and SEO
-switches) and an **Additional translation instructions** card sit side
-by side. Below them, each target locale has a card, closed at first,
+A **General** card (default model, debug mode, max output tokens, the
+AI-flag and SEO switches) and an **Additional translation instructions**
+card sit side by side. Below them, each target locale has a card, closed at first,
 with its model in the header and its own model and glossary behavior.
-The code-defined default locale is source-only and is not listed here:
+The code-defined default locale is source-only and is not listed here.
 
-- **Translation model** — pick from `models.allowed`, or keep the
-  code default (`models.defaults`). A model outside `allowed` cannot
-  be selected.
-- **Thinking** — shown when a locale overrides the model. _No
-  override_ (the code's `models.params` for the model apply), _Off_ when the model can turn thinking off, and each effort
-  the model lists in the Workers AI catalog (or in
-  `models.reasoningInput`). Changing the model resets it. With the code
-  default model, the thinking set by `models.defaults` or
-  `models.params` applies and is shown read-only.
+- **Default model** (in General) — the model every language uses
+  unless it picks its own, from `models.allowed`, with its own
+  **Thinking** choice. _Not set_ uses the code fallback:
+  `models.defaults` when the deployment sets it, otherwise the first
+  model in `models.allowed`.
+- **Translation model** — keep the default model, or pick another one
+  from `models.allowed` for this language. A model outside `allowed`
+  cannot be selected.
+- **Thinking** — shown for the default model and when a language picks
+  its own model. _No override_ (the code's `models.params` for the
+  model apply), _Off_ when the model can turn thinking off, and each
+  effort the model lists in the Workers AI catalog (or in
+  `models.reasoningInput`). Changing the model resets it. A language on
+  the default model uses the default model's thinking. With no default
+  model set, the thinking set by `models.defaults` or `models.params`
+  applies and is shown read-only.
 - **Glossary behavior** — use the code default, append custom plain
   text, or replace the code glossary. Structured YAML stays
   code-defined; only `notes` can be appended or replaced.

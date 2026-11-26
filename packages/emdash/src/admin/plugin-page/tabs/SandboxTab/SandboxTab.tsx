@@ -37,7 +37,7 @@ export function SandboxTab({ visible = true }: { visible?: boolean | undefined }
         setSettings(value);
         setTargetLocale((current) => {
           const locale = value.locales.find((item) => item.locale === current) ?? value.locales[0];
-          setModel(locale?.model ?? locale?.defaultModel ?? "");
+          setModel(locale?.model ?? value.model ?? locale?.defaultModel ?? "");
           return locale?.locale ?? "";
         });
       })
@@ -100,7 +100,7 @@ export function SandboxTab({ visible = true }: { visible?: boolean | undefined }
                   if (typeof value === "string") {
                     const locale = settings?.locales.find((item) => item.locale === value);
                     setTargetLocale(value);
-                    setModel(locale?.model ?? locale?.defaultModel ?? "");
+                    setModel(locale?.model ?? settings?.model ?? locale?.defaultModel ?? "");
                   }
                 }}
               >

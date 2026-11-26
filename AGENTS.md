@@ -104,7 +104,8 @@ to the explanatory section when adding code that touches one.
   not require a package release (for example, docs-site-only or CI-only
   maintenance).
 - When the tested EmDash version changes (the `emdash` devDependency in
-  `packages/emdash/package.json`), re-check `EMDASH_BLOCK_FIELDS` in
+  `packages/emdash/package.json`), re-check `EMDASH_BLOCK_FIELDS` and
+  `EMDASH_UNTRANSLATED_BLOCK_TYPES` in
   `packages/emdash/src/server/translate-content.ts` against EmDash's
   `src/content/converters` and `src/components` for new or changed block
   types. A test in `packages/emdash/tests/translate-content.test.ts` fails

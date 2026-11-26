@@ -2252,9 +2252,17 @@ describe("EmDash batch queue routes", () => {
 
     const first = (await call("batch/entries", { jobId: job.id }, "GET", titled)) as BatchJobEntriesResponse;
     expect(first.entries).toHaveLength(50);
-    expect(first.entries[0]).toEqual({ id: "entry-0", title: "Title entry-0" });
+    expect(first.entries[0]).toMatchObject({ id: "entry-0", title: "Title entry-0", deleted: false });
+    expect(first.entries[0]?.locale).toEqual(expect.any(String));
+    const gone = (await call("batch/entries", { jobId: job.id }, "GET", (routeContext: RouteContext) => {
+      titled(routeContext);
+      const content = routeContext.content;
+      if (content === undefined) throw new Error("missing content access");
+      content.get = async () => null;
+    })) as BatchJobEntriesResponse;
+    expect(gone.entries[0]).toEqual({ id: "entry-0", title: "entry-0", locale: null, deleted: true });
     expect(first.nextCursor).toBe("50");
-    await expect(call("batch/entries", { jobId: job.id, cursor: "50" }, "GET", titled)).resolves.toEqual({
+    await expect(call("batch/entries", { jobId: job.id, cursor: "50" }, "GET", titled)).resolves.toMatchObject({
       entries: [{ id: "entry-50", title: "Title entry-50" }],
       nextCursor: null,
     });
@@ -2373,6 +2381,47 @@ describe("EmDash batch queue routes", () => {
     });
   });
 
+  it("tells the editor which custom blocks were copied untranslated, with the same-page link notice", async () => {
+    const echo = {
+      run: async (_model: string, input: { messages: Array<{ content: string }> }) => ({
+        response: [...(input.messages.at(-1)?.content ?? "").matchAll(/^@@([^@\n]+?)@@\s*$/gm)]
+          .map(([, id]) => `@@${id}@@\nFR`)
+          .join("\n\n"),
+      }),
+    };
+    const { kv, call } = batchSetup({ AI: echo });
+    await enablePosts(kv);
+    const withBody = (body: unknown[]) => (routeContext: RouteContext) => {
+      sourceEntry(routeContext);
+      const content = routeContext.content;
+      if (content === undefined) throw new Error("missing content access");
+      const get = content.get;
+      content.get = async (collection, id) => {
+        const item = await get(collection, id);
+        return item === null ? null : { ...item, data: { ...item.data, body } };
+      };
+    };
+    const input = { collection: "posts", entryId: "entry-src", targetLocale: "fr-FR", fields: ["title", "body"] };
+    const block = (type: string, text: string) => ({ _type: type, _key: type, text });
+    const link = { _type: "block", _key: "p", markDefs: [{ _type: "link", _key: "l", href: "#intro" }], children: [] };
+
+    const unlisted = (await call("translate-content", input, "POST", withBody([block("hero", "x"), link]))) as TranslateContentResponse;
+    if (!("patch" in unlisted) || unlisted.patch === null) throw new Error("expected a patch");
+    expect(unlisted.notice).toMatch(/^Blocks of type "hero" were copied untranslated .* Review 1 same-page link/);
+
+    const listed = await call("translate-content", input, "POST", withBody([block("code", "x"), block("image", "x")]));
+    expect(listed).not.toHaveProperty("notice");
+
+    const job = (await call("batch/start", { collection: "posts", locales: ["fr-FR"], entryIds: ["entry-src"] })) as BatchJobView;
+    const queued = await call(
+      "batch/translate",
+      { jobId: job.id, entryId: "entry-src", locale: "fr-FR" },
+      "POST",
+      withBody([block("hero", "x")]),
+    );
+    expect(queued).toMatchObject({ notice: expect.stringContaining('Blocks of type "hero"') });
+  });
+
   it("translates an entry too long for one request a part at a time", async () => {
     const echo = {
       run: async (_model: string, input: { messages: Array<{ content: string }> }) => ({
@@ -2480,6 +2529,183 @@ describe("EmDash batch queue routes", () => {
     expect(cancelled).toEqual({ create: null });
     const listed = (await call("batch/jobs", {}, "GET")) as BatchJobsResponse;
     expect(listed.jobs[0]).toMatchObject({ status: "cancelled", counts: { created: 0, skipped: 1, failed: 0 } });
+  });
+
+  describe("updating existing translations", () => {
+    const frSibling = [{ id: "entry-fr", locale: "fr-FR" }];
+    const echo = {
+      run: async (_model: string, input: { messages: Array<{ content: string }> }) => ({
+        response: [...(input.messages.at(-1)?.content ?? "").matchAll(/^@@([^@\n]+?)@@\s*$/gm)]
+          .map(([, id]) => `@@${id}@@\nFR`)
+          .join("\n\n"),
+      }),
+    };
+    const paragraph = (key: string) => ({
+      _type: "block",
+      _key: key,
+      style: "normal",
+      markDefs: [],
+      children: [{ _type: "span", _key: `${key}s`, text: "x".repeat(9_000), marks: [] }],
+    });
+    // Four 9k-character paragraphs need two parts.
+    const longEntry = (siblings: Array<{ id: string; locale: string }>) => (routeContext: RouteContext) => {
+      sourceEntry(routeContext, siblings);
+      const content = routeContext.content;
+      if (content === undefined) throw new Error("missing content access");
+      const get = content.get;
+      content.get = async (collection, id) => {
+        const item = await get(collection, id);
+        return item === null ? null : { ...item, data: { ...item.data, body: ["a", "b", "c", "d"].map(paragraph) } };
+      };
+    };
+    const message = (jobId: string) => ({ jobId, entryId: "entry-src", locale: "fr-FR" });
+    const startUpdate = (call: ReturnType<typeof batchSetup>["call"], extra: Record<string, unknown> = {}) =>
+      call("batch/start", {
+        collection: "posts",
+        locales: ["fr-FR"],
+        entryIds: ["entry-src"],
+        updateExisting: true,
+        ...extra,
+      }) as Promise<BatchJobView>;
+
+    it("asks for the revision, then returns only the patch with publish and notice", async () => {
+      const { kv, call } = batchSetup({ AI: echo });
+      await enablePosts(kv);
+      const job = await startUpdate(call, { publish: true });
+      expect(job.updateExisting).toBe(true);
+      const withLink = (routeContext: RouteContext) => {
+        sourceEntry(routeContext, frSibling);
+        const content = routeContext.content;
+        if (content === undefined) throw new Error("missing content access");
+        const get = content.get;
+        const link = { _type: "block", _key: "p", markDefs: [{ _type: "link", _key: "l", href: "#intro" }], children: [] };
+        content.get = async (collection, id) => {
+          const item = await get(collection, id);
+          return item === null ? null : { ...item, data: { ...item.data, body: [link] } };
+        };
+      };
+
+      await expect(call("batch/translate", message(job.id), "POST", withLink)).resolves.toEqual({
+        create: null,
+        readRevision: { collection: "posts", id: "entry-fr", locale: "fr-FR" },
+      });
+      const listed = (await call("batch/jobs", {}, "GET")) as BatchJobsResponse;
+      expect(listed.jobs[0]?.counts).toEqual({ created: 0, updated: 0, skipped: 0, failed: 0 });
+
+      const result = await call("batch/translate", { ...message(job.id), rev: "rev-1" }, "POST", (routeContext) => {
+        withLink(routeContext);
+      });
+      expect(result).toMatchObject({
+        create: null,
+        update: {
+          collection: "posts",
+          id: "entry-fr",
+          locale: "fr-FR",
+          _rev: "rev-1",
+          translation: { id: "entry-fr", locale: "fr-FR", slug: "hello", published: false },
+        },
+        publish: true,
+        notice: expect.stringContaining("Review 1 same-page link"),
+      });
+      expect((result as { update: { data: Record<string, unknown> } }).update.data).not.toHaveProperty("sku");
+      expect((result as { update: { data: Record<string, unknown> } }).update.data.title).toBe("FR");
+    });
+
+    it("carries the revision to the last part of a long entry through the parts row", async () => {
+      const { sent, kv, call, batch } = batchSetup({ AI: echo });
+      await enablePosts(kv);
+      const job = await startUpdate(call);
+      sent.length = 0;
+
+      await expect(call("batch/translate", message(job.id), "POST", longEntry(frSibling))).resolves.toMatchObject({
+        readRevision: { id: "entry-fr" },
+      });
+      await expect(call("batch/translate", { ...message(job.id), rev: "rev-9" }, "POST", longEntry(frSibling))).resolves.toEqual({
+        create: null,
+      });
+      expect(sent).toEqual([{ ...message(job.id), part: 1 }]);
+      expect(await batch.results.query({ where: { jobId: job.id } })).toMatchObject({
+        items: [{ data: { part: 1, rev: "rev-9" } }],
+      });
+
+      // The later part carries no (or a forged) revision; the stored one wins.
+      const last = await call("batch/translate", { ...message(job.id), part: 1, rev: "forged" }, "POST", longEntry(frSibling));
+      expect(last).toMatchObject({ create: null, update: { id: "entry-fr", _rev: "rev-9", data: { title: "FR" } } });
+      expect(await batch.results.count({ jobId: job.id })).toBe(0);
+    });
+
+    it("still skips an existing translation when the job does not update", async () => {
+      const { kv, call } = batchSetup();
+      await enablePosts(kv);
+      const job = (await call("batch/start", { collection: "posts", locales: ["fr-FR"], entryIds: ["entry-src"] })) as BatchJobView;
+      expect(job.updateExisting).toBe(false);
+
+      const result = await call("batch/translate", { ...message(job.id), rev: "rev-1" }, "POST", (routeContext) =>
+        sourceEntry(routeContext, frSibling),
+      );
+
+      expect(result).toEqual({ create: null });
+      const listed = (await call("batch/jobs", {}, "GET")) as BatchJobsResponse;
+      expect(listed.jobs[0]).toMatchObject({ counts: { skipped: 1, updated: 0 } });
+    });
+
+    it("skips a translation that appeared after part 0 of a create", async () => {
+      const { sent, kv, call } = batchSetup({ AI: echo });
+      await enablePosts(kv);
+      const job = await startUpdate(call);
+      sent.length = 0;
+
+      await expect(call("batch/translate", message(job.id), "POST", longEntry([]))).resolves.toEqual({ create: null });
+      expect(sent).toEqual([{ ...message(job.id), part: 1 }]);
+      await expect(call("batch/translate", { ...message(job.id), part: 1 }, "POST", longEntry(frSibling))).resolves.toEqual({
+        create: null,
+      });
+
+      const listed = (await call("batch/jobs", {}, "GET")) as BatchJobsResponse;
+      expect(listed.jobs[0]?.counts).toEqual({ created: 0, updated: 0, skipped: 1, failed: 0 });
+    });
+
+    it("rejects a malformed revision", async () => {
+      const { call } = batchSetup();
+      for (const rev of ["", "r".repeat(257), 5]) {
+        await expect(call("batch/translate", { ...message("j"), rev })).rejects.toMatchObject({ status: 400 });
+      }
+    });
+
+    it("counts updated rows toward finishing, and defaults old jobs to not updating", async () => {
+      const { kv, call, batch } = batchSetup();
+      await enablePosts(kv);
+      const job = (await call("batch/start", { collection: "posts", locales: ["fr-FR"], entryIds: ["a", "b"] })) as BatchJobView;
+      await expect(
+        call("batch/start", { collection: "posts", locales: ["fr-FR"], entryIds: ["a"], updateExisting: "yes" }),
+      ).rejects.toMatchObject({ status: 400 });
+
+      await call("batch/record", { jobId: job.id, entryId: "a", locale: "fr-FR", outcome: "updated", message: null });
+      await call("batch/record", { jobId: job.id, entryId: "b", locale: "fr-FR", outcome: "created", message: null });
+      await batch.jobs.put("legacy", {
+        collection: "posts",
+        locales: ["fr-FR"],
+        total: 1,
+        status: "running",
+        publish: false,
+        createdAt: "2026-11-25T00:00:00.000Z",
+        createdBy: null,
+      });
+
+      const listed = ((await call("batch/jobs", {}, "GET")) as BatchJobsResponse).jobs;
+      expect(listed.find(({ id }) => id === job.id)).toMatchObject({
+        status: "finished",
+        updateExisting: false,
+        counts: { created: 1, updated: 1, skipped: 0, failed: 0 },
+      });
+      expect(listed.find(({ id }) => id === "legacy")?.updateExisting).toBe(false);
+
+      // A duplicate delivery's conflict doesn't replace the saved row, and a finished update job can be removed.
+      await call("batch/record", { jobId: job.id, entryId: "a", locale: "fr-FR", outcome: "skipped", message: "conflict" });
+      const after = ((await call("batch/jobs", {}, "GET")) as BatchJobsResponse).jobs.find(({ id }) => id === job.id);
+      expect(after?.counts).toMatchObject({ updated: 1, skipped: 0 });
+      await expect(call("batch/delete", { jobId: job.id })).resolves.toEqual({ deleted: true });
+    });
   });
 
   it("records translation failures and requeues them on retry", async () => {
@@ -2830,5 +3056,116 @@ describe("translatorParams", () => {
       x: 1,
       reasoning_effort: "high",
     });
+  });
+});
+
+describe("EmDash global default model", () => {
+  beforeEach(clearReasoningCapabilities);
+
+  function setup() {
+    const catalog = [
+      {
+        name: "model-a",
+        properties: [{ property_id: "reasoning_effort", value: { supported_efforts: ["high", "none"], mandatory: false } }],
+      },
+      { name: "model-b", properties: [{ property_id: "reasoning_effort", value: { supported_efforts: ["none"], mandatory: false } }] },
+    ];
+    const state = { catalogDown: false };
+    const runs: Array<{ model: string; input: WorkersAIInput }> = [];
+    const routes = createPluginRoutes(options(), {
+      ...dependencies(),
+      getEnv: async () => ({
+        AI: {
+          models: async ({ search }: { search: string }) => {
+            if (state.catalogDown) throw new Error("catalog down");
+            return catalog.filter(({ name }) => name === search);
+          },
+          run: async (model: string, input: WorkersAIInput) => {
+            runs.push({ model, input });
+            return { response: "@@catalog:0@@\nBonjour" };
+          },
+        },
+      }),
+    });
+    const kv = createKv();
+    const storage = createStorage();
+    const aiTranslations = createStorage();
+    let revision: string | null = null;
+    const get = () =>
+      route(routes, "settings/translation").handler(context({}, "GET", kv, storage)) as Promise<TranslationSettingsResponse>;
+    const save = async (global: Record<string, unknown>, locale: Record<string, unknown> = { model: null }) => {
+      const saved = (await route(routes, "settings/translation").handler(
+        context(
+          {
+            revision,
+            ...global,
+            locales: { "fr-FR": { glossaryMode: "default", glossaryText: "", ...locale } },
+            instructions: { mode: "default", text: "" },
+          },
+          "PUT",
+          kv,
+          storage,
+        ),
+      )) as TranslationSettingsResponse;
+      revision = saved.revision;
+      return saved;
+    };
+    const generate = async () => {
+      await route(routes, "catalog/generate").handler(context({ locale: "fr-FR", keys: ["greeting"] }, "POST", kv, storage));
+      return runs.at(-1);
+    };
+    const record = async () => {
+      await enablePosts(kv);
+      await route(routes, "ai-translation").handler(
+        context({ collection: "posts", entryId: "entry-1", fields: ["title"] }, "POST", kv, createStorage(), undefined, aiTranslations),
+      );
+      return (await aiTranslations.get("entry-1")) as { model: string } | null;
+    };
+    return { state, get, save, generate, record };
+  }
+
+  it("shows the code fallback and no global model by default", async () => {
+    const { get } = setup();
+    await expect(get()).resolves.toMatchObject({ model: null, reasoning: null, defaultModel: "model-a" });
+  });
+
+  it("stores a global model; an omitted model means none, and its effort is dropped", async () => {
+    const { save } = setup();
+    await expect(save({ model: "model-b", reasoning: "none" })).resolves.toMatchObject({ model: "model-b", reasoning: "none" });
+    await expect(save({})).resolves.toMatchObject({ model: null, reasoning: null });
+    await expect(save({ model: null, reasoning: "high" })).resolves.toMatchObject({ model: null, reasoning: null });
+  });
+
+  it("rejects a global model that is not allowed or an effort the model does not accept", async () => {
+    const { save } = setup();
+    await expect(save({ model: "model-z" })).rejects.toMatchObject({ status: 400 });
+    await expect(save({ model: "model-a", reasoning: "bogus" })).rejects.toMatchObject({ status: 400 });
+    await expect(save({ model: "model-b", reasoning: "high" })).rejects.toMatchObject({ status: 400 });
+  });
+
+  it("checks the effort with the catalog only when the global choice changed", async () => {
+    const { state, save } = setup();
+    await save({ model: "model-a", reasoning: "high" });
+    state.catalogDown = true;
+    clearReasoningCapabilities();
+    await expect(save({ model: "model-a", reasoning: "high", debugEnabled: true })).resolves.toMatchObject({ debugEnabled: true });
+    await expect(save({ model: "model-a", reasoning: "none" })).rejects.toMatchObject({ status: 503 });
+    await expect(save({ model: "model-b", reasoning: null })).resolves.toMatchObject({ model: "model-b" });
+  });
+
+  it("translates with the global model and effort unless the locale has its own model", async () => {
+    const { save, generate, record } = setup();
+    expect((await generate())?.model).toBe("model-b");
+    expect((await record())?.model).toBe("model-b");
+
+    await save({ model: "model-a", reasoning: "high" });
+    const global = await generate();
+    expect([global?.model, global?.input.reasoning_effort]).toEqual(["model-a", "high"]);
+    expect((await record())?.model).toBe("model-a");
+
+    await save({ model: "model-a", reasoning: "high" }, { model: "model-b", reasoning: "none" });
+    const own = await generate();
+    expect([own?.model, own?.input.reasoning_effort]).toEqual(["model-b", "none"]);
+    expect((await record())?.model).toBe("model-b");
   });
 });

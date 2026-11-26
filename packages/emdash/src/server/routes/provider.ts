@@ -4,11 +4,10 @@ import {
   createWorkersAIHttpTranslator,
   type WorkersAIBindingRun,
   type WorkersAIInput,
-  workersAIParamsForLocale,
 } from "@cloudflare/polystella-core/providers/workers-ai";
 import { PluginRouteError, type LogAccess } from "emdash";
 
-import type { PolystellaEmdashOptions } from "../options.js";
+import { codeModelParams, type PolystellaEmdashOptions } from "../options.js";
 import { isRecord } from "./validators.js";
 
 export const MAX_TOKENS = 8192;
@@ -78,7 +77,7 @@ export function translatorParams(
   locale: string,
   thinkingParams: Readonly<Record<string, unknown>> | undefined,
 ): Readonly<Record<string, unknown>> | undefined {
-  const baseParams = workersAIParamsForLocale(options.models.params?.[modelId], options.models.defaults, locale, modelId);
+  const baseParams = codeModelParams(options, modelId, locale);
   return thinkingParams === undefined ? baseParams : withThinking(baseParams, thinkingParams);
 }
 

@@ -1,4 +1,4 @@
-import { resolveModelId, translateSegments, type Glossary, type Segment, type Translator } from "@cloudflare/polystella-core";
+import { translateSegments, type Glossary, type Segment, type Translator } from "@cloudflare/polystella-core";
 import type { CatalogSource, IgnoreKey, MessageSyntax } from "@cloudflare/polystella-core/catalog";
 import { workersAIRequestParams } from "@cloudflare/polystella-core/providers/workers-ai";
 import {
@@ -105,6 +105,7 @@ import {
   collectionPolicies,
   collectionSettings,
   defaultMaxTokens,
+  effectiveModelChoice,
   readCollectionPolicies,
   readRevision,
   runtimeLocaleEnabled,
@@ -122,6 +123,7 @@ import {
   planContentTranslation,
   samePageLinksNotice,
   translateContentPart,
+  unlistedBlocksNotice,
   type ContentPlan,
 } from "../translate-content.js";
 import {
@@ -438,7 +440,7 @@ export function createPluginRoutes(
           if (patch === null && next !== null)
             return { patch, batchCount: result.batchCount, next, ...trace } satisfies TranslateContentResponse;
           if (patch === null) throw new Error("[polystella-emdash] no patch for the last part");
-          const notice = samePageLinksNotice(patch);
+          const notice = contentNotice(plan, patch);
           return {
             patch,
             batchCount: result.batchCount,
@@ -750,6 +752,7 @@ export function createPluginRoutes(
           ),
         ];
         const publish = input.publish === undefined ? false : readBoolean(input.publish, "publish");
+        const updateExisting = input.updateExisting === undefined ? false : readBoolean(input.updateExisting, "updateExisting");
         const selectedIds = input.entryIds === undefined ? undefined : [...new Set(readStringArray(input.entryIds, "entryIds", false))];
         if (selectedIds?.some((id) => id.length > MAX_ENTRY_ID_LENGTH) === true) {
           throw PluginRouteError.badRequest(`entryIds cannot be longer than ${MAX_ENTRY_ID_LENGTH} characters`);
@@ -771,6 +774,7 @@ export function createPluginRoutes(
           total: (selectedIds?.length ?? 0) * locales.length,
           status: "running",
           publish,
+          updateExisting,
           createdAt: dependencies.now().toISOString(),
           createdBy: ctx.user?.id ?? null,
           // A whole collection is listed by the queue, a page at a time, so this request stays small.
@@ -838,8 +842,7 @@ export function createPluginRoutes(
         const job = await readBatchJob(jobs, jobId);
         if (job === null) throw PluginRouteError.notFound("batch job not found");
         const view = await batchJobView(results, jobId, job);
-        const done = view.counts.created + view.counts.skipped + view.counts.failed;
-        if (job.status === "running" && (done < job.total || job.listing !== null)) {
+        if (view.status === "running") {
           throw PluginRouteError.conflict("Cancel the job before removing it, or wait for it to finish.");
         }
         await deleteBatchJob(jobs, results, jobId);
@@ -891,7 +894,7 @@ export function createPluginRoutes(
         throw PluginRouteError.conflict("The batch job kept changing while its entries were listed.");
       },
     },
-    // Called by the queue consumer through `withEmDashRuntime`; returns the draft for the consumer to create.
+    // Called by the queue consumer through `withEmDashRuntime`; returns the draft to create or the update to save.
     "batch/translate": {
       permission: "plugins:manage",
       methods: ["POST"],
@@ -920,15 +923,35 @@ export function createPluginRoutes(
           const schema = await collectionSchema(ctx, collection);
           const fields = policy.fields.filter((slug) => isTranslatableField(schema, policy, slug)).slice(0, MAX_CONTENT_FIELDS);
           if (fields.length === 0) return await record("failed", "No translatable fields are enabled for this collection.");
+          const part = message.part ?? 0;
+          const stored = part > 0 ? parseStoredParts(await results.get(batchPartsId(message))) : null;
+          // A redelivered message for a part that already ran has nothing left to do.
+          if (stored !== null && stored.part !== part) return { create: null } satisfies BatchTranslateResponse;
+          const rev = part > 0 ? stored?.rev : message.rev;
           const siblings = await ctx.content?.getTranslations?.(collection, message.entryId);
           const existing = siblings?.translations.find((sibling) => sameContentLocale(sibling.locale, message.locale, dependencies));
-          if (existing !== undefined) {
-            return await record("skipped", "A translation already exists.", {
-              id: existing.id,
-              locale: existing.locale ?? contentLocale(message.locale, dependencies),
-              slug: existing.slug,
-              published: existing.status === "published",
-            });
+          const existingLink: BatchTranslationLink | null =
+            existing === undefined
+              ? null
+              : {
+                  id: existing.id,
+                  locale: existing.locale ?? contentLocale(message.locale, dependencies),
+                  slug: existing.slug,
+                  published: existing.status === "published",
+                };
+          if (existingLink !== null) {
+            if (job.updateExisting && part > 0 && stored === null) return await record("failed", SOURCE_CHANGED);
+            // A translation that appeared after part 0 of a create was made by someone else, so it is left alone.
+            if (!job.updateExisting || (part > 0 && rev === undefined)) {
+              if (part > 0) await results.delete(batchPartsId(message));
+              return await record("skipped", "A translation already exists.", existingLink);
+            }
+            if (rev === undefined) {
+              return {
+                create: null,
+                readRevision: { collection, id: existingLink.id, locale: existingLink.locale },
+              } satisfies BatchTranslateResponse;
+            }
           }
           const { sourceItem, values } = await loadTranslationSource(
             ctx,
@@ -946,12 +969,8 @@ export function createPluginRoutes(
             blockFields: options.blockFields,
             blocksFieldSlugs: blocksFieldSlugs(schema),
           });
-          const part = message.part ?? 0;
           const translations = new Map<string, string>();
           if (part > 0) {
-            const stored = parseStoredParts(await results.get(batchPartsId(message)));
-            // A redelivered message for a part that already ran has nothing left to do.
-            if (stored !== null && stored.part !== part) return { create: null } satisfies BatchTranslateResponse;
             if (stored === null || stored.fingerprint !== plan.fingerprint || part >= plan.parts.length) {
               await results.delete(batchPartsId(message));
               return await record("failed", SOURCE_CHANGED);
@@ -971,15 +990,16 @@ export function createPluginRoutes(
           for (const [id, text] of result.translations) translations.set(id, text);
           if (part + 1 < plan.parts.length) {
             const { jobId, entryId, locale } = message;
-            const stored: StoredBatchParts = {
+            const next: StoredBatchParts = {
               jobId,
               entryId,
               locale,
               part: part + 1,
               fingerprint: plan.fingerprint,
               translations: Object.fromEntries(translations),
+              ...(existingLink === null || rev === undefined ? {} : { rev }),
             };
-            await results.put(batchPartsId(message), stored);
+            await results.put(batchPartsId(message), next);
             await enqueueBatchMessages(batchQueue(options.batchQueueBinding, await dependencies.getEnv()), [
               { jobId, entryId, locale, part: part + 1 },
             ]);
@@ -987,7 +1007,15 @@ export function createPluginRoutes(
           }
           const patch = applyContentTranslations(plan, translations);
           if (part > 0) await results.delete(batchPartsId(message));
-          const notice = samePageLinksNotice(patch);
+          const notice = contentNotice(plan, patch);
+          if (existingLink !== null && rev !== undefined) {
+            return {
+              create: null,
+              update: { collection, id: existingLink.id, locale: existingLink.locale, data: patch, _rev: rev, translation: existingLink },
+              publish: job.publish,
+              ...(notice === null ? {} : { notice }),
+            } satisfies BatchTranslateResponse;
+          }
           return {
             create: {
               collection,
@@ -1007,7 +1035,7 @@ export function createPluginRoutes(
         }
       },
     },
-    // Called by the queue consumer once it has created (or failed to create) the draft.
+    // Called by the queue consumer once it has saved (or failed to save) the translation.
     "batch/record": {
       permission: "plugins:manage",
       methods: ["POST"],
@@ -1016,8 +1044,8 @@ export function createPluginRoutes(
         const message = readBatchMessage(input);
         if (message === null) throw PluginRouteError.badRequest("invalid batch message");
         const outcome = input.outcome;
-        if (outcome !== "created" && outcome !== "skipped" && outcome !== "failed") {
-          throw PluginRouteError.badRequest("outcome must be created, skipped, or failed");
+        if (outcome !== "created" && outcome !== "updated" && outcome !== "skipped" && outcome !== "failed") {
+          throw PluginRouteError.badRequest("outcome must be created, updated, skipped, or failed");
         }
         const detail = input.message === null ? null : readText(input.message, "message", MAX_BATCH_MESSAGE_CHARACTERS);
         const translation = input.translation === undefined || input.translation === null ? null : readTranslationLink(input.translation);
@@ -1028,6 +1056,9 @@ export function createPluginRoutes(
         // A message still in flight when its job was removed must not leave a row nothing lists.
         const job = await readBatchJob(jobs, message.jobId);
         if (job === null) return { recorded: false };
+        // A duplicate delivery hits a conflict after the first copy saved; the saved row stays.
+        const previous = parseStoredResult(await results.get(batchResultId(message)));
+        if (outcome === "skipped" && (previous?.outcome === "created" || previous?.outcome === "updated")) return { recorded: false };
         const note = job.status === "cancelled" && outcome !== "skipped" ? FINISHED_AFTER_CANCEL : null;
         const recordedDetail = note === null ? detail : detail === null ? note : `${note} ${detail}`;
         await recordBatchResult(results, message, outcome, recordedDetail, dependencies.now(), translation);
@@ -1057,7 +1088,7 @@ export function createPluginRoutes(
         return {
           results: rows.map((row) => ({
             entryId: row.entryId,
-            title: titles.get(row.entryId) ?? row.entryId,
+            title: titles.get(row.entryId)?.title ?? row.entryId,
             locale: row.locale,
             outcome: row.outcome,
             message: row.message,
@@ -1082,7 +1113,10 @@ export function createPluginRoutes(
         const titles = await sourceTitles(ctx, job.collection, ids);
         const next = offset + ids.length;
         return {
-          entries: ids.map((id) => ({ id, title: titles.get(id) ?? id })),
+          entries: ids.map((id) => {
+            const source = titles.get(id);
+            return { id, title: source?.title ?? id, locale: source?.locale ?? null, deleted: source === undefined };
+          }),
           nextCursor: Array.isArray(job.entryIds) && next < job.entryIds.length ? String(next) : null,
         } satisfies BatchJobEntriesResponse;
       },
@@ -1104,15 +1138,19 @@ export function createPluginRoutes(
 }
 
 /** Source titles for one page of result rows; a deleted entry falls back to its id. */
-async function sourceTitles(ctx: RouteContext, collection: string, entryIds: readonly string[]): Promise<Map<string, string>> {
+async function sourceTitles(
+  ctx: RouteContext,
+  collection: string,
+  entryIds: readonly string[],
+): Promise<Map<string, { title: string; locale: string | null }>> {
   const unique = [...new Set(entryIds)];
   const items = await Promise.all(unique.map((id) => ctx.content?.get(collection, id) ?? Promise.resolve(null)));
-  const titles = new Map<string, string>();
+  const titles = new Map<string, { title: string; locale: string | null }>();
   for (const [index, item] of items.entries()) {
     const id = unique[index];
     if (item === null || id === undefined) continue;
     const title = item.data.title;
-    titles.set(id, typeof title === "string" && title.trim().length > 0 ? title : (item.slug ?? id));
+    titles.set(id, { title: typeof title === "string" && title.trim().length > 0 ? title : (item.slug ?? id), locale: item.locale });
   }
   return titles;
 }
@@ -1164,10 +1202,16 @@ async function aiTranslationInput(ctx: RouteContext, options: PolystellaEmdashOp
     collection: target.collection,
     entryId: target.entryId,
     locale,
-    model: stored.locales[locale]?.model ?? resolveModelId(options.models.defaults, locale),
+    model: effectiveModelChoice(options, stored, locale).model,
     aiTranslatedAt: dependencies.now().toISOString(),
   };
   return { ...target, input, fields, meta };
+}
+
+/** What an editor should check by hand in a finished translation, or `null`. */
+function contentNotice(plan: ContentPlan, patch: Record<string, unknown>): string | null {
+  const notices = [unlistedBlocksNotice(plan), samePageLinksNotice(patch)].filter((notice) => notice !== null);
+  return notices.length === 0 ? null : notices.join(" ");
 }
 
 function recordValue(value: unknown): Record<string, unknown> {
@@ -1198,8 +1242,9 @@ async function updateBatchJobStatus(jobs: StorageCollection, jobId: string, stat
 
 async function batchJobView(results: StorageCollection, id: string, job: StoredBatchJob): Promise<BatchJobView> {
   const countOutcome = (outcome: BatchJobOutcome) => results.count({ jobId: id, outcome });
-  const [created, skipped, failed, failures] = await Promise.all([
+  const [created, updated, skipped, failed, failures] = await Promise.all([
     countOutcome("created"),
+    countOutcome("updated"),
     countOutcome("skipped"),
     countOutcome("failed"),
     results.query({ where: { jobId: id, outcome: "failed" }, limit: MAX_BATCH_FAILURES_SHOWN }),
@@ -1210,13 +1255,18 @@ async function batchJobView(results: StorageCollection, id: string, job: StoredB
     locales: job.locales,
     total: job.total,
     status:
-      job.status === "cancelled" ? "cancelled" : job.listing === null && created + skipped + failed >= job.total ? "finished" : "running",
+      job.status === "cancelled"
+        ? "cancelled"
+        : job.listing === null && created + updated + skipped + failed >= job.total
+          ? "finished"
+          : "running",
     publish: job.publish,
+    updateExisting: job.updateExisting,
     createdAt: job.createdAt,
     listing: job.listing !== null,
     truncated: job.truncated,
     entryCount: Array.isArray(job.entryIds) ? job.entryIds.length : job.entryIds,
-    counts: { created, skipped, failed },
+    counts: { created, updated, skipped, failed },
     failures: failures.items.flatMap(({ data }) => {
       const row = parseStoredResult(data);
       return row === null ? [] : [{ entryId: row.entryId, locale: row.locale, message: row.message }];
@@ -1419,8 +1469,8 @@ async function translationSettings(
   const [storedSettings, env] = await Promise.all([storedTranslationSettings(options, settings), dependencies.getEnv()]);
   const stored = storedSettings.locales[locale];
   if (stored === undefined) throw PluginRouteError.internal(`translation settings for ${locale} are unavailable`);
-  const deploymentModel = resolveModelId(options.models.defaults, locale);
-  const model = modelOverride ?? stored.model ?? deploymentModel;
+  const choice = effectiveModelChoice(options, storedSettings, locale);
+  const model = modelOverride ?? choice.model;
   if (stored.glossaryText.length > MAX_GLOSSARY_CHARACTERS) {
     throw PluginRouteError.badRequest(`glossary text for ${locale} cannot exceed ${MAX_GLOSSARY_CHARACTERS} characters`);
   }
@@ -1434,8 +1484,8 @@ async function translationSettings(
     throw PluginRouteError.badRequest(`translation instructions cannot exceed ${MAX_INSTRUCTION_CHARACTERS} characters`);
   }
   const maxTokens = storedSettings.maxTokens ?? defaultMaxTokens(options);
-  // An admin's thinking choice goes with their model override; the code default comes from `models.params`.
-  const effort = stored.model !== null && model === stored.model ? stored.reasoning : null;
+  // An admin's thinking choice goes with the model they picked; the code default comes from `models.params`.
+  const effort = model === choice.model ? choice.reasoning : null;
   const thinking = await reasoningInput(options, env, model, effort, dependencies, log);
   const translator = createTranslator(options, env, model, locale, log, dependencies, maxTokens, thinking);
   return {

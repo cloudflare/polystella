@@ -69,6 +69,40 @@ export function TranslationSettingsTab(): ReactNode {
           <LayerCard style={cardStyle}>
             <div style={stackStyle}>
               <h3 style={cardHeadingStyle}>General</h3>
+              <Select
+                label={
+                  <InfoLabel
+                    label="Default model"
+                    info="Every language uses this model unless you pick another one for it under Languages. Only models the deployment allows are listed. Not set: each language uses the fallback model from code."
+                  />
+                }
+                value={settings.model ?? USE_CODE_DEFAULT_MODEL}
+                renderValue={(value) =>
+                  value === USE_CODE_DEFAULT_MODEL ? `Not set (${settings.defaultModel})` : typeof value === "string" ? value : ""
+                }
+                disabled={working}
+                onValueChange={(value) => {
+                  if (typeof value === "string") {
+                    const model = value === USE_CODE_DEFAULT_MODEL ? null : value;
+                    setSettings((current) => (current === null ? null : { ...current, model, reasoning: null }));
+                  }
+                }}
+              >
+                <Select.Option value={USE_CODE_DEFAULT_MODEL}>Not set ({settings.defaultModel})</Select.Option>
+                {settings.allowedModels.map((model) => (
+                  <Select.Option key={model} value={model}>
+                    {model}
+                  </Select.Option>
+                ))}
+              </Select>
+              {settings.model === null ? null : (
+                <ThinkingSelect
+                  model={settings.model}
+                  value={settings.reasoning}
+                  disabled={working}
+                  onChange={(reasoning) => setSettings((current) => (current === null ? null : { ...current, reasoning }))}
+                />
+              )}
               <Switch
                 aria-label="Debug mode"
                 label={
@@ -179,97 +213,102 @@ export function TranslationSettingsTab(): ReactNode {
       )}
       {settings === null || settings.locales.length === 0 ? null : <h3 style={subheadingStyle}>Languages</h3>}
       <div style={cardGridStyle}>
-        {settings?.locales.map((locale) => (
-          <CollapsibleCard
-            key={locale.locale}
-            label={localeLabel(locale.locale)}
-            open={openLocales.has(locale.locale)}
-            onOpenChange={(open) =>
-              setOpenLocales((current) => {
-                const next = new Set(current);
-                if (open) next.add(locale.locale);
-                else next.delete(locale.locale);
-                return next;
-              })
-            }
-            header={
-              <>
-                <strong>{localeLabel(locale.locale)}</strong>
-                {locale.model === null ? (
-                  <small style={{ ...mutedStyle, alignItems: "center", display: "inline-flex", gap: 4 }}>
-                    Code default
-                    <InfoTooltip label={`${localeLabel(locale.locale)} code-default model`} content={locale.defaultModel} />
-                  </small>
-                ) : (
-                  <small style={{ ...mutedStyle, ...truncateStyle }} title={locale.model}>
-                    {locale.model}
-                  </small>
-                )}
-              </>
-            }
-          >
-            <Select
-              label="Translation model"
-              value={locale.model ?? USE_CODE_DEFAULT_MODEL}
-              renderValue={(value) =>
-                value === USE_CODE_DEFAULT_MODEL ? `Code default (${locale.defaultModel})` : typeof value === "string" ? value : ""
+        {settings?.locales.map((locale) => {
+          const inheritedModel = settings.model ?? locale.defaultModel;
+          return (
+            <CollapsibleCard
+              key={locale.locale}
+              label={localeLabel(locale.locale)}
+              open={openLocales.has(locale.locale)}
+              onOpenChange={(open) =>
+                setOpenLocales((current) => {
+                  const next = new Set(current);
+                  if (open) next.add(locale.locale);
+                  else next.delete(locale.locale);
+                  return next;
+                })
               }
-              disabled={working}
-              onValueChange={(value) => {
-                if (typeof value === "string") {
-                  updateLocale(locale.locale, { model: value === USE_CODE_DEFAULT_MODEL ? null : value, reasoning: null });
+              header={
+                <>
+                  <strong>{localeLabel(locale.locale)}</strong>
+                  {locale.model === null ? (
+                    <small style={{ ...mutedStyle, alignItems: "center", display: "inline-flex", gap: 4 }}>
+                      Default model
+                      <InfoTooltip label={`${localeLabel(locale.locale)} default model`} content={inheritedModel} />
+                    </small>
+                  ) : (
+                    <small style={{ ...mutedStyle, ...truncateStyle }} title={locale.model}>
+                      {locale.model}
+                    </small>
+                  )}
+                </>
+              }
+            >
+              <Select
+                label="Translation model"
+                value={locale.model ?? USE_CODE_DEFAULT_MODEL}
+                renderValue={(value) =>
+                  value === USE_CODE_DEFAULT_MODEL ? `Default model (${inheritedModel})` : typeof value === "string" ? value : ""
                 }
-              }}
-            >
-              <Select.Option value={USE_CODE_DEFAULT_MODEL}>Code default ({locale.defaultModel})</Select.Option>
-              {settings.allowedModels.map((model) => (
-                <Select.Option key={model} value={model}>
-                  {model}
-                </Select.Option>
-              ))}
-            </Select>
-            {locale.model === null ? (
-              locale.defaultReasoning === null ? null : (
-                <span style={mutedStyle}>Thinking: code default ({effortLabel(locale.defaultReasoning)})</span>
-              )
-            ) : (
-              <ThinkingSelect
-                model={locale.model}
-                value={locale.reasoning}
                 disabled={working}
-                onChange={(reasoning) => updateLocale(locale.locale, { reasoning })}
-              />
-            )}
-            <Select
-              label="Glossary behavior"
-              value={locale.glossaryMode}
-              renderValue={(value) => (isCustomizationMode(value) ? GLOSSARY_MODE_LABELS[value] : "")}
-              disabled={working}
-              onValueChange={(value) => {
-                if (isCustomizationMode(value)) updateLocale(locale.locale, { glossaryMode: value });
-              }}
-            >
-              {CUSTOMIZATION_MODES.map((mode) => (
-                <Select.Option key={mode} value={mode}>
-                  {GLOSSARY_MODE_LABELS[mode]}
-                </Select.Option>
-              ))}
-            </Select>
-            {locale.glossaryMode === "default" ? null : (
-              <Textarea
-                label="Custom glossary"
-                description="Plain text appended to or used instead of the code-defined glossary."
-                rows={5}
-                value={locale.glossaryText}
+                onValueChange={(value) => {
+                  if (typeof value === "string") {
+                    updateLocale(locale.locale, { model: value === USE_CODE_DEFAULT_MODEL ? null : value, reasoning: null });
+                  }
+                }}
+              >
+                <Select.Option value={USE_CODE_DEFAULT_MODEL}>Default model ({inheritedModel})</Select.Option>
+                {settings.allowedModels.map((model) => (
+                  <Select.Option key={model} value={model}>
+                    {model}
+                  </Select.Option>
+                ))}
+              </Select>
+              {locale.model === null ? (
+                settings.model !== null && settings.reasoning !== null ? (
+                  <span style={mutedStyle}>Thinking: same as the default model ({effortLabel(settings.reasoning)})</span>
+                ) : locale.defaultReasoning === null || inheritedModel !== locale.defaultModel ? null : (
+                  <span style={mutedStyle}>Thinking: code default ({effortLabel(locale.defaultReasoning)})</span>
+                )
+              ) : (
+                <ThinkingSelect
+                  model={locale.model}
+                  value={locale.reasoning}
+                  disabled={working}
+                  onChange={(reasoning) => updateLocale(locale.locale, { reasoning })}
+                />
+              )}
+              <Select
+                label="Glossary behavior"
+                value={locale.glossaryMode}
+                renderValue={(value) => (isCustomizationMode(value) ? GLOSSARY_MODE_LABELS[value] : "")}
                 disabled={working}
-                onValueChange={(glossaryText) => updateLocale(locale.locale, { glossaryText })}
-              />
-            )}
-            <span>
-              <NewWindowLink href={pluginPageUrl("/code-defaults", { locale: locale.locale })}>View code-defined glossary</NewWindowLink>
-            </span>
-          </CollapsibleCard>
-        ))}
+                onValueChange={(value) => {
+                  if (isCustomizationMode(value)) updateLocale(locale.locale, { glossaryMode: value });
+                }}
+              >
+                {CUSTOMIZATION_MODES.map((mode) => (
+                  <Select.Option key={mode} value={mode}>
+                    {GLOSSARY_MODE_LABELS[mode]}
+                  </Select.Option>
+                ))}
+              </Select>
+              {locale.glossaryMode === "default" ? null : (
+                <Textarea
+                  label="Custom glossary"
+                  description="Plain text appended to or used instead of the code-defined glossary."
+                  rows={5}
+                  value={locale.glossaryText}
+                  disabled={working}
+                  onValueChange={(glossaryText) => updateLocale(locale.locale, { glossaryText })}
+                />
+              )}
+              <span>
+                <NewWindowLink href={pluginPageUrl("/code-defaults", { locale: locale.locale })}>View code-defined glossary</NewWindowLink>
+              </span>
+            </CollapsibleCard>
+          );
+        })}
       </div>
       <div>
         <Button variant="primary" loading={working} disabled={settings === null} onClick={() => void save()}>
@@ -389,6 +428,8 @@ export function saveTranslationSettings(settings: TranslationSettingsResponse): 
       maxTokens: settings.maxTokens,
       clearAiFlagOnEdit: settings.clearAiFlagOnEdit,
       translateSeoWhenPublished: settings.translateSeoWhenPublished,
+      model: settings.model,
+      reasoning: settings.reasoning,
       locales: Object.fromEntries(
         settings.locales.map((locale) => [
           locale.locale,

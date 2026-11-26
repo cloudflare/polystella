@@ -83,7 +83,7 @@ export function BatchResultsTable({
 }
 
 // Links open in a new tab so following one never stops a run in this tab.
-function TranslationLinks({
+export function TranslationLinks({
   collection,
   translation,
   urlContext,

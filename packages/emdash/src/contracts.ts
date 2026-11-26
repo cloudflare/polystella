@@ -50,11 +50,12 @@ export function isSeoField(field: string): field is SeoField {
 
 export interface TranslationLocaleSettings {
   locale: string;
+  /** The code fallback for this locale, used when neither it nor the settings pick a model. */
   defaultModel: string;
   model: string | null;
   /** Thinking effort for the overridden model; `null` uses the model's default. */
   reasoning: string | null;
-  /** Thinking the code sets for the code-default model, from `models.defaults` / `models.params`; `null` when unset. */
+  /** Thinking the code sets for `defaultModel`, from `models.defaults` / `models.params`; `null` when unset. */
   defaultReasoning: string | null;
   defaultGlossary: string;
   glossaryMode: CustomizationMode;
@@ -89,6 +90,12 @@ export interface TranslationSettingsResponse extends WithLocaleTags {
   clearAiFlagOnEdit: boolean;
   /** Off by default: SEO text is translated only on entries that aren't published. */
   translateSeoWhenPublished: boolean;
+  /** The administrator's default model for every language without its own; `null` uses `defaultModel`. */
+  model: string | null;
+  /** Thinking effort for `model`; `null` uses the model's default. */
+  reasoning: string | null;
+  /** The code fallback: `models.defaults`, else the first allowed model. */
+  defaultModel: string;
   allowedModels: string[];
   locales: TranslationLocaleSettings[];
   instructions: {
@@ -240,7 +247,7 @@ export type TranslationSandboxResponse =
 export const MAX_BATCH_TRANSLATIONS = 5000;
 export const MAX_BATCH_FAILURES_SHOWN = 20;
 
-export type BatchJobOutcome = "created" | "skipped" | "failed";
+export type BatchJobOutcome = "created" | "updated" | "skipped" | "failed";
 
 export interface BatchJobView {
   id: string;
@@ -251,6 +258,7 @@ export interface BatchJobView {
   status: "running" | "cancelled" | "finished";
   createdAt: string;
   publish: boolean;
+  updateExisting: boolean;
   /** The queue is still listing the collection, so `total` can still grow. */
   listing: boolean;
   /** Listing stopped at `MAX_BATCH_TRANSLATIONS`; later entries were not queued. */
@@ -286,7 +294,8 @@ export interface BatchJobResultsResponse {
 }
 
 export interface BatchJobEntriesResponse {
-  entries: Array<{ id: string; title: string }>;
+  /** `locale` is the source entry's content locale, for its edit link. `deleted` entries can no longer be opened. */
+  entries: Array<{ id: string; title: string; locale: string | null; deleted: boolean }>;
   nextCursor: string | null;
 }
 
