@@ -1,4 +1,11 @@
-import { translateSegments, type Glossary, type ModelPrice, type Segment, type Translator } from "@cloudflare/polystella-core";
+import {
+  emptyTokenUsage,
+  translateSegments,
+  type Glossary,
+  type ModelPrice,
+  type Segment,
+  type Translator,
+} from "@cloudflare/polystella-core";
 import type { CatalogSource, IgnoreKey, MessageSyntax } from "@cloudflare/polystella-core/catalog";
 import { workersAIRequestParams } from "@cloudflare/polystella-core/providers/workers-ai";
 import {
@@ -36,11 +43,11 @@ import {
   type FlatPolystellaEmdashOptions,
 } from "../../catalog.js";
 import {
+  addTranslationUsage,
   MAX_CATALOG_KEYS,
   MAX_CONTENT_FIELDS,
   isSeoField,
   MAX_SANDBOX_CHARACTERS,
-  MAX_BATCH_FAILURES_SHOWN,
   MAX_BATCH_TRANSLATIONS,
   MAX_JOB_INSTRUCTION_CHARACTERS,
   MAX_MAX_TOKENS,
@@ -66,6 +73,7 @@ import {
   type RuntimeOverridesResponse,
   type TranslateContentResponse,
   type TranslationSandboxResponse,
+  type TranslationUsage,
 } from "../../contracts.js";
 import { invalidateRuntimeOverrides } from "../../runtime-cache.js";
 import {
@@ -83,7 +91,9 @@ import {
   readBatchListMessage,
   readBatchMessage,
   readTranslationLink,
+  readTranslationUsage,
   recordBatchResult,
+  withUsage,
   type BatchMessage,
   type BatchTranslateResponse,
   type BatchUpdatePayload,
@@ -198,7 +208,11 @@ export function createPluginRoutes(
       permission: "plugins:manage",
       methods: ["GET", "PUT"],
       async handler(ctx) {
-        if (ctx.request.method === "GET") return { ...(await translationSettingsView(options, ctx.settings)), localeTags: localeTags() };
+        if (ctx.request.method === "GET") {
+          const { glossarySource } = readRecord(ctx.input, "query");
+          const sourceLocale = glossarySource === undefined ? null : readLocale(glossarySource, "glossarySource");
+          return { ...(await translationSettingsView(options, ctx.settings, sourceLocale)), localeTags: localeTags() };
+        }
         const env = await dependencies.getEnv();
         await saveTranslationSettings(options, ctx.settings, readRecord(ctx.input, "request body"), async (model, effort, label) => {
           const capability = await readReasoningCapability(options, env, model, dependencies, ctx.log);
@@ -413,6 +427,7 @@ export function createPluginRoutes(
               maxSegmentsPerBatch: null,
               sourceLocale: options.catalogs.defaultLocale,
               targetLocale,
+              price: settings.price,
               labelSegment: (id) => contentSegmentLabel(id, Object.keys(values)),
             });
           }
@@ -427,6 +442,7 @@ export function createPluginRoutes(
           const onValidationIssue =
             debug === undefined ? undefined : (segmentIds: string[], message: string) => debug?.markValidationIssue(message, segmentIds);
           translationStarted = true;
+          const usage: TranslationUsage = emptyTokenUsage();
           const result = await translateContentPart(plan, part, {
             translator: settings.translator,
             glossary: settings.glossary,
@@ -436,7 +452,7 @@ export function createPluginRoutes(
             ...(settings.promptInstruction === undefined ? {} : { promptInstruction: settings.promptInstruction }),
             onBatchAttempt: providerCallListener(
               ctx.log,
-              { surface: "content", locale: targetLocale, price: settings.price },
+              { surface: "content", locale: targetLocale, price: settings.price, usage },
               debug?.record,
             ),
             ...(debug === undefined ? {} : { onValidationIssue }),
@@ -455,13 +471,15 @@ export function createPluginRoutes(
           const patch = next === null ? applyContentTranslations(plan, translations, onValidationIssue) : null;
           const trace = debug === undefined ? {} : { debug: debug.finish(result.batchCount) };
           if (patch === null && next !== null)
-            return { patch, batchCount: result.batchCount, next, ...trace } satisfies TranslateContentResponse;
+            return { patch, batchCount: result.batchCount, next, usage, ...trace } satisfies TranslateContentResponse;
           if (patch === null) throw new Error("[polystella-emdash] no patch for the last part");
-          const notice = contentNotice(plan, patch);
+          const notice = contentNotice(plan, patch, { blocksSeparately: true });
           return {
             patch,
             batchCount: result.batchCount,
             ...(notice === null ? {} : { notice }),
+            ...(plan.unlistedBlockTypes.length === 0 ? {} : { unlistedBlockTypes: plan.unlistedBlockTypes }),
+            usage,
             ...trace,
           } satisfies TranslateContentResponse;
         } catch (error) {
@@ -522,9 +540,11 @@ export function createPluginRoutes(
               maxSegmentsPerBatch: DEFAULT_UI_STRING_BATCH_SIZE,
               sourceLocale: options.catalogs.defaultLocale,
               targetLocale: locale,
+              price: settings.price,
               labelSegment: (id) => catalogSegmentLabel(id, entries),
             });
           }
+          const usage: TranslationUsage = emptyTokenUsage();
           const result = await translateCatalogEntries({
             entries,
             translator: settings.translator,
@@ -535,7 +555,7 @@ export function createPluginRoutes(
             maxRetries: 2,
             messageSyntax,
             ...(settings.promptInstruction === undefined ? {} : { context: settings.promptInstruction }),
-            onBatchAttempt: providerCallListener(ctx.log, { surface: "catalog", locale, price: settings.price }, debug?.record),
+            onBatchAttempt: providerCallListener(ctx.log, { surface: "catalog", locale, price: settings.price, usage }, debug?.record),
             ...(debug === undefined ? {} : { onRetry: ({ error }) => debug?.markLastAttemptError(error) }),
             signal: ctx.request.signal,
           });
@@ -550,6 +570,7 @@ export function createPluginRoutes(
           return {
             translations: Object.fromEntries(result.translations),
             tokenFailures: result.tokenFailures,
+            usage,
             ...(debug === undefined ? {} : { debug: debug.finish(result.batchCount) }),
           } satisfies CatalogGenerationResponse;
         } catch (error) {
@@ -688,7 +709,9 @@ export function createPluginRoutes(
           if (!options.models.allowed.includes(model)) {
             throw PluginRouteError.badRequest("model must be allowed by deployment configuration");
           }
-          const settings = await translationSettings(options, targetLocale, ctx.settings, ctx.log, dependencies, { model });
+          const instructions =
+            input.instructions === undefined ? "" : readText(input.instructions, "instructions", MAX_JOB_INSTRUCTION_CHARACTERS).trim();
+          const settings = await translationSettings(options, targetLocale, ctx.settings, ctx.log, dependencies, { model, instructions });
           if (settings.debugEnabled && (ctx.user?.role ?? 0) >= ADMIN_ROLE) {
             debug = createTranslationDebugCollector({
               operation: "sandbox",
@@ -699,11 +722,13 @@ export function createPluginRoutes(
               maxSegmentsPerBatch: null,
               sourceLocale: options.catalogs.defaultLocale,
               targetLocale,
+              price: settings.price,
               labelSegment: () => "text",
             });
           }
           const segment: Segment = { id: "sandbox:0", text };
           translationStarted = true;
+          const usage: TranslationUsage = emptyTokenUsage();
           const result = await translateSegments({
             translator: settings.translator,
             segments: [segment],
@@ -714,7 +739,7 @@ export function createPluginRoutes(
             ...(settings.promptInstruction === undefined ? {} : { promptInstruction: settings.promptInstruction }),
             onBatchAttempt: providerCallListener(
               ctx.log,
-              { surface: "sandbox", locale: targetLocale, price: settings.price },
+              { surface: "sandbox", locale: targetLocale, price: settings.price, usage },
               debug?.record,
             ),
             signal: ctx.request.signal,
@@ -727,6 +752,7 @@ export function createPluginRoutes(
           }
           return {
             translation,
+            usage,
             ...(debug === undefined ? {} : { debug: debug.finish(result.batchCount) }),
           } satisfies TranslationSandboxResponse;
         } catch (error) {
@@ -972,12 +998,16 @@ export function createPluginRoutes(
         const previous = parseStoredResult(await results.get(batchResultId(message)));
         if (previous !== null && previous.outcome !== "failed") return { create: null } satisfies BatchTranslateResponse;
 
+        // Earlier parts' calls come from the parts row; this message's calls are added as they run.
+        let earlierUsage: TranslationUsage | undefined;
+        const callUsage: TranslationUsage = emptyTokenUsage();
+        const entryUsage = () => addTranslationUsage(earlierUsage, callUsage.calls === 0 ? undefined : callUsage);
         const record = async (
           outcome: BatchJobOutcome,
           detail: string | null,
           translation: BatchTranslationLink | null = null,
         ): Promise<BatchTranslateResponse> => {
-          await recordBatchResult(results, message, outcome, detail, dependencies.now(), translation);
+          await recordBatchResult(results, message, outcome, detail, dependencies.now(), translation, entryUsage());
           emitBatchResult(ctx.log, message, job.collection, outcome);
           return { create: null };
         };
@@ -991,6 +1021,7 @@ export function createPluginRoutes(
           const stored = part > 0 ? parseStoredParts(await results.get(batchPartsId(message))) : null;
           // A redelivered message for a part that already ran has nothing left to do.
           if (stored !== null && stored.part !== part) return { create: null } satisfies BatchTranslateResponse;
+          earlierUsage = stored?.usage;
           const rev = part > 0 ? stored?.rev : message.rev;
           const siblings = await ctx.content?.getTranslations?.(collection, message.entryId);
           const existing = siblings?.translations.find((sibling) => sameContentLocale(sibling.locale, message.locale, dependencies));
@@ -1072,6 +1103,7 @@ export function createPluginRoutes(
               locale: message.locale,
               jobId: message.jobId,
               price: settings.price,
+              usage: callUsage,
             }),
             signal: ctx.request.signal,
           });
@@ -1086,6 +1118,7 @@ export function createPluginRoutes(
               fingerprint: plan.fingerprint,
               translations: Object.fromEntries(translations),
               ...(existingLink === null || rev === undefined ? {} : { rev }),
+              ...withUsage(entryUsage()),
             };
             await results.put(batchPartsId(message), next);
             await enqueueBatchMessages(batchQueue(options.batchQueueBinding, await dependencies.getEnv()), [
@@ -1102,6 +1135,7 @@ export function createPluginRoutes(
               update: { collection, id: existingLink.id, locale: existingLink.locale, data: patch, _rev: rev, translation: existingLink },
               publish: job.publish,
               ...(notice === null ? {} : { notice }),
+              ...withUsage(entryUsage()),
             } satisfies BatchTranslateResponse;
           }
           return {
@@ -1115,6 +1149,7 @@ export function createPluginRoutes(
             },
             publish: job.publish,
             ...(notice === null ? {} : { notice }),
+            ...withUsage(entryUsage()),
           } satisfies BatchTranslateResponse;
         } catch (error) {
           const failure = batchFailureMessage(error, ctx.log);
@@ -1140,6 +1175,10 @@ export function createPluginRoutes(
         if (input.translation !== undefined && input.translation !== null && translation === null) {
           throw PluginRouteError.badRequest("translation must have id, locale, slug, and published");
         }
+        const usage = readTranslationUsage(input.usage);
+        // Rejecting the row would leave the job running forever; the outcome matters more than the tooltip.
+        if (input.usage !== undefined && usage === undefined)
+          ctx.log.warn("PolyStella dropped malformed batch usage", { jobId: message.jobId });
         const { jobs, results } = batchStorage(ctx.storage);
         // A message still in flight when its job was removed must not leave a row nothing lists.
         const job = await readBatchJob(jobs, message.jobId);
@@ -1149,7 +1188,7 @@ export function createPluginRoutes(
         if (outcome === "skipped" && (previous?.outcome === "created" || previous?.outcome === "updated")) return { recorded: false };
         const note = job.status === "cancelled" && outcome !== "skipped" ? FINISHED_AFTER_CANCEL : null;
         const recordedDetail = note === null ? detail : detail === null ? note : `${note} ${detail}`;
-        await recordBatchResult(results, message, outcome, recordedDetail, dependencies.now(), translation);
+        await recordBatchResult(results, message, outcome, recordedDetail, dependencies.now(), translation, usage);
         emitBatchResult(ctx.log, message, job.collection, outcome);
         return { recorded: true };
       },
@@ -1161,10 +1200,18 @@ export function createPluginRoutes(
         const query = readRecord(ctx.input, "query");
         const jobId = readString(query.jobId, "jobId");
         const cursor = query.cursor === undefined ? undefined : readString(query.cursor, "cursor");
+        const outcome = query.outcome;
+        if (outcome !== undefined && outcome !== "created" && outcome !== "updated" && outcome !== "skipped" && outcome !== "failed") {
+          throw PluginRouteError.badRequest("outcome must be created, updated, skipped, or failed");
+        }
         const { jobs, results } = batchStorage(ctx.storage);
         const job = await readBatchJob(jobs, jobId);
         if (job === null) throw PluginRouteError.notFound("batch job not found");
-        const page = await results.query({ where: { jobId }, limit: BATCH_RESULTS_PAGE_SIZE, ...(cursor === undefined ? {} : { cursor }) });
+        const page = await results.query({
+          where: { jobId, ...(outcome === undefined ? {} : { outcome }) },
+          limit: BATCH_RESULTS_PAGE_SIZE,
+          ...(cursor === undefined ? {} : { cursor }),
+        });
         const rows = page.items.flatMap(({ data }) => {
           const row = parseStoredResult(data);
           return row === null ? [] : [row];
@@ -1182,6 +1229,7 @@ export function createPluginRoutes(
             outcome: row.outcome,
             message: row.message,
             translation: row.translation,
+            ...withUsage(row.usage),
           })),
           nextCursor: page.hasMore && page.cursor !== undefined ? page.cursor : null,
         } satisfies BatchJobResultsResponse;
@@ -1311,8 +1359,8 @@ async function aiTranslationInput(ctx: RouteContext, options: PolystellaEmdashOp
 }
 
 /** What an editor should check by hand in a finished translation, or `null`. */
-function contentNotice(plan: ContentPlan, patch: Record<string, unknown>): string | null {
-  const notices = [unlistedBlocksNotice(plan), samePageLinksNotice(patch)].filter((notice) => notice !== null);
+function contentNotice(plan: ContentPlan, patch: Record<string, unknown>, { blocksSeparately = false } = {}): string | null {
+  const notices = [blocksSeparately ? null : unlistedBlocksNotice(plan), samePageLinksNotice(patch)].filter((notice) => notice !== null);
   return notices.length === 0 ? null : notices.join(" ");
 }
 
@@ -1361,12 +1409,11 @@ async function updateBatchJobStatus(jobs: StorageCollection, jobId: string, stat
 
 async function batchJobView(results: StorageCollection, id: string, job: StoredBatchJob): Promise<BatchJobView> {
   const countOutcome = (outcome: BatchJobOutcome) => results.count({ jobId: id, outcome });
-  const [created, updated, skipped, failed, failures] = await Promise.all([
+  const [created, updated, skipped, failed] = await Promise.all([
     countOutcome("created"),
     countOutcome("updated"),
     countOutcome("skipped"),
     countOutcome("failed"),
-    results.query({ where: { jobId: id, outcome: "failed" }, limit: MAX_BATCH_FAILURES_SHOWN }),
   ]);
   return {
     id,
@@ -1388,11 +1435,20 @@ async function batchJobView(results: StorageCollection, id: string, job: StoredB
     truncated: job.truncated,
     entryCount: Array.isArray(job.entryIds) ? job.entryIds.length : job.entryIds,
     counts: { created, updated, skipped, failed },
-    failures: failures.items.flatMap(({ data }) => {
-      const row = parseStoredResult(data);
-      return row === null ? [] : [{ entryId: row.entryId, locale: row.locale, message: row.message }];
-    }),
+    ...withUsage(created + updated + skipped + failed === 0 ? undefined : await jobUsage(results, id)),
   };
+}
+
+// shortcut: reads every row on each (polled) listing, up to 50 pages for a full job; keep a running total if that gets slow.
+async function jobUsage(results: StorageCollection, jobId: string): Promise<TranslationUsage | undefined> {
+  let usage: TranslationUsage | undefined;
+  let cursor: string | undefined;
+  do {
+    const page = await results.query({ where: { jobId }, limit: 100, ...(cursor === undefined ? {} : { cursor }) });
+    for (const { data } of page.items) usage = addTranslationUsage(usage, parseStoredResult(data)?.usage);
+    cursor = page.hasMore ? page.cursor : undefined;
+  } while (cursor !== undefined);
+  return usage;
 }
 
 function batchFailureMessage(error: unknown, log: LogAccess): string {

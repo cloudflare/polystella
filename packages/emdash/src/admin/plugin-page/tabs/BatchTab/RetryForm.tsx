@@ -2,9 +2,14 @@ import { Button, Switch } from "@cloudflare/kumo";
 import { useState, type ReactNode } from "react";
 
 import type { BatchJobSettings } from "../../../../contracts.js";
-import { EMPTY_JOB_SETTINGS, JobSettingsFields, jobSettingsPayload } from "../../../components/JobSettings/JobSettings.js";
+import {
+  EMPTY_JOB_SETTINGS,
+  JobSettingsFields,
+  jobSettingsError,
+  jobSettingsPayload,
+} from "../../../components/JobSettings/JobSettings.js";
 import { InfoLabel } from "../../../components/PageHeader/PageHeader.js";
-import { rowStyle, stackStyle } from "../../../styles.js";
+import { mutedStyle, rowStyle, stackStyle } from "../../../styles.js";
 import { plural } from "../../../utils.js";
 
 /** Retries failed rows, and optionally the translations the run wrote, with settings prefilled from the run. */
@@ -15,6 +20,7 @@ export function RetryForm({
   written,
   initialSettings,
   working,
+  blocked = false,
   onRetry,
   onCancel,
 }: {
@@ -27,6 +33,8 @@ export function RetryForm({
   written: number;
   initialSettings: BatchJobSettings | null;
   working: boolean;
+  /** Another job action is running, so Retry waits for it. */
+  blocked?: boolean | undefined;
   onRetry(settings: BatchJobSettings | null, redo: boolean): void;
   onCancel(): void;
 }): ReactNode {
@@ -35,14 +43,15 @@ export function RetryForm({
   const count = failed + notRun + (redo ? written : 0);
   return (
     <div style={stackStyle}>
+      <span style={mutedStyle}>Change these for this retry only. Anything left empty uses the translation settings.</span>
       <JobSettingsFields value={settings} disabled={working} onChange={setSettings} />
       {written === 0 ? null : (
         <Switch
-          aria-label={`Also redo the ${plural(written, "translation")} it wrote`}
+          aria-label={`Also redo the ${plural(written, "translation")} this run created or updated`}
           label={
             <InfoLabel
-              label={`Also redo the ${plural(written, "translation")} it wrote`}
-              info="Translates them again in place. Translations that were published, scheduled, or edited since are skipped."
+              label={`Also redo the ${plural(written, "translation")} this run created or updated`}
+              info="Translates them again and overwrites them. Any that were published, scheduled or edited since this run are left alone."
             />
           }
           checked={redo}
@@ -55,7 +64,7 @@ export function RetryForm({
           variant="primary"
           size="sm"
           loading={working}
-          disabled={count === 0 && !moreToList}
+          disabled={blocked || (count === 0 && !moreToList) || jobSettingsError(settings) !== undefined}
           onClick={() => onRetry(jobSettingsPayload(settings), redo)}
         >
           Retry {plural(count, "translation")}

@@ -13,7 +13,8 @@ const admin = vi.hoisted(() => ({
 
 vi.mock("@emdash-cms/admin", async (importOriginal) => ({ ...(await importOriginal<object>()), ...admin }));
 
-const { parseStoredJob, readBatchMessage, readJobSettings } = await import("../src/server/batch.js");
+const { parseStoredJob, parseStoredResult, readBatchMessage, readJobSettings, readTranslationUsage } =
+  await import("../src/server/batch.js");
 const { translateIntoDraft } = await import("../src/admin/content-translation.js");
 const {
   batchRunUrl,
@@ -228,6 +229,85 @@ describe("batch translation", () => {
       slug: "hello",
       locale: "fr",
       translationOf: "post-1",
+    });
+  });
+
+  it("adds up the usage of every part of a long entry on its row", async () => {
+    admin.fetchTranslations.mockResolvedValue({ translationGroup: "g", translations: [] });
+    admin.fetchContent.mockResolvedValue({ id: "post-1", slug: "hello", data: { title: "Hello" } });
+    admin.createContent.mockResolvedValue({ id: "post-1-fr", locale: "fr" });
+    const usage = (inputTokens: number, estimatedCostUsd?: number) => ({
+      calls: 1,
+      inputTokens,
+      cachedInputTokens: 0,
+      outputTokens: 1,
+      reasoningTokens: 0,
+      unreportedCalls: 0,
+      ...(estimatedCostUsd === undefined ? {} : { estimatedCostUsd }),
+    });
+    const next = { part: 1, partCount: 2, fingerprint: "f", translations: {} };
+    admin.apiFetch
+      .mockImplementationOnce(async () => Response.json({ data: { patch: null, batchCount: 1, next, usage: usage(10, 0.25) } }))
+      .mockImplementationOnce(async () => Response.json({ data: { patch: { title: "Bonjour" }, batchCount: 1, usage: usage(5, 0.5) } }))
+      .mockImplementation(async () => Response.json({ data: {} }));
+
+    expect((await runBatchJob(job, options)).usage).toEqual({ ...usage(15, 0.75), calls: 2, outputTokens: 2 });
+  });
+
+  describe("usage across the parts of a long entry", () => {
+    const part = (inputTokens: number, estimatedCostUsd?: number, unreportedCalls = 0) => ({
+      calls: 1,
+      inputTokens,
+      cachedInputTokens: 0,
+      outputTokens: 1,
+      reasoningTokens: 0,
+      unreportedCalls,
+      ...(estimatedCostUsd === undefined ? {} : { estimatedCostUsd }),
+    });
+    const next = (part: number, partCount: number) => ({ part, partCount, fingerprint: "f", translations: {} });
+
+    function respond(...responses: unknown[]) {
+      admin.fetchTranslations.mockResolvedValue({ translationGroup: "g", translations: [] });
+      admin.fetchContent.mockResolvedValue({ id: "post-1", slug: "hello", data: { title: "Hello" } });
+      admin.createContent.mockResolvedValue({ id: "post-1-fr", locale: "fr" });
+      for (const response of responses) admin.apiFetch.mockImplementationOnce(async () => Response.json({ data: response }));
+      admin.apiFetch.mockImplementation(async () => Response.json({ data: {} }));
+    }
+
+    it("sums three parts once each, and keeps the cost when a part only has unreported calls", async () => {
+      respond(
+        { patch: null, batchCount: 1, next: next(1, 3), usage: part(10, 0.25) },
+        { patch: null, batchCount: 1, next: next(2, 3), usage: { ...part(0, undefined, 1), outputTokens: 0 } },
+        { patch: { title: "Bonjour" }, batchCount: 1, usage: part(5, 0.5) },
+      );
+      const { usage } = await runBatchJob(job, options);
+      expect(usage).toMatchObject({ calls: 3, inputTokens: 15, outputTokens: 2, unreportedCalls: 1, estimatedCostUsd: 0.75 });
+    });
+
+    it("drops the cost when any part used tokens without a price", async () => {
+      respond(
+        { patch: null, batchCount: 1, next: next(1, 2), usage: part(10, 0.25) },
+        { patch: { title: "Bonjour" }, batchCount: 1, usage: part(5) },
+      );
+      const { usage } = await runBatchJob(job, options);
+      expect(usage).toMatchObject({ calls: 2, inputTokens: 15 });
+      expect(usage).not.toHaveProperty("estimatedCostUsd");
+    });
+
+    it("reports a single request's usage as is, and none when no part sent any", async () => {
+      respond({ patch: { title: "Bonjour" }, batchCount: 1, usage: part(5, 0.5) });
+      expect((await runBatchJob(job, options)).usage).toEqual(part(5, 0.5));
+      respond({ patch: null, batchCount: 1, next: next(1, 2) }, { patch: { title: "Bonjour" }, batchCount: 1 });
+      expect(await runBatchJob(job, options)).toMatchObject({ outcome: "created", usage: undefined });
+    });
+
+    it("fails the row when a later part fails", async () => {
+      respond(
+        { patch: null, batchCount: 1, next: next(1, 2), usage: part(10, 0.25) },
+        { patch: null, batchCount: 1, error: "Part 2 failed", debug: { id: "d" } },
+      );
+      expect(await runBatchJob(job, options)).toMatchObject({ outcome: "failed", message: "Part 2 failed" });
+      expect(admin.createContent).not.toHaveBeenCalled();
     });
   });
 
@@ -484,6 +564,47 @@ describe("stored batch jobs and messages", () => {
     for (const maxTokens of [0, -5]) expect(readJobSettings({ model: "m", maxTokens })).toMatchObject({ maxTokens: null });
     expect(readJobSettings(null)).toBeNull();
     expect(readJobSettings("x")).toBeNull();
+  });
+
+  it("keeps a result row's usage, and reads rows stored before usage, or with a malformed one, without it", () => {
+    const row = { jobId: "j", entryId: "e", locale: "fr-FR", outcome: "created", message: null, updatedAt: "2026-09-03T00:00:00.000Z" };
+    const usage = { calls: 1, inputTokens: 3, cachedInputTokens: 0, outputTokens: 2, reasoningTokens: 0, unreportedCalls: 0 };
+    expect(parseStoredResult({ ...row, usage: { ...usage, estimatedCostUsd: 0.01 } })?.usage).toEqual({ ...usage, estimatedCostUsd: 0.01 });
+    expect(parseStoredResult(row)).not.toHaveProperty("usage");
+    for (const bad of [{ ...usage, calls: -1 }, { ...usage, inputTokens: 1.5 }, { ...usage, estimatedCostUsd: "1" }, "x"]) {
+      expect(parseStoredResult({ ...row, usage: bad })).toMatchObject({ outcome: "created" });
+      expect(parseStoredResult({ ...row, usage: bad })).not.toHaveProperty("usage");
+    }
+  });
+
+  it("reads a usage only when every count is a non-negative whole number and the cost is a finite non-negative number", () => {
+    const usage = { calls: 1, inputTokens: 3, cachedInputTokens: 0, outputTokens: 2, reasoningTokens: 0, unreportedCalls: 0 };
+    expect(readTranslationUsage(usage)).toEqual(usage);
+    expect(readTranslationUsage({ ...usage, estimatedCostUsd: 0 })).toEqual({ ...usage, estimatedCostUsd: 0 });
+    // Unknown keys are dropped rather than refused.
+    expect(readTranslationUsage({ ...usage, secret: "x" })).toEqual(usage);
+    const { calls: _calls, ...missing } = usage;
+    for (const bad of [
+      null,
+      "x",
+      [],
+      missing,
+      { ...usage, calls: -1 },
+      { ...usage, outputTokens: 1.5 },
+      { ...usage, inputTokens: Number.NaN },
+      { ...usage, reasoningTokens: Infinity },
+      { ...usage, cachedInputTokens: Number.MAX_SAFE_INTEGER + 1 },
+      { ...usage, unreportedCalls: "1" },
+      { ...usage, unreportedCalls: 2 },
+      { ...usage, cachedInputTokens: 4 },
+      { ...usage, reasoningTokens: 3 },
+      { ...usage, estimatedCostUsd: Number.NaN },
+      { ...usage, estimatedCostUsd: -0.01 },
+      { ...usage, estimatedCostUsd: Infinity },
+      { ...usage, estimatedCostUsd: null },
+    ]) {
+      expect(readTranslationUsage(bad)).toBeUndefined();
+    }
   });
 
   it("parses jobs stored before settings and retries existed with none", () => {

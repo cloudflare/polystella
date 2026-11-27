@@ -1,7 +1,8 @@
-import { PermanentProviderError } from "@cloudflare/polystella-core";
+import { emptyTokenUsage, PermanentProviderError } from "@cloudflare/polystella-core";
 import type { LogAccess } from "emdash";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import type { TranslationUsage } from "../src/contracts.js";
 import { setPolystellaEventSink, type PolystellaEvent } from "../src/index.js";
 import { emitPolystellaEvent, providerCallErrorKind, providerCallListener } from "../src/server/events.js";
 
@@ -123,5 +124,59 @@ describe("providerCallListener cost", () => {
     expect(emitted({ inputPerMillion: 0, outputPerMillion: 0 }, { inputTokens: 5, outputTokens: 5 })).toMatchObject({
       estimatedCostUsd: 0,
     });
+  });
+});
+
+describe("providerCallListener usage accumulator", () => {
+  const price = { inputPerMillion: 1, outputPerMillion: 4 };
+  const call = (reply?: Record<string, number>, error?: Error) =>
+    ({
+      modelId: "m",
+      durationMs: 1,
+      segments: [{ id: "a", text: "x" }],
+      ...(reply === undefined ? {} : { providerResponse: reply }),
+      ...(error === undefined ? {} : { error }),
+    }) as never;
+
+  it("counts every attempt once, retries and calls without tokens included, and sums their cost", () => {
+    const usage = emptyTokenUsage() as TranslationUsage;
+    const listener = providerCallListener(log(), { surface: "batch", locale: "fr-FR", price, usage });
+    listener(
+      call({ inputTokens: 1_000_000, cachedInputTokens: 200_000, outputTokens: 250_000, reasoningTokens: 5 }, new Error("retry me")),
+    );
+    listener(call({ inputTokens: 1_000_000, outputTokens: 0 }));
+    listener(call(undefined, new Error("no reply")));
+
+    expect(usage).toMatchObject({
+      calls: 3,
+      inputTokens: 2_000_000,
+      cachedInputTokens: 200_000,
+      outputTokens: 250_000,
+      reasoningTokens: 5,
+      unreportedCalls: 1,
+    });
+    expect(usage.estimatedCostUsd).toBeCloseTo(1 + 1 + 1);
+  });
+
+  it("leaves the cost out when there is no price, and when no call reported tokens", () => {
+    const unpriced = emptyTokenUsage() as TranslationUsage;
+    providerCallListener(log(), { surface: "batch", locale: "fr-FR", usage: unpriced })(call({ inputTokens: 3, outputTokens: 2 }));
+    expect(unpriced).toMatchObject({ calls: 1, inputTokens: 3, outputTokens: 2 });
+    expect(unpriced).not.toHaveProperty("estimatedCostUsd");
+
+    const silent = emptyTokenUsage() as TranslationUsage;
+    providerCallListener(log(), { surface: "batch", locale: "fr-FR", price, usage: silent })(call());
+    expect(silent).toMatchObject({ calls: 1, unreportedCalls: 1 });
+    expect(silent).not.toHaveProperty("estimatedCostUsd");
+  });
+
+  it("still calls the debug listener first and emits the event", () => {
+    const order: string[] = [];
+    const sink = vi.fn(() => {
+      order.push("event");
+    });
+    setPolystellaEventSink(sink);
+    providerCallListener(log(), { surface: "batch", locale: "fr-FR", usage: emptyTokenUsage() }, () => order.push("debug"))(call());
+    expect(order).toEqual(["debug", "event"]);
   });
 });

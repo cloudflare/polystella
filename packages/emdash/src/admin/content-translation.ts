@@ -1,11 +1,13 @@
 import { createContent, fetchContent, updateContent, type ContentEditorDraft, type ContentEditorDraftPatchResult } from "@emdash-cms/admin";
 
 import {
+  addTranslationUsage,
   isSeoField,
   type BatchJobSettings,
   type TranslateContentNextPart,
   type TranslateContentResponse,
   type TranslationDebugTrace,
+  type TranslationUsage,
 } from "../contracts.js";
 import { errorMessage, pluginRequest } from "./utils.js";
 
@@ -29,6 +31,10 @@ export type ContentTranslationResult =
       flagWarning: string | null;
       /** Something an editor should check by hand, such as same-page links. */
       notice: string | null;
+      /** Custom block types copied untranslated; empty when none. */
+      unlistedBlockTypes: string[];
+      /** Every part's model calls. */
+      usage?: TranslationUsage | undefined;
     }
   | { entry: null; error: string; debug: TranslationDebugTrace };
 
@@ -50,7 +56,14 @@ export async function translateExistingEntry(input: TranslateExistingEntryInput)
   if (result.patch === null) return { entry: null, error: result.error, debug: result.debug };
   const entry = await updateContent(collection, entryId, { data: result.patch, _rev: rev }, { locale });
   const flagWarning = await recordAiTranslation(collection, entry.id, input.fields, input.settings?.model);
-  return { entry, debug: result.debug, flagWarning, notice: result.notice ?? null };
+  return {
+    entry,
+    debug: result.debug,
+    flagWarning,
+    notice: result.notice ?? null,
+    unlistedBlockTypes: result.unlistedBlockTypes ?? [],
+    usage: result.usage,
+  };
 }
 
 export interface TranslateIntoDraftInput extends TranslateExistingEntryInput {
@@ -63,8 +76,10 @@ export type DraftTranslationResult =
       debug?: TranslationDebugTrace | undefined;
       flagWarning: string | null;
       notice: string | null;
+      unlistedBlockTypes: string[];
       /** SEO fields whose translation is longer than EmDash allows, so they were left out. */
       tooLong: string[];
+      usage?: TranslationUsage | undefined;
     }
   | { status: "failed"; error: string; debug?: TranslationDebugTrace | undefined }
   | { status: "refused"; code: Extract<ContentEditorDraftPatchResult, { ok: false }>["code"] };
@@ -101,7 +116,17 @@ export async function translateIntoDraft(input: TranslateIntoDraftInput): Promis
   const outcome: ContentEditorDraftPatchResult = changed
     ? { ok: false, code: "EDITOR_DRAFT_STALE", message: "A translated field changed during translation" }
     : editorDraft.patch(operations, { expectedRevision: latest.revision });
-  if (outcome.ok) return { status: "applied", debug: result.debug, flagWarning: pending.warning, notice: result.notice ?? null, tooLong };
+  if (outcome.ok) {
+    return {
+      status: "applied",
+      debug: result.debug,
+      flagWarning: pending.warning,
+      notice: result.notice ?? null,
+      unlistedBlockTypes: result.unlistedBlockTypes ?? [],
+      tooLong,
+      usage: result.usage,
+    };
+  }
   if (pending.added.length > 0) {
     await pluginRequest("ai-translation/pending", {
       method: "POST",
@@ -133,7 +158,14 @@ export async function createTranslatedEntry(input: CreateTranslatedEntryInput): 
     translationOf: sourceEntryId,
   });
   const flagWarning = await recordAiTranslation(collection, entry.id, input.fields, input.settings?.model);
-  return { entry, debug: result.debug, flagWarning, notice: result.notice ?? null };
+  return {
+    entry,
+    debug: result.debug,
+    flagWarning,
+    notice: result.notice ?? null,
+    unlistedBlockTypes: result.unlistedBlockTypes ?? [],
+    usage: result.usage,
+  };
 }
 
 /** Marks the saved entry as AI-translated for `getEnrichedEntry`. Runs before any publish, so a live page never lacks its flag. */
@@ -186,6 +218,7 @@ async function requestTranslation(
   const settings = input.settings ?? null;
   const body = { collection: input.collection, entryId, targetLocale, fields: input.fields, ...(settings === null ? {} : { settings }) };
   let result = await pluginRequest<TranslateContentResponse>("translate-content", { method: "POST", body: JSON.stringify(body) });
+  let usage = "usage" in result ? result.usage : undefined;
   while ("next" in result) {
     const { part, partCount, fingerprint, translations } = result.next;
     input.onPart?.(part, partCount);
@@ -193,7 +226,8 @@ async function requestTranslation(
       method: "POST",
       body: JSON.stringify({ ...body, part, fingerprint, translations }),
     });
+    usage = addTranslationUsage(usage, "usage" in result ? result.usage : undefined);
   }
   input.onTranslated?.(result.debug);
-  return result;
+  return result.patch === null ? result : { ...result, usage };
 }

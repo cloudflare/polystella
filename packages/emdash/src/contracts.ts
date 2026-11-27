@@ -1,3 +1,5 @@
+import type { Glossary, TokenUsage } from "@cloudflare/polystella-core";
+
 export const POLYSTELLA_PLUGIN_ID = "polystella";
 export const POLYSTELLA_API_BASE = "/_emdash/api/plugins/polystella";
 export const MAX_CONTENT_FIELDS = 25;
@@ -57,7 +59,10 @@ export interface TranslationLocaleSettings {
   reasoning: string | null;
   /** Thinking the code sets for `defaultModel`, from `models.defaults` / `models.params`; `null` when unset. */
   defaultReasoning: string | null;
-  defaultGlossary: string;
+  /** The code-defined glossary; `null` when the code sets none for this locale. */
+  defaultGlossary: Glossary | null;
+  /** The code glossary's text: its YAML file as written, else the parsed glossary as JSON. */
+  defaultGlossarySource: { format: "yaml" | "json"; text: string } | null;
   glossaryMode: CustomizationMode;
   glossaryText: string;
 }
@@ -105,6 +110,32 @@ export interface TranslationSettingsResponse extends WithLocaleTags {
   };
 }
 
+/** Token counts summed over one translation's model calls, retries included. */
+export interface TranslationUsage extends TokenUsage {
+  /** List-price estimate in USD, not an invoice; absent when the model's price is unknown or no call reported tokens. */
+  estimatedCostUsd?: number | undefined;
+}
+
+/** `total` plus `usage`. The cost stays unknown once either side used tokens without a price. */
+export function addTranslationUsage(
+  total: TranslationUsage | undefined,
+  usage: TranslationUsage | undefined,
+): TranslationUsage | undefined {
+  if (usage === undefined) return total;
+  if (total === undefined) return usage;
+  const unpriced = (value: TranslationUsage) => value.calls > value.unreportedCalls && value.estimatedCostUsd === undefined;
+  const costs = [total.estimatedCostUsd, usage.estimatedCostUsd].filter((cost) => cost !== undefined);
+  return {
+    calls: total.calls + usage.calls,
+    inputTokens: total.inputTokens + usage.inputTokens,
+    cachedInputTokens: total.cachedInputTokens + usage.cachedInputTokens,
+    outputTokens: total.outputTokens + usage.outputTokens,
+    reasoningTokens: total.reasoningTokens + usage.reasoningTokens,
+    unreportedCalls: total.unreportedCalls + usage.unreportedCalls,
+    ...(unpriced(total) || unpriced(usage) || costs.length === 0 ? {} : { estimatedCostUsd: costs.reduce((sum, cost) => sum + cost, 0) }),
+  };
+}
+
 export interface TranslationDebugAttempt {
   attempt: number;
   durationMs: number;
@@ -119,10 +150,13 @@ export interface TranslationDebugAttempt {
         finishReason?: string | undefined;
         reasoningCharacters?: number | undefined;
         inputTokens?: number | undefined;
+        cachedInputTokens?: number | undefined;
         outputTokens?: number | undefined;
         reasoningTokens?: number | undefined;
       }
     | undefined;
+  /** List-price estimate in USD for this call; absent when its tokens or the model's price are unknown. */
+  estimatedCostUsd?: number | undefined;
 }
 
 export interface TranslationDebugBatch {
@@ -161,12 +195,22 @@ export type TranslateContentResponse =
   | {
       patch: Record<string, unknown>;
       batchCount: number;
-      /** Something an editor should check by hand, such as same-page links. */
+      /** Something else an editor should check by hand, such as same-page links. */
       notice?: string | undefined;
+      /** Custom block types copied untranslated because `blockFields` doesn't list them; never empty. */
+      unlistedBlockTypes?: string[] | undefined;
       debug?: TranslationDebugTrace | undefined;
+      /** This request's model calls only; a long entry's parts each report their own. */
+      usage?: TranslationUsage | undefined;
     }
   | { patch: null; batchCount: number; error: string; debug: TranslationDebugTrace }
-  | { patch: null; batchCount: number; next: TranslateContentNextPart; debug?: TranslationDebugTrace | undefined };
+  | {
+      patch: null;
+      batchCount: number;
+      next: TranslateContentNextPart;
+      debug?: TranslationDebugTrace | undefined;
+      usage?: TranslationUsage | undefined;
+    };
 
 /** A long entry is translated one part per request: send this back, with the same fields, to translate the next part. */
 export interface TranslateContentNextPart {
@@ -210,6 +254,7 @@ export type CatalogGenerationResponse =
       translations: Record<string, string>;
       tokenFailures: Array<{ key: string; missing: string[]; spurious: string[]; problems?: string[] | undefined }>;
       debug?: TranslationDebugTrace | undefined;
+      usage?: TranslationUsage | undefined;
     }
   | { translations: null; tokenFailures: []; error: string; debug: TranslationDebugTrace };
 
@@ -241,11 +286,11 @@ export interface RuntimeOverridesResponse {
 }
 
 export type TranslationSandboxResponse =
-  { translation: string; debug?: TranslationDebugTrace | undefined } | { translation: null; error: string; debug: TranslationDebugTrace };
+  | { translation: string; debug?: TranslationDebugTrace | undefined; usage?: TranslationUsage | undefined }
+  | { translation: null; error: string; debug: TranslationDebugTrace };
 
 /** Most entry × locale translations one queued batch job may contain. */
 export const MAX_BATCH_TRANSLATIONS = 5000;
-export const MAX_BATCH_FAILURES_SHOWN = 20;
 
 export type BatchJobOutcome = "created" | "updated" | "skipped" | "failed";
 
@@ -282,7 +327,8 @@ export interface BatchJobView {
   /** Selected source entries, `"all"` for the whole collection, `null` for jobs started before PolyStella recorded this. */
   entryCount: number | "all" | null;
   counts: Record<BatchJobOutcome, number>;
-  failures: Array<{ entryId: string; locale: string; message: string | null }>;
+  /** Summed over the job's rows; absent when no row recorded usage, such as rows saved before PolyStella tracked it. */
+  usage?: TranslationUsage | undefined;
 }
 
 /** The translation a batch row created, updated, or found. `locale` is the content locale. */
@@ -302,6 +348,7 @@ export interface BatchJobResultView {
   outcome: BatchJobOutcome;
   message: string | null;
   translation: BatchTranslationLink | null;
+  usage?: TranslationUsage | undefined;
 }
 
 export interface BatchJobResultsResponse {

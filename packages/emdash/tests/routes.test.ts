@@ -3,6 +3,7 @@ import type { WorkersAIInput } from "@cloudflare/polystella-core/providers/worke
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  MAX_JOB_INSTRUCTION_CHARACTERS,
   MAX_SANDBOX_CHARACTERS,
   type BatchJobEntriesResponse,
   type BatchJobResultsResponse,
@@ -821,6 +822,51 @@ describe("EmDash plugin routes", () => {
     });
   });
 
+  describe("usage in route responses", () => {
+    const tokens = (text: string) => ({ response: text, usage: { prompt_tokens: 1000, completion_tokens: 500 } });
+
+    it("sums every call of a request, retries and calls without token counts included", async () => {
+      const configured = options();
+      configured.models.prices = { "model-b": { inputPerMillion: 1, outputPerMillion: 4 } };
+      let calls = 0;
+      const run = async () => (++calls === 1 ? { response: "no markers @@" } : tokens("@@catalog:0@@\nBonjour"));
+      const routes = createPluginRoutes(configured, { ...dependencies(), getEnv: async () => ({ AI: { run } }) });
+
+      const result = (await route(routes, "catalog/generate").handler(
+        context({ locale: "fr-FR", keys: ["greeting"] }, "POST", createKv(), createStorage()),
+      )) as CatalogGenerationResponse;
+
+      expect(result).toMatchObject({
+        translations: { greeting: "Bonjour" },
+        usage: { calls: 2, inputTokens: 1000, cachedInputTokens: 0, outputTokens: 500, reasoningTokens: 0, unreportedCalls: 1 },
+      });
+      expect("usage" in result ? result.usage?.estimatedCostUsd : undefined).toBeCloseTo(0.001 + 0.002);
+    });
+
+    it("returns content and sandbox usage, without a cost when the model has no price", async () => {
+      const run = async (_model: string, input: { messages: Array<{ content: string }> }) =>
+        tokens(input.messages.some(({ content }) => content.includes("@@sandbox:0@@")) ? "@@sandbox:0@@\nBonjour" : "@@field:0@@\nBonjour");
+      clearReasoningCapabilities();
+      const routes = createPluginRoutes(options(), { ...dependencies(), getEnv: async () => ({ AI: { run, models: async () => [] } }) });
+      const kv = createKv();
+      const storage = createStorage();
+      await enablePosts(kv);
+      const expected = { calls: 1, inputTokens: 1000, outputTokens: 500, unreportedCalls: 0 };
+
+      const content = (await route(routes, "translate-content").handler(
+        context({ collection: "posts", entryId: "entry-1", targetLocale: "fr-FR", fields: ["title"] }, "POST", kv, storage),
+      )) as TranslateContentResponse;
+      const sandbox = (await route(routes, "translation-sandbox").handler(
+        context({ targetLocale: "fr-FR", model: "model-a", text: "Hello" }, "POST", kv, storage),
+      )) as TranslationSandboxResponse;
+
+      for (const result of [content, sandbox]) {
+        expect(result).toMatchObject({ usage: expected });
+        expect("usage" in result ? result.usage : undefined).not.toHaveProperty("estimatedCostUsd");
+      }
+    });
+  });
+
   it("sends a failed provider_call event and still fails the route as before", async () => {
     const routes = createPluginRoutes(options(), {
       ...dependencies(),
@@ -1213,7 +1259,16 @@ describe("EmDash plugin routes", () => {
 
     await expect(settingsRoute.handler(context({}, "GET", kv, storage))).resolves.toMatchObject({
       debugEnabled: false,
-      locales: [{ locale: "fr-FR" }],
+      locales: [{ locale: "fr-FR", defaultGlossarySource: null }],
+    });
+    await expect(settingsRoute.handler(context({ glossarySource: "fr-FR" }, "GET", kv, storage))).resolves.toMatchObject({
+      locales: [{ locale: "fr-FR", defaultGlossarySource: { format: "json" } }],
+    });
+    await expect(settingsRoute.handler(context({ glossarySource: "de-DE" }, "GET", kv, storage))).resolves.toMatchObject({
+      locales: [{ locale: "fr-FR", defaultGlossarySource: null }],
+    });
+    await expect(settingsRoute.handler(context({ glossarySource: "not a locale" }, "GET", kv, storage))).rejects.toMatchObject({
+      status: 400,
     });
 
     await expect(
@@ -2254,6 +2309,69 @@ describe("EmDash plugin routes", () => {
     expect(result).not.toHaveProperty("debug");
   });
 
+  it("adds the sandbox's additional instructions to the prompt without saving them", async () => {
+    const prompts: string[] = [];
+    const routes = createPluginRoutes(options(), {
+      ...dependencies(),
+      getEnv: async () => ({
+        AI: {
+          run: async (_model: string, input: unknown) => {
+            prompts.push(JSON.stringify(input));
+            return { response: "@@sandbox:0@@\nBonjour" };
+          },
+        },
+      }),
+    });
+    const kv = createKv();
+    const storage = createStorage();
+    await route(routes, "translation-sandbox").handler(
+      context({ targetLocale: "fr-FR", model: "model-a", text: "Hello", instructions: "  Use a friendly tone.  " }, "POST", kv, storage),
+    );
+    expect(prompts).toHaveLength(1);
+    expect(prompts[0]).toContain("Use a friendly tone.");
+    await route(routes, "translation-sandbox").handler(
+      context({ targetLocale: "fr-FR", model: "model-a", text: "Hello" }, "POST", kv, storage),
+    );
+    expect(prompts[1]).not.toContain("Use a friendly tone.");
+  });
+
+  it("combines sandbox instructions with configured rules, ignores blank ones, and keeps a glossary's source text out of the prompt", async () => {
+    const prompts: string[] = [];
+    const configured = options();
+    const sourceText = "# SECRET-YAML-SOURCE\nversion: '1'";
+    configured.glossaryDefaults = { "fr-FR": { ...configured.glossaryDefaults?.["fr-FR"]!, source: sourceText } };
+    const routes = createPluginRoutes(configured, {
+      ...dependencies(),
+      getEnv: async () => ({
+        AI: {
+          run: async (_model: string, input: unknown) => {
+            prompts.push(JSON.stringify(input));
+            return { response: "@@sandbox:0@@\nBonjour" };
+          },
+        },
+      }),
+    });
+    const kv = createKv();
+    const storage = createStorage();
+    const send = (instructions: unknown) =>
+      route(routes, "translation-sandbox").handler(
+        context({ targetLocale: "fr-FR", model: "model-a", text: "Hello Cloudflare", instructions }, "POST", kv, storage),
+      );
+    await send("x".repeat(MAX_JOB_INSTRUCTION_CHARACTERS));
+    await send("  \n\t ");
+    await send("Be formal.");
+    expect(prompts).toHaveLength(3);
+    expect(prompts[0]).toContain("x".repeat(MAX_JOB_INSTRUCTION_CHARACTERS));
+    expect(prompts[1]).toContain("Keep product names unchanged.");
+    expect(prompts[2]).toContain("Keep product names unchanged.");
+    expect(prompts[2]).toContain("Be formal.");
+    expect(prompts[2]?.indexOf("Keep product names unchanged.")).toBeLessThan(prompts[2]?.indexOf("Be formal.") ?? -1);
+    for (const prompt of prompts) {
+      expect(prompt).toContain("Cloudflare");
+      expect(prompt).not.toContain("SECRET-YAML-SOURCE");
+    }
+  });
+
   it("returns sandbox debug traces only to administrators", async () => {
     const routes = createPluginRoutes(options(), {
       ...dependencies(),
@@ -2326,6 +2444,21 @@ describe("EmDash plugin routes", () => {
     await expect(
       route(routes, "translation-sandbox").handler(
         context({ targetLocale: "fr-FR", model: "not-allowed", text: "Hello" }, "POST", kv, storage),
+      ),
+    ).rejects.toMatchObject({ status: 400 });
+    await expect(
+      route(routes, "translation-sandbox").handler(
+        context(
+          { targetLocale: "fr-FR", model: "model-a", text: "Hello", instructions: "x".repeat(MAX_JOB_INSTRUCTION_CHARACTERS + 1) },
+          "POST",
+          kv,
+          storage,
+        ),
+      ),
+    ).rejects.toMatchObject({ status: 400 });
+    await expect(
+      route(routes, "translation-sandbox").handler(
+        context({ targetLocale: "fr-FR", model: "model-a", text: "Hello", instructions: 42 }, "POST", kv, storage),
       ),
     ).rejects.toMatchObject({ status: 400 });
   });
@@ -2660,6 +2793,7 @@ describe("EmDash batch queue routes", () => {
         authorId: "user-1",
       },
       publish: false,
+      usage: expect.objectContaining({ calls: 1, unreportedCalls: 1 }),
     });
   });
 
@@ -2689,10 +2823,15 @@ describe("EmDash batch queue routes", () => {
 
     const unlisted = (await call("translate-content", input, "POST", withBody([block("hero", "x"), link]))) as TranslateContentResponse;
     if (!("patch" in unlisted) || unlisted.patch === null) throw new Error("expected a patch");
-    expect(unlisted.notice).toMatch(/^Blocks of type "hero" were copied untranslated .* Review 1 same-page link/);
+    expect(unlisted).toMatchObject({ unlistedBlockTypes: ["hero"], notice: expect.stringMatching(/^Review 1 same-page link/) });
+
+    const blocksOnly = await call("translate-content", input, "POST", withBody([block("hero", "x"), block("zeta", "x")]));
+    expect(blocksOnly).toMatchObject({ unlistedBlockTypes: ["hero", "zeta"] });
+    expect(blocksOnly).not.toHaveProperty("notice");
 
     const listed = await call("translate-content", input, "POST", withBody([block("code", "x"), block("image", "x")]));
     expect(listed).not.toHaveProperty("notice");
+    expect(listed).not.toHaveProperty("unlistedBlockTypes");
 
     const job = (await call("batch/start", { collection: "posts", locales: ["fr-FR"], entryIds: ["entry-src"] })) as BatchJobView;
     const queued = await call(
@@ -2772,6 +2911,92 @@ describe("EmDash batch queue routes", () => {
         message: "The source entry changed while it was being translated. Start the translation again.",
       }),
     ]);
+  });
+
+  it("counts every part's model calls once on the row, and sums the rows on the job", async () => {
+    const echo = {
+      run: async (_model: string, input: { messages: Array<{ content: string }> }) => ({
+        response: [...(input.messages.at(-1)?.content ?? "").matchAll(/^@@([^@\n]+?)@@\s*$/gm)]
+          .map(([, id]) => `@@${id}@@\nFR`)
+          .join("\n\n"),
+        usage: { prompt_tokens: 100, completion_tokens: 10 },
+      }),
+    };
+    const configured = { ...options(), batchQueueBinding: "BATCH_QUEUE" };
+    configured.models = { ...configured.models, prices: { "model-b": { inputPerMillion: 1, outputPerMillion: 1 } } };
+    const sent: unknown[] = [];
+    const queue = { sendBatch: async (messages: Array<{ body: unknown }>) => sent.push(...messages.map(({ body }) => body)) };
+    const routes = createPluginRoutes(configured, { ...dependencies(), getEnv: async () => ({ AI: echo, BATCH_QUEUE: queue }) });
+    const kv = createKv();
+    const batch = { jobs: createStorage(), results: createStorage() };
+    const call = (name: string, input: unknown, method = "POST", customize?: (routeContext: RouteContext) => void) => {
+      const routeContext = context(input, method, kv, createStorage(), batch);
+      customize?.(routeContext);
+      return route(routes, name).handler(routeContext);
+    };
+    await enablePosts(kv);
+    const paragraph = (key: string) => ({
+      _type: "block",
+      _key: key,
+      style: "normal",
+      markDefs: [],
+      children: [{ _type: "span", _key: `${key}s`, text: "x".repeat(9_000), marks: [] }],
+    });
+    const longEntry = (routeContext: RouteContext) => {
+      sourceEntry(routeContext);
+      const content = routeContext.content;
+      if (content === undefined) throw new Error("missing content access");
+      const get = content.get;
+      content.get = async (collection, id) => {
+        const item = await get(collection, id);
+        return item === null ? null : { ...item, data: { ...item.data, body: ["a", "b", "c", "d"].map(paragraph) } };
+      };
+    };
+    const job = (await call("batch/start", { collection: "posts", locales: ["fr-FR"], entryIds: ["entry-src", "old"] })) as BatchJobView;
+    const message = { jobId: job.id, entryId: "entry-src", locale: "fr-FR" };
+
+    await call("batch/translate", message, "POST", longEntry);
+    const parts = (await batch.results.query({ where: { jobId: job.id } })).items[0]?.data as { usage: { calls: number } };
+    const last = (await call("batch/translate", { ...message, part: 1 }, "POST", longEntry)) as { usage: { calls: number } };
+    expect(last.usage.calls).toBeGreaterThan(parts.usage.calls);
+    expect(last.usage).toMatchObject({ inputTokens: last.usage.calls * 100, outputTokens: last.usage.calls * 10, unreportedCalls: 0 });
+
+    // The consumer sends the usage back with the row; a row recorded before usage existed has none.
+    await call("batch/record", { ...message, outcome: "created", message: null, usage: last.usage });
+    await call("batch/record", { jobId: job.id, entryId: "old", locale: "fr-FR", outcome: "created", message: null });
+    // A malformed usage still records the outcome, so the job can finish.
+    const malformed = { jobId: job.id, entryId: "old", locale: "fr-FR", outcome: "created", message: null, usage: { calls: 1.5 } };
+    await expect(call("batch/record", malformed)).resolves.toEqual({ recorded: true });
+
+    const listed = ((await call("batch/jobs", {}, "GET")) as BatchJobsResponse).jobs.find(({ id }) => id === job.id);
+    expect(listed?.usage).toEqual(last.usage);
+    expect(listed?.usage?.estimatedCostUsd).toBeCloseTo((last.usage.calls * 110) / 1_000_000);
+    const results = (await call("batch/results", { jobId: job.id }, "GET")) as BatchJobResultsResponse;
+    expect(results.results.find(({ entryId }) => entryId === "entry-src")?.usage).toEqual(last.usage);
+    expect(results.results.find(({ entryId }) => entryId === "old")).not.toHaveProperty("usage");
+
+    const legacy = (await call("batch/start", { collection: "posts", locales: ["fr-FR"], entryIds: ["old"] })) as BatchJobView;
+    await call("batch/record", { jobId: legacy.id, entryId: "old", locale: "fr-FR", outcome: "created", message: null });
+    const legacyView = ((await call("batch/jobs", {}, "GET")) as BatchJobsResponse).jobs.find(({ id }) => id === legacy.id);
+    expect(legacyView).toMatchObject({ status: "finished" });
+    expect(legacyView).not.toHaveProperty("usage");
+  });
+
+  it("records the usage so far with a row that fails inside batch/translate", async () => {
+    const { kv, call, batch } = batchSetup({
+      AI: { run: async () => ({ response: "no markers @@", usage: { prompt_tokens: 7, completion_tokens: 3 } }) },
+    });
+    await enablePosts(kv);
+    const job = (await call("batch/start", { collection: "posts", locales: ["fr-FR"], entryIds: ["entry-src"] })) as BatchJobView;
+
+    await call("batch/translate", { jobId: job.id, entryId: "entry-src", locale: "fr-FR" }, "POST", (routeContext) =>
+      sourceEntry(routeContext),
+    );
+
+    const row = (await batch.results.query({ where: { jobId: job.id } })).items[0]?.data as { outcome: string; usage: { calls: number } };
+    expect(row.outcome).toBe("failed");
+    expect(row.usage.calls).toBeGreaterThan(0);
+    expect(row.usage).toMatchObject({ inputTokens: row.usage.calls * 7, outputTokens: row.usage.calls * 3 });
   });
 
   it("stores the publish choice on the job and returns it with the draft", async () => {
@@ -2999,7 +3224,8 @@ describe("EmDash batch queue routes", () => {
     expect(await call("batch/translate", message, "POST", (routeContext) => sourceEntry(routeContext))).toEqual({ create: null });
     const listed = (await call("batch/jobs", {}, "GET")) as BatchJobsResponse;
     expect(listed.jobs[0]?.counts.failed).toBe(1);
-    expect(listed.jobs[0]?.failures[0]?.message).toContain("no segment markers");
+    const failed = (await call("batch/results", { jobId: job.id, outcome: "failed" }, "GET")) as BatchJobResultsResponse;
+    expect(failed.results[0]?.message).toContain("no segment markers");
 
     sent.length = 0;
     const retry = (await call("batch/retry", { jobId: job.id })) as BatchJobView;
@@ -3051,6 +3277,60 @@ describe("EmDash batch queue routes", () => {
       nextCursor: null,
     });
     await expect(call("batch/results", { jobId: "missing" }, "GET")).rejects.toMatchObject({ status: 404 });
+
+    const onlyCreated = (await call("batch/results", { jobId: job.id, outcome: "created" }, "GET", (routeContext) =>
+      sourceEntry(routeContext),
+    )) as BatchJobResultsResponse;
+    expect(onlyCreated.results.map(({ entryId }) => entryId)).toEqual(["other"]);
+    await expect(call("batch/results", { jobId: job.id, outcome: "bogus" }, "GET")).rejects.toMatchObject({ status: 400 });
+  });
+
+  it("filters batch results by outcome and pages the filtered rows with the cursor", async () => {
+    const { kv, call, batch } = batchSetup();
+    await enablePosts(kv);
+    const ids = Array.from({ length: 6 }, (_, index) => `entry-${index}`);
+    const job = (await call("batch/start", { collection: "posts", locales: ["fr-FR"], entryIds: ids })) as BatchJobView;
+    const outcomes = ["failed", "created", "failed", "skipped", "failed", "updated"] as const;
+    for (const [index, outcome] of outcomes.entries()) {
+      await call("batch/record", { jobId: job.id, entryId: `entry-${index}`, locale: "fr-FR", outcome, message: null });
+    }
+
+    // The in-memory storage ignores `limit` and `cursor`, so page by hand to check the route forwards both.
+    const seen: unknown[] = [];
+    const query = batch.results.query.bind(batch.results);
+    batch.results.query = async (options = {}) => {
+      seen.push(options);
+      const all = (await query(options.where === undefined ? {} : { where: options.where })).items;
+      const start = options.cursor === undefined ? 0 : Number(options.cursor);
+      const items = all.slice(start, start + 2);
+      const hasMore = start + 2 < all.length;
+      return { items, hasMore, ...(hasMore ? { cursor: String(start + 2) } : {}) };
+    };
+    const page = (input: Record<string, unknown>) =>
+      call("batch/results", { jobId: job.id, ...input }, "GET", (routeContext) =>
+        sourceEntry(routeContext),
+      ) as Promise<BatchJobResultsResponse>;
+
+    const first = await page({ outcome: "failed" });
+    expect(first.results.map(({ entryId }) => entryId)).toEqual(["entry-0", "entry-2"]);
+    expect(first.nextCursor).toBe("2");
+    const second = await page({ outcome: "failed", cursor: first.nextCursor });
+    expect(second.results.map(({ entryId, outcome }) => [entryId, outcome])).toEqual([["entry-4", "failed"]]);
+    expect(second.nextCursor).toBeNull();
+    expect(seen).toMatchObject([
+      { where: { jobId: job.id, outcome: "failed" } },
+      { where: { jobId: job.id, outcome: "failed" }, cursor: "2" },
+    ]);
+
+    // Without a filter every outcome comes back, and a filter with no matches is an empty page, not an error.
+    seen.length = 0;
+    expect((await page({})).results).toHaveLength(2);
+    expect(seen[0]).toMatchObject({ where: { jobId: job.id } });
+    expect(seen[0]).not.toHaveProperty("where.outcome");
+
+    for (const outcome of ["", "Created", "pending", null, ["failed"]]) {
+      await expect(page({ outcome })).rejects.toMatchObject({ status: 400 });
+    }
   });
 
   it("removes only finished or cancelled jobs, with their results", async () => {
@@ -3453,6 +3733,7 @@ describe("EmDash batch queue routes", () => {
             translation: { id: "entry-fr", locale: "fr-FR", slug: "hello", published: false },
           },
           publish: true,
+          usage: expect.objectContaining({ calls: 1 }),
         });
         expect(inputs).toHaveLength(1);
         expect(await batch.results.count({ jobId: job.id })).toBe(0);

@@ -4,7 +4,6 @@ import { useEffect, useState, type ReactNode } from "react";
 import type { ModelReasoningResponse } from "../../../contracts.js";
 import { errorMessage, pluginRequest } from "../../utils.js";
 import { mutedStyle, rowStyle } from "../../styles.js";
-import { InfoLabel } from "../PageHeader/PageHeader.js";
 
 const MODEL_DEFAULT_REASONING = "__polystella_model_default__";
 const reasoningRequests = new Map<string, Promise<ModelReasoningResponse>>();
@@ -69,12 +68,8 @@ export function ThinkingSelect({
   }
   return (
     <Select
-      label={
-        <InfoLabel
-          label="Thinking"
-          info="Off makes translations faster and cheaper. More thinking can help with tricky text, but it also uses output tokens. No override sends what the code sets for this model, or nothing."
-        />
-      }
+      label="Thinking"
+      description="Off is faster and cheaper. More thinking can help with tricky text but uses output tokens."
       value={value ?? MODEL_DEFAULT_REASONING}
       renderValue={(selected) =>
         selected === MODEL_DEFAULT_REASONING || typeof selected !== "string" ? "No override" : effortLabel(selected)

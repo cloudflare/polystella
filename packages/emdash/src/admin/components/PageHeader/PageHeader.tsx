@@ -2,7 +2,9 @@ import { Tooltip } from "@cloudflare/kumo";
 import { InfoIcon } from "@phosphor-icons/react";
 import { useState, type ReactNode } from "react";
 
+import type { TranslationUsage } from "../../../contracts.js";
 import { mutedStyle, pageTitleStyle, sectionHeaderStyle, sectionTitleStyle } from "../../styles.js";
+import { usageTooltipText } from "../../utils.js";
 
 /** An ⓘ that explains what it sits next to on hover, focus, or click (Kumo's `labelTooltip` ignores clicks). */
 export function InfoTooltip({ label, content }: { label: string; content: string }): ReactNode {
@@ -18,7 +20,20 @@ export function InfoTooltip({ label, content }: { label: string; content: string
           type="button"
           aria-label={label}
           onClick={() => setOpen((current) => !current)}
-          style={{ background: "none", border: "none", color: "inherit", cursor: "help", display: "inline-flex", padding: 0 }}
+          style={{
+            alignItems: "center",
+            background: "none",
+            border: "none",
+            color: "inherit",
+            cursor: "help",
+            display: "inline-flex",
+            justifyContent: "center",
+            // WCAG 2.2 minimum target size, without changing the icon's visible size.
+            margin: -4,
+            minHeight: 24,
+            minWidth: 24,
+            padding: 0,
+          }}
         />
       }
     >
@@ -55,6 +70,17 @@ export function TextTooltip({ children, content, label }: { children: string; co
     >
       {children}
     </Tooltip>
+  );
+}
+
+/** Existing text that shows a translation's token usage and cost estimate on hover; plain text without usage. */
+export function UsageTooltip({ usage, children }: { usage: TranslationUsage | undefined; children: string }): ReactNode {
+  if (usage === undefined || usage.calls === 0) return children;
+  const text = usageTooltipText(usage);
+  return (
+    <TextTooltip content={text} label={`${children}. ${text}`}>
+      {children}
+    </TextTooltip>
   );
 }
 

@@ -1,6 +1,14 @@
 import { ApiResponseError, apiFetch, parseApiResponse } from "@emdash-cms/admin";
 
-import { POLYSTELLA_API_BASE, POLYSTELLA_PLUGIN_ID, type CollectionPolicy, type TranslationDebugTrace } from "../contracts.js";
+import {
+  MAX_MAX_TOKENS,
+  MIN_MAX_TOKENS,
+  POLYSTELLA_API_BASE,
+  POLYSTELLA_PLUGIN_ID,
+  type CollectionPolicy,
+  type TranslationDebugTrace,
+  type TranslationUsage,
+} from "../contracts.js";
 import type { SchemaField } from "./types.js";
 
 // EmDash's admin router is mounted here; it exports no helper for the base path.
@@ -30,6 +38,41 @@ export async function pluginRequest<T>(path: string, init?: RequestInit): Promis
   const value = await parseApiResponse<T>(response, "PolyStella request failed");
   if (isRecord(value) && isRecord(value.localeTags)) rememberLocaleTags(value.localeTags);
   return value;
+}
+
+/** "15,500 tokens: 12,400 in (2,000 cached), 3,100 out (800 reasoning). Cost estimate: $0.0031." */
+export function usageTooltipText(usage: TranslationUsage): string {
+  if (usage.calls > 0 && usage.unreportedCalls === usage.calls) {
+    return "The model didn't report token counts, so usage and cost are unknown.";
+  }
+  const count = (value: number) => value.toLocaleString("en-US");
+  const detail = (value: number, label: string) => (value === 0 ? "" : ` (${count(value)} ${label})`);
+  const parts = [
+    `${count(usage.inputTokens + usage.outputTokens)} tokens: ${count(usage.inputTokens)} in${detail(usage.cachedInputTokens, "cached")}, ` +
+      `${count(usage.outputTokens)} out${detail(usage.reasoningTokens, "reasoning")}.`,
+  ];
+  if (usage.calls > usage.unreportedCalls) {
+    parts.push(
+      usage.estimatedCostUsd === undefined
+        ? "Cost estimate: unknown, a model used has no list price."
+        : `Cost estimate: ${formatUsd(usage.estimatedCostUsd)}.`,
+    );
+  }
+  if (usage.unreportedCalls > 0) {
+    const one = usage.unreportedCalls === 1;
+    parts.push(`${plural(usage.unreportedCalls, "call")} reported no token counts and ${one ? "isn't" : "aren't"} included.`);
+  }
+  return parts.join(" ");
+}
+
+/** Sub-cent amounts keep two significant digits ($0.0031); larger ones round to cents. */
+function formatUsd(amount: number): string {
+  const small = amount > 0 && amount < 0.01;
+  return amount.toLocaleString("en-US", {
+    style: "currency",
+    currency: "USD",
+    ...(small ? { maximumSignificantDigits: 2 } : { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+  });
 }
 
 /** "1 entry", "3 entries". */
@@ -62,6 +105,20 @@ const knownLocaleTags = new Map<string, string>();
 export function rememberLocaleTags(tags: unknown): void {
   if (!isRecord(tags)) return;
   for (const [locale, tag] of Object.entries(tags)) if (typeof tag === "string") knownLocaleTags.set(locale.toLowerCase(), tag);
+}
+
+/** `@cf/meta/llama-3.1-8b-instruct` → `llama-3.1-8b-instruct`; ids without a vendor prefix stay as they are. */
+export function shortModelName(model: string): string {
+  return model.replace(/^@[^/]+\/[^/]+\//, "");
+}
+
+/** Why `maxTokens` can't be used, or `undefined`; `null` falls back to the saved or code default. */
+export function maxTokensError(maxTokens: number | null): string | undefined {
+  if (maxTokens === null) return undefined;
+  if (!Number.isInteger(maxTokens) || maxTokens < MIN_MAX_TOKENS || maxTokens > MAX_MAX_TOKENS) {
+    return `Enter a whole number from ${MIN_MAX_TOKENS.toLocaleString()} to ${MAX_MAX_TOKENS.toLocaleString()}, or leave it empty.`;
+  }
+  return undefined;
 }
 
 /** "French (fr)" in the admin's browser language; `code` adds the catalog code when it differs ("French (fr, fr-FR)"). */

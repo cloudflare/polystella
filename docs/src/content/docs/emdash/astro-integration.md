@@ -91,13 +91,13 @@ Astro.cache.set(cacheHint);
   a warning.
 - A human edit keeps the flag by default. PolyStella stores a
   fingerprint of each field it wrote, as saved, and the editor panel
-  shows **Edited since AI translation** with the changed fields once
-  one differs. The editor chooses **Keep AI flag** (the current text
+  shows **Edited after AI translation** with the changed fields once
+  one differs. When the fingerprints can't be read, it shows
+  **Couldn't check for edits** and still offers both choices. The editor chooses **Keep AI flag** (the current text
   becomes the new baseline) or **Remove AI flag**. Changes to fields
   PolyStella didn't write never count; translating again sets the flag
   with the new time and model.
-- **Remove the AI-translated flag when an editor changes AI text**
-  in Translation settings removes it automatically instead, checked
+- **Remove AI flag on edit** in Translation settings removes it automatically instead, checked
   after every save and publish. Restoring an old revision is then
   checked when that revision is published, and writes by other plugins
   through `ctx.content.update` skip EmDash's save hooks until the next

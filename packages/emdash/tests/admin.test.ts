@@ -34,9 +34,11 @@ import { createElement, type ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { CollapsibleCard } from "../src/admin/components/CollapsibleCard/CollapsibleCard.js";
 import { InfoLabel } from "../src/admin/components/PageHeader/PageHeader.js";
+import { stepProgress } from "../src/admin/components/TranslationProgress/TranslationProgress.js";
 import { saveTranslationSettings } from "../src/admin/plugin-page/tabs/TranslationSettingsTab/TranslationSettingsTab.js";
 import type { BatchJobView, TranslationSettingsResponse } from "../src/contracts.js";
 import { BatchJobs } from "../src/admin/plugin-page/tabs/BatchTab/BatchJobs.js";
+import { translatedIn } from "../src/admin/plugin-page/tabs/SandboxTab/SandboxTab.js";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -218,7 +220,6 @@ describe("EmDash admin entry", () => {
       truncated: false,
       entryCount: 2,
       counts: { created: 2, updated: 1, skipped: 1, failed: 0 },
-      failures: [],
       settings: null,
       retryOf: null,
       ...overrides,
@@ -292,7 +293,8 @@ describe("EmDash admin entry", () => {
           model: "m1",
           reasoning: "low",
           defaultReasoning: null,
-          defaultGlossary: "code glossary",
+          defaultGlossary: null,
+          defaultGlossarySource: null,
           glossaryMode: "append",
           glossaryText: "mine",
         },
@@ -320,21 +322,44 @@ describe("EmDash admin entry", () => {
     });
   });
 
-  it("renders a named native percentage progress indicator", () => {
-    type TestElement = ReactElement & {
-      props: { children: Array<TestElement | string | unknown>; value?: number; max?: number };
-    };
-    const el = TranslationProgress({ percent: 45, label: "Translating selected fields" }) as TestElement;
-    expect(el.type).toBe("div");
-    const children = el.props.children as TestElement[];
-    const progress = children[0] as TestElement;
-    expect(progress.type).toBe("progress");
-    expect(progress.props.value).toBe(45);
-    expect(progress.props.max).toBe(100);
-    const label = children[1] as TestElement;
-    expect(label.type).toBe("small");
-    const labelText = (label.props.children as unknown[]).map(String).join("");
-    expect(labelText).toBe("45%: Translating selected fields");
+  it("renders an accessible progress bar with a step list", () => {
+    const html = renderToStaticMarkup(
+      createElement(TranslationProgress, stepProgress(["Loading entry", "Translating", "Saving"], 1, "Translating selected fields")),
+    );
+    expect(html).not.toContain("<progress");
+    expect(html).toContain('role="progressbar"');
+    expect(html).toContain('aria-valuenow="50"');
+    expect(html).toContain('aria-valuemin="0"');
+    expect(html).toContain('aria-valuemax="100"');
+    expect(html).toContain('aria-label="Translating selected fields"');
+    expect(html).toMatch(/aria-current="step"[^>]*>.*Translating</);
+    expect(html).not.toContain("Done");
+    expect(html).not.toContain('role="status"');
+  });
+
+  it("says a very fast sandbox translation took under 0.1 s", () => {
+    expect(translatedIn(40)).toBe("Translated in under 0.1 s");
+    expect(translatedIn(1250)).toMatch(/^Translated in 1[.,][23] s$/);
+  });
+
+  it("computes step progress from the step and its fraction", () => {
+    const steps = ["a", "b", "c", "d"];
+    expect(stepProgress(steps, 0, "A")).toEqual({ steps, step: 0, label: "A", percent: 13 });
+    expect(stepProgress(steps, 3, "D", { fraction: 1 }).percent).toBe(100);
+    expect(stepProgress(steps, 1, "B", { fraction: 0, detail: "2 of 4" })).toMatchObject({ percent: 25, detail: "2 of 4" });
+    expect(stepProgress(steps, 1, "B")).not.toHaveProperty("detail");
+  });
+
+  it("shows a single-label progress with counts, and a Done badge when complete", () => {
+    const running = renderToStaticMarkup(
+      createElement(TranslationProgress, { percent: 40, label: "Generating", detail: "40 of 100 keys · batch 2 of 5" }),
+    );
+    expect(running).toContain("Generating");
+    expect(running).toContain("40 of 100 keys · batch 2 of 5");
+    expect(running).toContain('aria-valuetext="40%: Generating, 40 of 100 keys · batch 2 of 5"');
+    const done = renderToStaticMarkup(createElement(TranslationProgress, { percent: 100, label: "Catalog generation complete" }));
+    expect(done).toContain("Done");
+    expect(done).not.toContain('aria-current="step"');
   });
 
   it("labels locales with the language name and code", () => {

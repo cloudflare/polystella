@@ -101,9 +101,11 @@ async function processMessage(runtime: PolystellaBatchRuntime, body: unknown): P
     }
     response = await callRoute(runtime, "batch/translate", { ...message, rev });
   }
+  // Recorded with the row whatever the save does: the model calls were made either way.
+  const usage = isRecord(response) ? response.usage : undefined;
   const update = readUpdatePayload(response);
   if (update !== null) {
-    await saveUpdate(runtime, message, update, response);
+    await saveUpdate(runtime, message, update, response, usage);
     return;
   }
   const create = readCreatePayload(response);
@@ -119,11 +121,11 @@ async function processMessage(runtime: PolystellaBatchRuntime, body: unknown): P
       entryId === undefined ? null : { id: entryId, locale: draft.locale, slug: draft.slug, published: publish?.published === true };
     const notice = isRecord(response) && typeof response.notice === "string" ? response.notice : null;
     const detail = [notice, publish?.message ?? null].filter((part) => part !== null).join(" ");
-    await record(runtime, message, "created", detail === "" ? null : detail.slice(0, MAX_BATCH_MESSAGE_CHARACTERS), translation);
+    await record(runtime, message, "created", detail === "" ? null : detail.slice(0, MAX_BATCH_MESSAGE_CHARACTERS), translation, usage);
   } else {
     // CONFLICT means the locale was created after the route checked, by an editor or a duplicate delivery.
     const outcome = created.error.code === "CONFLICT" ? "skipped" : "failed";
-    await record(runtime, message, outcome, created.error.message.slice(0, MAX_BATCH_MESSAGE_CHARACTERS));
+    await record(runtime, message, outcome, created.error.message.slice(0, MAX_BATCH_MESSAGE_CHARACTERS), null, usage);
   }
 }
 
@@ -132,6 +134,7 @@ async function saveUpdate(
   message: BatchMessage,
   update: BatchUpdatePayload,
   response: unknown,
+  usage: unknown,
 ): Promise<void> {
   const { collection, id, locale, data, _rev, translation } = update;
   const saved = await runtime.handleContentUpdate(collection, id, { data, _rev, locale });
@@ -139,7 +142,7 @@ async function saveUpdate(
     // CONFLICT means an editor saved the translation while it was being translated; their edit is kept.
     const conflict = saved.error.code === "CONFLICT";
     const detail = conflict ? "The translation changed while PolyStella translated it, so it was left as it was." : saved.error.message;
-    await record(runtime, message, conflict ? "skipped" : "failed", detail.slice(0, MAX_BATCH_MESSAGE_CHARACTERS), translation);
+    await record(runtime, message, conflict ? "skipped" : "failed", detail.slice(0, MAX_BATCH_MESSAGE_CHARACTERS), translation, usage);
     return;
   }
   await recordAiTranslation(runtime, collection, id, message.jobId);
@@ -150,7 +153,7 @@ async function saveUpdate(
   // Retrying the message would read a fresh `_rev` and overwrite edits made after this save, so only the record is retried.
   for (let attempt = 1; ; attempt += 1) {
     try {
-      await record(runtime, message, "updated", detail === "" ? null : detail.slice(0, MAX_BATCH_MESSAGE_CHARACTERS), row);
+      await record(runtime, message, "updated", detail === "" ? null : detail.slice(0, MAX_BATCH_MESSAGE_CHARACTERS), row, usage);
       return;
     } catch (error) {
       if (attempt >= UPDATE_RECORD_ATTEMPTS) {
@@ -198,8 +201,15 @@ async function record(
   outcome: string,
   detail: string | null,
   translation: BatchTranslationLink | null = null,
+  usage: unknown = undefined,
 ): Promise<void> {
-  await callRoute(runtime, "batch/record", { ...message, outcome, message: detail, translation });
+  await callRoute(runtime, "batch/record", {
+    ...message,
+    outcome,
+    message: detail,
+    translation,
+    ...(usage === undefined ? {} : { usage }),
+  });
 }
 
 async function callRoute(runtime: PolystellaBatchRuntime, path: string, body: unknown): Promise<unknown> {

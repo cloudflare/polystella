@@ -17,26 +17,16 @@ import { mutedStyle, rowStyle, stackStyle } from "../../../styles.js";
 import { ErrorMessage } from "../../../components/ErrorMessage/ErrorMessage.js";
 import { jobSettingsSummary } from "../../../components/JobSettings/JobSettings.js";
 import { NewWindowIcon } from "../../../components/NewWindowLink/NewWindowLink.js";
-import { TextTooltip } from "../../../components/PageHeader/PageHeader.js";
+import { TextTooltip, UsageTooltip } from "../../../components/PageHeader/PageHeader.js";
 import { TranslationLinks } from "./BatchResults.js";
 import { batchJobDone, batchJobFinished, type PublicUrlContext } from "./helpers.js";
+import { OutcomeBadge, OutcomeBar, OutcomeCounts, visuallyHiddenStyle } from "./Outcome.js";
 import { RetryForm } from "./RetryForm.js";
 
 const MAX_LISTED_LOCALES = 3;
 
 type JobAction = "cancel" | "retry" | "delete";
 type RetryOptions = { settings?: BatchJobSettings | null; redo?: boolean };
-
-const OUTCOMES: ReadonlyArray<{ outcome: BatchJobOutcome; color: string; info: string }> = [
-  { outcome: "created", color: "var(--color-kumo-success, #1e8e3e)", info: "New translations this job saved." },
-  { outcome: "updated", color: "var(--color-kumo-badge-purple, #8e4ec6)", info: "Existing translations this job translated again." },
-  {
-    outcome: "skipped",
-    color: "var(--color-kumo-badge-neutral, #a3a3a8)",
-    info: "Already translated, or edited while the job ran. Nothing was changed.",
-  },
-  { outcome: "failed", color: "var(--color-kumo-danger, #d93025)", info: "Results says why. Retry... runs them again." },
-];
 
 export function BatchJobs({
   jobs,
@@ -52,6 +42,22 @@ export function BatchJobs({
 }): ReactNode {
   const [working, setWorking] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [announcement, setAnnouncement] = useState("");
+  const seenStatuses = useRef(new Map<string, BatchJobView["status"]>());
+
+  useEffect(() => {
+    const changed: string[] = [];
+    for (const job of jobs) {
+      const previous = seenStatuses.current.get(job.id);
+      if (previous !== undefined && previous !== job.status) {
+        changed.push(
+          `${jobTitle(job, collectionLabels[job.collection] ?? job.collection)}: ${statusText(job, batchJobDone(job)).toLowerCase()}`,
+        );
+      }
+      seenStatuses.current.set(job.id, job.status);
+    }
+    if (changed.length > 0) setAnnouncement(changed.join(". "));
+  }, [jobs, collectionLabels]);
 
   async function act(jobIds: readonly string[], action: JobAction, key: string, options: RetryOptions = {}): Promise<boolean> {
     setWorking(key);
@@ -73,7 +79,7 @@ export function BatchJobs({
   if (jobs.length === 0) return null;
   const removable = jobs.filter(canRemove).map(({ id }) => id);
   return (
-    <section style={stackStyle}>
+    <section style={{ ...stackStyle, marginTop: 24 }}>
       <div style={rowStyle}>
         <h3>Server jobs</h3>
         {removable.length === 0 ? null : (
@@ -93,6 +99,9 @@ export function BatchJobs({
         )}
       </div>
       {error === null ? null : <ErrorMessage>{error}</ErrorMessage>}
+      <div role="status" aria-live="polite" style={visuallyHiddenStyle}>
+        {announcement}
+      </div>
       <LayerCard style={{ overflow: "hidden", padding: 0 }}>
         <ul style={listStyle}>
           {jobs.map((job, index) => (
@@ -102,6 +111,7 @@ export function BatchJobs({
               last={index === jobs.length - 1}
               label={collectionLabels[job.collection] ?? job.collection}
               urlContext={urlContexts[job.collection]}
+              retriedJob={job.retryOf === null ? undefined : jobs.find(({ id }) => id === job.retryOf)}
               working={working}
               act={act}
             />
@@ -117,6 +127,7 @@ function JobRow({
   last,
   label,
   urlContext,
+  retriedJob,
   working,
   act,
 }: {
@@ -124,6 +135,8 @@ function JobRow({
   last: boolean;
   label: string;
   urlContext: PublicUrlContext | undefined;
+  /** The job this one retried, while it's still listed. */
+  retriedJob: BatchJobView | undefined;
   working: string | null;
   act(jobIds: readonly string[], action: JobAction, key: string, options?: RetryOptions): Promise<boolean>;
 }): ReactNode {
@@ -132,7 +145,7 @@ function JobRow({
   const bodyId = useId();
   const done = batchJobDone(job);
   const finished = batchJobFinished(job);
-  const title = `${label} · ${startedAt(job.createdAt)}`;
+  const title = jobTitle(job, label);
   const localeNames = job.locales.map((locale) => localeLabel(locale)).join(", ");
   const written = job.counts.created + job.counts.updated;
   // A cancel drops queued translations without a result; a selected-entries retry queues them again.
@@ -159,69 +172,58 @@ function JobRow({
             <StatusBadge job={job} done={done} />
           </div>
           <small style={{ ...mutedStyle, ...rowStyle, columnGap: 6, rowGap: 2 }}>
-            {job.locales.length > MAX_LISTED_LOCALES ? (
-              <TextTooltip content={localeNames} label={`${plural(job.locales.length, "locale")}: ${localeNames}`}>
-                {plural(job.locales.length, "locale")}
-              </TextTooltip>
-            ) : (
-              <span>{localeNames}</span>
-            )}
-            <span aria-hidden="true">·</span>
-            <span>
-              {job.entryCount === "all"
+            {/* Each separator sits inside the item before it, so a wrapped line never starts with one. */}
+            {[
+              job.locales.length > MAX_LISTED_LOCALES ? (
+                <TextTooltip content={localeNames} label={`${plural(job.locales.length, "locale")}: ${localeNames}`}>
+                  {plural(job.locales.length, "locale")}
+                </TextTooltip>
+              ) : (
+                localeNames
+              ),
+              job.entryCount === "all"
                 ? "Whole collection"
                 : typeof job.entryCount === "number"
                   ? plural(job.entryCount, "entry", "entries")
-                  : "Entries not recorded"}
-            </span>
-            <span aria-hidden="true">·</span>
-            <TextTooltip
-              content={job.publish ? "Each translation is published as soon as it's saved." : "Translations are saved as drafts to review."}
-            >
-              {job.publish ? "Publishing" : "Drafts"}
-            </TextTooltip>
-            {job.updateExisting ? (
-              <>
-                <span aria-hidden="true">·</span>
+                  : "Entries not recorded",
+              <TextTooltip
+                content={
+                  job.publish ? "Each translation is published as soon as it's saved." : "Translations are saved as drafts to review."
+                }
+              >
+                {job.publish ? "Publishing" : "Drafts"}
+              </TextTooltip>,
+              job.updateExisting ? (
                 <TextTooltip content="Existing translations are translated again. Ones edited while the job runs are skipped.">
                   Updating existing
                 </TextTooltip>
-              </>
-            ) : null}
-            {job.retryOf === null ? null : (
-              <>
-                <span aria-hidden="true">·</span>
-                <span>Retry</span>
-              </>
-            )}
-            {settingsSummary === null ? null : (
-              <>
-                <span aria-hidden="true">·</span>
+              ) : null,
+              job.retryOf === null ? null : retriedJob === undefined ? "Retry" : `Retry of ${startedAt(retriedJob.createdAt)}`,
+              settingsSummary === null ? null : (
                 <TextTooltip content={job.settings?.instructions ? `${settingsSummary}: ${job.settings.instructions}` : settingsSummary}>
                   Run settings
                 </TextTooltip>
-              </>
-            )}
+              ),
+            ]
+              .filter((item) => item !== null)
+              .map((item, index, items) => (
+                <span key={index}>
+                  {item}
+                  {index < items.length - 1 ? <span aria-hidden="true"> ·</span> : null}
+                </span>
+              ))}
           </small>
         </div>
         <div style={{ display: "grid", gap: 4, justifyItems: "end" }}>
-          <OutcomeBar job={job} done={done} width={72} />
+          <OutcomeBar counts={job.counts} total={job.total} width={72} />
           <small style={mutedStyle}>
-            {done}/{job.total}
-            {job.listing ? "+" : ""}
+            <UsageTooltip usage={job.usage}>{`${done}/${job.total}${job.listing ? "+" : ""}`}</UsageTooltip>
           </small>
         </div>
       </div>
       {open ? (
         <div id={bodyId} style={bodyStyle}>
-          <div style={{ ...rowStyle, columnGap: 14, rowGap: 4 }}>
-            {OUTCOMES.map(({ outcome, color, info }) => (
-              <small key={outcome} style={{ alignItems: "center", display: "inline-flex", gap: 6 }}>
-                <span aria-hidden="true" style={{ ...dotStyle, background: color }} />
-                <TextTooltip content={info}>{`${job.counts[outcome]} ${outcome}`}</TextTooltip>
-              </small>
-            ))}
-          </div>
+          <OutcomeCounts counts={job.counts} />
           {job.listing ? <small style={mutedStyle}>Still listing the collection's entries, so the total can still grow.</small> : null}
           {job.truncated ? (
             <small style={mutedStyle}>
@@ -232,24 +234,42 @@ function JobRow({
           {job.status === "cancelled" && done < job.total ? (
             <small style={mutedStyle}>
               {job.entryCount === "all" || job.listing
-                ? "The job was cancelled, so some translations didn't finish. Retry... lists the rest of the collection, but entries already listed when it was cancelled need another whole-collection job."
-                : `${job.total - done} of ${job.total} translations didn't finish because the job was cancelled. Retry... runs them.`}
+                ? "The job was cancelled, so some translations didn't finish. Retry lists the rest of the collection, but entries already listed when it was cancelled need another whole-collection job."
+                : `${job.total - done} of ${job.total} translations didn't finish because the job was cancelled. Retry runs them.`}
             </small>
           ) : null}
           <JobTabs job={job} done={done} urlContext={urlContext} />
           <div style={rowStyle}>
             {job.status === "running" ? (
-              <Button size="sm" variant="secondary" loading={working === job.id} onClick={() => void act([job.id], "cancel", job.id)}>
+              <Button
+                size="sm"
+                variant="secondary"
+                loading={working === job.id}
+                aria-label={`Cancel ${title}`}
+                onClick={() => void act([job.id], "cancel", job.id)}
+              >
                 Cancel
               </Button>
             ) : null}
             {canRetry && !retrying ? (
-              <Button size="sm" variant="secondary" disabled={working !== null} onClick={() => setRetrying(true)}>
-                Retry...
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={working !== null}
+                aria-label={`Retry ${title}`}
+                onClick={() => setRetrying(true)}
+              >
+                Retry
               </Button>
             ) : null}
             {canRemove(job) ? (
-              <Button size="sm" variant="ghost" loading={working === job.id} onClick={() => void act([job.id], "delete", job.id)}>
+              <Button
+                size="sm"
+                variant="ghost"
+                loading={working === job.id}
+                aria-label={`Remove ${title}`}
+                onClick={() => void act([job.id], "delete", job.id)}
+              >
                 Remove
               </Button>
             ) : null}
@@ -262,6 +282,7 @@ function JobRow({
               written={written}
               initialSettings={job.settings}
               working={working === job.id}
+              blocked={working !== null}
               onRetry={(settings, redo) =>
                 void act([job.id], "retry", job.id, { settings, redo }).then((retried) => {
                   if (retried) setRetrying(false);
@@ -276,17 +297,17 @@ function JobRow({
   );
 }
 
+function statusText(job: BatchJobView, done: number): string {
+  if (job.status === "running") return job.listing ? "Running, listing entries" : "Running";
+  const failed = job.counts.failed > 0 ? `, ${job.counts.failed} failed` : "";
+  if (job.status === "cancelled") return `Cancelled${done < job.total ? `, ${job.total - done} unfinished` : ""}${failed}`;
+  return `Finished${failed}`;
+}
+
 function StatusBadge({ job, done }: { job: BatchJobView; done: number }): ReactNode {
-  const status =
-    job.status === "cancelled" ? (
-      <Badge variant="secondary">{done < job.total ? `Cancelled, ${job.total - done} unfinished` : "Cancelled"}</Badge>
-    ) : job.status === "running" ? (
-      <Badge variant="info">{job.listing ? "Running, listing entries" : "Running"}</Badge>
-    ) : job.counts.failed > 0 ? (
-      <Badge variant="warning">Finished, {job.counts.failed} failed</Badge>
-    ) : (
-      <Badge variant="success">Finished</Badge>
-    );
+  const variant =
+    job.status === "cancelled" ? "secondary" : job.status === "running" ? "info" : job.counts.failed > 0 ? "warning" : "success";
+  const status = <Badge variant={variant}>{statusText(job, done)}</Badge>;
   return job.truncated ? (
     <>
       {status}
@@ -297,21 +318,6 @@ function StatusBadge({ job, done }: { job: BatchJobView; done: number }): ReactN
   );
 }
 
-/** One bar split by outcome; the rest of the track is work still to do. */
-function OutcomeBar({ job, done, width }: { job: BatchJobView; done: number; width: number }): ReactNode {
-  const total = Math.max(job.total, done, 1);
-  const summary = OUTCOMES.map(({ outcome }) => `${job.counts[outcome]} ${outcome}`).join(", ");
-  return (
-    <div role="img" aria-label={`${done} of ${job.total} done: ${summary}`} style={{ ...barStyle, width }}>
-      {OUTCOMES.map(({ outcome, color }) =>
-        job.counts[outcome] === 0 ? null : (
-          <span key={outcome} style={{ background: color, width: `${(job.counts[outcome] / total) * 100}%` }} />
-        ),
-      )}
-    </div>
-  );
-}
-
 type JobTab = "entries" | "results" | "failures";
 const TAB_NAMES: Record<JobTab, string> = { entries: "Entries", results: "Results", failures: "Failures" };
 
@@ -319,7 +325,7 @@ function JobTabs({ job, done, urlContext }: { job: BatchJobView; done: number; u
   const tabs: Array<{ value: JobTab; label: string }> = [
     ...(typeof job.entryCount === "number" ? [{ value: "entries" as const, label: `Entries (${job.entryCount})` }] : []),
     ...(done === 0 ? [] : [{ value: "results" as const, label: `Results (${done})` }]),
-    ...(job.failures.length === 0 ? [] : [{ value: "failures" as const, label: `Failures (${job.counts.failed})` }]),
+    ...(job.counts.failed === 0 ? [] : [{ value: "failures" as const, label: `Failures (${job.counts.failed})` }]),
   ];
   const [chosen, setChosen] = useState<JobTab | null>(null);
   const active = tabs.find((tab) => tab.value === chosen)?.value ?? tabs[0]?.value;
@@ -336,27 +342,39 @@ function JobTabs({ job, done, urlContext }: { job: BatchJobView; done: number; u
       />
       <div role="tabpanel" aria-label={TAB_NAMES[active]}>
         {active === "entries" ? <JobEntries job={job} /> : null}
-        {active === "results" ? <JobResults job={job} done={done} urlContext={urlContext} /> : null}
-        {active === "failures" ? <JobFailures job={job} /> : null}
+        {active === "results" ? <JobResults job={job} progress={done} urlContext={urlContext} /> : null}
+        {active === "failures" ? <JobResults job={job} progress={job.counts.failed} urlContext={urlContext} outcome="failed" /> : null}
       </div>
     </div>
   );
 }
 
-/** Loads on mount, and again as the job progresses while the tab stays open. */
-function JobResults({ job, done, urlContext }: { job: BatchJobView; done: number; urlContext: PublicUrlContext | undefined }): ReactNode {
+/** Loads on mount, and again as `progress` grows while the tab stays open. `outcome` keeps only those rows. */
+function JobResults({
+  job,
+  progress,
+  urlContext,
+  outcome,
+}: {
+  job: BatchJobView;
+  progress: number;
+  urlContext: PublicUrlContext | undefined;
+  outcome?: BatchJobOutcome | undefined;
+}): ReactNode {
   const [results, setResults] = useState<BatchJobResultView[] | null>(null);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  // Once Load more is used, progress stops reloading the first page, so the loaded pages stay.
-  const pagedRef = useRef(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  // Once Load more is used, progress stops reloading the first page, so the loaded pages stay; Refresh starts over.
+  const [paged, setPaged] = useState(false);
+  const [refreshes, setRefreshes] = useState(0);
 
   useEffect(() => {
-    if (pagedRef.current) return;
+    if (paged) return;
     let active = true;
-    loadJobResults(job.id, null)
+    loadJobResults(job.id, null, outcome)
       .then((page) => {
-        if (!active || pagedRef.current) return;
+        if (!active) return;
         setResults(page.results);
         setNextCursor(page.nextCursor);
         setError(null);
@@ -367,18 +385,21 @@ function JobResults({ job, done, urlContext }: { job: BatchJobView; done: number
     return () => {
       active = false;
     };
-  }, [job.id, done]);
+  }, [job.id, progress, outcome, paged, refreshes]);
 
   async function loadMore(): Promise<void> {
-    if (nextCursor === null) return;
-    pagedRef.current = true;
+    if (nextCursor === null || loadingMore) return;
+    setLoadingMore(true);
+    setPaged(true);
     try {
-      const page = await loadJobResults(job.id, nextCursor);
+      const page = await loadJobResults(job.id, nextCursor, outcome);
       setResults((current) => [...(current ?? []), ...page.results]);
       setNextCursor(page.nextCursor);
       setError(null);
     } catch (cause) {
       setError(errorMessage(cause));
+    } finally {
+      setLoadingMore(false);
     }
   }
 
@@ -397,27 +418,51 @@ function JobResults({ job, done, urlContext }: { job: BatchJobView; done: number
                 {job.entryCount === 1 ? null : <small style={mutedStyle}>{row.title}</small>}
               </div>
               {row.message === null ? null : <small style={mutedStyle}>{row.message}</small>}
-              {row.translation === null ? null : (
-                <TranslationLinks collection={job.collection} translation={row.translation} urlContext={urlContext} />
+              {row.translation === null ? (
+                <Link
+                  to="/content/$collection/$id"
+                  params={{ collection: job.collection, id: row.entryId }}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-label={`Edit source entry ${row.title}`}
+                >
+                  Edit source
+                  <NewWindowIcon />
+                </Link>
+              ) : (
+                <TranslationLinks
+                  collection={job.collection}
+                  translation={row.translation}
+                  urlContext={urlContext}
+                  label={`${row.title}, ${localeLabel(row.locale)}`}
+                />
               )}
             </li>
           ))}
         </ul>
       )}
-      {nextCursor === null ? null : (
-        <div>
-          <Button size="sm" variant="secondary" onClick={() => void loadMore()}>
+      <div style={rowStyle}>
+        {nextCursor === null ? null : (
+          <Button size="sm" variant="secondary" loading={loadingMore} disabled={loadingMore} onClick={() => void loadMore()}>
             Load more
           </Button>
-        </div>
-      )}
+        )}
+        {paged ? (
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={loadingMore}
+            onClick={() => {
+              setPaged(false);
+              setRefreshes((current) => current + 1);
+            }}
+          >
+            Refresh
+          </Button>
+        ) : null}
+      </div>
     </div>
   );
-}
-
-function OutcomeBadge({ outcome }: { outcome: BatchJobOutcome }): ReactNode {
-  const variant = outcome === "created" ? "success" : outcome === "updated" ? "purple" : outcome === "failed" ? "error" : "secondary";
-  return <Badge variant={variant}>{outcome.charAt(0).toUpperCase() + outcome.slice(1)}</Badge>;
 }
 
 /** The job's selected source entries, each opening in the editor in a new tab. */
@@ -425,6 +470,7 @@ function JobEntries({ job }: { job: BatchJobView }): ReactNode {
   const [entries, setEntries] = useState<BatchJobEntriesResponse["entries"] | null>(null);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -443,13 +489,16 @@ function JobEntries({ job }: { job: BatchJobView }): ReactNode {
   }, [job.id]);
 
   async function loadMore(): Promise<void> {
-    if (nextCursor === null) return;
+    if (nextCursor === null || loadingMore) return;
+    setLoadingMore(true);
     try {
       const page = await loadJobEntries(job.id, nextCursor);
       setEntries((current) => [...(current ?? []), ...page.entries]);
       setNextCursor(page.nextCursor);
     } catch (cause) {
       setError(errorMessage(cause));
+    } finally {
+      setLoadingMore(false);
     }
   }
 
@@ -482,7 +531,7 @@ function JobEntries({ job }: { job: BatchJobView }): ReactNode {
       )}
       {nextCursor === null ? null : (
         <div>
-          <Button size="sm" variant="secondary" onClick={() => void loadMore()}>
+          <Button size="sm" variant="secondary" loading={loadingMore} disabled={loadingMore} onClick={() => void loadMore()}>
             Load more
           </Button>
         </div>
@@ -491,27 +540,8 @@ function JobEntries({ job }: { job: BatchJobView }): ReactNode {
   );
 }
 
-function JobFailures({ job }: { job: BatchJobView }): ReactNode {
-  return (
-    <div style={stackStyle}>
-      {job.failures.length < job.counts.failed ? (
-        <small style={mutedStyle}>
-          Showing the first {job.failures.length} of {job.counts.failed}. Results lists every row with its entry title.
-        </small>
-      ) : null}
-      <ul style={{ ...listStyle, gap: 10 }}>
-        {job.failures.map((failure) => (
-          <li key={`${failure.entryId}:${failure.locale}`} style={{ display: "grid", gap: 2 }}>
-            <div style={{ ...rowStyle, gap: 8 }}>
-              <span>{localeLabel(failure.locale)}</span>
-              <code style={{ fontSize: 12 }}>{failure.entryId}</code>
-            </div>
-            {failure.message === null ? null : <small style={mutedStyle}>{failure.message}</small>}
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
+function jobTitle(job: BatchJobView, label: string): string {
+  return `${label} · ${startedAt(job.createdAt)}`;
 }
 
 function startedAt(iso: string): string {
@@ -524,8 +554,8 @@ function loadJobEntries(jobId: string, cursor: string | null): Promise<BatchJobE
   return pluginRequest<BatchJobEntriesResponse>(`batch/entries?${query.toString()}`);
 }
 
-function loadJobResults(jobId: string, cursor: string | null): Promise<BatchJobResultsResponse> {
-  const query = new URLSearchParams({ jobId, ...(cursor === null ? {} : { cursor }) });
+function loadJobResults(jobId: string, cursor: string | null, outcome: BatchJobOutcome | undefined): Promise<BatchJobResultsResponse> {
+  const query = new URLSearchParams({ jobId, ...(cursor === null ? {} : { cursor }), ...(outcome === undefined ? {} : { outcome }) });
   return pluginRequest<BatchJobResultsResponse>(`batch/results?${query.toString()}`);
 }
 
@@ -540,14 +570,7 @@ const headerStyle: CSSProperties = {
   display: "grid",
   gap: 10,
   gridTemplateColumns: "auto minmax(0, 1fr) auto",
-  padding: "10px 12px",
+  padding: 16,
 };
-const bodyStyle: CSSProperties = { ...stackStyle, padding: "0 12px 14px 50px" };
-const barStyle: CSSProperties = {
-  background: "var(--color-kumo-fill, #e9e9ec)",
-  borderRadius: 999,
-  display: "flex",
-  height: 6,
-  overflow: "hidden",
-};
-const dotStyle: CSSProperties = { borderRadius: "50%", display: "inline-block", height: 8, width: 8 };
+// Lines up with the title: padding, the 28px caret button and the gap.
+const bodyStyle: CSSProperties = { ...stackStyle, padding: "0 16px 16px 54px" };

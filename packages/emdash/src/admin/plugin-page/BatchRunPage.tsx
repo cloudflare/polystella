@@ -1,33 +1,38 @@
 import { Banner, Button, LayerCard } from "@cloudflare/kumo";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { CheckCircleIcon, StopCircleIcon, WarningCircleIcon, XCircleIcon } from "@phosphor-icons/react";
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 
-import { errorMessage, localeLabel, plural, pluginPageUrl, rememberLocaleTags } from "../utils.js";
-import { PageTitle, SectionHeader } from "../components/PageHeader/PageHeader.js";
+import { errorMessage, localeLabel, pluginPageUrl, rememberLocaleTags, shortModelName } from "../utils.js";
+import { PageTitle, SectionHeader, TextTooltip, UsageTooltip } from "../components/PageHeader/PageHeader.js";
 import { cardStyle, mutedStyle, pageStyle, rowStyle, sectionStyle, stackStyle } from "../styles.js";
-import type { BatchJobSettings } from "../../contracts.js";
+import { addTranslationUsage, type BatchJobSettings, type TranslationUsage } from "../../contracts.js";
 import { ErrorMessage } from "../components/ErrorMessage/ErrorMessage.js";
-import { jobSettingsSummary } from "../components/JobSettings/JobSettings.js";
-import { TranslationProgress } from "../components/TranslationProgress/TranslationProgress.js";
+import { effortLabel } from "../components/ThinkingSelect/ThinkingSelect.js";
 import { BatchResultsTable, usePublicUrlContexts } from "./tabs/BatchTab/BatchResults.js";
+import { OutcomeBar, OutcomeCounts, visuallyHiddenStyle } from "./tabs/BatchTab/Outcome.js";
 import { RetryForm } from "./tabs/BatchTab/RetryForm.js";
 import {
+  batchJobKey,
+  batchRunEndState,
+  batchSizeError,
   clearBatchRun,
+  countOutcomes,
+  isWrittenResult,
+  jobsLeft,
   loadAllItems,
   planBatchJobs,
+  planRetry,
   readBatchRun,
   runBatchJob,
   runBatchJobs,
   type BatchItem,
   type BatchJob,
   type BatchResult,
+  type BatchRunEndState,
   type BatchRunPlan,
 } from "./tabs/BatchTab/helpers.js";
 
 const CONCURRENCY = 3;
-
-function isWritten(result: BatchResult): boolean {
-  return (result.outcome === "created" || result.outcome === "updated") && result.translation !== null;
-}
 
 /** A browser batch run in its own tab, opened from the Batch translation page. */
 export function BatchRunPage(): ReactNode {
@@ -41,8 +46,10 @@ export function BatchRunPage(): ReactNode {
   const [started, setStarted] = useState(false);
   const [running, setRunning] = useState(false);
   const [stopping, setStopping] = useState(false);
-  const [total, setTotal] = useState(0);
+  const [planned, setPlanned] = useState<BatchJob[]>([]);
   const [results, setResults] = useState<BatchResult[]>([]);
+  // Kept apart from `results` so retried rows still count the tokens their first attempt spent.
+  const [usage, setUsage] = useState<TranslationUsage | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
   const [settings, setSettings] = useState<BatchJobSettings | null>(plan?.options.settings ?? null);
   const [retrying, setRetrying] = useState(false);
@@ -89,6 +96,7 @@ export function BatchRunPage(): ReactNode {
         async (job) => {
           const result = await runBatchJob(job, { ...plan.options, settings: runSettings });
           setResults((current) => [...current, result]);
+          setUsage((current) => addTranslationUsage(current, result.usage));
         },
         () => stopRequested.current,
       );
@@ -106,22 +114,22 @@ export function BatchRunPage(): ReactNode {
     // A reload must not silently start the same run again.
     clearBatchRun(runId);
     setStarted(true);
-    setTotal(jobs.length);
+    setPlanned(jobs);
     void run(jobs, settings);
   }
 
+  function continueRun(): void {
+    // Entries that never started belong to the run, not to a retry, so they keep the run's own settings.
+    void run(jobsLeft(planned, results), plan?.options.settings ?? null);
+  }
+
   function retry(retrySettings: BatchJobSettings | null, redo: boolean): void {
-    const retried = results.filter((result) => result.outcome === "failed" || (redo && isWritten(result)));
-    const jobs = retried.map(({ item, target, outcome, translation }) => ({
-      item,
-      target,
-      ...(outcome === "failed" || translation === null ? {} : { redo: translation }),
-    }));
-    // Retried rows leave the table and come back with their new outcome, so the run total stays the same.
-    setResults((current) => current.filter((result) => !retried.includes(result)));
+    const next = planRetry(planned, results, redo);
+    setPlanned(next.planned);
+    setResults(next.results);
     setSettings(retrySettings);
     setRetrying(false);
-    void run(jobs, retrySettings);
+    void run(next.jobs, retrySettings);
   }
 
   if (plan === null) {
@@ -141,44 +149,67 @@ export function BatchRunPage(): ReactNode {
     );
   }
 
-  const failed = results.filter((result) => result.outcome === "failed").length;
-  const written = results.filter(isWritten).length;
-  const finished = started && !running;
-  const action = `${plan.options.updateExisting ? "Create missing translations and update existing ones" : "Create missing translations, skipping existing ones"}, ${plan.options.publish ? "and publish them" : "as drafts"}.`;
-  const settingsSummary = jobSettingsSummary(settings);
+  const written = results.filter(isWrittenResult).length;
+  const counts = countOutcomes(results);
+  const total = planned.length;
+  const left = total - results.length;
+  const endState = batchRunEndState({ started, running, total, done: results.length, counts, error });
+  const endHeadline = endState === null ? "" : `${endState.title}${endState.detail === null ? "" : ` · ${endState.detail}`}`;
+  const sizeError = items === null ? null : batchSizeError(items.length * plan.targets.length);
 
   return (
     <main style={pageStyle}>
       <PageTitle>PolyStella</PageTitle>
       <section style={sectionStyle}>
         <SectionHeader title="Batch run" />
-        <Banner
-          variant={finished ? "secondary" : "alert"}
-          title={finished ? "This run has finished" : "Keep this tab open"}
-          description={
-            finished
-              ? "You can close this tab. The translations are saved."
-              : "The translations run in this browser tab. Closing it, reloading it, or leaving this page stops the run after the translations in progress."
-          }
-        />
+        {endState === null ? (
+          <Banner
+            variant="alert"
+            title="Keep this tab open"
+            description="The translations run in this browser tab. Closing it, reloading it, or leaving this page stops the run after the translations in progress."
+          />
+        ) : (
+          <EndBanner state={endState} usage={usage} />
+        )}
+        <div role="status" aria-live="polite" style={visuallyHiddenStyle}>
+          {endState === null ? "" : `${endHeadline}. ${endState.description}`}
+        </div>
         {error === null ? null : <ErrorMessage>{error}</ErrorMessage>}
         <LayerCard style={cardStyle}>
           <div style={stackStyle}>
             <span>
-              <strong>{plan.collection}</strong> → {plan.targets.map(({ locale, code }) => localeLabel(locale, code)).join(", ")}
+              <strong>{plan.collectionLabel ?? plan.collection}</strong> →{" "}
+              {plan.targets.map(({ locale, code }) => localeLabel(locale, code)).join(", ")}
             </span>
-            <span style={mutedStyle}>
-              {items === null
-                ? "Loading source entries..."
-                : `${plural(items.length, "entry", "entries")} × ${plural(plan.targets.length, "locale")} = ${plural(items.length * plan.targets.length, "translation")}.`}{" "}
-              {action}
-              {settingsSummary === null ? null : ` Settings: ${settingsSummary}.`}
-            </span>
+            {items === null ? (
+              <span style={mutedStyle}>Loading source entries...</span>
+            ) : (
+              <dl style={summaryListStyle}>
+                <SummaryItem label="Entries">{items.length.toLocaleString()}</SummaryItem>
+                <SummaryItem label="Translations">{(items.length * plan.targets.length).toLocaleString()}</SummaryItem>
+                <SummaryItem label="Existing">{plan.options.updateExisting ? "Updated" : "Skipped"}</SummaryItem>
+                <SummaryItem label="Save as">{plan.options.publish ? "Published" : "Drafts"}</SummaryItem>
+                <SummaryItem label="Model">
+                  {settings?.model == null
+                    ? "Translation settings"
+                    : `${shortModelName(settings.model)}${settings.reasoning === null ? "" : `, thinking ${effortLabel(settings.reasoning)}`}`}
+                </SummaryItem>
+                {settings?.maxTokens == null ? null : <SummaryItem label="Max tokens">{settings.maxTokens.toLocaleString()}</SummaryItem>}
+                {settings == null || settings.instructions.length === 0 ? null : (
+                  <SummaryItem label="Instructions">
+                    <TextTooltip content={settings.instructions} label={`Additional instructions: ${settings.instructions}`}>
+                      Added
+                    </TextTooltip>
+                  </SummaryItem>
+                )}
+              </dl>
+            )}
             {started ? null : (
-              <div>
-                <Button variant="primary" disabled={items === null || items.length === 0} onClick={start}>
+              <div style={rowStyle}>
+                <Button variant="primary" disabled={items === null || items.length === 0 || sizeError !== null} onClick={start}>
                   Start translating
                 </Button>
+                {sizeError === null ? null : <small style={mutedStyle}>{sizeError}</small>}
               </div>
             )}
           </div>
@@ -200,9 +231,14 @@ export function BatchRunPage(): ReactNode {
             {stopping && running ? (
               <small style={mutedStyle}>Translations already started finish first. With a slow model, that can take a few minutes.</small>
             ) : null}
-            {!running && !retrying && (failed > 0 || written > 0) ? (
+            {!running && !retrying && left > 0 ? (
+              <Button variant="primary" onClick={continueRun}>
+                Translate the {left} left
+              </Button>
+            ) : null}
+            {!running && !retrying && (counts.failed > 0 || written > 0) ? (
               <Button variant="secondary" onClick={() => setRetrying(true)}>
-                Retry...
+                Retry
               </Button>
             ) : null}
           </div>
@@ -210,7 +246,7 @@ export function BatchRunPage(): ReactNode {
         {retrying && !running ? (
           <LayerCard style={cardStyle}>
             <RetryForm
-              failed={failed}
+              failed={counts.failed}
               written={written}
               initialSettings={settings}
               working={false}
@@ -220,14 +256,20 @@ export function BatchRunPage(): ReactNode {
           </LayerCard>
         ) : null}
         {total === 0 ? null : (
-          <TranslationProgress percent={Math.round((results.length / total) * 100)} label={`${results.length}/${total} translations`} />
+          <>
+            <small style={mutedStyle}>
+              {results.length}/{total} translations
+            </small>
+            <OutcomeBar counts={counts} total={total} width="100%" />
+            <OutcomeCounts counts={counts} />
+          </>
         )}
         {results.length === 0 ? null : (
           <BatchResultsTable
             collection={plan.collection}
             urlContext={urlContexts[plan.collection]}
             rows={results.map((result) => ({
-              key: `${result.item.id}:${result.target.locale}`,
+              key: batchJobKey(result),
               title: result.item.title,
               locale: result.target.locale,
               outcome: result.outcome,
@@ -240,3 +282,69 @@ export function BatchRunPage(): ReactNode {
     </main>
   );
 }
+
+const END_ICONS = { success: CheckCircleIcon, warning: WarningCircleIcon, neutral: StopCircleIcon, error: XCircleIcon } as const;
+const END_TONES: Record<BatchRunEndState["tone"], { color: string; background: string; border: string }> = {
+  success: {
+    color: "var(--color-kumo-success, #16a34a)",
+    background: "var(--color-kumo-success-tint, #ecfdf3)",
+    border: "color-mix(in oklab, var(--color-kumo-success, #16a34a) 35%, transparent)",
+  },
+  warning: {
+    color: "var(--color-kumo-warning, #d97706)",
+    background: "var(--color-kumo-warning-tint, #fffbeb)",
+    border: "color-mix(in oklab, var(--color-kumo-warning, #d97706) 40%, transparent)",
+  },
+  neutral: {
+    color: "var(--color-kumo-neutral-450, #71717a)",
+    background: "var(--color-kumo-tint, #f7f7f8)",
+    border: "var(--color-kumo-line, #e4e4e7)",
+  },
+  error: {
+    color: "var(--color-kumo-danger, #dc2626)",
+    background: "var(--color-kumo-danger-tint, #fef2f2)",
+    border: "color-mix(in oklab, var(--color-kumo-danger, #dc2626) 35%, transparent)",
+  },
+};
+
+/** How the run ended: a tinted box with a filled icon, the title and its counts, and what to do next. */
+function EndBanner({ state, usage }: { state: BatchRunEndState; usage: TranslationUsage | undefined }): ReactNode {
+  const tone = END_TONES[state.tone];
+  const Icon = END_ICONS[state.tone];
+  return (
+    <div style={{ ...endBannerStyle, background: tone.background, borderColor: tone.border }}>
+      <Icon size={28} weight="fill" aria-hidden="true" style={{ color: tone.color, flexShrink: 0 }} />
+      <div style={{ display: "grid", gap: 2 }}>
+        <span>
+          <strong>{state.title}</strong>
+          {state.detail === null ? null : (
+            <>
+              {" · "}
+              <UsageTooltip usage={usage}>{state.detail}</UsageTooltip>
+            </>
+          )}
+        </span>
+        <span>{state.description}</span>
+      </div>
+    </div>
+  );
+}
+
+function SummaryItem({ label, children }: { label: string; children: ReactNode }): ReactNode {
+  return (
+    <div style={{ display: "flex", gap: 6 }}>
+      <dt style={mutedStyle}>{label}</dt>
+      <dd style={{ margin: 0 }}>{children}</dd>
+    </div>
+  );
+}
+
+const endBannerStyle: CSSProperties = {
+  alignItems: "center",
+  border: "1px solid",
+  borderRadius: 10,
+  display: "flex",
+  gap: 12,
+  padding: "12px 16px",
+};
+const summaryListStyle: CSSProperties = { columnGap: 24, display: "flex", flexWrap: "wrap", margin: 0, rowGap: 6 };

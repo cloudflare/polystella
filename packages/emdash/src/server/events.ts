@@ -1,7 +1,14 @@
-import { estimateCostUsd, isPermanentProviderError, type ModelPrice, type TranslateBatchAttemptEvent } from "@cloudflare/polystella-core";
+import {
+  addTokenUsage,
+  estimateCostUsd,
+  isPermanentProviderError,
+  type ModelPrice,
+  type ProviderResponseInfo,
+  type TranslateBatchAttemptEvent,
+} from "@cloudflare/polystella-core";
 import type { LogAccess } from "emdash";
 
-import type { BatchJobOutcome } from "../contracts.js";
+import type { BatchJobOutcome, TranslationUsage } from "../contracts.js";
 import type { BatchMessage } from "./batch.js";
 
 /** Where a translation ran: the editor, the catalog page, the sandbox, or a server batch job. */
@@ -78,23 +85,39 @@ export function emitBatchResult(log: LogAccess, message: BatchMessage, collectio
   emitPolystellaEvent({ type: "batch_result", v: 1, jobId, collection, entryId, locale, outcome }, log);
 }
 
-/** An `onBatchAttempt` listener that calls `next` (the debug collector) first, then emits `provider_call`. */
+/** One call's list-price estimate; `undefined` when its tokens or the price are unknown. */
+export function callCostUsd(price: ModelPrice | undefined, reply: ProviderResponseInfo | undefined): number | undefined {
+  if (price === undefined || reply?.inputTokens === undefined || reply.outputTokens === undefined) return undefined;
+  return estimateCostUsd(
+    { inputTokens: reply.inputTokens, cachedInputTokens: reply.cachedInputTokens ?? 0, outputTokens: reply.outputTokens },
+    price,
+  );
+}
+
+/**
+ * An `onBatchAttempt` listener that calls `next` (the debug collector) first, adds the call to `usage` when given,
+ * then emits `provider_call`.
+ */
 export function providerCallListener(
   log: LogAccess,
-  context: { surface: PolystellaEventSurface; locale: string; jobId?: string | undefined; price?: ModelPrice | undefined },
+  context: {
+    surface: PolystellaEventSurface;
+    locale: string;
+    jobId?: string | undefined;
+    price?: ModelPrice | undefined;
+    usage?: TranslationUsage | undefined;
+  },
   next?: ((event: TranslateBatchAttemptEvent) => void) | undefined,
 ): (event: TranslateBatchAttemptEvent) => void {
   return (attempt) => {
     next?.(attempt);
     const ok = attempt.error === undefined;
     const reply = attempt.providerResponse;
-    const estimatedCostUsd =
-      context.price === undefined || reply?.inputTokens === undefined || reply.outputTokens === undefined
-        ? undefined
-        : estimateCostUsd(
-            { inputTokens: reply.inputTokens, cachedInputTokens: reply.cachedInputTokens ?? 0, outputTokens: reply.outputTokens },
-            context.price,
-          );
+    const estimatedCostUsd = callCostUsd(context.price, reply);
+    if (context.usage !== undefined) {
+      addTokenUsage(context.usage, reply);
+      if (estimatedCostUsd !== undefined) context.usage.estimatedCostUsd = (context.usage.estimatedCostUsd ?? 0) + estimatedCostUsd;
+    }
     emitPolystellaEvent(
       {
         type: "provider_call",

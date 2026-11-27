@@ -8,16 +8,25 @@ import {
   type ContentEditorDraft,
   type ContentEditorPanelContext,
 } from "@emdash-cms/admin";
-import { Banner, Button, Checkbox } from "@cloudflare/kumo";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { Banner, Button } from "@cloudflare/kumo";
+import { XIcon } from "@phosphor-icons/react";
+import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
 
-import { isSeoField, MAX_CONTENT_FIELDS, type CollectionPolicyResponse, type TranslationDebugTrace } from "../../contracts.js";
+import {
+  addTranslationUsage,
+  isSeoField,
+  MAX_CONTENT_FIELDS,
+  type CollectionPolicyResponse,
+  type TranslationDebugTrace,
+  type TranslationUsage,
+} from "../../contracts.js";
 import { createTranslatedEntry, translateExistingEntry, translateIntoDraft, type DraftTranslationResult } from "../content-translation.js";
 import {
   errorMessage,
   formatErrorDetails,
   isPolicyField,
   localeLabel,
+  plural,
   pluginPageUrl,
   pluginRequest,
   removeTranslationDebug,
@@ -29,14 +38,29 @@ import { codeStyle, mutedStyle, rowStyle, stackStyle } from "../styles.js";
 import { LocalePicker } from "../components/LocalePicker/LocalePicker.js";
 import { NewWindowLink } from "../components/NewWindowLink/NewWindowLink.js";
 import { TranslationDebugView } from "../components/TranslationDebugView/TranslationDebugView.js";
-import { TranslationProgress } from "../components/TranslationProgress/TranslationProgress.js";
+import { InfoTooltip, UsageTooltip } from "../components/PageHeader/PageHeader.js";
+import { stepProgress, TranslationProgress } from "../components/TranslationProgress/TranslationProgress.js";
 import { AiFlagStatus } from "./AiFlagStatus.js";
+import { FieldChips } from "../components/FieldChips/FieldChips.js";
 
 const ADMIN_ROLE = 50;
+const SAVE_STEPS = ["Loading entry", "Translating", "Saving"];
+const DRAFT_STEPS = ["Reading draft", "Translating", "Filling form"];
+const CREATE_STEPS = ["Loading entry", "Translating", "Creating draft"];
 
 interface PanelError {
   message: string;
+  /** One line per locale when several drafts failed. */
+  items?: string[] | undefined;
   details: string;
+}
+
+export interface PanelWarning {
+  lines: string[];
+  /** Custom block types copied untranslated; they get their own title. */
+  blockTypes: string[];
+  /** The editor shows saved values only after a reload. */
+  reload: boolean;
 }
 
 /** EmDash 1.5+ hides the section until this is true. A failed policy read still shows the panel, so it can show the error. */
@@ -61,8 +85,10 @@ export function ContentEditorPanel({ collection, entry, locale, editorDraft }: C
   const [schema, setSchema] = useState<CollectionSchema | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
   const [error, setError] = useState<PanelError | null>(null);
-  const [warning, setWarning] = useState<string | null>(null);
+  const [warning, setWarning] = useState<PanelWarning | null>(null);
+  /** After a draft translation: "" or a note on fields left out. */
   const [applied, setApplied] = useState<string | null>(null);
+  const [appliedUsage, setAppliedUsage] = useState<TranslationUsage | undefined>(undefined);
   const [loadAttempt, setLoadAttempt] = useState(0);
   const [hidden, setHidden] = useState(false);
   const [translating, setTranslating] = useState(false);
@@ -101,6 +127,7 @@ export function ContentEditorPanel({ collection, entry, locale, editorDraft }: C
         setExistingLocales(existing);
         setCreateLocales([]);
         setCreated([]);
+        setTranslationProgress(null);
         setPolicy(nextPolicy);
         setSchema(nextSchema);
         const translatesSource = targetLocale?.toLowerCase() === nextPolicy.sourceLocale?.toLowerCase();
@@ -136,14 +163,14 @@ export function ContentEditorPanel({ collection, entry, locale, editorDraft }: C
     }
     if (
       !window.confirm(
-        `PolyStella translates the latest saved ${policy?.sourceLocale ?? "source"} values into this ${targetLocale} draft, replaces the selected fields, and reloads the editor. Unsaved changes will be lost. Continue?`,
+        `PolyStella translates the latest saved ${policy === null || policy.sourceLocale === null ? "source" : localeLabel(policy.sourceLocale)} values into this ${localeLabel(targetLocale)} draft, replaces the selected fields, and reloads the editor. Unsaved changes will be lost. Continue?`,
       )
     ) {
       return;
     }
 
     setTranslating(true);
-    setTranslationProgress({ percent: 15, label: "Loading the latest saved entry" });
+    setTranslationProgress(stepProgress(SAVE_STEPS, 0, "Loading the latest saved entry"));
     setError(null);
     setWarning(null);
     setDebug(null);
@@ -153,15 +180,11 @@ export function ContentEditorPanel({ collection, entry, locale, editorDraft }: C
         entryId: entry.id,
         locale: targetLocale,
         fields: selected,
-        onTranslating: () => setTranslationProgress({ percent: 45, label: "Translating selected fields" }),
-        onPart: (part, partCount) =>
-          setTranslationProgress({
-            percent: 45 + Math.round((40 * part) / partCount),
-            label: `Translating part ${part + 1} of ${partCount}`,
-          }),
+        onTranslating: () => setTranslationProgress(stepProgress(SAVE_STEPS, 1, "Translating selected fields", { fraction: 0 })),
+        onPart: (part, partCount) => setTranslationProgress(partProgress(SAVE_STEPS, part, partCount, "Translating selected fields")),
         onTranslated: (trace) => {
           if (trace !== undefined) setDebug(trace);
-          setTranslationProgress({ percent: 85, label: "Saving translated fields" });
+          setTranslationProgress(stepProgress(SAVE_STEPS, 2, "Saving translated fields"));
         },
       });
       if (result.entry === null) {
@@ -173,8 +196,12 @@ export function ContentEditorPanel({ collection, entry, locale, editorDraft }: C
       }
       // A reload would hide the warning, so the editor asks for one instead.
       const warning = [result.flagWarning, result.notice].filter((part) => part !== null).join(" ");
-      if (warning !== "") {
-        setWarning(`${warning} Reload the page to see the translated fields.`);
+      if (warning !== "" || result.unlistedBlockTypes.length > 0) {
+        setWarning({
+          lines: [`${warning} Reload the page to see the translated fields.`.trim()],
+          blockTypes: result.unlistedBlockTypes,
+          reload: true,
+        });
         return;
       }
       window.location.reload();
@@ -188,7 +215,7 @@ export function ContentEditorPanel({ collection, entry, locale, editorDraft }: C
 
   async function translateDraft(draft: ContentEditorDraft, target: string): Promise<void> {
     setTranslating(true);
-    setTranslationProgress({ percent: 15, label: "Reading the open draft" });
+    setTranslationProgress(stepProgress(DRAFT_STEPS, 0, "Reading the open draft"));
     setError(null);
     setWarning(null);
     setApplied(null);
@@ -200,15 +227,11 @@ export function ContentEditorPanel({ collection, entry, locale, editorDraft }: C
         locale: target,
         fields: fieldsToTranslate,
         editorDraft: draft,
-        onTranslating: () => setTranslationProgress({ percent: 45, label: "Translating selected fields" }),
-        onPart: (part, partCount) =>
-          setTranslationProgress({
-            percent: 45 + Math.round((40 * part) / partCount),
-            label: `Translating part ${part + 1} of ${partCount}`,
-          }),
+        onTranslating: () => setTranslationProgress(stepProgress(DRAFT_STEPS, 1, "Translating selected fields", { fraction: 0 })),
+        onPart: (part, partCount) => setTranslationProgress(partProgress(DRAFT_STEPS, part, partCount, "Translating selected fields")),
         onTranslated: (trace) => {
           if (trace !== undefined) setDebug(trace);
-          setTranslationProgress({ percent: 85, label: "Putting the translation into the form" });
+          setTranslationProgress(stepProgress(DRAFT_STEPS, 2, "Putting the translation into the form"));
         },
       });
       if (result.status !== "applied") {
@@ -216,14 +239,12 @@ export function ContentEditorPanel({ collection, entry, locale, editorDraft }: C
         return;
       }
       const tooLong = result.tooLong.map((field) => seoFields.find((definition) => definition.slug === field)?.label ?? field);
-      setApplied(
-        [
-          "The translation is in the form. Please review it.",
-          ...(tooLong.length === 0 ? [] : [`Left out because the translation is too long: ${tooLong.join(", ")}.`]),
-        ].join(" "),
-      );
+      setApplied(tooLong.length === 0 ? "" : `Left out because the translation is too long: ${tooLong.join(", ")}.`);
+      setAppliedUsage(result.usage);
       const warning = [result.flagWarning, result.notice].filter((part) => part !== null).join(" ");
-      if (warning !== "") setWarning(warning);
+      if (warning !== "" || result.unlistedBlockTypes.length > 0) {
+        setWarning({ lines: warning === "" ? [] : [warning], blockTypes: result.unlistedBlockTypes, reload: false });
+      }
     } catch (cause) {
       setError(panelError(cause));
     } finally {
@@ -239,19 +260,25 @@ export function ContentEditorPanel({ collection, entry, locale, editorDraft }: C
     setWarning(null);
     setDebug(null);
     setCreated([]);
-    const failed: string[] = [];
-    const unflagged: string[] = [];
-    const noticed: string[] = [];
-    let notice = "";
-    let flagWarning = "";
-    let lastError = "";
+    const failures: Array<{ locale: string; cause: unknown }> = [];
+    const warnings: string[] = [];
+    const blockTypes = new Set<string>();
+    let usage: TranslationUsage | undefined;
     let lastCreated: { id: string; locale: string } | null = null;
+    let finished = false;
     try {
       // One locale at a time keeps the progress readable and avoids provider rate limits.
       for (const [index, locale] of createLocales.entries()) {
-        const step = (percent: number, label: string) =>
-          setTranslationProgress({ percent: Math.round(((index + percent / 100) / createLocales.length) * 100), label });
-        step(15, `Loading the latest saved entry for ${locale}`);
+        const name = localeLabel(locale);
+        const detail = createLocales.length === 1 ? name : `${name} · ${index + 1} of ${createLocales.length}`;
+        // Each locale gets an equal share of the bar.
+        const step = (progress: TranslationProgressState) =>
+          setTranslationProgress({
+            ...progress,
+            detail: progress.detail === undefined ? detail : `${detail} · ${progress.detail}`,
+            percent: Math.round(((index + progress.percent / 100) / createLocales.length) * 100),
+          });
+        step(stepProgress(CREATE_STEPS, 0, `Loading the latest saved entry for ${name}`));
         try {
           const result = await createTranslatedEntry({
             collection,
@@ -259,44 +286,56 @@ export function ContentEditorPanel({ collection, entry, locale, editorDraft }: C
             sourceLocale: entry.locale ?? undefined,
             locale,
             fields: selected,
-            onTranslating: () => step(45, `Translating selected fields into ${locale}`),
-            onPart: (part, partCount) => step(45, `Translating part ${part + 1} of ${partCount} into ${locale}`),
+            onTranslating: () => step(stepProgress(CREATE_STEPS, 1, `Translating selected fields into ${name}`, { fraction: 0 })),
+            onPart: (part, partCount) => step(partProgress(CREATE_STEPS, part, partCount, `Translating selected fields into ${name}`)),
             onTranslated: (trace) => {
               if (trace !== undefined) setDebug(trace);
-              step(85, `Creating the ${locale} draft`);
+              step(stepProgress(CREATE_STEPS, 2, `Creating the ${name} draft`));
             },
           });
           if (result.entry === null) throw new Error(result.error);
+          usage = addTranslationUsage(usage, result.usage);
           const createdLocale = result.entry.locale ?? locale;
           if (result.debug !== undefined && currentUser.data !== undefined && currentUser.data.role >= ADMIN_ROLE) {
             storeTranslationDebug(collection, result.entry.id, createdLocale, currentUser.data.id, result.debug);
           }
-          if (result.flagWarning !== null) {
-            unflagged.push(createdLocale);
-            flagWarning = result.flagWarning;
-          }
-          if (result.notice !== null) {
-            noticed.push(createdLocale);
-            notice = result.notice;
-          }
+          const warning = [result.flagWarning, result.notice].filter((part) => part !== null).join(" ");
+          if (warning !== "") warnings.push(`${localeLabel(createdLocale)}: ${warning}`);
+          for (const type of result.unlistedBlockTypes) blockTypes.add(type);
           const draft = { id: result.entry.id, locale: createdLocale };
           lastCreated = draft;
           setCreated((current) => [...current, draft]);
           setExistingLocales((current) => [...current, locale.toLowerCase(), createdLocale.toLowerCase()]);
         } catch (cause) {
-          failed.push(locale);
-          lastError = panelErrorMessage(cause, locale);
+          failures.push({ locale, cause });
         }
       }
-      setCreateLocales(failed);
-      const warnings = [
-        ...(unflagged.length > 0 ? [`${flagWarning} Affected locales: ${unflagged.join(", ")}.`] : []),
-        ...(noticed.length > 0 ? [`${notice} Drafts: ${noticed.join(", ")}.`] : []),
-      ];
-      if (warnings.length > 0) setWarning(warnings.join(" "));
-      if (failed.length > 0) {
-        setError(panelError(new Error(`${failed.length} of ${createLocales.length} drafts failed (${failed.join(", ")}): ${lastError}`)));
-      } else if (createLocales.length === 1 && lastCreated !== null && warnings.length === 0) {
+      setCreateLocales(failures.map(({ locale }) => locale));
+      const createdCount = createLocales.length - failures.length;
+      // Stays up after the run, so the created drafts and failures listed under it read as its result.
+      setTranslationProgress({
+        steps: CREATE_STEPS,
+        step: CREATE_STEPS.length,
+        label: "Finished creating drafts",
+        percent: 100,
+        detail: [
+          createdCount === 0 ? null : `${plural(createdCount, "draft")} created`,
+          failures.length === 0 ? null : `${failures.length} failed`,
+        ]
+          .filter((part) => part !== null)
+          .join(" · "),
+        failures: failures.length === 0 ? undefined : createdCount === 0 ? "all" : "some",
+        usage,
+      });
+      finished = true;
+      if (warnings.length > 0 || blockTypes.size > 0) setWarning({ lines: warnings, blockTypes: [...blockTypes].sort(), reload: false });
+      if (failures.length > 0) {
+        setError({
+          message: `Couldn't create ${createFailureScope(failures.length, createLocales.length)}:`,
+          items: failures.map(({ locale, cause }) => `${localeLabel(locale)}: ${panelErrorMessage(cause, localeLabel(locale))}`),
+          details: failures.map(({ locale, cause }) => `${locale}\n${formatErrorDetails(cause)}`).join("\n\n"),
+        });
+      } else if (createLocales.length === 1 && lastCreated !== null && warnings.length === 0 && blockTypes.size === 0) {
         await navigate({
           to: "/content/$collection/$id",
           params: { collection, id: lastCreated.id },
@@ -305,10 +344,16 @@ export function ContentEditorPanel({ collection, entry, locale, editorDraft }: C
       }
     } finally {
       setTranslating(false);
-      setTranslationProgress(null);
+      if (!finished) setTranslationProgress(null);
     }
   }
 
+  // A finished run's bar describes that run's choice, so a new choice clears it.
+  function clearFinishedProgress(): void {
+    if (!translating) setTranslationProgress(null);
+  }
+
+  const isAdmin = currentUser.data !== undefined && currentUser.data.role >= ADMIN_ROLE;
   if (hidden) return null;
   if (policy === null || schema === null) {
     return error === null ? (
@@ -319,7 +364,6 @@ export function ContentEditorPanel({ collection, entry, locale, editorDraft }: C
   }
   // EmDash always renders the section header, so explain an empty panel instead of hiding it.
   if (!policy.enabled) {
-    const isAdmin = currentUser.data !== undefined && currentUser.data.role >= ADMIN_ROLE;
     return (
       <div style={stackStyle}>
         <small style={mutedStyle}>
@@ -328,15 +372,12 @@ export function ContentEditorPanel({ collection, entry, locale, editorDraft }: C
             ? "Enable it and choose its fields in PolyStella's Settings, on the Collections tab."
             : "Ask an administrator to enable it."}
         </small>
-        {isAdmin ? (
-          <span>
-            <NewWindowLink href={pluginPageUrl("/settings", { tab: "collections" })}>Open PolyStella settings</NewWindowLink>
-          </span>
-        ) : null}
+        {isAdmin ? <SettingsLink tab="collections" /> : null}
       </div>
     );
   }
   const isSourceEntry = targetLocale?.toLowerCase() === policy.sourceLocale?.toLowerCase();
+  const run = isSourceEntry ? createTranslations : translate;
   const creatableLocales = missingLocales(policy, existingLocales);
   const createdDrafts =
     created.length === 0 ? null : (
@@ -358,93 +399,100 @@ export function ContentEditorPanel({ collection, entry, locale, editorDraft }: C
         </div>
       </div>
     );
+  const errorView = error === null ? null : <PanelErrorMessage error={error} onDismiss={() => setError(null)} onRetry={() => void run()} />;
+  const progressView = translationProgress === null ? null : <TranslationProgress {...translationProgress} />;
+  // Shown even once every locale has an entry, so a warning about the last created draft isn't lost.
+  const notices = (
+    <>
+      {warning === null ? null : <PanelWarningBanner warning={warning} onDismiss={() => setWarning(null)} />}
+      {debug === null || !isAdmin ? null : <TranslationDebugView trace={debug} onDismiss={() => setDebug(null)} />}
+    </>
+  );
   if (isSourceEntry && creatableLocales.length === 0) {
     return (
       <div style={stackStyle}>
+        {notices}
+        {progressView}
         {createdDrafts}
-        <small style={mutedStyle}>Every configured locale already has an entry. Open one from Translations to update it.</small>
+        {errorView}
+        {policy.targetLocales.length === 0 ? (
+          <>
+            <small style={mutedStyle}>
+              No translation languages are configured, so there's nothing to translate into.{" "}
+              {isAdmin ? "Languages come from the site's PolyStella configuration." : "Ask an administrator to add one."}
+            </small>
+            {isAdmin ? <SettingsLink tab="translation" /> : null}
+          </>
+        ) : (
+          <small style={mutedStyle}>Every configured locale already has an entry. Open one from Translations to update it.</small>
+        )}
       </div>
     );
   }
-  const run = isSourceEntry ? createTranslations : translate;
+  const fieldOptions = [
+    ...eligibleFields.map((field) => ({ slug: field.slug, label: field.label, disabled: false })),
+    ...(isSourceEntry ? [] : seoFields.map((field) => ({ slug: field.slug, label: field.label, disabled: !seoAllowed }))),
+  ];
 
   return (
     <div style={stackStyle}>
-      {error === null ? null : <PanelErrorMessage error={error} onDismiss={() => setError(null)} onRetry={() => void run()} />}
-      {warning === null ? null : (
-        <Banner
-          variant="alert"
-          title="Check this translation"
-          description={warning}
-          action={
-            <Button size="sm" variant="secondary" onClick={() => setWarning(null)}>
-              Dismiss
-            </Button>
-          }
-        />
-      )}
-      {debug === null || currentUser.data === undefined || currentUser.data.role < ADMIN_ROLE ? null : (
-        <TranslationDebugView trace={debug} onDismiss={() => setDebug(null)} />
-      )}
+      {isSourceEntry ? null : errorView}
+      {notices}
       {isSourceEntry ? (
         <>
           <p style={mutedStyle}>Create a translated draft from this entry.</p>
-          {createdDrafts}
           <LocalePicker
             legend="Untranslated locales"
             placeholder="Choose languages"
             options={creatableLocales.map((locale) => ({ locale, label: localeLabel(locale) }))}
             value={createLocales}
             disabled={translating}
-            onChange={setCreateLocales}
+            onChange={(locales) => {
+              setCreateLocales(locales);
+              clearFinishedProgress();
+            }}
           />
         </>
       ) : (
-        <>
-          <AiFlagStatus
-            collection={collection}
-            entryId={entry.id}
-            savedAt={entry.updatedAt}
-            fieldLabel={(slug) => schema.fields.find((field) => field.slug === slug)?.label ?? slug}
-          />
-          <p style={mutedStyle}>
-            Translate the latest saved {policy.sourceLocale === null ? "source" : localeLabel(policy.sourceLocale)} values into this{" "}
-            {targetLocale === null || targetLocale === undefined ? "" : localeLabel(targetLocale)} {isLive ? "entry" : "draft"}. Please
-            review the translation afterwards.
-          </p>
-        </>
+        <AiFlagStatus
+          collection={collection}
+          entryId={entry.id}
+          savedAt={entry.updatedAt}
+          fieldLabel={(slug) => schema.fields.find((field) => field.slug === slug)?.label ?? slug}
+        />
       )}
       {applied === null ? null : (
-        <p role="status" style={mutedStyle}>
-          {applied}
-        </p>
+        <div role="status">
+          <Banner
+            variant="secondary"
+            size="sm"
+            description={
+              <>
+                <strong>
+                  <UsageTooltip usage={appliedUsage}>Translated into the form</UsageTooltip>.
+                </strong>{" "}
+                Please review before saving.{applied === "" ? null : ` ${applied}`}
+              </>
+            }
+          />
+        </div>
       )}
-      {eligibleFields.map((field) => (
-        <Checkbox
-          key={field.slug}
-          label={`${field.label} (${field.slug})`}
-          checked={selected.includes(field.slug)}
-          disabled={translating || (!selected.includes(field.slug) && selected.length >= MAX_CONTENT_FIELDS)}
-          onCheckedChange={(checked) =>
-            setSelected((current) => (checked ? [...new Set([...current, field.slug])] : current.filter((value) => value !== field.slug)))
+      {fieldOptions.length === 0 ? null : (
+        <FieldChips
+          options={fieldOptions}
+          selected={fieldsToTranslate}
+          disabled={translating}
+          description={
+            fieldOptions.length > MAX_CONTENT_FIELDS
+              ? `One translation takes up to ${MAX_CONTENT_FIELDS} fields, so the rest turn off at that limit.`
+              : undefined
           }
+          onChange={(fields) => {
+            setSelected(fields);
+            clearFinishedProgress();
+          }}
         />
-      ))}
-      {isSourceEntry
-        ? null
-        : seoFields.map((field) => (
-            <Checkbox
-              key={field.slug}
-              label={field.label}
-              checked={seoAllowed && selected.includes(field.slug)}
-              disabled={translating || !seoAllowed || (!selected.includes(field.slug) && selected.length >= MAX_CONTENT_FIELDS)}
-              onCheckedChange={(checked) =>
-                setSelected((current) =>
-                  checked ? [...new Set([...current, field.slug])] : current.filter((value) => value !== field.slug),
-                )
-              }
-            />
-          ))}
+      )}
       {!isSourceEntry && seoFields.length > 0 && !seoAllowed ? (
         <details>
           <summary style={{ ...mutedStyle, cursor: "pointer" }}>
@@ -457,19 +505,84 @@ export function ContentEditorPanel({ collection, entry, locale, editorDraft }: C
           </small>
         </details>
       ) : null}
-      {eligibleFields.length === 0 && seoFields.length === 0 ? (
-        <small>No supported fields are configured for this collection.</small>
+      {fieldOptions.length === 0 ? (
+        <>
+          <small>
+            No supported fields are configured for this collection.
+            {isAdmin ? " Choose its fields in PolyStella's Settings, on the Collections tab." : " Ask an administrator to choose them."}
+          </small>
+          {isAdmin ? <SettingsLink tab="collections" /> : null}
+        </>
       ) : null}
-      {translationProgress === null ? null : <TranslationProgress {...translationProgress} />}
-      <Button
-        variant="primary"
-        loading={translating}
-        disabled={fieldsToTranslate.length === 0 || currentUser.data === undefined || (isSourceEntry && createLocales.length === 0)}
-        onClick={() => void run()}
-      >
-        {isSourceEntry ? createButtonLabel(createLocales) : "Translate"}
-      </Button>
+      {progressView}
+      {isSourceEntry ? (
+        <>
+          {createdDrafts}
+          {errorView}
+        </>
+      ) : null}
+      <div style={{ ...rowStyle, gap: 8, justifyContent: "flex-end" }}>
+        <Button
+          variant="primary"
+          loading={translating}
+          disabled={fieldsToTranslate.length === 0 || currentUser.data === undefined || (isSourceEntry && createLocales.length === 0)}
+          onClick={() => void run()}
+        >
+          {translating
+            ? "Translating…"
+            : isSourceEntry
+              ? createButtonLabel(createLocales)
+              : fieldsToTranslate.length === 0
+                ? "Select fields to translate"
+                : `Translate ${plural(fieldsToTranslate.length, "field")}`}
+        </Button>
+        {isSourceEntry ? null : (
+          <InfoTooltip
+            label="About this translation"
+            content={`This will translate from the saved ${policy.sourceLocale === null ? "source" : localeLabel(policy.sourceLocale)} entry into this ${targetLocale === null || targetLocale === undefined ? "" : `${localeLabel(targetLocale)} `}${isLive ? "entry" : "draft"}.`}
+          />
+        )}
+      </div>
     </div>
+  );
+}
+
+export function PanelWarningBanner({ warning, onDismiss }: { warning: PanelWarning; onDismiss(): void }): ReactNode {
+  const { blockTypes, lines } = warning;
+  return (
+    <Banner
+      variant="alert"
+      size="sm"
+      title={blockTypes.length === 0 ? "Check this translation" : `${plural(blockTypes.length, "block type")} copied untranslated`}
+      description={
+        blockTypes.length === 0 ? (
+          <LinesList lines={lines} />
+        ) : (
+          <span style={{ display: "grid", gap: 4 }}>
+            <span>
+              {blockTypes.map((type, index) => (
+                <Fragment key={type}>
+                  {index === 0 ? null : ", "}
+                  <code>{type}</code>
+                </Fragment>
+              ))}{" "}
+              {blockTypes.length === 1 ? "isn't" : "aren't"} in blockFields.
+            </span>
+            {lines.length === 0 ? null : <LinesList lines={lines} />}
+          </span>
+        )
+      }
+      action={
+        <div style={rowStyle}>
+          {warning.reload ? (
+            <Button size="sm" variant="secondary" onClick={() => window.location.reload()}>
+              Reload
+            </Button>
+          ) : null}
+          <Button size="sm" variant="ghost" shape="square" aria-label="Dismiss" icon={XIcon} onClick={onDismiss} />
+        </div>
+      }
+    />
   );
 }
 
@@ -477,10 +590,12 @@ function PanelErrorMessage({ error, onDismiss, onRetry }: { error: PanelError; o
   return (
     <Banner
       variant="error"
+      size="sm"
       title="PolyStella couldn't complete that request"
       description={
         <div style={stackStyle}>
           <span>{error.message}</span>
+          {error.items === undefined ? null : <LinesList lines={error.items} />}
           <details>
             <summary>Show error details</summary>
             <pre style={codeStyle}>{error.details}</pre>
@@ -499,6 +614,39 @@ function PanelErrorMessage({ error, onDismiss, onRetry }: { error: PanelError; o
       }
     />
   );
+}
+
+function LinesList({ lines }: { lines: readonly string[] }): ReactNode {
+  if (lines.length === 1) return <span>{lines[0]}</span>;
+  return (
+    <ul style={{ margin: 0, paddingInlineStart: 20 }}>
+      {lines.map((line) => (
+        <li key={line}>{line}</li>
+      ))}
+    </ul>
+  );
+}
+
+function SettingsLink({ tab }: { tab: "translation" | "collections" }): ReactNode {
+  return (
+    <span>
+      <NewWindowLink href={pluginPageUrl("/settings", { tab })}>Open PolyStella settings</NewWindowLink>
+    </span>
+  );
+}
+
+/** The Translating step, `part` of `partCount` parts through. */
+function partProgress(steps: readonly string[], part: number, partCount: number, label: string): TranslationProgressState {
+  return stepProgress(steps, 1, label, {
+    fraction: part / partCount,
+    detail: `Part ${part + 1} of ${partCount}`,
+  });
+}
+
+/** "the draft", "any of the 3 drafts", "2 of 3 drafts". */
+function createFailureScope(failed: number, total: number): string {
+  if (failed < total) return `${failed.toLocaleString()} of ${plural(total, "draft")}`;
+  return total === 1 ? "the draft" : `any of the ${plural(total, "draft")}`;
 }
 
 function draftFailureMessage(result: Exclude<DraftTranslationResult, { status: "applied" }>): string {
