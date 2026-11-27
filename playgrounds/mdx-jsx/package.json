@@ -15,7 +15,7 @@
     "link-env": "node ./scripts/link-shared-env.mjs"
   },
   "dependencies": {
-    "@astrojs/mdx": "^7.0.8",
+    "@astrojs/mdx": "^8.1.6",
     "@cloudflare/polystella-astro": "workspace:*",
     "astro": "^7.4.7"
   },
