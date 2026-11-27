@@ -15,7 +15,11 @@ export interface ProviderResponseInfo {
   finishReason?: string | undefined;
   /** Length of the model's separate reasoning text, for reasoning models that return one. */
   reasoningCharacters?: number | undefined;
+  /** All input tokens, cached ones included. */
   inputTokens?: number | undefined;
+  /** The part of `inputTokens` served from the provider's prompt cache. */
+  cachedInputTokens?: number | undefined;
+  /** All output tokens, reasoning included. */
   outputTokens?: number | undefined;
   /** Output tokens spent on reasoning, when the provider counts them separately. */
   reasoningTokens?: number | undefined;

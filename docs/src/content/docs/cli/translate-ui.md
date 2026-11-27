@@ -68,6 +68,11 @@ With `catalog.messageSyntax: "icu"`, prompts and checks use
 A default-locale string that isn't valid ICU is not sent to the model; it
 is listed as a failure (exit 2) with a hint to fix it or ignore its key.
 
+After the model calls, the command logs one `usage —` line: calls, input
+and output tokens, and an **estimated** cost: tokens × list price. See
+[Cost estimates](/providers/workers-ai/#cost-estimates) for where the
+price comes from and `provider.prices`.
+
 ## Workers AI thinking and params
 
 With `provider.kind: "workers-ai"`, `polystella.config.mjs` takes the

@@ -223,6 +223,52 @@ describe("polystellaEmdash", () => {
     ).toThrow("options.provider.timeoutMs must be a positive integer");
   });
 
+  describe("models.prices", () => {
+    const withModels = (extra: Record<string, unknown>) => ({
+      ...validOptions(),
+      models: { allowed: ["model-a", "model-b"], defaults: "model-a", ...extra },
+    });
+
+    it("accepts and serializes prices, with or without a cached rate", () => {
+      const models = {
+        prices: {
+          "model-a": { inputPerMillion: 0.1, outputPerMillion: 0.5, cachedInputPerMillion: 0.02 },
+          "model-b": { inputPerMillion: 0, outputPerMillion: 0 },
+        },
+      };
+      const runtimeOptions = polystellaEmdash(withModels(models)).options;
+      if (runtimeOptions === undefined) throw new Error("descriptor options are missing");
+      expect(deserializeOptions(runtimeOptions).models).toMatchObject(models);
+    });
+
+    it.each<[string, unknown, string]>([
+      [
+        "a model that is not allowed",
+        { "model-z": { inputPerMillion: 1, outputPerMillion: 1 } },
+        "options.models.prices.model-z must exist in options.models.allowed",
+      ],
+      [
+        "a missing output rate",
+        { "model-a": { inputPerMillion: 1 } },
+        "options.models.prices.model-a outputPerMillion must be a number of USD, 0 or more",
+      ],
+      [
+        "a negative rate",
+        { "model-a": { inputPerMillion: -1, outputPerMillion: 1 } },
+        "options.models.prices.model-a inputPerMillion must be",
+      ],
+      [
+        "an unknown key",
+        { "model-a": { inputPerMillion: 1, outputPerMillion: 1, extra: 1 } },
+        'options.models.prices.model-a has unknown key "extra"',
+      ],
+      ["a non-object price", { "model-a": 5 }, "options.models.prices.model-a must be an object"],
+      ["a non-object map", [], "options.models.prices"],
+    ])("rejects %s", (_name, prices, message) => {
+      expect(() => validatePolystellaEmdashOptions(withModels({ prices }))).toThrow(message);
+    });
+  });
+
   describe("thinking options", () => {
     const withModels = (extra: Record<string, unknown>) => ({
       ...validOptions(),

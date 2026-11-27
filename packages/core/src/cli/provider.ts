@@ -1,6 +1,6 @@
-import { resolveModelId, type Translator } from "../index.js";
+import { createModelPriceLookup, resolveModelId, type ModelPriceLookup, type Translator } from "../index.js";
 import { createAnthropicTranslator } from "../providers/anthropic.js";
-import { createWorkersAIHttpTranslator, workersAIParamsForLocale } from "../providers/workers-ai.js";
+import { createWorkersAIHttpTranslator, workersAIParamsForLocale, workersAIPriceLookup } from "../providers/workers-ai.js";
 
 import type { CatalogProviderConfig } from "./config.js";
 
@@ -17,4 +17,13 @@ export function createTranslator(provider: CatalogProviderConfig, locale: string
     });
   }
   return createAnthropicTranslator({ apiKey: provider.apiKey, modelId, maxTokens: provider.maxTokens });
+}
+
+/** `provider.prices`, then the Workers AI catalog. A custom `endpoint` may be a gateway, so its token is not sent to the catalog. */
+export function createPriceLookup(provider: CatalogProviderConfig, onError?: (modelId: string, error: unknown) => void): ModelPriceLookup {
+  const catalog =
+    provider.kind === "workers-ai" && provider.endpoint === undefined
+      ? workersAIPriceLookup({ accountId: provider.accountId, apiToken: provider.apiToken })
+      : undefined;
+  return createModelPriceLookup({ prices: provider.prices, fallback: catalog, onError });
 }

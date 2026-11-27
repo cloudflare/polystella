@@ -79,6 +79,20 @@ describe("computeBuildReportTotals", () => {
     expect(noTokens.tokensIn).toBeUndefined();
     expect(noTokens.tokensOut).toBeUndefined();
   });
+
+  it("sums estimatedCostUsd over the entries that have one, and omits it when none do", () => {
+    const withCost = computeBuildReportTotals([
+      makeEntry({ outcome: "ai-translated", estimatedCostUsd: 0.25 }),
+      makeEntry({ outcome: "error", errorMessage: "boom", estimatedCostUsd: 0.5 }),
+      makeEntry({ outcome: "ai-translated", tokens: { in: 1, out: 1 } }),
+      makeEntry({ outcome: "cache-hit" }),
+    ]);
+    expect(withCost.estimatedCostUsd).toBe(0.75);
+    expect(computeBuildReportTotals([makeEntry({ outcome: "ai-translated", estimatedCostUsd: 0 })]).estimatedCostUsd).toBe(0);
+    expect(computeBuildReportTotals([makeEntry({ outcome: "ai-translated", tokens: { in: 1, out: 1 } })])).not.toHaveProperty(
+      "estimatedCostUsd",
+    );
+  });
 });
 
 describe("emitBuildReport", () => {

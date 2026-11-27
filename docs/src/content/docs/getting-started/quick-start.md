@@ -44,7 +44,7 @@ export default {
     kind: "workers-ai",
     accountId: process.env.CF_ACCOUNT_ID,
     apiToken: process.env.CF_API_TOKEN,
-    model: "@cf/meta/llama-3.1-8b-instruct",
+    model: "@cf/deepseek-ai/deepseek-v4.1-flash-1017",
   },
   markdown: {
     keys: { "publications/**": ["title", "metaDescription"] },

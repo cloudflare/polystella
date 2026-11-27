@@ -1,3 +1,6 @@
+import type { ModelPrice } from "@cloudflare/polystella-core";
+import { fetchWorkersAIModels, workersAIModelPrice } from "@cloudflare/polystella-core/providers/workers-ai";
+
 import type { PolystellaEmdashOptions } from "./options.js";
 import { environmentCredential, type PluginRouteDependencies } from "./routes/provider.js";
 
@@ -6,10 +9,11 @@ export type ReasoningCapability = ReadonlyMap<string, Readonly<Record<string, un
 
 const CATALOG_TIMEOUT_MS = 5000;
 const FAILURE_RETRY_MS = 60_000;
+const PRICE_BUDGET_MS = 1000;
 
 // Keyed by provider kind and model only: the Workers AI catalog is the same for every account. Only settled lookups
 // are kept: on workerd a request that awaits a promise another request's I/O settles can hang.
-const capabilities = new Map<string, { result: { capability: ReasoningCapability | null } | { error: unknown }; expiresAt: number }>();
+const catalogCache = new Map<string, { result: { entry: unknown } | { error: unknown }; expiresAt: number }>();
 
 /**
  * What the model accepts for thinking, from `models.reasoningInput` or the Workers AI catalog.
@@ -23,25 +27,52 @@ export async function reasoningCapability(
 ): Promise<ReasoningCapability | null> {
   const custom = options.models.reasoningInput;
   if (custom !== undefined && Object.hasOwn(custom, modelId)) return new Map(Object.entries(custom[modelId] ?? {}));
-  const key = `${options.provider.kind}:${modelId}`;
-  let cached = capabilities.get(key);
-  if (cached === undefined || cached.expiresAt <= Date.now()) {
-    try {
-      const entries = await withTimeout(catalogEntries(options, env, modelId, dependencies), CATALOG_TIMEOUT_MS);
-      const capability = parseCapability(entries.find((item) => isRecord(item) && item.name === modelId));
-      cached = { result: { capability }, expiresAt: Number.POSITIVE_INFINITY };
-    } catch (error) {
-      cached = { result: { error }, expiresAt: Date.now() + FAILURE_RETRY_MS };
-    }
-    capabilities.set(key, cached);
+  return parseCapability(await catalogEntry(options, env, modelId, dependencies));
+}
+
+/**
+ * The model's USD list price from `models.prices` or the Workers AI catalog; `undefined` when unknown, unreadable, or
+ * slower than a short budget, so a slow catalog never holds up a translation.
+ */
+export async function modelPrice(
+  options: PolystellaEmdashOptions,
+  env: Record<string, unknown> | undefined,
+  modelId: string,
+  dependencies: PluginRouteDependencies,
+): Promise<ModelPrice | undefined> {
+  const prices = options.models.prices;
+  if (prices !== undefined && Object.hasOwn(prices, modelId)) return prices[modelId];
+  try {
+    return workersAIModelPrice(await withTimeout(catalogEntry(options, env, modelId, dependencies), PRICE_BUDGET_MS));
+  } catch {
+    return undefined;
   }
-  if ("error" in cached.result) throw cached.result.error;
-  return cached.result.capability;
 }
 
 /** Test hook: forget cached catalog lookups. */
 export function clearReasoningCapabilities(): void {
-  capabilities.clear();
+  catalogCache.clear();
+}
+
+async function catalogEntry(
+  options: PolystellaEmdashOptions,
+  env: Record<string, unknown> | undefined,
+  modelId: string,
+  dependencies: PluginRouteDependencies,
+): Promise<unknown> {
+  const key = `${options.provider.kind}:${modelId}`;
+  let cached = catalogCache.get(key);
+  if (cached === undefined || cached.expiresAt <= Date.now()) {
+    try {
+      const entries = await withTimeout(catalogEntries(options, env, modelId, dependencies), CATALOG_TIMEOUT_MS);
+      cached = { result: { entry: entries.find((item) => isRecord(item) && item.name === modelId) }, expiresAt: Number.POSITIVE_INFINITY };
+    } catch (error) {
+      cached = { result: { error }, expiresAt: Date.now() + FAILURE_RETRY_MS };
+    }
+    catalogCache.set(key, cached);
+  }
+  if ("error" in cached.result) throw cached.result.error;
+  return cached.result.entry;
 }
 
 async function catalogEntries(
@@ -63,15 +94,7 @@ async function catalogEntries(
   const accountId = environmentCredential(env, provider.accountIdEnv);
   const apiToken = environmentCredential(env, provider.apiTokenEnv);
   if (accountId === undefined || apiToken === undefined) throw new Error("Workers AI credentials are unavailable");
-  const url = `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(accountId)}/ai/models/search?${new URLSearchParams({ search: modelId })}`;
-  const response = await (dependencies.fetchImpl ?? fetch)(url, {
-    headers: { Authorization: `Bearer ${apiToken}` },
-    signal: AbortSignal.timeout(CATALOG_TIMEOUT_MS),
-  });
-  if (!response.ok) throw new Error(`the Workers AI model catalog returned HTTP ${response.status}`);
-  const body: unknown = await response.json();
-  if (!isRecord(body) || !Array.isArray(body.result)) throw new Error("the Workers AI model catalog returned an unexpected response");
-  return body.result;
+  return await fetchWorkersAIModels(modelId, { accountId, apiToken, fetchImpl: dependencies.fetchImpl });
 }
 
 /** Reads the catalog's `reasoning_effort` property: listed efforts, or a plain on/off switch when thinking isn't mandatory. */

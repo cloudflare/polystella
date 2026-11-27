@@ -10,7 +10,7 @@ locale map with a mandatory `default` key.
 ## Single model
 
 ```js
-model: "@cf/meta/llama-3.1-8b-instruct";
+model: "@cf/deepseek-ai/deepseek-v4.1-flash-1017";
 ```
 
 Same model for every locale. Simplest, cheapest, often fine.
@@ -19,9 +19,9 @@ Same model for every locale. Simplest, cheapest, often fine.
 
 ```js
 model: {
-  default: "@cf/meta/llama-3.1-8b-instruct",
-  "ja-JP": "@cf/qwen/qwen3-30b-a3b-fp8",
-  "zh-CN": "@cf/qwen/qwen3-30b-a3b-fp8",
+  default: "@cf/deepseek-ai/deepseek-v4.1-flash-1017",
+  "ja-JP": "@cf/qwen/qwen3.8-27b",
+  "zh-CN": "@cf/qwen/qwen3.8-27b",
 }
 ```
 
@@ -42,12 +42,12 @@ Switching a locale's model:
 
 ```js
 // Before
-model: "@cf/meta/llama-3.1-8b-instruct";
+model: "@cf/deepseek-ai/deepseek-v4.1-flash-1017";
 
 // After
 model: {
-  default: "@cf/meta/llama-3.1-8b-instruct",
-  "ja-JP": "@cf/qwen/qwen3-30b-a3b-fp8",
+  default: "@cf/deepseek-ai/deepseek-v4.1-flash-1017",
+  "ja-JP": "@cf/qwen/qwen3.8-27b",
 }
 ```
 
@@ -57,7 +57,7 @@ hit the cache.
 
 ## When to switch models
 
-The default Workers AI model (`@cf/meta/llama-3.1-8b-instruct`) is
+The default Workers AI model (`@cf/deepseek-ai/deepseek-v4.1-flash-1017`) is
 a sensible starting point for most projects. Reasons to switch:
 
 - **CJK quality.** Latin-script models often produce mediocre

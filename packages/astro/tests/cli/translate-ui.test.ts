@@ -388,4 +388,80 @@ describe("runTranslateUi", () => {
       globalThis.fetch = originalFetch;
     }
   });
+
+  describe("usage line", () => {
+    const usage = { prompt_tokens: 1_000_000, completion_tokens: 500_000 };
+
+    async function runWithUsage(pricesConfig: string, replyUsage: unknown) {
+      const cwd = await tmpProjectWithAstroConfig({
+        defaultLocale: "en",
+        locales: ["en", "de"],
+        polystellaConfig: `export default {
+  maxRetries: 0,
+  provider: {
+    kind: "workers-ai",
+    accountId: "a",
+    apiToken: "t",
+    endpoint: "https://example.test/workers-ai",
+    model: "fake/model",
+    ${pricesConfig}
+  },
+};
+`,
+        files: { "src/content/i18n/en.json": `{\n  "hi": "Hello"\n}\n`, "src/content/i18n/de.json": `{\n  "hi": ""\n}\n` },
+      });
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = (async (_url: string, init?: RequestInit) =>
+        new Response(
+          JSON.stringify({
+            success: true,
+            result: {
+              choices: [{ message: { content: workersAiResponseFromPrompt(workersAiUserPrompt(init)) } }],
+              ...(replyUsage === undefined ? {} : { usage: replyUsage }),
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        )) as typeof fetch;
+      try {
+        const log = vi.fn();
+        const warn = vi.fn();
+        const err = vi.fn();
+        const code = await runTranslateUi({ syncOnly: false, help: false }, { cwd, log, warn, err });
+        const lines = log.mock.calls.map((call) => String(call[0]));
+        return { code, usageLines: lines.filter((line) => line.includes("translate-ui: usage")), err };
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    }
+
+    it("logs the cost at list price when provider.prices has the model", async () => {
+      const { code, usageLines } = await runWithUsage(`prices: { "fake/model": { inputPerMillion: 1, outputPerMillion: 4 } },`, usage);
+      expect(code).toBe(0);
+      expect(usageLines).toEqual([
+        "[polystella] translate-ui: usage — 1 model call, 1,000,000 input / 500,000 output tokens, estimated cost $3.0000 (tokens × list price).",
+      ]);
+    });
+
+    it("logs tokens and the unpriced model when no price is known", async () => {
+      const { usageLines } = await runWithUsage("", usage);
+      expect(usageLines).toEqual([
+        "[polystella] translate-ui: usage — 1 model call, 1,000,000 input / 500,000 output tokens, no price for fake/model (left out of the estimate).",
+      ]);
+    });
+
+    it("says how many calls reported no token counts", async () => {
+      const { usageLines } = await runWithUsage(`prices: { "fake/model": { inputPerMillion: 1, outputPerMillion: 4 } },`, undefined);
+      expect(usageLines).toEqual(["[polystella] translate-ui: usage — 1 model call, 0 input / 0 output tokens, 1 without token counts."]);
+    });
+
+    it("rejects an invalid provider.prices before translating", async () => {
+      const { code, usageLines, err } = await runWithUsage(
+        `prices: { "fake/model": { inputPerMillion: -1, outputPerMillion: 4 } },`,
+        usage,
+      );
+      expect(code).toBe(1);
+      expect(usageLines).toEqual([]);
+      expect(String(err.mock.calls[0]?.[0])).toContain("provider.prices.fake/model");
+    });
+  });
 });

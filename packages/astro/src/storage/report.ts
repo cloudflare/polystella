@@ -51,8 +51,10 @@ export interface BuildReportEntry {
    * non-nullable and surfaces the config in effect at build time.
    */
   model: string;
-  /** Provider-reported token counts when available. */
+  /** Provider-reported token counts when available, failed attempts included. */
   tokens?: { in: number; out: number };
+  /** List-price estimate in USD for `tokens`, when the model has a known price. Not an invoice. */
+  estimatedCostUsd?: number;
   /** Wall-clock milliseconds from cache lookup through staging. */
   durationMs: number;
   /** On `error` outcome only. Stack traces stay in the build log. */
@@ -82,6 +84,8 @@ export interface BuildReportTotals {
   /** Undefined when no entry reported tokens (vs. summed-zero). */
   tokensIn?: number;
   tokensOut?: number;
+  /** Summed list-price estimate; undefined when no entry had a price. */
+  estimatedCostUsd?: number;
 }
 
 export interface BuildReport {
@@ -118,6 +122,7 @@ export function computeBuildReportTotals(entries: ReadonlyArray<BuildReportEntry
   let tokensIn = 0;
   let tokensOut = 0;
   let anyTokens = false;
+  let estimatedCostUsd: number | undefined;
   for (const entry of entries) {
     switch (entry.outcome) {
       case "cache-hit":
@@ -144,6 +149,7 @@ export function computeBuildReportTotals(entries: ReadonlyArray<BuildReportEntry
       tokensIn += entry.tokens.in;
       tokensOut += entry.tokens.out;
     }
+    if (entry.estimatedCostUsd !== undefined) estimatedCostUsd = (estimatedCostUsd ?? 0) + entry.estimatedCostUsd;
   }
   const totals: BuildReportTotals = {
     cacheHits,
@@ -157,6 +163,7 @@ export function computeBuildReportTotals(entries: ReadonlyArray<BuildReportEntry
     totals.tokensIn = tokensIn;
     totals.tokensOut = tokensOut;
   }
+  if (estimatedCostUsd !== undefined) totals.estimatedCostUsd = estimatedCostUsd;
   return totals;
 }
 

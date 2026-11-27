@@ -5,6 +5,7 @@ import {
   type Glossary,
   type Logger,
   type Segment,
+  type TranslateBatchAttemptEvent,
   type TranslateBatchRetryEvent,
   type Translator,
 } from "@cloudflare/polystella-core";
@@ -93,6 +94,8 @@ export interface TranslateOrLoadOptions {
   maxRetries?: number;
   /** Fires per failed-and-retried translator/apply-validation attempt. */
   onRetry?: (event: TranslateBatchRetryEvent) => void;
+  /** Fires per provider attempt on the miss path, with what the provider reported (tokens, finish reason). */
+  onBatchAttempt?: (event: TranslateBatchAttemptEvent) => void;
   /** Backoff between retries; forwarded to `translateBatch`. */
   retryMinTimeoutMs?: number;
   retryFactor?: number;
@@ -172,6 +175,7 @@ export async function translateOrLoadFromCache(opts: TranslateOrLoadOptions): Pr
     fallbackKeys,
     maxRetries,
     onRetry,
+    onBatchAttempt,
     retryMinTimeoutMs,
     retryFactor,
     retryRandomize,
@@ -249,6 +253,7 @@ export async function translateOrLoadFromCache(opts: TranslateOrLoadOptions): Pr
         context,
         ...(maxRetries !== undefined ? { maxRetries } : {}),
         ...(onRetry !== undefined ? { onRetry } : {}),
+        ...(onBatchAttempt !== undefined ? { onBatchAttempt } : {}),
         ...(retryMinTimeoutMs !== undefined ? { retryMinTimeoutMs } : {}),
         ...(retryFactor !== undefined ? { retryFactor } : {}),
         ...(retryRandomize !== undefined ? { retryRandomize } : {}),
@@ -311,7 +316,7 @@ export interface BuildCacheMetadataInput {
   sourceHash: string;
   /** Per-locale glossary hash; empty string when no glossary is configured. */
   glossaryHash: string;
-  /** Resolved model id, e.g. `"@cf/meta/llama-3.1-8b-instruct"`. */
+  /** Resolved model id, e.g. `"@cf/deepseek-ai/deepseek-v4.1-flash-1017"`. */
   modelId: string;
   /** ISO-8601. Caller-supplied so tests can pin it deterministic. */
   translatedAt: string;

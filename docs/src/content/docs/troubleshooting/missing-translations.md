@@ -85,7 +85,7 @@ missing:
   "sourcePath": "publications/foo.md",
   "locale": "pt-BR",
   "outcome": "skipped-no-translate",
-  "model": "@cf/meta/llama-3.1-8b-instruct"
+  "model": "@cf/deepseek-ai/deepseek-v4.1-flash-1017"
 }
 ```
 
