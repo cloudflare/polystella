@@ -15,6 +15,14 @@ rules:
       # Metadata-only review labeler. Reads PR/review metadata through the
       # GitHub API; does not checkout or execute PR code.
       - review-state.yml
+  adhoc-packages:
+    ignore:
+      # Pinned npm CLI upgrade; npm Trusted Publishing needs a newer npm than
+      # the one bundled with Node. Not a project dependency.
+      - release.yml:34
+      # Pinned opencode CLI that runs the AI review; a tool, not a project
+      # dependency, so it stays out of the lockfile.
+      - review.yml:85
   use-trusted-publishing:
     ignore:
       # pkg.pr.new publishes preview artifacts to pkg.pr.new, not to the npm

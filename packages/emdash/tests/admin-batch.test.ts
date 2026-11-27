@@ -303,7 +303,11 @@ describe("retry form", () => {
     );
   const retryButton = (html: string) => html.match(/<button[^>]*>(?:(?!<\/button>).)*Retry (?:(?!<\/button>).)*<\/button>/s)?.[0] ?? "";
   const isDisabled = /<button[^>]*\sdisabled=""/;
-  const text = (html: string) => html.replace(/<[^>]*>/g, "").replace(/<!-- -->/g, "");
+  const text = (html: string) =>
+    html
+      .replace(/<[^>]*>/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
 
   it("explains the settings are for this retry only", () => {
     expect(render()).toContain("Change these for this retry only. Anything left empty uses the translation settings.");
@@ -340,7 +344,11 @@ describe("retry form", () => {
 
 describe("batch run page", () => {
   afterEach(() => vi.unstubAllGlobals());
-  const text = (html: string) => html.replace(/<[^>]*>/g, "").replace(/<!-- -->/g, "");
+  const text = (html: string) =>
+    html
+      .replace(/<[^>]*>/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
 
   it("says the run expired when the tab has no stored plan", () => {
     vi.stubGlobal("window", { location: { search: "" } });
@@ -373,13 +381,13 @@ describe("batch run page", () => {
     });
     const html = renderToStaticMarkup(createElement(BatchRunPage));
     const flat = text(html);
-    expect(flat).toContain("Entries1");
-    expect(flat).toContain("Translations1");
-    expect(flat).toContain("ExistingSkipped");
-    expect(flat).toContain("Save asDrafts");
-    expect(flat).toContain("Modelglm-4.7-flash");
-    expect(flat).toContain(`Max tokens${(16_000).toLocaleString()}`);
-    expect(flat).toContain("InstructionsAdded");
+    expect(flat).toContain("Entries 1");
+    expect(flat).toContain("Translations 1");
+    expect(flat).toContain("Existing Skipped");
+    expect(flat).toContain("Save as Drafts");
+    expect(flat).toContain("Model glm-4.7-flash");
+    expect(flat).toContain(`Max tokens ${(16_000).toLocaleString()}`);
+    expect(flat).toContain("Instructions Added");
     expect(flat).not.toContain(" × ");
     expect(flat).not.toContain("Settings:");
     expect(flat).toContain("Start translating");
