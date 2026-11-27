@@ -1,6 +1,6 @@
-import { resolveModelId, type Translator } from "@cloudflare/polystella-core";
+import { createModelPriceLookup, resolveModelId, type ModelPriceLookup, type Translator } from "@cloudflare/polystella-core";
 import { createAnthropicTranslator } from "@cloudflare/polystella-core/providers/anthropic";
-import { createWorkersAIHttpTranslator } from "@cloudflare/polystella-core/providers/workers-ai";
+import { createWorkersAIHttpTranslator, workersAIPriceLookup } from "@cloudflare/polystella-core/providers/workers-ai";
 
 import type { PolyStellaResolvedOptions } from "../config/options.js";
 
@@ -37,4 +37,21 @@ export function createTranslator(provider: ProviderConfig, locale: string, optio
     });
   }
   throw new Error(`[polystella] unknown provider kind: ${(provider as { kind: string }).kind}`);
+}
+
+/** `provider.prices`, then the Workers AI catalog. A custom `endpoint` may be a gateway, so its token is not sent to the catalog. */
+export function createPriceLookup(
+  provider: ProviderConfig,
+  onError?: (modelId: string, error: unknown) => void,
+  options: CreateTranslatorOptions = {},
+): ModelPriceLookup {
+  const catalog =
+    provider.kind === "workers-ai" && provider.endpoint === undefined
+      ? workersAIPriceLookup({
+          accountId: provider.accountId,
+          apiToken: provider.apiToken,
+          ...(options.fetchImpl !== undefined ? { fetchImpl: options.fetchImpl } : {}),
+        })
+      : undefined;
+  return createModelPriceLookup({ prices: provider.prices, fallback: catalog, onError });
 }

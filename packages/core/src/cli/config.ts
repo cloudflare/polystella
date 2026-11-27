@@ -6,7 +6,7 @@ import { pathToFileURL } from "node:url";
 import { compileIgnoreKeys, type IgnoreKey } from "../catalog/flatten.js";
 import { assertLocaleTags, parseLocaleTags, type LocaleTags } from "../catalog/locale-tags.js";
 import { DEFAULT_MESSAGE_SYNTAX, type MessageSyntax } from "../catalog/message.js";
-import type { ModelChoice, ModelChoiceSpec, ModelSpec } from "../index.js";
+import { modelPriceProblem, type ModelChoice, type ModelChoiceSpec, type ModelPrice, type ModelSpec } from "../index.js";
 import { workersAIParamsProblem } from "../providers/workers-ai.js";
 
 import { validateGlossary } from "./glossary.js";
@@ -27,6 +27,8 @@ export interface WorkersAiProviderConfig {
   batchInputTokenBudget: number;
   /** Extra Workers AI input per model id, as in the EmDash plugin's `models.params`. */
   params?: Record<string, Record<string, unknown>> | undefined;
+  /** USD list prices per model id; they win over the Workers AI catalog's. */
+  prices?: Record<string, ModelPrice> | undefined;
 }
 
 export interface AnthropicProviderConfig {
@@ -35,6 +37,8 @@ export interface AnthropicProviderConfig {
   model: ModelSpec;
   maxTokens: number;
   batchInputTokenBudget: number;
+  /** USD list prices per model id, for cost estimates. */
+  prices?: Record<string, ModelPrice> | undefined;
 }
 
 export type CatalogProviderConfig = WorkersAiProviderConfig | AnthropicProviderConfig;
@@ -233,6 +237,7 @@ function parseProvider(value: unknown): CatalogProviderConfig {
   const provider = requireRecord(value, "provider");
   const maxTokens = parseInteger(provider.maxTokens, "provider.maxTokens", 8192, 1);
   const batchInputTokenBudget = parseInteger(provider.batchInputTokenBudget, "provider.batchInputTokenBudget", 4000, 1);
+  const prices = parsePrices(provider.prices);
 
   if (provider.kind === "workers-ai") {
     const endpoint = optionalUrl(provider.endpoint, "provider.endpoint");
@@ -252,6 +257,7 @@ function parseProvider(value: unknown): CatalogProviderConfig {
       maxTokens,
       batchInputTokenBudget,
       ...(params === undefined ? {} : { params }),
+      ...(prices === undefined ? {} : { prices }),
     };
   }
   if (provider.kind === "anthropic") {
@@ -261,9 +267,21 @@ function parseProvider(value: unknown): CatalogProviderConfig {
       model: parseModel(provider.model, false) as ModelSpec,
       maxTokens,
       batchInputTokenBudget,
+      ...(prices === undefined ? {} : { prices }),
     };
   }
   throw configurationError("provider.kind", 'must be "workers-ai" or "anthropic"');
+}
+
+function parsePrices(value: unknown): Record<string, ModelPrice> | undefined {
+  if (value === undefined) return undefined;
+  const prices: Record<string, ModelPrice> = {};
+  for (const [model, price] of Object.entries(requireRecord(value, "provider.prices"))) {
+    const problem = modelPriceProblem(price);
+    if (problem !== undefined) throw configurationError(`provider.prices.${model}`, problem);
+    prices[model] = price as ModelPrice;
+  }
+  return prices;
 }
 
 function parseWorkersAIParams(value: unknown): Record<string, Record<string, unknown>> | undefined {

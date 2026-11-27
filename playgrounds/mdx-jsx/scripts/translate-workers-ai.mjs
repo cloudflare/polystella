@@ -6,8 +6,9 @@ import { readFile, rm } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { linkSharedEnv } from "./link-shared-env.mjs";
+
 const playgroundRoot = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
-const repoRoot = path.resolve(playgroundRoot, "..", "..");
 const stagingDir = path.join(playgroundRoot, ".astro", "i18n-staging");
 const previewDir = path.join(playgroundRoot, "i18n-preview");
 const reportPath = path.join(playgroundRoot, "i18n-r2-report.json");
@@ -18,15 +19,14 @@ if (extraArgs.includes("--help") || extraArgs.includes("-h")) {
   process.exit(0);
 }
 
+linkSharedEnv();
 const loadedEnvFiles = await loadEnvFiles();
 const accountId = process.env.POLYSTELLA_WORKERS_AI_ACCOUNT_ID ?? process.env.CLOUDFLARE_ACCOUNT_ID;
-const apiToken = process.env.POLYSTELLA_WORKERS_AI_API_TOKEN ?? process.env.CLOUDFLARE_API_TOKEN;
+const apiToken = process.env.POLYSTELLA_WORKERS_AI_API_TOKEN ?? process.env.CLOUDFLARE_WORKERS_AI_TOKEN ?? process.env.CLOUDFLARE_API_TOKEN;
 if (!accountId || !apiToken) {
   printUsage();
   console.error("\n[playground] missing Workers AI credentials.");
-  console.error(
-    "[playground] set POLYSTELLA_WORKERS_AI_ACCOUNT_ID and POLYSTELLA_WORKERS_AI_API_TOKEN, or CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN.",
-  );
+  console.error("[playground] set CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_WORKERS_AI_TOKEN in .env (see .env.example), or in the shell.");
   process.exit(1);
 }
 
@@ -45,25 +45,18 @@ if (code !== 0) {
 function printUsage() {
   console.log(`PolyStella MDX JSX Workers AI translation playground
 
-Env files loaded automatically when present, in order:
-  ../../.env
-  ../../.env.local
-  ./.env
-  ./.env.local
+Reads ./.env when present (copy .env.example). In a worktree without its own .env, it is first
+linked to the primary checkout's playgrounds/mdx-jsx/.env. Shell variables take precedence.
 
-Shell-provided env vars take precedence over env-file values.
-
-Required credentials, either pair:
-  POLYSTELLA_WORKERS_AI_ACCOUNT_ID=<account id>
-  POLYSTELLA_WORKERS_AI_API_TOKEN=<Workers AI token>
-
-or:
+Required credentials:
   CLOUDFLARE_ACCOUNT_ID=<account id>
-  CLOUDFLARE_API_TOKEN=<Workers AI token>
+  CLOUDFLARE_WORKERS_AI_TOKEN=<Workers AI token>
+
+POLYSTELLA_WORKERS_AI_ACCOUNT_ID and POLYSTELLA_WORKERS_AI_API_TOKEN win over them; CLOUDFLARE_API_TOKEN also works.
 
 Optional:
   POLYSTELLA_WORKERS_AI_MODEL=<model id>
-    Default: @cf/meta/llama-3.1-8b-instruct
+    Default: @cf/deepseek-ai/deepseek-v4.1-flash-1017
 
   POLYSTELLA_WORKERS_AI_ENDPOINT=<full endpoint URL>
     Use for AI Gateway or endpoint debugging.
@@ -82,12 +75,7 @@ Examples:
 
 async function loadEnvFiles() {
   const originalKeys = new Set(Object.keys(process.env));
-  const files = [
-    path.join(repoRoot, ".env"),
-    path.join(repoRoot, ".env.local"),
-    path.join(playgroundRoot, ".env"),
-    path.join(playgroundRoot, ".env.local"),
-  ];
+  const files = [path.join(playgroundRoot, ".env")];
   const loaded = [];
   for (const file of files) {
     const didLoad = await loadEnvFile(file, originalKeys);

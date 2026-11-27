@@ -238,6 +238,19 @@ describe("resolveOptions — option-surface", () => {
     expect(resolveOptions({ provider }, HAPPY_I18N).provider).toMatchObject({ maxPromptTokens: 12000 });
     expect(() => resolveOptions({ provider: { ...provider, maxPromptTokens: 0 } }, HAPPY_I18N)).toThrowError(/maxPromptTokens/);
   });
+
+  it("accepts provider.prices on both providers and rejects bad ones", () => {
+    const prices = { "@cf/m": { inputPerMillion: 0.1, outputPerMillion: 0.5, cachedInputPerMillion: 0.02 } };
+    const workers = { kind: "workers-ai", accountId: "a", apiToken: "t", model: "@cf/m", prices } as const;
+    expect(resolveOptions({ provider: workers }, HAPPY_I18N).provider).toMatchObject({ prices });
+    expect(resolveOptions({ provider: { kind: "anthropic", apiKey: "k", model: "claude", prices } }, HAPPY_I18N).provider).toMatchObject({
+      prices,
+    });
+    const bad = (value: unknown) => () => resolveOptions({ provider: { ...workers, prices: value } } as never, HAPPY_I18N);
+    expect(bad({ m: { inputPerMillion: 1 } })).toThrowError(/outputPerMillion/);
+    expect(bad({ m: { inputPerMillion: -1, outputPerMillion: 1 } })).toThrowError(/inputPerMillion/);
+    expect(bad({ m: { inputPerMillion: 1, outputPerMillion: 1, extra: 1 } })).toThrowError(/extra|Unrecognized/);
+  });
 });
 
 describe("resolveOptions — routes normalisation", () => {

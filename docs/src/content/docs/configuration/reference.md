@@ -63,16 +63,18 @@ For prose context on individual options, see the
 | `provider (kind = "workers-ai").accountId` | string | — | Required | Cloudflare account ID that owns the Workers AI usage. |
 | `provider (kind = "workers-ai").apiToken` | string | — | Required | Workers AI API token with model-run scope. |
 | `provider (kind = "workers-ai").endpoint` | string | — | Optional | Override the default Workers AI endpoint. Useful for AI Gateway proxies or testing. |
-| `provider (kind = "workers-ai").model` | string \| object | — | Required | Single model id (e.g. `@cf/meta/llama-3.1-8b-instruct`) or per-locale map with a `default` key. Model id is part of the cache key. |
-| `provider (kind = "workers-ai").maxTokens` | number | `8192` | Optional | Max output tokens per call. The Workers AI default (~256) truncates multi-segment translations; 8192 fits under llama-3.1-8b's cap. |
+| `provider (kind = "workers-ai").model` | string \| object | — | Required | Single model id (e.g. `@cf/deepseek-ai/deepseek-v4.1-flash-1017`) or per-locale map with a `default` key. Model id is part of the cache key. |
+| `provider (kind = "workers-ai").maxTokens` | number | `8192` | Optional | Max output tokens per call. The Workers AI default (~256) truncates multi-segment translations. |
 | `provider (kind = "workers-ai").batchInputTokenBudget` | number | `4000` | Optional | Soft cap on per-batch input tokens. The pipeline packs adapter-grouped segments into batches that fit under this budget. |
 | `provider (kind = "workers-ai").maxPromptTokens` | number | — | Optional | Ceiling for one whole prompt (instructions, matched glossary terms, style rules, notes and segments), default 8000. A batch over it is split; a single segment over it fails. |
+| `provider (kind = "workers-ai").prices` | record (string → object) | — | Optional | USD list prices per million tokens, keyed by model id, for estimated costs (tokens × list price) in the build log and report. Workers AI models default to the Workers AI catalog's prices. |
 | `provider (kind = "anthropic").kind` | `"anthropic"` | — | Required | Discriminator selecting the Anthropic provider. |
 | `provider (kind = "anthropic").apiKey` | string | — | Required | Anthropic API key. |
 | `provider (kind = "anthropic").model` | string \| object | — | Required | Single model id (e.g. `claude-3-5-sonnet-latest`) or per-locale map with a `default` key. Model id is part of the cache key. |
 | `provider (kind = "anthropic").maxTokens` | number | `8192` | Optional | Max output tokens per call. |
 | `provider (kind = "anthropic").batchInputTokenBudget` | number | `4000` | Optional | Soft cap on per-batch input tokens. See the Workers AI provider's identical field for the rationale. |
 | `provider (kind = "anthropic").maxPromptTokens` | number | — | Optional | Ceiling for one whole prompt (instructions, matched glossary terms, style rules, notes and segments), default 8000. A batch over it is split; a single segment over it fails. |
+| `provider (kind = "anthropic").prices` | record (string → object) | — | Optional | USD list prices per million tokens, keyed by model id, for estimated costs (tokens × list price) in the build log and report. Workers AI models default to the Workers AI catalog's prices. |
 | `glossary` | object | — | Optional | Per-locale glossary source. Configure exactly one of `file`, `inline`, `http`, or `r2`. |
 | `glossary (file).file` | string | — | Required | Path template for per-locale glossary files. Use `{locale}` as the placeholder. Example: './i18n/glossary/{locale}.yaml'. |
 | `glossary (file).matchInflections` | boolean | — | Optional | Let any letters follow a glossary term when deciding whether a batch uses it, so "Worker" also matches "Workers". Default false: the term must end at a word boundary. |

@@ -30,7 +30,7 @@ token, and model id.
    ```
 
 4. Pick a model from the Workers AI model catalog. The examples use
-   `@cf/meta/llama-3.1-8b-instruct`, which is a reasonable starting
+   `@cf/deepseek-ai/deepseek-v4.1-flash-1017`, which is a reasonable starting
    point for most projects.
 5. Add the provider block to `polystella.config.mjs` and keep the
    token out of source control. Pass only the raw token value;
@@ -58,7 +58,7 @@ interface Env {
 
 export function createTranslator(env: Env) {
   return createWorkersAIBindingTranslator({
-    modelId: "@cf/meta/llama-3.1-8b-instruct",
+    modelId: "@cf/deepseek-ai/deepseek-v4.1-flash-1017",
     maxTokens: 8192,
     run: (modelId, input) => env.AI.run(modelId, input),
   });
@@ -77,7 +77,7 @@ export default {
     kind: "workers-ai",
     accountId: process.env.CF_ACCOUNT_ID,
     apiToken: process.env.CF_API_TOKEN,
-    model: "@cf/meta/llama-3.1-8b-instruct",
+    model: "@cf/deepseek-ai/deepseek-v4.1-flash-1017",
     maxTokens: 8192,
     batchInputTokenBudget: 4000,
   },
@@ -95,9 +95,9 @@ larger model for CJK locales):
 
 ```js
 model: {
-  default: "@cf/meta/llama-3.1-8b-instruct",
-  "ja-JP": "@cf/qwen/qwen3-30b-a3b-fp8",
-  "zh-CN": "@cf/qwen/qwen3-30b-a3b-fp8",
+  default: "@cf/deepseek-ai/deepseek-v4.1-flash-1017",
+  "ja-JP": "@cf/qwen/qwen3.8-27b",
+  "zh-CN": "@cf/qwen/qwen3.8-27b",
 }
 ```
 
@@ -122,10 +122,49 @@ include it in the `endpoint` value you configure.
 
 - **`maxTokens`** — max output tokens per call. Workers AI's
   default is ~256, which truncates multi-segment translations.
-  PolyStella's default of 8192 fits under llama-3.1-8b's cap.
+  PolyStella's default is 8192.
 - **`batchInputTokenBudget`** — soft cap on per-batch input tokens.
   The pipeline groups adapter segments into batches that fit under
   this budget. See [Providers → Batching](/providers/batching/).
+
+## Cost estimates
+
+> **Estimates, not your bill.** Every cost PolyStella shows is an **estimate**: tokens × the model's
+> public list price. It is not what Cloudflare bills you. It leaves out the
+> daily free Neuron allocation, discounts, and calls that failed before
+> the provider reported tokens. For what you actually pay, use the
+> Cloudflare dashboard.
+
+PolyStella logs an estimated cost for the AI calls it makes:
+
+| Surface                   | Where it shows                                                                                                                |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| Astro build               | An `AI usage:` line in the build log; `tokens` and `estimatedCostUsd` per entry and in `totals` of `dist/i18n-r2-report.json` |
+| `polystella translate-ui` | A `usage —` line at the end of the run                                                                                        |
+| EmDash plugin             | `estimatedCostUsd` on each `provider_call` [event](/emdash/configuration/#events-and-metrics)                                 |
+
+Workers AI replies report tokens but no price, so the list price comes
+from the Workers AI model catalog, read once per model with the same
+account ID and token.
+
+Set `provider.prices` to override a model's price, or to price a model
+the catalog does not list:
+
+```js
+provider: {
+  kind: "workers-ai",
+  // ...
+  prices: {
+    "@cf/meta/llama-3.3-70b-instruct-fp8-fast": { inputPerMillion: 0.29, outputPerMillion: 2.25 },
+  },
+},
+```
+
+`cachedInputPerMillion` is optional and defaults to `inputPerMillion`.
+With a custom `endpoint`, the token may belong to a gateway, so it is
+never sent to the catalog; only `prices` apply.
+
+Dry runs and cache hits use no tokens and make no catalog request.
 
 ## Permanent vs retriable errors
 

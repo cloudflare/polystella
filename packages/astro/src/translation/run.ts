@@ -5,7 +5,21 @@ import { pathToFileURL } from "node:url";
 
 import picomatch from "picomatch";
 import type { MarkdownAdapterExtractOptions as AdapterExtractOptions } from "@cloudflare/polystella-core/adapters";
-import { EMPTY_GLOSSARY, type Glossary, type Logger, type Translator } from "@cloudflare/polystella-core";
+import {
+  addTokenUsage,
+  createModelPriceLookup,
+  EMPTY_GLOSSARY,
+  emptyTokenUsage,
+  estimateCostUsd,
+  formatUsageSummary,
+  mergeTokenUsage,
+  summarizeUsage,
+  usageFor,
+  type Glossary,
+  type Logger,
+  type TokenUsage,
+  type Translator,
+} from "@cloudflare/polystella-core";
 import { resolveLocaleTag } from "@cloudflare/polystella-core/catalog";
 
 import type { PolyStellaResolvedOptions } from "../config/options.js";
@@ -30,7 +44,7 @@ import {
 import { encodeTouchedPair, pruneCacheByPair } from "../storage/prune.js";
 import { buildR2Key, createR2Client, DEFAULT_R2_KEY_PREFIX, type R2Client } from "../storage/r2.js";
 import type { BuildReportEntry, BuildReportPruning } from "../storage/report.js";
-import { createTranslator } from "./provider.js";
+import { createPriceLookup, createTranslator } from "./provider.js";
 
 /**
  * Translation pass shared between the Astro integration and the
@@ -317,6 +331,25 @@ export async function runTranslationPass(opts: RunTranslationOptions): Promise<R
       logger.info(`provider: ${providerLabel} (${summary})`);
     }
   }
+
+  const onPriceError = (modelId: string, error: unknown) =>
+    logger.warn(`estimated cost: could not read the price of ${modelId}: ${error instanceof Error ? error.message : String(error)}`);
+  const priceLookup = resolved.provider ? createPriceLookup(resolved.provider, onPriceError) : createModelPriceLookup({});
+  const usageByModel = new Map<string, TokenUsage>();
+  // Tokens and list-price cost for one pair's report entry; moves `pairUsage` into the run's totals, so a
+  // later error entry for the same pair does not count it twice.
+  const usageReport = async (pairUsage: TokenUsage, modelId: string): Promise<Pick<BuildReportEntry, "tokens" | "estimatedCostUsd">> => {
+    if (pairUsage.calls === 0) return {};
+    const usage = { ...pairUsage };
+    Object.assign(pairUsage, emptyTokenUsage());
+    mergeTokenUsage(usageFor(usageByModel, modelId), usage);
+    if (usage.calls === usage.unreportedCalls) return {};
+    const price = await priceLookup(modelId);
+    return {
+      tokens: { in: usage.inputTokens, out: usage.outputTokens },
+      ...(price === undefined ? {} : { estimatedCostUsd: estimateCostUsd(usage, price) }),
+    };
+  };
 
   // `null` = caching opted out; orchestrator skips lookup + write.
   // `r2Override` wins when supplied (tests, local fixtures).
@@ -726,6 +759,7 @@ export async function runTranslationPass(opts: RunTranslationOptions): Promise<R
     for (const locale of resolved.locales) {
       signal?.throwIfAborted();
       const pairStart = Date.now();
+      const pairUsage = emptyTokenUsage();
       try {
         // Overrides win over cache + translator; deliberately NOT
         // written to R2 (source-controlled, not machine-generated).
@@ -883,6 +917,7 @@ export async function runTranslationPass(opts: RunTranslationOptions): Promise<R
             const headline = error.message.split("\n", 1)[0];
             logger.warn(`↻ ${source.relativePath} → ${locale}: attempt ${attempt}/${totalAttempts} failed (${headline}); retrying`);
           },
+          onBatchAttempt: ({ providerResponse }) => addTokenUsage(pairUsage, providerResponse),
           events: {
             onWriteStart: () => {
               if (!cacheWritesAnnounced) {
@@ -910,6 +945,7 @@ export async function runTranslationPass(opts: RunTranslationOptions): Promise<R
           outcome: result.outcome === "hit" ? "cache-hit" : "ai-translated",
           model: translator.modelId,
           durationMs: Date.now() - pairStart,
+          ...(await usageReport(pairUsage, translator.modelId)),
         });
 
         // Rewrite happens POST-cache: cached bytes are translation-
@@ -971,6 +1007,7 @@ export async function runTranslationPass(opts: RunTranslationOptions): Promise<R
           model: modelId,
           durationMs: Date.now() - pairStart,
           errorMessage: message,
+          ...(await usageReport(pairUsage, modelId)),
         });
       } finally {
         processedPairs++;
@@ -1044,6 +1081,8 @@ export async function runTranslationPass(opts: RunTranslationOptions): Promise<R
   } catch (err) {
     logger.warn(`local staging index: failed to write: ${(err as Error).message}`);
   }
+
+  if (usageByModel.size > 0) logger.info(`AI usage: ${formatUsageSummary(await summarizeUsage(usageByModel, priceLookup))}`);
 
   const noTranslateSummary =
     noTranslateSources > 0 ? `, ${noTranslateSources} noTranslate source${noTranslateSources === 1 ? "" : "s"} skipped` : "";

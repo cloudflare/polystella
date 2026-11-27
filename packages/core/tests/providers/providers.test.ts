@@ -5,7 +5,10 @@ import { createAnthropicTranslator } from "../../src/providers/anthropic.js";
 import {
   createWorkersAIBindingTranslator,
   createWorkersAIHttpTranslator,
+  fetchWorkersAIModels,
   ProviderTimeoutError,
+  workersAIModelPrice,
+  workersAIPriceLookup,
   workersAIParamsForLocale,
   workersAIParamsProblem,
   workersAIRequestParams,
@@ -318,6 +321,81 @@ describe("Workers AI request controls", () => {
   });
 });
 
+describe("Workers AI model prices", () => {
+  const rate = (unit: string, price: number, currency = "USD") => ({ unit, price, currency });
+  const entry = (name: string, ...rates: unknown[]) => ({ name, properties: [{ property_id: "price", value: rates }] });
+  const catalogEntry = entry(
+    "@cf/test/model",
+    rate("per M input tokens", 0.152),
+    rate("per M output tokens", 0.5),
+    rate("per M cached input tokens", 0.03),
+  );
+
+  it("reads the input, output and cached input rates of a catalog entry", () => {
+    expect(workersAIModelPrice(catalogEntry)).toEqual({ inputPerMillion: 0.152, outputPerMillion: 0.5, cachedInputPerMillion: 0.03 });
+    expect(workersAIModelPrice(entry("m", rate("per M input tokens", 1), rate("per M output tokens", 2)))).toEqual({
+      inputPerMillion: 1,
+      outputPerMillion: 2,
+    });
+  });
+
+  it("returns undefined without both an input and an output USD rate", () => {
+    expect(workersAIModelPrice(entry("m", rate("per M input tokens", 1)))).toBeUndefined();
+    expect(workersAIModelPrice(entry("m", rate("per M input tokens", 1), rate("per M output tokens", 2, "EUR")))).toBeUndefined();
+    expect(workersAIModelPrice(entry("m", rate("per M input tokens", 1), rate("per 1000 neurons", 2)))).toBeUndefined();
+    expect(workersAIModelPrice(entry("m", rate("per M input tokens", 1), rate("per M output tokens", Number.NaN)))).toBeUndefined();
+    expect(workersAIModelPrice({ name: "m", properties: [{ property_id: "context_window", value: 8000 }] })).toBeUndefined();
+    expect(workersAIModelPrice({ name: "m" })).toBeUndefined();
+    expect(workersAIModelPrice(undefined)).toBeUndefined();
+  });
+
+  it("reads the catalog through the binding", async () => {
+    const models = vi.fn(async () => [catalogEntry]);
+    await expect(fetchWorkersAIModels("@cf/test/model", { binding: { models } })).resolves.toEqual([catalogEntry]);
+    expect(models).toHaveBeenCalledWith({ search: "@cf/test/model" });
+    await expect(fetchWorkersAIModels("m", { binding: { models: async () => ({}) } })).rejects.toThrow("unexpected model list");
+  });
+
+  it("reads the catalog over REST with the account token", async () => {
+    const fetchImpl = makeFetchStub({ result: [catalogEntry] });
+    await expect(fetchWorkersAIModels("@cf/test/model", { accountId: "A/B", apiToken: "TOKEN", fetchImpl })).resolves.toEqual([
+      catalogEntry,
+    ]);
+    const [url, init] = fetchImpl.mock.calls[0]!;
+    expect(url).toBe("https://api.cloudflare.com/client/v4/accounts/A%2FB/ai/models/search?search=%40cf%2Ftest%2Fmodel");
+    expect(init?.headers).toEqual({ Authorization: "Bearer TOKEN" });
+  });
+
+  it("explains a failing or malformed REST catalog", async () => {
+    const source = (fetchImpl: typeof fetch) => ({ accountId: "A", apiToken: "T", fetchImpl });
+    await expect(fetchWorkersAIModels("m", source(makeFetchStub({}, { status: 500 })))).rejects.toThrow(
+      "the Workers AI model catalog returned HTTP 500",
+    );
+    await expect(fetchWorkersAIModels("m", source(makeFetchStub({ result: {} })))).rejects.toThrow(
+      "the Workers AI model catalog returned an unexpected response",
+    );
+  });
+
+  it("looks a price up by exact model name, not by the first search hit", async () => {
+    const models = async () => [entry("@cf/test/model-large", rate("per M input tokens", 9), rate("per M output tokens", 9)), catalogEntry];
+    const lookup = workersAIPriceLookup({ binding: { models } });
+    await expect(lookup("@cf/test/model")).resolves.toMatchObject({ inputPerMillion: 0.152 });
+    await expect(lookup("@cf/other")).resolves.toBeUndefined();
+  });
+
+  it("reports cached prompt tokens from the reply", async () => {
+    const reported: unknown[] = [];
+    const run = async () => ({
+      choices: [{ message: { content: "OK" } }],
+      usage: { prompt_tokens: 100, completion_tokens: 5, prompt_tokens_details: { cached_tokens: 64 } },
+    });
+    await createWorkersAIBindingTranslator({ modelId: "m", maxTokens: 10, run }).translate("s", "u", undefined, (info) =>
+      reported.push(info),
+    );
+    expect(reported).toEqual([{ inputTokens: 100, cachedInputTokens: 64, outputTokens: 5 }]);
+  });
+});
+
 describe("Anthropic translator", () => {
   function createAnthropic(fetchImpl: typeof fetch) {
     return createAnthropicTranslator({ apiKey: "KEY", modelId: "claude-test", maxTokens: 8192, fetchImpl });
@@ -377,6 +455,40 @@ describe("Anthropic translator", () => {
       }),
     );
     await expect(translator.translate("s", "u")).rejects.toThrow(/unexpected Anthropic response shape/);
+  });
+
+  it("reports the whole prompt as input, with cache reads as the cached part", async () => {
+    const reported: unknown[] = [];
+    const translator = createAnthropic(
+      makeFetchStub({
+        content: [{ type: "text", text: "OK" }],
+        stop_reason: "end_turn",
+        usage: { input_tokens: 10, cache_read_input_tokens: 70, cache_creation_input_tokens: 20, output_tokens: 5 },
+      }),
+    );
+    await translator.translate("s", "u", undefined, (info) => reported.push(info));
+    expect(reported).toEqual([{ finishReason: "end_turn", inputTokens: 100, cachedInputTokens: 70, outputTokens: 5 }]);
+  });
+
+  it("omits cached tokens when nothing was read from the cache, and tokens the reply lacks", async () => {
+    const reported: unknown[] = [];
+    const withUsage = createAnthropic(
+      makeFetchStub({ content: [{ type: "text", text: "OK" }], usage: { input_tokens: 10, cache_read_input_tokens: 0, output_tokens: 5 } }),
+    );
+    await withUsage.translate("s", "u", undefined, (info) => reported.push(info));
+    await createAnthropic(makeFetchStub({ content: [{ type: "text", text: "OK" }] })).translate("s", "u", undefined, (info) =>
+      reported.push(info),
+    );
+    expect(reported).toEqual([{ inputTokens: 10, outputTokens: 5 }, {}]);
+  });
+
+  it("reports tokens even when the reply is cut off at the output limit", async () => {
+    const reported: unknown[] = [];
+    const translator = createAnthropic(
+      makeFetchStub({ content: [], stop_reason: "max_tokens", usage: { input_tokens: 10, output_tokens: 8192 } }),
+    );
+    await expect(translator.translate("s", "u", undefined, (info) => reported.push(info))).rejects.toThrow("ran out of output tokens");
+    expect(reported).toEqual([{ finishReason: "max_tokens", inputTokens: 10, outputTokens: 8192 }]);
   });
 
   it("uses the canonical core permanent error", async () => {

@@ -1,3 +1,4 @@
+import type { ModelPrice, ModelPriceLookup } from "../cost.js";
 import { resolveModelChoice, type ModelChoiceSpec, type ProviderResponseInfo, type Translator } from "../translator.js";
 
 import { createProviderHttpError } from "./http-error.js";
@@ -165,10 +166,71 @@ function responseInfo(data: unknown): ProviderResponseInfo {
   const inputTokens = count(property(usage, "prompt_tokens"));
   const outputTokens = count(property(usage, "completion_tokens"));
   const reasoningTokens = count(property(property(usage, "completion_tokens_details"), "reasoning_tokens"));
+  const cachedInputTokens = count(property(property(usage, "prompt_tokens_details"), "cached_tokens"));
   if (inputTokens !== undefined) info.inputTokens = inputTokens;
+  if (cachedInputTokens !== undefined) info.cachedInputTokens = cachedInputTokens;
   if (outputTokens !== undefined) info.outputTokens = outputTokens;
   if (reasoningTokens !== undefined) info.reasoningTokens = reasoningTokens;
   return info;
+}
+
+const CATALOG_TIMEOUT_MS = 5000;
+const PRICE_UNITS: Readonly<Record<string, keyof ModelPrice>> = {
+  "per M input tokens": "inputPerMillion",
+  "per M output tokens": "outputPerMillion",
+  "per M cached input tokens": "cachedInputPerMillion",
+};
+
+/** Where to read the Workers AI model catalog: the `AI` binding, or the REST API with an account token. */
+export type WorkersAICatalogSource =
+  | { binding: { models(params: { search: string }): Promise<unknown> } }
+  | { accountId: string; apiToken: string; fetchImpl?: typeof fetch | undefined };
+
+/** Catalog entries matching `search`, as `env.AI.models()` and `GET /ai/models/search` return them. */
+export async function fetchWorkersAIModels(search: string, source: WorkersAICatalogSource): Promise<unknown[]> {
+  if ("binding" in source) {
+    const result: unknown = await source.binding.models({ search });
+    if (!Array.isArray(result)) throw new Error("the Workers AI binding returned an unexpected model list");
+    return result;
+  }
+  const url = `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(source.accountId)}/ai/models/search?${new URLSearchParams({ search })}`;
+  const response = await (source.fetchImpl ?? fetch)(url, {
+    headers: { Authorization: `Bearer ${source.apiToken}` },
+    signal: AbortSignal.timeout(CATALOG_TIMEOUT_MS),
+  });
+  if (!response.ok) throw new Error(`the Workers AI model catalog returned HTTP ${response.status}`);
+  const body: unknown = await response.json();
+  const result = property(body, "result");
+  if (!Array.isArray(result)) throw new Error("the Workers AI model catalog returned an unexpected response");
+  return result;
+}
+
+/** The USD list price in a catalog entry's `price` property, or `undefined` when it has no per-token price. */
+export function workersAIModelPrice(entry: unknown): ModelPrice | undefined {
+  const properties = property(entry, "properties");
+  const priceProperty: unknown = Array.isArray(properties)
+    ? properties.find((item) => property(item, "property_id") === "price")
+    : undefined;
+  const rates = property(priceProperty, "value");
+  if (!Array.isArray(rates)) return undefined;
+  const price: Partial<Record<keyof ModelPrice, number>> = {};
+  for (const rate of rates) {
+    const unit = property(rate, "unit");
+    const amount = property(rate, "price");
+    const key = typeof unit === "string" ? PRICE_UNITS[unit] : undefined;
+    if (key !== undefined && property(rate, "currency") === "USD" && typeof amount === "number" && Number.isFinite(amount)) {
+      price[key] = amount;
+    }
+  }
+  const { inputPerMillion, outputPerMillion, cachedInputPerMillion } = price;
+  if (inputPerMillion === undefined || outputPerMillion === undefined) return undefined;
+  return { inputPerMillion, outputPerMillion, ...(cachedInputPerMillion === undefined ? {} : { cachedInputPerMillion }) };
+}
+
+/** A `createModelPriceLookup` fallback that reads prices from the Workers AI catalog. */
+export function workersAIPriceLookup(source: WorkersAICatalogSource): ModelPriceLookup {
+  return async (modelId) =>
+    workersAIModelPrice((await fetchWorkersAIModels(modelId, source)).find((entry) => property(entry, "name") === modelId));
 }
 
 function normalizeWorkersAIHttpResponse(data: unknown, modelId: string, maxTokens: number): string {

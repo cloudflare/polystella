@@ -14,7 +14,7 @@ export async function translateRecord(ai: WorkersAIBinding): Promise<string> {
     translatableKeys: { "record.json": ["title"] },
   });
   const translator: Translator = createWorkersAIBindingTranslator({
-    modelId: "@cf/meta/llama-3.1-8b-instruct",
+    modelId: "@cf/deepseek-ai/deepseek-v4.1-flash-1017",
     maxTokens: 8192,
     run: (modelId, input) => ai.run(modelId, input),
   });

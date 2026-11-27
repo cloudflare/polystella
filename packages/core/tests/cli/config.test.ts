@@ -88,6 +88,22 @@ describe("resolveCatalogConfig", () => {
     expect(resolveLocaleTagsConfig(undefined, i18n)).toBeUndefined();
   });
 
+  it("parses provider.prices for both providers and rejects invalid ones", () => {
+    const prices = { "@cf/model": { inputPerMillion: 1, outputPerMillion: 2, cachedInputPerMillion: 0.5 } };
+    const workers = { kind: "workers-ai", accountId: "a", apiToken: "t", model: "@cf/model", prices };
+    expect(resolveCatalogConfig({ provider: workers }, i18n).provider).toMatchObject({ prices });
+    expect(resolveCatalogConfig({ provider: { kind: "anthropic", apiKey: "k", model: "claude", prices } }, i18n).provider).toMatchObject({
+      prices,
+    });
+    expect(resolveCatalogConfig({ provider: { ...workers, prices: undefined } }, i18n).provider).not.toHaveProperty("prices");
+
+    const withPrices = (value: unknown) => () => resolveCatalogConfig({ provider: { ...workers, prices: value } }, i18n);
+    expect(withPrices([])).toThrow(/provider\.prices/);
+    expect(withPrices({ m: { inputPerMillion: 1 } })).toThrow(/provider\.prices\.m.*outputPerMillion/);
+    expect(withPrices({ m: { inputPerMillion: -1, outputPerMillion: 1 } })).toThrow(/provider\.prices\.m.*inputPerMillion/);
+    expect(withPrices({ m: { inputPerMillion: 1, outputPerMillion: 1, extra: 1 } })).toThrow(/unknown key "extra"/);
+  });
+
   it("rejects invalid relevant options", () => {
     expect(() => resolveCatalogConfig({ concurrency: 0 }, i18n)).toThrow(/concurrency/);
     expect(() => resolveCatalogConfig({}, { ...i18n, locales: ["en-US", "pt-BR", "pt-BR"] })).toThrow(/duplicates/);

@@ -7,7 +7,7 @@ import {
   type Segment,
   type Translator,
 } from "@cloudflare/polystella-core";
-import { createTranslator } from "../../src/translation/provider.js";
+import { createPriceLookup, createTranslator } from "../../src/translation/provider.js";
 
 /**
  * Build a fetch stub that returns a single canned response. Each test
@@ -686,5 +686,91 @@ describe("PermanentProviderError detection", () => {
       { fetchImpl: fetchStub as unknown as typeof fetch },
     );
     await expect(translator.translate("sys", "user")).rejects.toBeInstanceOf(PermanentProviderError);
+  });
+});
+
+describe("createPriceLookup", () => {
+  const catalogEntry = {
+    name: "@cf/test/model",
+    properties: [
+      {
+        property_id: "price",
+        value: [
+          { unit: "per M input tokens", price: 0.152, currency: "USD" },
+          { unit: "per M output tokens", price: 0.5, currency: "USD" },
+          { unit: "per M cached input tokens", price: 0.03, currency: "USD" },
+        ],
+      },
+    ],
+  };
+  const workers = {
+    kind: "workers-ai",
+    accountId: "acct",
+    apiToken: "SECRET",
+    model: "@cf/test/model",
+    maxTokens: 8192,
+    batchInputTokenBudget: 4000,
+  } as const;
+
+  it("reads the Workers AI catalog with the Bearer token and parses the price when there is no endpoint", async () => {
+    const fetchImpl = makeFetchStub({ result: [catalogEntry] });
+    const price = await createPriceLookup(workers, undefined, { fetchImpl: fetchImpl as unknown as typeof fetch })("@cf/test/model");
+    expect(price).toEqual({ inputPerMillion: 0.152, outputPerMillion: 0.5, cachedInputPerMillion: 0.03 });
+    const [url, init] = fetchImpl.mock.calls[0]!;
+    expect(url).toBe("https://api.cloudflare.com/client/v4/accounts/acct/ai/models/search?search=%40cf%2Ftest%2Fmodel");
+    expect(init?.headers).toEqual({ Authorization: "Bearer SECRET" });
+  });
+
+  it("never calls the catalog, with any fetch, when a custom endpoint is set", async () => {
+    const fetchImpl = makeFetchStub({ result: [catalogEntry] });
+    const globalFetch = vi.fn(async () => Response.json({ result: [catalogEntry] }));
+    vi.stubGlobal("fetch", globalFetch);
+    try {
+      const lookup = createPriceLookup({ ...workers, endpoint: "https://gateway.test/workers-ai" }, undefined, {
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      });
+      await expect(lookup("@cf/test/model")).resolves.toBeUndefined();
+      expect(fetchImpl).not.toHaveBeenCalled();
+      expect(globalFetch).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("still uses provider.prices with a custom endpoint, and never calls the catalog for Anthropic", async () => {
+    const fetchImpl = makeFetchStub({ result: [catalogEntry] });
+    const prices = { "@cf/test/model": { inputPerMillion: 1, outputPerMillion: 2 } };
+    const gateway = createPriceLookup({ ...workers, endpoint: "https://gateway.test/workers-ai", prices }, undefined, {
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    await expect(gateway("@cf/test/model")).resolves.toBe(prices["@cf/test/model"]);
+
+    const anthropic = createPriceLookup(
+      { kind: "anthropic", apiKey: "k", model: "claude-test", maxTokens: 8192, batchInputTokenBudget: 4000 },
+      undefined,
+      { fetchImpl: fetchImpl as unknown as typeof fetch },
+    );
+    await expect(anthropic("claude-test")).resolves.toBeUndefined();
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("lets provider.prices win over the catalog", async () => {
+    const fetchImpl = makeFetchStub({ result: [catalogEntry] });
+    const prices = { "@cf/test/model": { inputPerMillion: 1, outputPerMillion: 2 } };
+    await expect(
+      createPriceLookup({ ...workers, prices }, undefined, { fetchImpl: fetchImpl as unknown as typeof fetch })("@cf/test/model"),
+    ).resolves.toBe(prices["@cf/test/model"]);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("reports a catalog failure through onError and resolves undefined", async () => {
+    const fetchImpl = makeFetchStub({}, { status: 500 });
+    const onError = vi.fn();
+    const lookup = createPriceLookup(workers, onError, { fetchImpl: fetchImpl as unknown as typeof fetch });
+    await expect(lookup("@cf/test/model")).resolves.toBeUndefined();
+    expect(onError).toHaveBeenCalledWith(
+      "@cf/test/model",
+      expect.objectContaining({ message: "the Workers AI model catalog returned HTTP 500" }),
+    );
   });
 });

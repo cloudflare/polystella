@@ -1,4 +1,4 @@
-import { translateSegments, type Glossary, type Segment, type Translator } from "@cloudflare/polystella-core";
+import { translateSegments, type Glossary, type ModelPrice, type Segment, type Translator } from "@cloudflare/polystella-core";
 import type { CatalogSource, IgnoreKey, MessageSyntax } from "@cloudflare/polystella-core/catalog";
 import { workersAIRequestParams } from "@cloudflare/polystella-core/providers/workers-ai";
 import {
@@ -105,7 +105,7 @@ import {
 import { resolveGlossary, resolveInstructions, runtimeOverrideSettingKey } from "../../settings.js";
 import type { PolystellaEmdashOptions } from "../options.js";
 import { catalogIgnoreKey, catalogMessageSyntax, localeTag, targetLocales } from "../options.js";
-import { reasoningCapability, type ReasoningCapability } from "../reasoning.js";
+import { modelPrice, reasoningCapability, type ReasoningCapability } from "../reasoning.js";
 import {
   collectionPolicies,
   collectionSettings,
@@ -138,6 +138,7 @@ import {
   createTranslationDebugCollector,
   type TranslationDebugCollector,
 } from "./debug-collector.js";
+import { emitBatchResult, providerCallListener } from "../events.js";
 import { throwTranslationFailure, translationFailureMessage } from "./failures.js";
 import { createTranslator, translatorParams, type PluginRouteDependencies } from "./provider.js";
 import {
@@ -433,7 +434,12 @@ export function createPluginRoutes(
             sourceLocale: localeTag(options, options.catalogs.defaultLocale),
             targetLocale: localeTag(options, targetLocale),
             ...(settings.promptInstruction === undefined ? {} : { promptInstruction: settings.promptInstruction }),
-            ...(debug === undefined ? {} : { onBatchAttempt: debug.record, onValidationIssue }),
+            onBatchAttempt: providerCallListener(
+              ctx.log,
+              { surface: "content", locale: targetLocale, price: settings.price },
+              debug?.record,
+            ),
+            ...(debug === undefined ? {} : { onValidationIssue }),
             signal: ctx.request.signal,
           });
           for (const [id, text] of result.translations) translations.set(id, text);
@@ -529,7 +535,8 @@ export function createPluginRoutes(
             maxRetries: 2,
             messageSyntax,
             ...(settings.promptInstruction === undefined ? {} : { context: settings.promptInstruction }),
-            ...(debug === undefined ? {} : { onBatchAttempt: debug.record, onRetry: ({ error }) => debug?.markLastAttemptError(error) }),
+            onBatchAttempt: providerCallListener(ctx.log, { surface: "catalog", locale, price: settings.price }, debug?.record),
+            ...(debug === undefined ? {} : { onRetry: ({ error }) => debug?.markLastAttemptError(error) }),
             signal: ctx.request.signal,
           });
           if (debug !== undefined) {
@@ -705,7 +712,11 @@ export function createPluginRoutes(
             sourceLocale: localeTag(options, options.catalogs.defaultLocale),
             targetLocale: localeTag(options, targetLocale),
             ...(settings.promptInstruction === undefined ? {} : { promptInstruction: settings.promptInstruction }),
-            ...(debug === undefined ? {} : { onBatchAttempt: debug.record }),
+            onBatchAttempt: providerCallListener(
+              ctx.log,
+              { surface: "sandbox", locale: targetLocale, price: settings.price },
+              debug?.record,
+            ),
             signal: ctx.request.signal,
           });
           const translation = result.translations.get(segment.id);
@@ -967,6 +978,7 @@ export function createPluginRoutes(
           translation: BatchTranslationLink | null = null,
         ): Promise<BatchTranslateResponse> => {
           await recordBatchResult(results, message, outcome, detail, dependencies.now(), translation);
+          emitBatchResult(ctx.log, message, job.collection, outcome);
           return { create: null };
         };
         try {
@@ -1055,6 +1067,12 @@ export function createPluginRoutes(
             sourceLocale: localeTag(options, options.catalogs.defaultLocale),
             targetLocale: localeTag(options, message.locale),
             ...(settings.promptInstruction === undefined ? {} : { promptInstruction: settings.promptInstruction }),
+            onBatchAttempt: providerCallListener(ctx.log, {
+              surface: "batch",
+              locale: message.locale,
+              jobId: message.jobId,
+              price: settings.price,
+            }),
             signal: ctx.request.signal,
           });
           for (const [id, text] of result.translations) translations.set(id, text);
@@ -1132,6 +1150,7 @@ export function createPluginRoutes(
         const note = job.status === "cancelled" && outcome !== "skipped" ? FINISHED_AFTER_CANCEL : null;
         const recordedDetail = note === null ? detail : detail === null ? note : `${note} ${detail}`;
         await recordBatchResult(results, message, outcome, recordedDetail, dependencies.now(), translation);
+        emitBatchResult(ctx.log, message, job.collection, outcome);
         return { recorded: true };
       },
     },
@@ -1567,6 +1586,8 @@ async function translationSettings(
   promptInstruction?: string | undefined;
   /** For the debug trace: the extra Workers AI input each request carries. */
   requestInput: Readonly<Record<string, unknown>> | null;
+  /** For `provider_call` cost estimates; `undefined` when the model's price is unknown. */
+  price: ModelPrice | undefined;
 }> {
   const [storedSettings, env] = await Promise.all([storedTranslationSettings(options, settings), dependencies.getEnv()]);
   const stored = storedSettings.locales[locale];
@@ -1595,6 +1616,8 @@ async function translationSettings(
   // An admin's thinking choice goes with the model they picked; the code default comes from `models.params`.
   const effort = overrides?.reasoning ?? (model === choice.model ? choice.reasoning : null);
   const thinking = await reasoningInput(options, env, model, effort, dependencies, log);
+  // After `reasoningInput`, so a settled catalog lookup is reused instead of fetched twice.
+  const price = await modelPrice(options, env, model, dependencies);
   const translator = createTranslator(options, env, model, locale, log, dependencies, maxTokens, thinking);
   return {
     translator,
@@ -1603,6 +1626,7 @@ async function translationSettings(
     matchInflections: options.glossaryMatchInflections === true,
     debugEnabled: storedSettings.debugEnabled,
     maxTokens,
+    price,
     ...(promptInstruction.length === 0 ? {} : { promptInstruction }),
   };
 }

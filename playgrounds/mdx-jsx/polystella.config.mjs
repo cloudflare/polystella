@@ -73,7 +73,7 @@ function translationModeConfig(mode) {
 
   if (mode === "workers-ai") {
     const accountId = requiredEnv("POLYSTELLA_WORKERS_AI_ACCOUNT_ID", "CLOUDFLARE_ACCOUNT_ID");
-    const apiToken = requiredEnv("POLYSTELLA_WORKERS_AI_API_TOKEN", "CLOUDFLARE_API_TOKEN");
+    const apiToken = requiredEnv("POLYSTELLA_WORKERS_AI_API_TOKEN", "CLOUDFLARE_WORKERS_AI_TOKEN", "CLOUDFLARE_API_TOKEN");
     const endpoint = process.env.POLYSTELLA_WORKERS_AI_ENDPOINT;
     return {
       provider: {
@@ -81,7 +81,7 @@ function translationModeConfig(mode) {
         accountId,
         apiToken,
         ...(endpoint ? { endpoint } : {}),
-        model: process.env.POLYSTELLA_WORKERS_AI_MODEL ?? "@cf/meta/llama-3.1-8b-instruct",
+        model: process.env.POLYSTELLA_WORKERS_AI_MODEL ?? "@cf/deepseek-ai/deepseek-v4.1-flash-1017",
         maxTokens: readPositiveIntegerEnv("POLYSTELLA_WORKERS_AI_MAX_TOKENS", 8192),
         batchInputTokenBudget: readPositiveIntegerEnv("POLYSTELLA_WORKERS_AI_BATCH_INPUT_TOKEN_BUDGET", 4000),
       },
@@ -95,11 +95,11 @@ function translationModeConfig(mode) {
   return { dryRun: true };
 }
 
-/** @param {string} primary @param {string} fallback */
-function requiredEnv(primary, fallback) {
-  const value = process.env[primary] ?? process.env[fallback];
+/** @param {string[]} names First set wins. */
+function requiredEnv(...names) {
+  const value = names.map((name) => process.env[name]).find(Boolean);
   if (!value) {
-    throw new Error(`Missing required env var ${primary} or ${fallback}.`);
+    throw new Error(`Missing required env var: one of ${names.join(", ")}.`);
   }
   return value;
 }

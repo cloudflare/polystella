@@ -45,6 +45,13 @@ Anthropic bills per token at production rates. For a typical site
 pass to cost a few dollars. Subsequent builds hit the R2 cache and
 cost effectively nothing.
 
+PolyStella logs an **estimated** cost for each run (tokens × list
+price) when you give the model's list price in
+`provider.prices`, for example
+`{ "claude-sonnet-4-5": { inputPerMillion: 3, outputPerMillion: 15, cachedInputPerMillion: 0.3 } }`.
+Without it, PolyStella logs token counts only. See
+[Cost estimates](/providers/workers-ai/#cost-estimates).
+
 For preview / development workflows, prefer Workers AI as the
 provider and reserve Anthropic for builds where quality matters
 more than cost — typically the main branch and explicit re-
