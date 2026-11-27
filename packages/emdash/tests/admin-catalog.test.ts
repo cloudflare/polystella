@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import { MAX_CATALOG_KEYS, type CatalogEntryView } from "../src/contracts.js";
 import { CatalogGroupCard } from "../src/admin/plugin-page/tabs/CatalogTab/CatalogTab.js";
 import {
+  applyOverridesInfo,
   catalogActionHint,
   filterCatalogGroups,
   groupCatalogEntries,
@@ -112,7 +113,7 @@ describe("catalog group card", () => {
     [{ key: "nav", title: "Navigation" }],
   );
 
-  function render(narrow: boolean, options: { selected?: string[]; touched?: string[] } = {}): string {
+  function render(narrow: boolean, options: { selected?: string[]; touched?: string[]; overridesApplied?: boolean } = {}): string {
     if (group === undefined) throw new Error("missing group");
     const selected = options.selected ?? [];
     return renderToStaticMarkup(
@@ -129,6 +130,7 @@ describe("catalog group card", () => {
         ]),
         enabledOverrides: new Set(["nav.home", "nav.about"]),
         touchedKeys: new Set(options.touched ?? []),
+        overridesApplied: options.overridesApplied ?? true,
         working: false,
         onToggleSelected: () => {},
         onToggleOverride: () => {},
@@ -146,8 +148,34 @@ describe("catalog group card", () => {
     expect(html).toContain('aria-label="Edit override for nav.home"');
     expect(html).toContain("Synced");
     expect(html).toContain("Unsaved");
-    expect(html).not.toContain("Not deployed");
+    expect(html).not.toContain("Not applied");
     expect(html).toContain(narrow ? "<ul" : "<table");
+  });
+
+  it("names the current translation column and marks keys it lacks", () => {
+    const html = render(false);
+    expect(html).toContain("Current translation");
+    expect(html).not.toContain("Deployed");
+    expect(html).toContain("Missing");
+  });
+
+  it.each([false, true])("marks saved overrides not applied only while Apply overrides is off (narrow: %s)", (narrow) => {
+    const notApplied = (html: string) => html.match(/Not applied/g)?.length ?? 0;
+    // nav.home and nav.about are saved; nav.blog has no override; the touched row shows Unsaved instead.
+    expect(notApplied(render(narrow, { overridesApplied: false }))).toBe(2);
+    expect(notApplied(render(narrow, { overridesApplied: false, touched: ["nav.about"] }))).toBe(1);
+    expect(notApplied(render(narrow, { overridesApplied: true }))).toBe(0);
+    expect(render(narrow, { overridesApplied: false })).toContain("opacity:0.5");
+    expect(render(narrow, { overridesApplied: true })).not.toContain("opacity:0.5");
+  });
+
+  it("explains Apply overrides for the saved setting", () => {
+    expect(applyOverridesInfo(true, 3)).toBe("On: the site shows the saved overrides instead of the current translations.");
+    expect(applyOverridesInfo(false, 3)).toBe(
+      "Off: the site shows its current translations. The 3 saved overrides are kept, but not shown on the site until you turn this on.",
+    );
+    expect(applyOverridesInfo(false, 1)).toContain("The saved override is kept, but not shown");
+    expect(applyOverridesInfo(false, 0)).toBe("Off: the site shows its current translations. Save an override first to turn this on.");
   });
 
   it("explains a full selection", () => {

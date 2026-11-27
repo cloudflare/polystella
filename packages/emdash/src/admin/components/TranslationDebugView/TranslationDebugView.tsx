@@ -1,9 +1,10 @@
 import { Badge, Button, LayerCard, Tabs } from "@cloudflare/kumo";
 import { useState, type CSSProperties, type ReactNode } from "react";
 
-import type { TranslationDebugAttempt, TranslationDebugTrace } from "../../../contracts.js";
+import type { TranslationDebugAttempt, TranslationDebugTrace, TranslationUsage } from "../../../contracts.js";
 import { cardStyle, codeStyle, mutedStyle, rowStyle, stackStyle } from "../../styles.js";
 import { localeLabel, plural } from "../../utils.js";
+import { UsageTooltip } from "../PageHeader/PageHeader.js";
 
 export function TranslationDebugView({ trace, onDismiss }: { trace: TranslationDebugTrace; onDismiss(): void }): ReactNode {
   const number = (value: number) => value.toLocaleString();
@@ -115,7 +116,9 @@ function BatchAttempts({ attempts }: { attempts: readonly TranslationDebugAttemp
         <small style={mutedStyle}>in {attempt.durationMs.toLocaleString()} ms</small>
       </div>
       {attempt.providerResponse === undefined ? null : (
-        <small style={{ ...mutedStyle, overflowWrap: "anywhere" }}>{describeProviderResponse(attempt.providerResponse)}</small>
+        <small style={{ ...mutedStyle, overflowWrap: "anywhere" }}>
+          <UsageTooltip usage={attemptUsage(attempt)}>{describeProviderResponse(attempt.providerResponse)}</UsageTooltip>
+        </small>
       )}
       <Tabs
         variant="underline"
@@ -141,6 +144,20 @@ function downloadTranslationDebug(trace: TranslationDebugTrace): void {
   link.download = `polystella-${trace.operation}-debug.json`;
   link.click();
   URL.revokeObjectURL(url);
+}
+
+/** One call's usage, for its cost tooltip; `undefined` when the provider reported no token counts. */
+function attemptUsage({ providerResponse: info, estimatedCostUsd }: TranslationDebugAttempt): TranslationUsage | undefined {
+  if (info?.inputTokens === undefined || info.outputTokens === undefined) return undefined;
+  return {
+    calls: 1,
+    inputTokens: info.inputTokens,
+    cachedInputTokens: Math.min(info.cachedInputTokens ?? 0, info.inputTokens),
+    outputTokens: info.outputTokens,
+    reasoningTokens: Math.min(info.reasoningTokens ?? 0, info.outputTokens),
+    unreportedCalls: 0,
+    ...(estimatedCostUsd === undefined ? {} : { estimatedCostUsd }),
+  };
 }
 
 /** `finish: stop · input 2,104 tokens · output 3,388 tokens (2,950 reasoning) · reasoning text 9,812 characters`. */

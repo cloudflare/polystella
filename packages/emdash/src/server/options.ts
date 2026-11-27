@@ -59,6 +59,9 @@ export interface EmDashCatalogOptions {
 /** A text path inside a block, or a Markdown string at that path. */
 export type BlockFieldPath = string | { path: string; format: "markdown" };
 
+/** A code-defined glossary; `loadGlossaryDefaults` adds `source`, the YAML as written, shown to administrators only. */
+export type GlossaryDefault = Glossary & { source?: string | undefined };
+
 export interface PolystellaEmdashOptions {
   provider: EmDashWorkersAIProvider;
   catalogs: {
@@ -81,7 +84,7 @@ export interface PolystellaEmdashOptions {
     /** USD list prices per allowed model, for the `estimatedCostUsd` of `provider_call` events. Overrides the Workers AI catalog. */
     prices?: Readonly<Record<string, ModelPrice>> | undefined;
   };
-  glossaryDefaults?: Readonly<Record<string, Glossary>> | undefined;
+  glossaryDefaults?: Readonly<Record<string, GlossaryDefault>> | undefined;
   /** Let any letters follow a glossary term when deciding whether a batch uses it, so `Worker` matches "Workers". Default false. */
   glossaryMatchInflections?: boolean | undefined;
   rules?: readonly string[] | undefined;
@@ -207,9 +210,12 @@ export function validatePolystellaEmdashOptions(value: unknown): asserts value i
     const defaults = readRecord(options.glossaryDefaults, "options.glossaryDefaults");
     for (const [locale, glossary] of Object.entries(defaults)) {
       if (!configuredLocales.has(locale)) fail(`options.glossaryDefaults.${locale} must match a configured catalog locale`);
-      validateGlossary(glossary, `options.glossaryDefaults.${locale}`);
-      if (JSON.stringify(glossary).length > MAX_GLOSSARY_DEFAULT_CHARACTERS) {
+      const { source, ...terms } = validateGlossary(glossary, `options.glossaryDefaults.${locale}`);
+      if (JSON.stringify(terms).length > MAX_GLOSSARY_DEFAULT_CHARACTERS) {
         fail(`options.glossaryDefaults.${locale} cannot exceed ${MAX_GLOSSARY_DEFAULT_CHARACTERS} characters`);
+      }
+      if (source !== undefined && (typeof source !== "string" || source.length > MAX_GLOSSARY_DEFAULT_CHARACTERS)) {
+        fail(`options.glossaryDefaults.${locale}.source must be a string of at most ${MAX_GLOSSARY_DEFAULT_CHARACTERS} characters`);
       }
     }
   }
@@ -296,6 +302,7 @@ export function serializeOptions(options: PolystellaEmdashOptions): SerializedPo
                 preferredTranslations: { ...glossary.preferredTranslations },
                 styleRules: glossary.styleRules.map((rule) => ({ ...rule })),
                 notes: glossary.notes,
+                ...(glossary.source === undefined ? {} : { source: glossary.source }),
               },
             ]),
           ),
@@ -505,7 +512,7 @@ function modelSpecEntries(models: ModelChoiceSpec): Array<[string, ModelChoice]>
   return typeof models === "string" ? [["default", models]] : Object.entries(models);
 }
 
-function validateGlossary(value: unknown, label: string): void {
+function validateGlossary(value: unknown, label: string): Record<string, unknown> {
   const glossary = readRecord(value, label);
   readStringValue(glossary.version, `${label}.version`);
   readStringArray(glossary.doNotTranslate, `${label}.doNotTranslate`, true);
@@ -520,6 +527,7 @@ function validateGlossary(value: unknown, label: string): void {
     if (rule.example !== undefined) readString(rule.example, `${label}.styleRules[${index}].example`);
   }
   readStringValue(glossary.notes, `${label}.notes`);
+  return glossary;
 }
 
 function readStringValue(value: unknown, label: string): string {

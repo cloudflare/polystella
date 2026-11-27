@@ -13,7 +13,7 @@ export const OUTCOMES: ReadonlyArray<{ outcome: BatchJobOutcome; color: string; 
     color: "var(--color-kumo-badge-neutral, #a3a3a8)",
     info: "Already translated, or edited while the job ran. Nothing was changed.",
   },
-  { outcome: "failed", color: "var(--color-kumo-danger, #d93025)", info: "Results says why. Retry... runs them again." },
+  { outcome: "failed", color: "var(--color-kumo-danger, #d93025)", info: "Results says why. Retry runs them again." },
 ];
 
 /** One bar split by outcome; the rest of the track is work still to do. */

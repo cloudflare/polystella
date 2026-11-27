@@ -1,6 +1,7 @@
-import { DEFAULT_INPUT_TOKEN_BUDGET, type TranslateBatchAttemptEvent } from "@cloudflare/polystella-core";
+import { DEFAULT_INPUT_TOKEN_BUDGET, type ModelPrice, type TranslateBatchAttemptEvent } from "@cloudflare/polystella-core";
 
 import type { TranslationDebugBatch, TranslationDebugTrace } from "../../contracts.js";
+import { callCostUsd } from "../events.js";
 import { publicTranslationFailure } from "./failures.js";
 
 export interface TranslationDebugCollector {
@@ -20,6 +21,8 @@ export interface TranslationDebugCollectorOptions {
   maxSegmentsPerBatch: number | null;
   sourceLocale: string;
   targetLocale: string;
+  /** For each attempt's cost estimate. */
+  price?: ModelPrice | undefined;
   labelSegment(id: string): string;
 }
 
@@ -49,6 +52,7 @@ export function createTranslationDebugCollector(options: TranslationDebugCollect
         batches.push(batch);
         batchesBySegments.set(key, batch);
       }
+      const estimatedCostUsd = callCostUsd(options.price, event.providerResponse);
       batch.attempts.push({
         attempt: batch.attempts.length + 1,
         durationMs: Math.round(event.durationMs),
@@ -58,6 +62,7 @@ export function createTranslationDebugCollector(options: TranslationDebugCollect
         translations: event.translations === undefined ? null : Object.fromEntries(event.translations),
         error: event.error === undefined ? null : publicTranslationFailure(event.error),
         ...(event.providerResponse === undefined ? {} : { providerResponse: { ...event.providerResponse } }),
+        ...(estimatedCostUsd === undefined ? {} : { estimatedCostUsd }),
       });
     },
     markLastAttemptError(error) {

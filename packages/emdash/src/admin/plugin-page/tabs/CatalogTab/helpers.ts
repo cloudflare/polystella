@@ -65,6 +65,14 @@ export function catalogActionHint({
   return hints.length === 0 ? null : hints.join(" ");
 }
 
+/** The "Apply overrides" ⓘ text for the saved runtime setting; `saved` counts the locale's saved overrides. */
+export function applyOverridesInfo(runtimeOn: boolean, saved: number): string {
+  if (runtimeOn) return "On: the site shows the saved overrides instead of the current translations.";
+  if (saved === 0) return "Off: the site shows its current translations. Save an override first to turn this on.";
+  const kept = saved === 1 ? "The saved override is kept, but not" : `The ${saved} saved overrides are kept, but not`;
+  return `Off: the site shows its current translations. ${kept} shown on the site until you turn this on.`;
+}
+
 export function sourceContainsTokens(source: string | null, messageSyntax: "polystella" | "icu" = "polystella"): boolean {
   if (source === null) return false;
   return messageSyntax === "icu" ? /\{\s*[\p{L}\p{N}_]/u.test(source) : source.includes("{{");

@@ -88,7 +88,11 @@ export function createPolystellaOptions(runtime) {
       allowed: models,
       // No `defaults`: the plugin falls back to the first allowed model until an administrator picks one.
       ...(useFakeAi
-        ? { reasoningInput: Object.fromEntries(Object.entries(fakeReasoningInput).filter(([model]) => models.includes(model))) }
+        ? {
+            reasoningInput: Object.fromEntries(Object.entries(fakeReasoningInput).filter(([model]) => models.includes(model))),
+            // Made-up prices, so the fake's usage tooltips show a cost estimate.
+            prices: Object.fromEntries(models.map((model) => [model, { inputPerMillion: 0.3, outputPerMillion: 1.2 }])),
+          }
         : {}),
     },
     glossaryDefaults,

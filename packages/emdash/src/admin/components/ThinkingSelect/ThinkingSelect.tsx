@@ -69,7 +69,7 @@ export function ThinkingSelect({
   return (
     <Select
       label="Thinking"
-      description="Off is faster and cheaper. More thinking can help with tricky text but uses output tokens. No override uses what the code sets for this model, if anything."
+      description="Off is faster and cheaper. More thinking can help with tricky text but uses output tokens."
       value={value ?? MODEL_DEFAULT_REASONING}
       renderValue={(selected) =>
         selected === MODEL_DEFAULT_REASONING || typeof selected !== "string" ? "No override" : effortLabel(selected)

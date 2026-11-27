@@ -177,7 +177,12 @@ glossaryDefaults: await loadGlossaryDefaults({
 ```
 
 The helper also accepts the same `http` and `r2` source forms as the
-Astro integration. Remote sources do not require `projectRoot`.
+Astro integration. Remote sources do not require `projectRoot`. It
+keeps each file's text as `source`, so the admin's code-defined
+glossary page can show it as written; `source` is never sent to the
+model. The text is stored in the plugin options, so the deployed
+Worker carries each glossary file twice (parsed and as text); only the
+code-defined glossary page requests it, for its one locale.
 
 Glossaries can be large: each translation request carries only the
 terms its text uses, plus the style rules and notes. A locale's
@@ -338,7 +343,7 @@ by the queue too, 100 source entries at a time, so its total grows
 until listing ends. A job holds at most 5,000 translations: listing
 stops there, and the job card says later entries were not queued.
 Translation errors are recorded as failed rows that
-**Retry...** queues again as a new job. A retry that redoes a
+**Retry** queues again as a new job. A retry that redoes a
 translation updates it with `runtime.handleContentUpdate` and EmDash's
 `_rev` token, so an edit made while it translates is kept. Infrastructure errors (for example, the
 database is unreachable) use the queue's own retries.

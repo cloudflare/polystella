@@ -17,10 +17,11 @@ import { errorMessage, localeLabel, plural, pluginRequest } from "../../../utils
 import type { CatalogGroup, TranslationProgressState } from "../../../types.js";
 import { cardStyle, inputStyle, mutedStyle, rowStyle, sectionStyle, stackStyle } from "../../../styles.js";
 import { ErrorMessage } from "../../../components/ErrorMessage/ErrorMessage.js";
-import { InfoTooltip, SectionHeader, TextTooltip } from "../../../components/PageHeader/PageHeader.js";
+import { InfoLabel, InfoTooltip, SectionHeader, TextTooltip } from "../../../components/PageHeader/PageHeader.js";
 import { TranslationDebugView } from "../../../components/TranslationDebugView/TranslationDebugView.js";
 import { TranslationProgress } from "../../../components/TranslationProgress/TranslationProgress.js";
 import {
+  applyOverridesInfo,
   catalogActionHint,
   catalogOverrideChanged,
   filterCatalogGroups,
@@ -166,7 +167,7 @@ export function CatalogTab(): ReactNode {
       if (result.tokenFailures.length > 0) {
         showError(`Placeholder validation failed for: ${listKeys(result.tokenFailures.map((failure) => failure.key))}`);
       }
-      setGenerationProgress({ percent: 100, label: "Catalog generation complete" });
+      setGenerationProgress({ percent: 100, label: "Catalog generation complete", usage: result.usage });
     } catch (cause) {
       showError(errorMessage(cause));
       setGenerationProgress(null);
@@ -226,7 +227,7 @@ export function CatalogTab(): ReactNode {
 
   async function clearSynced(): Promise<void> {
     if (catalog === null) return;
-    if (!window.confirm(`Delete every ${catalog.locale} override that already matches the deployed catalog?`)) return;
+    if (!window.confirm(`Delete every ${catalog.locale} override that already matches the current translation?`)) return;
     setWorking(true);
     showError(null);
     try {
@@ -362,7 +363,8 @@ export function CatalogTab(): ReactNode {
 
   const localeSummary = catalog.locales.find((item) => item.locale === catalog.locale);
   const runtimeOn = localeSummary?.runtimeEnabled === true;
-  const hasSavedOverrides = catalog.entries.some((entry) => entry.override !== null);
+  const savedOverrides = catalog.entries.filter((entry) => entry.override !== null).length;
+  const hasSavedOverrides = savedOverrides > 0;
   const hasSynced = catalog.entries.some((entry) => entry.state === "synced");
   const isDefaultLocale = catalog.locale === catalog.defaultLocale;
   // Falls back to the first group alphabetically, on first load and when a search hides the chosen one.
@@ -396,14 +398,58 @@ export function CatalogTab(): ReactNode {
           </div>
           <div style={{ display: "grid", gap: 4 }}>
             <Switch
-              label="Apply overrides"
+              aria-label="Apply overrides"
+              label={<InfoLabel label="Apply overrides" info={applyOverridesInfo(runtimeOn, savedOverrides)} />}
               checked={runtimeOn}
               disabled={working || touched.size > 0 || (!runtimeOn && !hasSavedOverrides)}
               onCheckedChange={(enabled) => void setRuntimeEnabled(enabled)}
             />
-            {!runtimeOn && !hasSavedOverrides ? <small style={mutedStyle}>Save an override to apply overrides.</small> : null}
           </div>
         </div>
+      </LayerCard>
+      <LayerCard style={actionBarStyle}>
+        {errorView}
+        {generationProgress === null ? null : <TranslationProgress {...generationProgress} />}
+        <div style={rowStyle}>
+          <Button
+            variant="primary"
+            loading={working}
+            disabled={working || selected.length === 0 || isDefaultLocale}
+            onClick={() => void generate()}
+          >
+            Generate selected
+          </Button>
+          <Button variant="secondary" loading={working} disabled={touched.size === 0} onClick={() => void save()}>
+            Save changes
+          </Button>
+          <Button
+            variant="secondary"
+            disabled={working || touched.size === 0}
+            onClick={() => {
+              if (!confirmDiscard("Discarding")) return;
+              applyCatalog(catalog);
+              showError(null);
+              setStatus(null);
+            }}
+          >
+            Discard
+          </Button>
+          <Button variant="secondary" disabled={working || touched.size > 0} onClick={() => void exportJson()}>
+            Export JSON
+          </Button>
+          <Button variant="secondary" disabled={working || touched.size > 0 || !hasSynced} onClick={() => void clearSynced()}>
+            Clear synced overrides
+          </Button>
+          {touched.size === 0 ? null : <Badge variant="warning">{touched.size} unsaved</Badge>}
+        </div>
+        <small style={mutedStyle}>
+          Up to {MAX_CATALOG_KEYS} keys per request · {selected.length}/{MAX_CATALOG_KEYS} selected
+          {actionHint === null ? "" : ` · ${actionHint}`}
+        </small>
+        {saveProgress === null ? null : <small style={mutedStyle}>{saveProgress}</small>}
+        <small role="status" style={mutedStyle}>
+          {status}
+        </small>
       </LayerCard>
       {runtimeOn && !catalog.entries.some((entry) => entry.state === "active" || entry.state === "missing") ? (
         <Banner variant="secondary" title="Overrides are synced" description="Runtime overrides can be disabled for this locale." />
@@ -476,6 +522,7 @@ export function CatalogTab(): ReactNode {
             drafts={drafts}
             enabledOverrides={enabledOverrides}
             touchedKeys={touched}
+            overridesApplied={runtimeOn}
             working={working}
             onToggleSelected={toggleSelected}
             onToggleOverride={toggleOverride}
@@ -484,50 +531,6 @@ export function CatalogTab(): ReactNode {
         )}
       </div>
       {debug === null ? null : <TranslationDebugView trace={debug} onDismiss={() => setDebug(null)} />}
-      <div style={actionBarStyle}>
-        {errorView}
-        {generationProgress === null ? null : <TranslationProgress {...generationProgress} />}
-        <div style={rowStyle}>
-          <Button
-            variant="primary"
-            loading={working}
-            disabled={working || selected.length === 0 || isDefaultLocale}
-            onClick={() => void generate()}
-          >
-            Generate selected
-          </Button>
-          <Button variant="secondary" loading={working} disabled={touched.size === 0} onClick={() => void save()}>
-            Save changes
-          </Button>
-          <Button
-            variant="secondary"
-            disabled={working || touched.size === 0}
-            onClick={() => {
-              if (!confirmDiscard("Discarding")) return;
-              applyCatalog(catalog);
-              showError(null);
-              setStatus(null);
-            }}
-          >
-            Discard
-          </Button>
-          <Button variant="secondary" disabled={working || touched.size > 0} onClick={() => void exportJson()}>
-            Export JSON
-          </Button>
-          <Button variant="secondary" disabled={working || touched.size > 0 || !hasSynced} onClick={() => void clearSynced()}>
-            Clear synced overrides
-          </Button>
-          {touched.size === 0 ? null : <Badge variant="warning">{touched.size} unsaved</Badge>}
-        </div>
-        <small style={mutedStyle}>
-          Up to {MAX_CATALOG_KEYS} keys per request · {selected.length}/{MAX_CATALOG_KEYS} selected
-          {actionHint === null ? "" : ` · ${actionHint}`}
-        </small>
-        {saveProgress === null ? null : <small style={mutedStyle}>{saveProgress}</small>}
-        <small role="status" style={mutedStyle}>
-          {status}
-        </small>
-      </div>
     </section>
   );
 }
@@ -551,16 +554,7 @@ const activeGroupButtonStyle: CSSProperties = {
   background: "color-mix(in srgb, var(--color-kumo-brand, #2563eb) 14%, transparent)",
   fontWeight: 600,
 };
-const actionBarStyle: CSSProperties = {
-  ...stackStyle,
-  background: "var(--color-kumo-base, #fff)",
-  borderTop: "1px solid var(--color-kumo-line, #ececef)",
-  bottom: 0,
-  gap: 8,
-  padding: "12px 0",
-  position: "sticky",
-  zIndex: 1,
-};
+const actionBarStyle: CSSProperties = { ...cardStyle, ...stackStyle, gap: 8 };
 const listStyle: CSSProperties = { display: "grid", listStyle: "none", margin: 0, padding: 0 };
 const itemStyle: CSSProperties = { borderTop: "1px solid var(--color-kumo-line, #ececef)", display: "flex", gap: 10, padding: "12px 0" };
 const truncateStyle: CSSProperties = { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" };
@@ -582,6 +576,7 @@ export const CatalogGroupCard = memo(function CatalogGroupCard({
   drafts,
   enabledOverrides,
   touchedKeys,
+  overridesApplied,
   working,
   onToggleSelected,
   onToggleOverride,
@@ -596,6 +591,8 @@ export const CatalogGroupCard = memo(function CatalogGroupCard({
   drafts: ReadonlyMap<string, string>;
   enabledOverrides: ReadonlySet<string>;
   touchedKeys: ReadonlySet<string>;
+  /** The saved "Apply overrides" setting for this locale. */
+  overridesApplied: boolean;
   working: boolean;
 }): ReactNode {
   const selectableKeys = useMemo(
@@ -613,6 +610,7 @@ export const CatalogGroupCard = memo(function CatalogGroupCard({
   };
   const rows = group.entries.map((entry) => {
     const checked = selectedKeys.has(entry.key);
+    const touched = touchedKeys.has(entry.key);
     const props = {
       entry,
       keyLabel: keyWithinGroup(entry.key, group.key),
@@ -621,7 +619,9 @@ export const CatalogGroupCard = memo(function CatalogGroupCard({
       selectDisabled: working || entry.source === null || entry.source.length === 0 || (!checked && selectionFull),
       overrideEnabled: enabledOverrides.has(entry.key),
       draft: drafts.get(entry.key) ?? "",
-      touched: touchedKeys.has(entry.key),
+      touched,
+      // An untouched row with a saved override is enabled, so only Apply overrides being off hides it.
+      notApplied: !overridesApplied && !touched && entry.override !== null,
       working,
       onToggleSelected,
       onToggleOverride,
@@ -656,7 +656,7 @@ export const CatalogGroupCard = memo(function CatalogGroupCard({
                   <Table.CheckHead label={`Select all ${group.key} keys`} style={{ width: 48 }} {...selectAll} />
                   <Table.Head style={{ width: "20%" }}>Key</Table.Head>
                   <Table.Head style={{ width: "25%" }}>Source</Table.Head>
-                  <Table.Head style={{ width: "25%" }}>Deployed</Table.Head>
+                  <Table.Head style={{ width: "25%" }}>Current translation</Table.Head>
                   <Table.Head>Override</Table.Head>
                 </Table.Row>
               </Table.Header>
@@ -678,11 +678,12 @@ type CatalogRowProps = CatalogRowHandlers & {
   overrideEnabled: boolean;
   draft: string;
   touched: boolean;
+  notApplied: boolean;
   working: boolean;
 };
 
 const CatalogRow = memo(function CatalogRow(props: CatalogRowProps): ReactNode {
-  const { entry, keyLabel, messageSyntax, checked, selectDisabled, touched, onToggleSelected } = props;
+  const { entry, keyLabel, messageSyntax, checked, selectDisabled, touched, notApplied, onToggleSelected } = props;
   return (
     <Table.Row>
       <Table.CheckCell
@@ -696,7 +697,7 @@ const CatalogRow = memo(function CatalogRow(props: CatalogRowProps): ReactNode {
           <code style={{ fontWeight: 500, overflowWrap: "anywhere" }} title={entry.key}>
             {keyLabel}
           </code>
-          <StateBadge entry={entry} touched={touched} />
+          <StateBadge entry={entry} touched={touched} notApplied={notApplied} />
         </div>
       </Table.Cell>
       <Table.Cell>
@@ -714,7 +715,7 @@ const CatalogRow = memo(function CatalogRow(props: CatalogRowProps): ReactNode {
 });
 
 const CatalogListItem = memo(function CatalogListItem(props: CatalogRowProps): ReactNode {
-  const { entry, keyLabel, messageSyntax, checked, selectDisabled, touched, onToggleSelected } = props;
+  const { entry, keyLabel, messageSyntax, checked, selectDisabled, touched, notApplied, onToggleSelected } = props;
   return (
     <li style={itemStyle}>
       <Checkbox
@@ -728,7 +729,7 @@ const CatalogListItem = memo(function CatalogListItem(props: CatalogRowProps): R
           <code style={{ fontWeight: 500, overflowWrap: "anywhere" }} title={entry.key}>
             <ShortText text={keyLabel} max={40} />
           </code>
-          <StateBadge entry={entry} touched={touched} />
+          <StateBadge entry={entry} touched={touched} notApplied={notApplied} />
         </div>
         <small style={{ ...mutedStyle, overflowWrap: "anywhere" }}>
           <TokenHint source={entry.source} messageSyntax={messageSyntax} />
@@ -745,8 +746,8 @@ function ShortText({ text, max }: { text: string; max: number }): ReactNode {
   return short === text ? text : <TextTooltip content={text}>{short}</TextTooltip>;
 }
 
-/** Only states the switch can't show: saved-but-identical, filling a missing key, or not saved yet. */
-function StateBadge({ entry, touched }: { entry: CatalogEntryView; touched: boolean }): ReactNode {
+/** Only states the switch can't show: not saved yet, hidden by Apply overrides, saved-but-identical, or filling a missing key. */
+function StateBadge({ entry, touched, notApplied }: { entry: CatalogEntryView; touched: boolean; notApplied: boolean }): ReactNode {
   if (touched) {
     return (
       <Badge variant="info">
@@ -754,17 +755,26 @@ function StateBadge({ entry, touched }: { entry: CatalogEntryView; touched: bool
       </Badge>
     );
   }
+  if (notApplied) {
+    return (
+      <Badge variant="warning">
+        <TextTooltip content="Apply overrides is off, so the site doesn't show this override.">Not applied</TextTooltip>
+      </Badge>
+    );
+  }
   if (entry.state === "synced") {
     return (
       <Badge variant="success">
-        <TextTooltip content="Matches what's deployed, so it changes nothing. Clear synced overrides removes it.">Synced</TextTooltip>
+        <TextTooltip content="Matches the current translation, so it changes nothing. Clear synced overrides removes it.">
+          Synced
+        </TextTooltip>
       </Badge>
     );
   }
   if (entry.state === "missing") {
     return (
       <Badge variant="warning">
-        <TextTooltip content="The deployed catalog has no value for this key; this override supplies it.">Not deployed</TextTooltip>
+        <TextTooltip content="The current translation has no value for this key; this override supplies it.">Missing</TextTooltip>
       </Badge>
     );
   }
@@ -776,6 +786,7 @@ function OverrideEditor({
   overrideEnabled,
   draft,
   touched,
+  notApplied,
   working,
   inTable = false,
   onToggleOverride,
@@ -784,16 +795,19 @@ function OverrideEditor({
   // `null` follows `touched`, so generated or edited rows open and untouched ones stay one line.
   const [editing, setEditing] = useState<boolean | null>(null);
   const open = editing ?? touched;
+  const dimStyle: CSSProperties = notApplied ? { opacity: 0.5 } : {};
   return (
     <div style={{ display: "grid", gap: 8 }}>
-      <Switch
-        // The table's Override column header already names the switch.
-        {...(inTable ? {} : { label: "Override" })}
-        aria-label={`Enable override for ${entry.key}`}
-        checked={overrideEnabled}
-        disabled={working}
-        onCheckedChange={(enabled) => onToggleOverride(entry, enabled)}
-      />
+      <div style={dimStyle}>
+        <Switch
+          // The table's Override column header already names the switch.
+          {...(inTable ? {} : { label: "Override" })}
+          aria-label={`Enable override for ${entry.key}`}
+          checked={overrideEnabled}
+          disabled={working}
+          onCheckedChange={(enabled) => onToggleOverride(entry, enabled)}
+        />
+      </div>
       {!overrideEnabled ? null : open ? (
         <Textarea
           aria-label={`Override value for ${entry.key}`}
@@ -809,7 +823,7 @@ function OverrideEditor({
         />
       ) : (
         <div style={{ alignItems: "center", display: "flex", gap: 8, minWidth: 0 }}>
-          <span style={{ ...mutedStyle, ...truncateStyle, flex: "1 1 0" }}>{draft.length === 0 ? "Empty" : draft}</span>
+          <span style={{ ...mutedStyle, ...truncateStyle, ...dimStyle, flex: "1 1 0" }}>{draft.length === 0 ? "Empty" : draft}</span>
           <Button
             size="sm"
             variant="secondary"

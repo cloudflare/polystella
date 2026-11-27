@@ -43,15 +43,15 @@ export function RetryForm({
   const count = failed + notRun + (redo ? written : 0);
   return (
     <div style={stackStyle}>
-      <span style={mutedStyle}>Change Translation settings for this retry only. Empty fields keep them.</span>
+      <span style={mutedStyle}>Change these for this retry only. Anything left empty uses the translation settings.</span>
       <JobSettingsFields value={settings} disabled={working} onChange={setSettings} />
       {written === 0 ? null : (
         <Switch
-          aria-label={`Also redo the ${plural(written, "translation")} it wrote`}
+          aria-label={`Also redo the ${plural(written, "translation")} this run created or updated`}
           label={
             <InfoLabel
-              label={`Also redo the ${plural(written, "translation")} it wrote`}
-              info="Translates them again in place. Translations that were published, scheduled, or edited since are skipped."
+              label={`Also redo the ${plural(written, "translation")} this run created or updated`}
+              info="Translates them again and overwrites them. Any that were published, scheduled or edited since this run are left alone."
             />
           }
           checked={redo}

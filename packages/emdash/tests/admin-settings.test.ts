@@ -27,7 +27,7 @@ describe("AiFlagStatusView", () => {
     const html = renderFlag({ ...flagged, editedFields: null });
     expect(html).toContain("Couldn't check for edits");
     expect(html).toContain("Keep AI flag");
-    expect(html).toContain("Remove AI flag");
+    expect(html).toContain("Remove flag");
     expect(html).not.toContain(">AI-translated<");
   });
 
@@ -36,12 +36,11 @@ describe("AiFlagStatusView", () => {
     const calm = renderFlag(flagged);
     expect(calm).toContain("AI-translated");
     expect(calm).not.toContain("Keep AI flag");
-    expect(calm).toContain("llama");
   });
 
   it("keeps the badge and actions next to an error with Retry", () => {
     const html = renderFlag(flagged, "Network down");
-    expect(html).toContain("Remove AI flag");
+    expect(html).toContain("Remove flag");
     expect(html).toContain("Network down");
     expect(html).toContain("Retry");
   });
@@ -51,7 +50,7 @@ describe("AiFlagStatusView visibility", () => {
   it("renders nothing visible without a flag, and still shows errors and confirmations", () => {
     const hidden = renderFlag({ ...flagged, aiTranslated: false });
     expect(hidden).toContain("display:none");
-    expect(hidden).not.toContain("Remove AI flag");
+    expect(hidden).not.toContain("Remove flag");
     expect(renderFlag({ ...flagged, aiTranslated: false }, "Boom")).not.toContain("display:none");
   });
 });

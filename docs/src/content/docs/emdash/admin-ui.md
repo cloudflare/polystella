@@ -17,19 +17,28 @@ rendered with EmDash's Kumo design system:
 
 EmDash before 1.6 lists the three pages without the group. The old `/`
 address still opens Settings. Links that open a new window show a ↗ icon.
+After a translation, hover its result text (such as the sandbox's
+translation time or a server job's progress count) to see the tokens
+it used and an estimated cost. The cost uses the model's list price, so
+it's an estimate, not an invoice; it's left out when the price is
+unknown.
 No generated plugin settings page is registered.
 
 ## Collections
 
 Lets an Administrator enable project collections and choose their
-translatable fields. Each collection is a card, closed at first; the
-control at its top right opens it, and turning a collection on opens
-it too. The source is always the code-defined
+translatable fields. Collections are listed under **Enabled** and
+**Disabled**, by what is saved, so a row doesn't move while you
+change it. An enabled row shows its fields as chips; **Edit** opens
+**Fields to translate**, where each field is a toggle chip, with
+**Select all** and **Clear all**. Turning a collection on opens it too. The source is always the code-defined
 `catalogs.defaultLocale`; plugin settings display it but cannot change
 it. Only fields the collection schema marks as translatable and of a
 supported type (`string`, `text`, Portable Text, repeater) are offered.
 
-A repeater lists its `string`, `text`, and `image` subfields. When the
+A selected repeater's chip shows how many of its `string`, `text`, and
+`image` subfields are picked, for example **FAQ · 2/3**; its caret opens
+them in a popover. When the
 repeater is enabled, all are ticked except ones named like links, IDs or
 authors (`url`, `href`, `slug`, `id`, `author_name`, ...). Only ticked subfields are translated; an
 image translates its alt text and caption. Every other subfield (links,
@@ -46,10 +55,9 @@ translatable text.
 Locales are shown by name and code, for example "French (fr)", in the
 browser's language.
 
-Each card shows how many fields are selected. A collection with no
-field PolyStella can translate says so, and its switch is off. Turning
+A collection with no field PolyStella can translate says so, and its switch is off. Turning
 a collection off and on again before saving keeps the fields you had
-chosen. If one collection's schema fails to load, only its card shows
+chosen. If one collection's schema fails to load, only its row shows
 the error, and its saved policy is kept.
 
 No collection is enabled until an Administrator saves a valid policy.
@@ -78,7 +86,9 @@ same route and saves as the content-editor panel. Choose:
   published, the fields that are translated, and per target locale how
   many entries are untranslated, with how many translations a run
   creates. When a run would do nothing, the run button is off and says
-  why.
+  why. With selected entries and **Update existing translations** off,
+  the button is also off when every selected entry already has the
+  chosen locales.
 - **Target locales** — any of the configured non-default locales.
   None are ticked at first. **Select all** and **Clear all** change
   them together. With selected entries, **Select untranslated** ticks
@@ -93,33 +103,35 @@ same route and saves as the content-editor panel. Choose:
   translations are saved as drafts. When on, each created or updated
   translation is published right after it is saved. If publishing
   fails, the draft stays and its result row says why.
-- **Run settings** — closed at first. Changes Translation settings for
-  this run only: one **Model** for every target locale (with its
-  **Thinking**), **Max output tokens**, and **Extra instructions**
-  added after the translation instructions, such as "Don't translate
-  product names". Empty fields keep Translation settings. **Max output
+- **Run settings** — closed at first; while closed it shows a badge for
+  each change, and **Reset** clears them. Changes translation settings
+  for this run only: one **Model** for every target locale (with its
+  **Thinking**), **Max output tokens**, and **Additional instructions**
+  added after the translation instructions. Anything left empty uses
+  the translation settings. **Max output
   tokens** checks its 256–131,072 range as you type, and the run
   button stays off until it's fixed. If Translation settings can't be
   loaded, the fields show the error and a **Retry** button.
 
 **Translate … in a new tab** opens a run page in a new browser tab, so
-you can keep using the admin. The run page shows what it will do and
-waits for **Start translating**. It runs in that tab, three
+you can keep using the admin. The run page summarizes the run (entries,
+translations, whether existing ones are skipped or updated, drafts or
+published, and any run settings) and waits for **Start translating**. It runs in that tab, three
 translations at a time: keep it open until it finishes, because
 closing, reloading, or leaving it stops the run. **Stop** lets
 in-flight translations finish and starts no new ones. When the run
-ends, the page says whether it finished, finished with failures,
-stopped early, or stopped on an error, with the created, updated,
-skipped and failed counts. After a stop or an error, **Translate the
+ends, a green, amber or grey banner says whether it finished, finished
+with failures, or stopped early, with the counts that aren't zero; an
+error shows in red. After a stop or an error, **Translate the
 … left** continues the translations that never started. Each entry and
 locale gets a result row (created, updated, skipped, or failed) with
 links that open in a new tab: **Edit**, **View live** for a published
 translation, and **Preview draft** for an unpublished one. Rows show
-100 at a time, with **Show more**. **Retry...**
+100 at a time, with **Show more**. **Retry**
 opens the run settings, filled in with the ones the run used, and
-reruns the failed rows. **Also redo the translations it wrote**
-translates the rows the run created or updated again, in place; any
-that were published, scheduled, or edited since are skipped. A browser
+reruns the failed rows. **Also redo the translations this run created
+or updated** translates them again and overwrites them; any that were
+published, scheduled, or edited since are left alone. A browser
 run holds at most 5,000 translations, like a server job; a larger one
 is refused before it starts. A run page that was already
 started, or never started within a day, can't be reopened. Debug
@@ -146,7 +158,7 @@ same links as browser runs, with **Refresh** to reload them after **Load more**)
 **Failures** (every failed row with its entry title, locale, reason
 and an **Edit source** link). It also offers
 **Cancel** (queued entries finish without translating; the job then
-says how many translations didn't finish), **Retry...** on a finished
+says how many translations didn't finish), **Retry** on a finished
 or cancelled job, and **Remove**, which takes a finished or cancelled job off the list.
 A retry is a new job, marked as a retry, with its own run settings: it
 reruns the failed rows, on a cancelled job also the selected entries
@@ -162,15 +174,16 @@ seconds while a job runs.
 A **General** card (default model, debug mode, max output tokens, the
 AI-flag and SEO switches) and an **Additional translation instructions**
 card sit side by side. Below them, each target locale has a card, closed at first,
-with its model in the header and its own model and glossary behavior.
-A closed card also shows **Glossary added** or **Glossary replaced**
-and the language's own **Thinking** choice, so you can see which
-languages are customized without opening them.
+with its own model and glossary behavior. Its header shows **Default**
+when the language changes nothing, or **Custom** when it does; hover
+the badge for the model, thinking and glossary it uses, or what it
+changed.
 The code-defined default locale is source-only and is not listed here.
 
 - **Default model** (in General) — the model every language uses
   unless it picks its own, from `models.allowed`, with its own
-  **Thinking** choice. _Not set_ uses the code fallback:
+  **Thinking** choice. Until you pick one, it shows the code fallback
+  with a **From code** badge:
   `models.defaults` when the deployment sets it, otherwise the first
   model in `models.allowed`.
 - **Translation model** — keep the default model, or pick another one
@@ -184,7 +197,7 @@ The code-defined default locale is source-only and is not listed here.
   the default model uses the default model's thinking. With no default
   model set, the thinking set by `models.defaults` or `models.params`
   applies and is shown read-only.
-- **Glossary behavior** — use the code default, append custom plain
+- **Glossary behavior** — use the code glossary, append custom plain
   text, or replace the code glossary. Structured YAML stays
   code-defined; only `notes` can be appended or replaced.
 - **Custom glossary** — plain text applied per the behavior above,
@@ -196,7 +209,11 @@ The code-defined default locale is source-only and is not listed here.
 
 **View code-defined additional translation instructions** and **View
 code-defined glossary** open the code's text in a new window, with the
-same append or replace controls and a **Save** button. **Save** stays
+same append or replace controls and a **Save** button. The glossary
+page has an **Overview** tab (**Don't translate** with a filter,
+**Preferred translations**, **Style rules**, notes) and a **Raw** tab
+with the glossary file as written; **Copy** copies it. A glossary set
+inline in code, not loaded from a file, is shown as JSON. **Save** stays
 off until you change something, and the browser asks before you leave
 the page with unsaved text.
 
@@ -241,17 +258,20 @@ Lets an Administrator translate up to 30,000 characters of freeform
 text from `catalogs.defaultLocale` to any configured non-default
 locale. Each request can select any model in `models.allowed` without
 changing saved settings. The target locale's glossary and shared
-instructions apply. Output stays in the browser and does not change
+instructions apply. **Additional instructions** (optional, up to 2,000
+characters) are added to them for that request only and never saved.
+Output stays in the browser and does not change
 content, catalog overrides, or repository files. The source text and
 the output sit side by side, below the locale and model choices.
 Models are listed by short name, with the full ID under each option.
-**Copy** copies the output. Text over the limit is flagged under the
+**Copy** copies the output, next to how long the translation took and
+the output's character count. Text over the limit is flagged under the
 source box. With no target locale or no allowed model, the tab says
 so and links to Translation settings.
 
-The tab shows a named percentage stage while translation runs and a
-100% completion state. These percentages describe client request
-stages; EmDash plugin routes do not stream provider or batch progress.
+While it translates, the tab shows the current step over a progress
+bar, and the button shows it's busy. The steps describe the browser's
+request; EmDash plugin routes do not stream provider or batch progress.
 
 ## Content-editor panel
 
@@ -259,9 +279,10 @@ The panel appears for Editors and Administrators. It translates
 selected `string`, `text`, Portable Text, `blocks` and repeater fields in an existing
 target-locale draft — the source locale is the code-defined
 `catalogs.defaultLocale`, and the target must differ from it. The
-fields are one **Fields to translate** group with a count; one
-translation takes up to 25 fields. The button names what it does, for
-example **Translate 3 fields**. When a collection has no fields set up,
+fields are toggle chips under **Fields to translate**, with **Select
+all** and **Clear all**; one translation takes up to 25 fields. The
+button names what it does, for example **Translate 3 fields**, and its
+ⓘ says which entry it translates from. When a collection has no fields set up,
 the panel links Administrators to the Collections tab.
 
 After a translation, the panel lists any same-page links (`#…`) in the
@@ -282,8 +303,9 @@ capability, so the browser never supplies the values being
 translated.
 
 On EmDash 1.6 and later, the panel puts the translation into the open
-form without saving, and keeps your other unsaved changes. Please
-review the translation; EmDash's autosave may save it within seconds.
+form without saving, and keeps your other unsaved changes. The panel
+asks you to review it before saving; EmDash's autosave may save it
+within seconds.
 If you change one of the selected fields while PolyStella translates,
 the form is left as it was and the panel asks you to translate again.
 Edits to other fields are kept.
@@ -312,23 +334,25 @@ instead. Tick one or more locales that have no entry yet (or
 drafts**. The panel creates each draft in turn, as you, the same way
 EmDash's own **Create translation** button does: it copies the source
 entry and slug and replaces the selected fields with their
-translations. With one locale it opens the new draft; with several it
-lists them with an **Open** button each. Failures and warnings are
+translations. With one locale and no warnings it opens the new draft;
+otherwise the progress bar stays up when the run ends, and the created
+drafts are listed under it with an **Open** button each. Failures and warnings are
 listed per locale. Failed locales stay ticked so
 **Retry** reruns only them. Locales that already have an entry aren't
 offered, and if someone creates one in the meantime, the panel reports
 it instead of creating a duplicate. With no target locale configured,
 the panel says so instead.
 
-On an AI-translated entry, the panel shows **AI-translated** with the
-time and model. Once a person saves different text in a field
+On an AI-translated entry, the panel shows an **AI-translated** badge;
+hover or click it for the time and model, and **Remove flag** sits
+beside it. Once a person saves different text in a field
 PolyStella wrote, it shows **Edited after AI translation** and the
 changed fields, with **Keep AI flag** and **Remove AI flag**. When
 PolyStella can't compare the fields (for example the entry has no
 fingerprints), it shows **Couldn't check for edits** with both buttons.
 
-Named percentage stages show the panel's progress, from loading the
-entry and translating to filling the form or saving.
+A step list over a progress bar shows the panel's progress, from
+loading the entry and translating to filling the form or saving.
 
 On EmDash before 1.6, successful content traces survive the editor
 reload in browser session storage for one view, so an Administrator can

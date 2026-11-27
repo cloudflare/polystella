@@ -17,7 +17,7 @@ import { mutedStyle, rowStyle, stackStyle } from "../../../styles.js";
 import { ErrorMessage } from "../../../components/ErrorMessage/ErrorMessage.js";
 import { jobSettingsSummary } from "../../../components/JobSettings/JobSettings.js";
 import { NewWindowIcon } from "../../../components/NewWindowLink/NewWindowLink.js";
-import { TextTooltip } from "../../../components/PageHeader/PageHeader.js";
+import { TextTooltip, UsageTooltip } from "../../../components/PageHeader/PageHeader.js";
 import { TranslationLinks } from "./BatchResults.js";
 import { batchJobDone, batchJobFinished, type PublicUrlContext } from "./helpers.js";
 import { OutcomeBadge, OutcomeBar, OutcomeCounts, visuallyHiddenStyle } from "./Outcome.js";
@@ -79,7 +79,7 @@ export function BatchJobs({
   if (jobs.length === 0) return null;
   const removable = jobs.filter(canRemove).map(({ id }) => id);
   return (
-    <section style={stackStyle}>
+    <section style={{ ...stackStyle, marginTop: 24 }}>
       <div style={rowStyle}>
         <h3>Server jobs</h3>
         {removable.length === 0 ? null : (
@@ -172,56 +172,52 @@ function JobRow({
             <StatusBadge job={job} done={done} />
           </div>
           <small style={{ ...mutedStyle, ...rowStyle, columnGap: 6, rowGap: 2 }}>
-            {job.locales.length > MAX_LISTED_LOCALES ? (
-              <TextTooltip content={localeNames} label={`${plural(job.locales.length, "locale")}: ${localeNames}`}>
-                {plural(job.locales.length, "locale")}
-              </TextTooltip>
-            ) : (
-              <span>{localeNames}</span>
-            )}
-            <span aria-hidden="true">·</span>
-            <span>
-              {job.entryCount === "all"
+            {/* Each separator sits inside the item before it, so a wrapped line never starts with one. */}
+            {[
+              job.locales.length > MAX_LISTED_LOCALES ? (
+                <TextTooltip content={localeNames} label={`${plural(job.locales.length, "locale")}: ${localeNames}`}>
+                  {plural(job.locales.length, "locale")}
+                </TextTooltip>
+              ) : (
+                localeNames
+              ),
+              job.entryCount === "all"
                 ? "Whole collection"
                 : typeof job.entryCount === "number"
                   ? plural(job.entryCount, "entry", "entries")
-                  : "Entries not recorded"}
-            </span>
-            <span aria-hidden="true">·</span>
-            <TextTooltip
-              content={job.publish ? "Each translation is published as soon as it's saved." : "Translations are saved as drafts to review."}
-            >
-              {job.publish ? "Publishing" : "Drafts"}
-            </TextTooltip>
-            {job.updateExisting ? (
-              <>
-                <span aria-hidden="true">·</span>
+                  : "Entries not recorded",
+              <TextTooltip
+                content={
+                  job.publish ? "Each translation is published as soon as it's saved." : "Translations are saved as drafts to review."
+                }
+              >
+                {job.publish ? "Publishing" : "Drafts"}
+              </TextTooltip>,
+              job.updateExisting ? (
                 <TextTooltip content="Existing translations are translated again. Ones edited while the job runs are skipped.">
                   Updating existing
                 </TextTooltip>
-              </>
-            ) : null}
-            {job.retryOf === null ? null : (
-              <>
-                <span aria-hidden="true">·</span>
-                <span>{retriedJob === undefined ? "Retry" : `Retry of ${startedAt(retriedJob.createdAt)}`}</span>
-              </>
-            )}
-            {settingsSummary === null ? null : (
-              <>
-                <span aria-hidden="true">·</span>
+              ) : null,
+              job.retryOf === null ? null : retriedJob === undefined ? "Retry" : `Retry of ${startedAt(retriedJob.createdAt)}`,
+              settingsSummary === null ? null : (
                 <TextTooltip content={job.settings?.instructions ? `${settingsSummary}: ${job.settings.instructions}` : settingsSummary}>
                   Run settings
                 </TextTooltip>
-              </>
-            )}
+              ),
+            ]
+              .filter((item) => item !== null)
+              .map((item, index, items) => (
+                <span key={index}>
+                  {item}
+                  {index < items.length - 1 ? <span aria-hidden="true"> ·</span> : null}
+                </span>
+              ))}
           </small>
         </div>
         <div style={{ display: "grid", gap: 4, justifyItems: "end" }}>
           <OutcomeBar counts={job.counts} total={job.total} width={72} />
           <small style={mutedStyle}>
-            {done}/{job.total}
-            {job.listing ? "+" : ""}
+            <UsageTooltip usage={job.usage}>{`${done}/${job.total}${job.listing ? "+" : ""}`}</UsageTooltip>
           </small>
         </div>
       </div>
@@ -238,8 +234,8 @@ function JobRow({
           {job.status === "cancelled" && done < job.total ? (
             <small style={mutedStyle}>
               {job.entryCount === "all" || job.listing
-                ? "The job was cancelled, so some translations didn't finish. Retry... lists the rest of the collection, but entries already listed when it was cancelled need another whole-collection job."
-                : `${job.total - done} of ${job.total} translations didn't finish because the job was cancelled. Retry... runs them.`}
+                ? "The job was cancelled, so some translations didn't finish. Retry lists the rest of the collection, but entries already listed when it was cancelled need another whole-collection job."
+                : `${job.total - done} of ${job.total} translations didn't finish because the job was cancelled. Retry runs them.`}
             </small>
           ) : null}
           <JobTabs job={job} done={done} urlContext={urlContext} />
@@ -260,10 +256,10 @@ function JobRow({
                 size="sm"
                 variant="secondary"
                 disabled={working !== null}
-                aria-label={`Retry ${title}...`}
+                aria-label={`Retry ${title}`}
                 onClick={() => setRetrying(true)}
               >
-                Retry...
+                Retry
               </Button>
             ) : null}
             {canRemove(job) ? (
@@ -574,6 +570,7 @@ const headerStyle: CSSProperties = {
   display: "grid",
   gap: 10,
   gridTemplateColumns: "auto minmax(0, 1fr) auto",
-  padding: "10px 12px",
+  padding: 16,
 };
-const bodyStyle: CSSProperties = { ...stackStyle, padding: "0 12px 14px 50px" };
+// Lines up with the title: padding, the 28px caret button and the gap.
+const bodyStyle: CSSProperties = { ...stackStyle, padding: "0 16px 16px 54px" };

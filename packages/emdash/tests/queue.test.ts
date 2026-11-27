@@ -78,6 +78,17 @@ describe("PolyStella batch queue consumer", () => {
     expect(value.handleContentPublish).not.toHaveBeenCalled();
   });
 
+  it("sends the translation's usage back with the row, whether the save worked or not", async () => {
+    const usage = { calls: 2, inputTokens: 10, cachedInputTokens: 0, outputTokens: 5, reasoningTokens: 0, unreportedCalls: 0 };
+    const created = runtime(undefined, { create: draft, usage });
+    await processPolystellaBatch({ messages: [queueMessage()] }, created.value);
+    expect(created.routeCalls.at(-1)?.body).toMatchObject({ outcome: "created", usage });
+
+    const refused = runtime({ success: false, error: { code: "X", message: "nope" } }, { create: draft, usage });
+    await processPolystellaBatch({ messages: [queueMessage()] }, refused.value);
+    expect(refused.routeCalls.at(-1)?.body).toMatchObject({ outcome: "failed", usage });
+  });
+
   it("publishes the created entry when the job asks, and notes a failed publish", async () => {
     const published = runtime(undefined, { create: draft, publish: true });
     await processPolystellaBatch({ messages: [queueMessage()] }, published.value);

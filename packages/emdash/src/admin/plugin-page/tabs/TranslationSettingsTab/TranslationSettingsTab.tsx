@@ -1,4 +1,4 @@
-import { Badge, Button, Input, LayerCard, Select, Switch, Textarea } from "@cloudflare/kumo";
+import { Badge, Button, Input, LayerCard, Select, Switch, Textarea, Tooltip } from "@cloudflare/kumo";
 import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 
 import {
@@ -9,11 +9,11 @@ import {
   type TranslationLocaleSettings,
   type TranslationSettingsResponse,
 } from "../../../../contracts.js";
-import { errorMessage, localeLabel, maxTokensError, pluginPageUrl, pluginRequest } from "../../../utils.js";
+import { errorMessage, localeLabel, maxTokensError, pluginPageUrl, pluginRequest, shortModelName } from "../../../utils.js";
 import { cardStyle, mutedStyle, rowStyle, sectionStyle, stackStyle, subheadingStyle } from "../../../styles.js";
 import { ErrorMessage } from "../../../components/ErrorMessage/ErrorMessage.js";
 import { NewWindowLink } from "../../../components/NewWindowLink/NewWindowLink.js";
-import { InfoLabel, InfoTooltip, SectionHeader, TextTooltip } from "../../../components/PageHeader/PageHeader.js";
+import { InfoLabel, InfoTooltip, SectionHeader } from "../../../components/PageHeader/PageHeader.js";
 import { cardGridStyle, CollapsibleCard } from "../../../components/CollapsibleCard/CollapsibleCard.js";
 import { rememberTranslationSettings } from "../../../components/JobSettings/JobSettings.js";
 import { effortLabel, ThinkingSelect } from "../../../components/ThinkingSelect/ThinkingSelect.js";
@@ -87,34 +87,39 @@ export function TranslationSettingsTab(): ReactNode {
           <LayerCard style={cardStyle}>
             <div style={stackStyle}>
               <h3 style={cardHeadingStyle}>General</h3>
-              <Select
-                label={
-                  <InfoLabel
-                    label="Default model"
-                    info="Every language uses this model unless you pick another one for it under Languages. Only models the deployment allows are listed. Not set: each language uses the fallback model from code."
-                  />
-                }
-                value={settings.model ?? USE_CODE_DEFAULT_MODEL}
-                renderValue={(value) => (
-                  <TruncatedValue>
-                    {value === USE_CODE_DEFAULT_MODEL ? `Not set (${settings.defaultModel})` : typeof value === "string" ? value : ""}
-                  </TruncatedValue>
-                )}
-                disabled={working}
-                onValueChange={(value) => {
-                  if (typeof value === "string") {
-                    const model = value === USE_CODE_DEFAULT_MODEL ? null : value;
-                    setSettings((current) => (current === null ? null : { ...current, model, reasoning: null }));
+              <div style={{ alignItems: "end", display: "flex", flexWrap: "wrap", gap: 8 }}>
+                <Select
+                  label={
+                    <InfoLabel
+                      label="Default model"
+                      info="The model every language uses unless it picks its own under Languages. Only models the deployment allows are listed. From code: no model is picked here, so the site's code decides."
+                    />
                   }
-                }}
-              >
-                <Select.Option value={USE_CODE_DEFAULT_MODEL}>Not set ({settings.defaultModel})</Select.Option>
-                {settings.allowedModels.map((model) => (
-                  <Select.Option key={model} value={model}>
-                    {model}
-                  </Select.Option>
-                ))}
-              </Select>
+                  value={settings.model ?? USE_CODE_DEFAULT_MODEL}
+                  renderValue={(value) => (
+                    <ModelValue model={value === USE_CODE_DEFAULT_MODEL ? settings.defaultModel : typeof value === "string" ? value : ""} />
+                  )}
+                  disabled={working}
+                  onValueChange={(value) => {
+                    if (typeof value === "string") {
+                      const model = value === USE_CODE_DEFAULT_MODEL ? null : value;
+                      setSettings((current) => (current === null ? null : { ...current, model, reasoning: null }));
+                    }
+                  }}
+                >
+                  <Select.Option value={USE_CODE_DEFAULT_MODEL}>{shortModelName(settings.defaultModel)} (default)</Select.Option>
+                  {settings.allowedModels.map((model) => (
+                    <Select.Option key={model} value={model}>
+                      {shortModelName(model)}
+                    </Select.Option>
+                  ))}
+                </Select>
+                {settings.model === null ? (
+                  <span style={{ paddingBottom: 8 }}>
+                    <Badge variant="secondary">From code</Badge>
+                  </span>
+                ) : null}
+              </div>
               {settings.model === null ? null : (
                 <ThinkingSelect
                   model={settings.model}
@@ -237,6 +242,7 @@ export function TranslationSettingsTab(): ReactNode {
       <div style={cardGridStyle}>
         {settings?.locales.map((locale) => {
           const inheritedModel = settings.model ?? locale.defaultModel;
+          const customization = localeCustomization(settings, locale);
           return (
             <CollapsibleCard
               key={locale.locale}
@@ -253,26 +259,11 @@ export function TranslationSettingsTab(): ReactNode {
               header={
                 <>
                   <strong>{localeLabel(locale.locale)}</strong>
-                  {locale.model === null ? (
-                    <small style={mutedStyle}>
-                      <TextTooltip
-                        label={`${localeLabel(locale.locale)} uses the default model, ${inheritedModel}`}
-                        content={`Uses ${settings.model === null ? "the code's fallback model" : "the default model from General"}: ${inheritedModel}`}
-                      >
-                        Default model
-                      </TextTooltip>
-                    </small>
-                  ) : (
-                    <small style={{ ...mutedStyle, ...truncateStyle }} title={locale.model}>
-                      {locale.model}
-                    </small>
-                  )}
-                  {locale.glossaryMode === "default" ? null : (
-                    <Badge variant="secondary">{locale.glossaryMode === "append" ? "Glossary added" : "Glossary replaced"}</Badge>
-                  )}
-                  {locale.model === null || locale.reasoning === null ? null : (
-                    <Badge variant="secondary">Thinking: {effortLabel(locale.reasoning)}</Badge>
-                  )}
+                  <SummaryBadge
+                    label={customization.custom ? "Custom" : "Default"}
+                    variant={customization.custom ? "info" : "secondary"}
+                    summary={customization.summary}
+                  />
                 </>
               }
             >
@@ -280,9 +271,7 @@ export function TranslationSettingsTab(): ReactNode {
                 label="Translation model"
                 value={locale.model ?? USE_CODE_DEFAULT_MODEL}
                 renderValue={(value) => (
-                  <TruncatedValue>
-                    {value === USE_CODE_DEFAULT_MODEL ? `Default model (${inheritedModel})` : typeof value === "string" ? value : ""}
-                  </TruncatedValue>
+                  <ModelValue model={value === USE_CODE_DEFAULT_MODEL ? inheritedModel : typeof value === "string" ? value : ""} />
                 )}
                 disabled={working}
                 onValueChange={(value) => {
@@ -291,20 +280,14 @@ export function TranslationSettingsTab(): ReactNode {
                   }
                 }}
               >
-                <Select.Option value={USE_CODE_DEFAULT_MODEL}>Default model ({inheritedModel})</Select.Option>
+                <Select.Option value={USE_CODE_DEFAULT_MODEL}>{shortModelName(inheritedModel)} (default)</Select.Option>
                 {settings.allowedModels.map((model) => (
                   <Select.Option key={model} value={model}>
-                    {model}
+                    {shortModelName(model)}
                   </Select.Option>
                 ))}
               </Select>
-              {locale.model === null ? (
-                settings.model !== null && settings.reasoning !== null ? (
-                  <span style={mutedStyle}>Thinking: same as the default model ({effortLabel(settings.reasoning)})</span>
-                ) : locale.defaultReasoning === null || inheritedModel !== locale.defaultModel ? null : (
-                  <span style={mutedStyle}>Thinking: code default ({effortLabel(locale.defaultReasoning)})</span>
-                )
-              ) : (
+              {locale.model === null ? null : (
                 <ThinkingSelect
                   model={locale.model}
                   value={locale.reasoning}
@@ -358,17 +341,69 @@ export function TranslationSettingsTab(): ReactNode {
 }
 
 const cardHeadingStyle: CSSProperties = { fontSize: 18, margin: 0 };
-// Long model ids would wrap and make side-by-side language cards uneven.
-const truncateStyle: CSSProperties = { flex: "1 1 0", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" };
 // Kumo's Select trigger grows with its text, so a long model id would push it past the card.
 const triggerValueStyle: CSSProperties = { display: "block", maxWidth: "min(320px, 60vw)", overflow: "hidden", textOverflow: "ellipsis" };
+const badgeButtonStyle: CSSProperties = { background: "none", border: "none", cursor: "help", display: "inline-flex", padding: 0 };
 
-function TruncatedValue({ children }: { children: string }): ReactNode {
+/** A model's short name in a Select trigger, with the full id on hover. */
+function ModelValue({ model }: { model: string }): ReactNode {
   return (
-    <span style={triggerValueStyle} title={children}>
-      {children}
+    <span style={triggerValueStyle} title={model}>
+      {shortModelName(model)}
     </span>
   );
+}
+
+/** A badge that explains itself on hover, focus, or click, like `TextTooltip`. */
+function SummaryBadge({ label, summary, variant }: { label: string; summary: string; variant: "secondary" | "info" }): ReactNode {
+  const [open, setOpen] = useState(false);
+  return (
+    <Tooltip
+      open={open}
+      onOpenChange={setOpen}
+      delay={150}
+      content={summary}
+      render={
+        <button type="button" aria-label={`${label}: ${summary}`} onClick={() => setOpen((current) => !current)} style={badgeButtonStyle} />
+      }
+    >
+      <Badge variant={variant}>{label}</Badge>
+    </Tooltip>
+  );
+}
+
+/** Whether a language overrides anything in these settings, and a one-line summary of what it uses or changed. */
+export function localeCustomization(
+  settings: Pick<TranslationSettingsResponse, "model" | "reasoning">,
+  locale: TranslationLocaleSettings,
+): { custom: boolean; summary: string } {
+  const changes: string[] = [];
+  if (locale.model !== null) {
+    changes.push(`Model: ${shortModelName(locale.model)}`);
+    if (locale.reasoning !== null) changes.push(`Thinking: ${effortLabel(locale.reasoning)}`);
+  }
+  // Empty text changes nothing, except that replacing with it removes a code glossary.
+  const hasText = locale.glossaryText.trim().length > 0;
+  if (
+    (locale.glossaryMode === "replace" && (locale.defaultGlossary !== null || hasText)) ||
+    (locale.glossaryMode === "append" && hasText)
+  ) {
+    changes.push(
+      locale.defaultGlossary === null
+        ? "Glossary: custom"
+        : locale.glossaryMode === "replace"
+          ? "Glossary: replaces the code glossary"
+          : "Glossary: added to the code glossary",
+    );
+  }
+  if (changes.length > 0) return { custom: true, summary: changes.join(" · ") };
+  const model = settings.model ?? locale.defaultModel;
+  const thinking = settings.model === null ? locale.defaultReasoning : settings.reasoning;
+  const glossary = locale.defaultGlossary === null ? "no glossary" : "the code glossary";
+  return {
+    custom: false,
+    summary: `Uses the default model, ${shortModelName(model)}, ${thinking === null ? "and" : `with thinking ${effortLabel(thinking).toLowerCase()} and`} ${glossary}.`,
+  };
 }
 
 /** Saves every editable field of `settings`; the stored revision must still match. */
@@ -403,7 +438,7 @@ export const INSTRUCTION_MODE_LABELS: Record<CustomizationMode, string> = {
   replace: "Replace code instructions",
 };
 export const GLOSSARY_MODE_LABELS: Record<CustomizationMode, string> = {
-  default: "Use code default",
+  default: "Use the code glossary",
   append: "Append custom glossary",
   replace: "Replace code glossary",
 };

@@ -49,7 +49,10 @@ async function startFakeAi() {
         return;
       }
       const response = fakeTranslation(readContent(messages, "user"), targetLocale(readContent(messages, "system")));
-      res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({ result: { response }, success: true }));
+      // Roughly four characters per token, so the admin's usage tooltips have numbers to show.
+      const tokens = (text) => Math.ceil(text.length / 4);
+      const usage = { prompt_tokens: tokens(JSON.stringify(messages)), completion_tokens: tokens(response) };
+      res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({ result: { response, usage }, success: true }));
     } catch (error) {
       // The details stay in this console; the client gets a fixed message.
       console.error("[playground] fake Workers AI could not handle a request:", error);

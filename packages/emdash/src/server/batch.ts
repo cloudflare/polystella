@@ -1,6 +1,6 @@
 import { PluginRouteError, type StorageCollection } from "emdash";
 
-import type { BatchJobOutcome, BatchJobSettings, BatchTranslationLink } from "../contracts.js";
+import type { BatchJobOutcome, BatchJobSettings, BatchTranslationLink, TranslationUsage } from "../contracts.js";
 
 // Cloudflare Queues accept at most 100 messages per sendBatch call.
 const QUEUE_SEND_LIMIT = 100;
@@ -51,6 +51,8 @@ export interface StoredBatchResult {
   /** Rows recorded before links existed have none. */
   translation: BatchTranslationLink | null;
   updatedAt: string;
+  /** Every model call of the entry, all parts included; absent on rows recorded before usage was tracked. */
+  usage?: TranslationUsage | undefined;
 }
 
 /** One source entry × target locale. `locale` is a catalog locale code. */
@@ -77,6 +79,8 @@ export interface StoredBatchParts {
   translations: Record<string, string>;
   /** The `_rev` the update must still match; absent when creating. */
   rev?: string;
+  /** Model calls of the parts done so far. */
+  usage?: TranslationUsage | undefined;
 }
 
 /** What the queue consumer passes to `runtime.handleContentCreate`. */
@@ -107,6 +111,8 @@ export interface BatchTranslateResponse {
   publish?: boolean;
   /** Recorded with the created row, for an editor to check by hand. */
   notice?: string;
+  /** Every part's model calls; the consumer sends it back with the row it records. */
+  usage?: TranslationUsage;
 }
 
 export interface BatchQueue {
@@ -147,7 +153,7 @@ export function batchPartsId(message: BatchMessage): string {
 
 export function parseStoredParts(value: unknown): StoredBatchParts | null {
   if (!isRecord(value)) return null;
-  const { jobId, entryId, locale, part, fingerprint, translations, rev } = value;
+  const { jobId, entryId, locale, part, fingerprint, translations, rev, usage } = value;
   if (
     !isNonEmptyString(jobId) ||
     !isNonEmptyString(entryId) ||
@@ -169,6 +175,7 @@ export function parseStoredParts(value: unknown): StoredBatchParts | null {
     fingerprint,
     translations: translations as Record<string, string>,
     ...(rev === undefined ? {} : { rev }),
+    ...withUsage(readTranslationUsage(usage)),
   };
 }
 
@@ -264,7 +271,7 @@ export function parseStoredJob(value: unknown): StoredBatchJob | null {
 
 export function parseStoredResult(value: unknown): StoredBatchResult | null {
   if (!isRecord(value)) return null;
-  const { jobId, entryId, locale, outcome, message, translation, updatedAt } = value;
+  const { jobId, entryId, locale, outcome, message, translation, updatedAt, usage } = value;
   if (
     !isNonEmptyString(jobId) ||
     !isNonEmptyString(entryId) ||
@@ -276,7 +283,16 @@ export function parseStoredResult(value: unknown): StoredBatchResult | null {
   ) {
     return null;
   }
-  return { jobId, entryId, locale, outcome: outcome as BatchJobOutcome, message, translation: readTranslationLink(translation), updatedAt };
+  return {
+    jobId,
+    entryId,
+    locale,
+    outcome: outcome as BatchJobOutcome,
+    message,
+    translation: readTranslationLink(translation),
+    updatedAt,
+    ...withUsage(readTranslationUsage(usage)),
+  };
 }
 
 export async function readBatchJob(storage: StorageCollection, jobId: string): Promise<StoredBatchJob | null> {
@@ -290,9 +306,19 @@ export async function recordBatchResult(
   detail: string | null,
   now: Date,
   translation: BatchTranslationLink | null = null,
+  usage?: TranslationUsage | undefined,
 ): Promise<void> {
   const { jobId, entryId, locale } = message;
-  const row: StoredBatchResult = { jobId, entryId, locale, outcome, message: detail, translation, updatedAt: now.toISOString() };
+  const row: StoredBatchResult = {
+    jobId,
+    entryId,
+    locale,
+    outcome,
+    message: detail,
+    translation,
+    updatedAt: now.toISOString(),
+    ...withUsage(usage),
+  };
   await storage.put(batchResultId(message), row);
 }
 
@@ -318,6 +344,37 @@ export function readTranslationLink(value: unknown): BatchTranslationLink | null
     return null;
   }
   return { id, locale, slug, published };
+}
+
+const USAGE_COUNTS = ["calls", "inputTokens", "cachedInputTokens", "outputTokens", "reasoningTokens", "unreportedCalls"] as const;
+
+/** `undefined` unless `value` is a well-formed usage. */
+export function readTranslationUsage(value: unknown): TranslationUsage | undefined {
+  if (!isRecord(value)) return undefined;
+  const usage: TranslationUsage = {
+    calls: 0,
+    inputTokens: 0,
+    cachedInputTokens: 0,
+    outputTokens: 0,
+    reasoningTokens: 0,
+    unreportedCalls: 0,
+  };
+  for (const key of USAGE_COUNTS) {
+    const count = value[key];
+    if (typeof count !== "number" || !Number.isSafeInteger(count) || count < 0) return undefined;
+    usage[key] = count;
+  }
+  if (usage.unreportedCalls > usage.calls || usage.cachedInputTokens > usage.inputTokens || usage.reasoningTokens > usage.outputTokens) {
+    return undefined;
+  }
+  const cost = value.estimatedCostUsd;
+  if (cost === undefined) return usage;
+  if (typeof cost !== "number" || !Number.isFinite(cost) || cost < 0) return undefined;
+  return { ...usage, estimatedCostUsd: cost };
+}
+
+export function withUsage(usage: TranslationUsage | undefined): { usage?: TranslationUsage } {
+  return usage === undefined ? {} : { usage };
 }
 
 function isBatchQueue(value: unknown): value is BatchQueue {

@@ -13,12 +13,15 @@ export function NewWindowIcon(): ReactNode {
 
 export function NewWindowLink({ href, children, title }: { href: string; children: ReactNode; title?: string }): ReactNode {
   return (
-    <a href={href} target="_blank" rel="noopener noreferrer" title={title}>
+    <a href={href} target="_blank" rel="noopener noreferrer" title={title} style={linkStyle}>
       {children}
       <NewWindowIcon />
     </a>
   );
 }
+
+// The host's own link colour is its accent; Kumo's link token keeps these links blue like Kumo's Link.
+const linkStyle = { color: "var(--text-color-kumo-link, var(--color-kumo-brand))" } as const;
 
 export const visuallyHidden = {
   border: 0,

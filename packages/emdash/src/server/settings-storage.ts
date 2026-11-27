@@ -7,10 +7,11 @@ import {
   type CollectionPolicy,
   type CollectionSettingsResponse,
   type CustomizationMode,
+  type TranslationLocaleSettings,
   type TranslationSettingsResponse,
 } from "../contracts.js";
-import { isCustomizationMode, resolveInstructions, runtimeOverrideSettingKey } from "../settings.js";
-import type { PolystellaEmdashOptions } from "./options.js";
+import { glossaryTerms, isCustomizationMode, resolveInstructions, runtimeOverrideSettingKey } from "../settings.js";
+import type { GlossaryDefault, PolystellaEmdashOptions } from "./options.js";
 import { codeDefaultThinking, codeFallbackModel, isReasoningEffort, targetLocales } from "./options.js";
 import { MAX_TOKENS } from "./routes/provider.js";
 import {
@@ -148,20 +149,21 @@ export function readCollectionPolicies(value: unknown): Record<string, Collectio
 export async function translationSettingsView(
   options: PolystellaEmdashOptions,
   settings: SettingsAccess,
+  /** The one locale whose glossary file text to include; the text is large, so it is sent only on request. */
+  glossarySourceLocale: string | null = null,
 ): Promise<Omit<TranslationSettingsResponse, "localeTags">> {
   const versioned = await settings.getVersioned<unknown>(TRANSLATION_SETTINGS_KEY);
   const stored = parseTranslationSettings(options, versioned?.value);
   const locales = targetLocales(options).map((locale) => {
     const settings = stored.locales[locale];
     if (settings === undefined) throw PluginRouteError.internal(`translation settings for ${locale} are unavailable`);
-    const defaultGlossary = options.glossaryDefaults?.[locale];
     return {
       locale,
       defaultModel: codeFallbackModel(options, locale),
       model: settings.model,
       reasoning: settings.reasoning,
       defaultReasoning: codeDefaultThinking(options, locale),
-      defaultGlossary: defaultGlossary === undefined ? "" : JSON.stringify(defaultGlossary, null, 2),
+      ...codeGlossaryView(options.glossaryDefaults?.[locale], locale === glossarySourceLocale),
       glossaryMode: settings.glossaryMode,
       glossaryText: settings.glossaryText,
     };
@@ -184,6 +186,21 @@ export async function translationSettingsView(
       mode: stored.instructions.mode,
       text: stored.instructions.text,
     },
+  };
+}
+
+/** The code glossary as the admin shows it: parsed terms and, when asked, the YAML as written or, without one, the terms as JSON. */
+export function codeGlossaryView(
+  glossary: GlossaryDefault | undefined,
+  includeSource = true,
+): Pick<TranslationLocaleSettings, "defaultGlossary" | "defaultGlossarySource"> {
+  if (glossary === undefined) return { defaultGlossary: null, defaultGlossarySource: null };
+  const terms = glossaryTerms(glossary);
+  if (!includeSource) return { defaultGlossary: terms, defaultGlossarySource: null };
+  return {
+    defaultGlossary: terms,
+    defaultGlossarySource:
+      glossary.source === undefined ? { format: "json", text: JSON.stringify(terms, null, 2) } : { format: "yaml", text: glossary.source },
   };
 }
 

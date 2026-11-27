@@ -30,6 +30,7 @@ export {
   type EmDashCatalogLocale,
   type EmDashCatalogOptions,
   type EmDashWorkersAIProvider,
+  type GlossaryDefault,
   type PolystellaEmdashOptions,
   validatePolystellaEmdashOptions,
 } from "./server/options.js";

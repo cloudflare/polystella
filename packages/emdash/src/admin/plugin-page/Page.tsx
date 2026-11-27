@@ -22,21 +22,32 @@ export function SettingsPage(): ReactNode {
     url.searchParams.set("tab", tab);
     window.history.replaceState(window.history.state, "", url);
   }
+  // Kumo rings a focused tab; after a mouse click the underline already shows the choice, so the ring waits for a key press.
+  const [clickedTab, setClickedTab] = useState(false);
+  const tabClassName = clickedTab ? { className: "focus-visible:ring-0" } : {};
   return (
     <main style={pageStyle}>
       <PageTitle>PolyStella</PageTitle>
-      <Tabs
-        variant="underline"
-        tabs={[
-          { value: "translation", label: <span style={tabLabelStyle}>Translation settings</span> },
-          { value: "collections", label: <span style={tabLabelStyle}>Collections</span> },
-          { value: "sandbox", label: <span style={tabLabelStyle}>Sandbox</span> },
-        ]}
-        value={activeTab}
-        onValueChange={(value) => {
-          if (isSettingsTab(value)) selectTab(value);
+      <div
+        onPointerDown={() => setClickedTab(true)}
+        onKeyDown={() => setClickedTab(false)}
+        onBlur={(event) => {
+          if (!(event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget))) setClickedTab(false);
         }}
-      />
+      >
+        <Tabs
+          variant="underline"
+          tabs={[
+            { value: "translation", label: <span style={tabLabelStyle}>Translation settings</span>, ...tabClassName },
+            { value: "collections", label: <span style={tabLabelStyle}>Collections</span>, ...tabClassName },
+            { value: "sandbox", label: <span style={tabLabelStyle}>Sandbox</span>, ...tabClassName },
+          ]}
+          value={activeTab}
+          onValueChange={(value) => {
+            if (isSettingsTab(value)) selectTab(value);
+          }}
+        />
+      </div>
       <div role="tabpanel" aria-label="Translation settings" hidden={activeTab !== "translation"}>
         <TranslationSettingsTab />
       </div>

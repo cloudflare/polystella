@@ -25,9 +25,8 @@ row. The first group opens on load. Within a group, keys are shown
 without the group prefix. A search box above the list filters groups
 by title or group key, and keys by key or source text; when a group's
 own name matches, all its keys stay. An override's text box stays
-closed behind **Edit** until you change it. The action bar stays at the
-bottom of the screen with the number of unsaved changes and a
-**Discard** button, and says why a disabled action is disabled. Source cells containing
+closed behind **Edit** until you change it. The action bar is a card under the locale picker, with the number
+of unsaved changes and a **Discard** button, and says why a disabled action is disabled. Source cells containing
 `{{variables}}` placeholders show a question-mark icon before the text;
 hovering or clicking it explains that overrides should retain those
 placeholders. Saving an override that is not a valid
@@ -39,15 +38,16 @@ placeholders. Saving an override that is not a valid
 
 Each entry in the catalog view is one of:
 
-| State     | Meaning                                                           |
-| --------- | ----------------------------------------------------------------- |
-| `active`  | An override exists and differs from the deployed value.           |
-| `synced`  | An override exists and matches the deployed value.                |
-| `missing` | An override exists for a key absent from the deployed dictionary. |
+| State     | Meaning                                                            |
+| --------- | ------------------------------------------------------------------ |
+| `active`  | An override exists and differs from the current translation.       |
+| `synced`  | An override exists and matches the current translation.            |
+| `missing` | An override exists for a key absent from the current translations. |
 
-The override switch shows whether an override exists. A **Synced** or
-**Not deployed** badge marks the other two states, and **Unsaved**
-marks a change you haven't saved.
+The **Current translation** column shows what the deployed site
+serves. The override switch shows whether an override exists. A
+**Synced** or **Missing** badge marks the other two states, and
+**Unsaved** marks a change you haven't saved.
 
 **Clear synced overrides** deletes every `synced` override for the
 selected locale in one step, typically after a deploy has absorbed
@@ -64,8 +64,10 @@ and reapply.
 Runtime overrides are disabled per locale until an Administrator
 explicitly enables them with **Apply overrides**. Opening the Catalog
 page shows the saved setting and never changes it. The switch can be
-turned on once the locale has a saved override. A locale with runtime
-overrides disabled serves the deployed dictionary untouched.
+turned on once the locale has a saved override; its ⓘ says what off
+and on mean. A locale with runtime overrides disabled serves the
+deployed dictionary untouched, and its saved overrides are faded and
+marked **Not applied**.
 
 ## How the Astro integration reads them
 

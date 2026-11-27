@@ -1,7 +1,18 @@
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
+
 import { describe, expect, it, vi } from "vitest";
 
 import type { CatalogGlossaryConfig } from "../../src/cli/config.js";
-import { assertSingleGlossarySource, glossarySourceLabel, hashGlossary, loadGlossaries } from "../../src/cli/glossary.js";
+import {
+  assertSingleGlossarySource,
+  glossarySourceLabel,
+  hashGlossary,
+  loadGlossaries,
+  loadGlossariesWithSources,
+} from "../../src/cli/glossary.js";
 
 describe("external glossaries", () => {
   it("loads one HTTP glossary per configured locale", async () => {
@@ -30,6 +41,52 @@ describe("external glossaries", () => {
     expect(requested.sort()).toEqual(["https://example.com/glossaries/ja-JP.yaml", "https://example.com/glossaries/pt-BR.yaml"]);
     expect(glossaries.get("pt-BR")?.preferredTranslations.edge).toBe("pt-BR-edge");
     expect(glossaries.get("ja-JP")?.notes).toBe("ja-JP");
+  });
+
+  it("keeps each fetched glossary's YAML text outside the glossary", async () => {
+    const yaml = "# comment\nnotes: kept\n";
+    const config = { locales: ["pt-BR"], glossary: { http: { url: "https://example.com/{locale}.yaml" } } };
+    const fetchImpl: typeof fetch = async () => new Response(yaml);
+
+    const loaded = await loadGlossariesWithSources({ config, fetch: fetchImpl });
+    const plain = await loadGlossaries({ config, fetch: fetchImpl });
+
+    expect(loaded.get("pt-BR")?.source).toBe(yaml);
+    expect(plain.get("pt-BR")).not.toHaveProperty("source");
+    expect(loaded.get("pt-BR")?.glossary).toEqual(plain.get("pt-BR"));
+  });
+
+  it("keeps file and R2 YAML text exactly, comments and all, and none for inline glossaries", async () => {
+    const yaml = "# top comment\r\nversion: v1  # trailing\r\nnotes: kept\r\n";
+    const directory = await mkdtemp(path.join(tmpdir(), "polystella-glossary-"));
+    try {
+      await writeFile(path.join(directory, "pt-BR.yaml"), yaml);
+      const config = { locales: ["pt-BR", "ja-JP"], glossary: { file: "./{locale}.yaml" } };
+      const projectRoot = pathToFileURL(`${directory}/`);
+      const loaded = await loadGlossariesWithSources({ config, projectRoot });
+      const plain = await loadGlossaries({ config, projectRoot });
+      expect([...loaded.keys()]).toEqual(["pt-BR"]);
+      expect(loaded.get("pt-BR")?.source).toBe(yaml);
+      expect(loaded.get("pt-BR")?.glossary).toEqual(plain.get("pt-BR"));
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+
+    const inline = await loadGlossariesWithSources({
+      config: { locales: ["pt-BR"], glossary: { inline: { "pt-BR": { notes: "n" } } } },
+    });
+    expect(inline.get("pt-BR")).not.toHaveProperty("source");
+    expect(inline.get("pt-BR")?.glossary.notes).toBe("n");
+
+    const r2 = await loadGlossariesWithSources({
+      config: {
+        locales: ["pt-BR"],
+        glossary: { r2: { accountId: "a", bucket: "b", key: "{locale}.yaml", accessKeyId: "k", secretAccessKey: "s" } },
+      },
+      fetch: async () => new Response("# from R2\nnotes: r2\n"),
+    });
+    expect(r2.get("pt-BR")?.source).toBe("# from R2\nnotes: r2\n");
+    expect((await loadGlossariesWithSources({ config: { locales: ["pt-BR"] } })).size).toBe(0);
   });
 
   it("retries one transient HTTP failure", async () => {

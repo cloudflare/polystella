@@ -14,3 +14,5 @@ export const rowStyle: CSSProperties = { alignItems: "center", display: "flex", 
 export const inputStyle: CSSProperties = { width: "100%" };
 export const mutedStyle: CSSProperties = { opacity: 0.7 };
 export const codeStyle: CSSProperties = { margin: 0, overflowX: "auto", whiteSpace: "pre-wrap" };
+// The classes Kumo's Switch uses for its checked track, so a selected chip matches a switched-on Switch in both modes.
+export const SWITCH_ON_CLASS = "bg-blue-500 text-white dark:bg-blue-600";

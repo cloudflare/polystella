@@ -2,7 +2,13 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { jobSettingsError, jobSettingsPayload, jobSettingsSummary } from "../src/admin/components/JobSettings/JobSettings.js";
+import {
+  jobSettingsChanges,
+  JobSettingsSection,
+  jobSettingsError,
+  jobSettingsPayload,
+  jobSettingsSummary,
+} from "../src/admin/components/JobSettings/JobSettings.js";
 import { BatchRunPage } from "../src/admin/plugin-page/BatchRunPage.js";
 import { RetryForm } from "../src/admin/plugin-page/tabs/BatchTab/RetryForm.js";
 import { BatchJobs } from "../src/admin/plugin-page/tabs/BatchTab/BatchJobs.js";
@@ -15,9 +21,10 @@ import {
   jobsLeft,
   planBatchJobs,
   planRetry,
+  selectedRunBlockReason,
   type BatchResult,
 } from "../src/admin/plugin-page/tabs/BatchTab/helpers.js";
-import { MAX_BATCH_TRANSLATIONS, type BatchJobView } from "../src/contracts.js";
+import { MAX_BATCH_TRANSLATIONS, type BatchJobSettings, type BatchJobView } from "../src/contracts.js";
 
 describe("continuing a stopped browser run", () => {
   it("leaves exactly the planned jobs without a result, in plan order", () => {
@@ -72,23 +79,41 @@ describe("retrying a browser run", () => {
 });
 
 describe("browser batch run end state", () => {
-  const run = { started: true, running: false, total: 100, done: 100, failed: 0, error: null };
+  const counts = { created: 100, updated: 0, skipped: 0, failed: 0 };
+  const run = { started: true, running: false, total: 100, done: 100, counts, error: null };
 
   it("tells finished, failed, stopped, and errored runs apart", () => {
     expect(batchRunEndState({ ...run, running: true })).toBeNull();
-    expect(batchRunEndState(run)).toMatchObject({ variant: "default", title: "Finished" });
-    expect(batchRunEndState({ ...run, failed: 3 })).toMatchObject({ variant: "alert", title: "Finished with 3 failed" });
-    expect(batchRunEndState({ ...run, done: 40 })).toMatchObject({ variant: "alert", title: "Stopped after 40 of 100" });
-    expect(batchRunEndState({ ...run, done: 40 })?.description).toContain("60 not started");
-    expect(batchRunEndState({ ...run, done: 40, error: "boom" })).toMatchObject({ variant: "error" });
+    expect(batchRunEndState(run)).toMatchObject({ tone: "success", title: "Finished", detail: "100 created" });
+    expect(batchRunEndState({ ...run, counts: { ...counts, created: 3, failed: 2 } })).toEqual({
+      tone: "warning",
+      title: "Finished with failures",
+      detail: "3 created, 2 failed",
+      description: "Retry runs the failed ones again.",
+    });
+    expect(batchRunEndState({ ...run, total: 10, done: 4 })).toEqual({
+      tone: "neutral",
+      title: "Stopped",
+      detail: "4 of 10 done",
+      description: "Translate the 6 left to continue.",
+    });
+    expect(batchRunEndState({ ...run, done: 40, error: "boom" })).toMatchObject({ tone: "error" });
+  });
+
+  it("lists only the non-zero counts", () => {
+    expect(batchRunEndState({ ...run, counts: { created: 1, updated: 2, skipped: 0, failed: 0 } })?.detail).toBe("1 created, 2 updated");
+    expect(batchRunEndState({ ...run, counts: { created: 0, updated: 0, skipped: 5, failed: 0 } })?.detail).toBe("5 skipped");
   });
 
   it("reports the remainder exactly at the edges", () => {
-    expect(batchRunEndState({ ...run, done: 99 })?.description).toContain("1 not started");
-    expect(batchRunEndState({ ...run, done: 0 })).toMatchObject({ title: "Stopped after 0 of 100" });
-    expect(batchRunEndState({ ...run, total: 0, done: 0 })).toMatchObject({ title: "Finished" });
+    expect(batchRunEndState({ ...run, done: 99 })?.description).toBe("Translate the 1 left to continue.");
+    expect(batchRunEndState({ ...run, done: 0 })).toMatchObject({ detail: "0 of 100 done" });
+    expect(batchRunEndState({ ...run, total: 0, done: 0, counts: { ...counts, created: 0 } })).toMatchObject({
+      title: "Finished",
+      detail: null,
+    });
     expect(batchRunEndState({ ...run, started: false, done: 0 })).toBeNull();
-    expect(batchRunEndState({ ...run, done: 100, failed: 1, error: "boom" })?.description).toContain("0 did not start");
+    expect(batchRunEndState({ ...run, counts: { ...counts, failed: 1 }, error: "boom" })?.description).toContain("0 did not start");
   });
 
   it("counts outcomes", () => {
@@ -98,6 +123,19 @@ describe("browser batch run end state", () => {
       skipped: 0,
       failed: 1,
     });
+  });
+});
+
+describe("selected entries that are already translated", () => {
+  it("blocks only when no chosen locale is missing for any selected entry", () => {
+    expect(selectedRunBlockReason(1, ["Swedish (sv-SE)"], [])).toBe(
+      "Swedish (sv-SE) already has this entry. Turn on Update existing translations to translate it again.",
+    );
+    expect(selectedRunBlockReason(2, ["Swedish (sv-SE)"], [])).toMatch(/^Every selected entry already has these translations/);
+    expect(selectedRunBlockReason(1, ["Swedish (sv-SE)", "German (de)"], [])).toMatch(/^Every selected entry/);
+    expect(selectedRunBlockReason(3, ["Swedish (sv-SE)", "German (de)"], ["de"])).toBeNull();
+    expect(selectedRunBlockReason(0, ["Swedish (sv-SE)"], [])).toBeNull();
+    expect(selectedRunBlockReason(1, [], [])).toBeNull();
   });
 });
 
@@ -152,6 +190,30 @@ describe("batch result rows", () => {
     expect(html).toContain('role="status"');
   });
 
+  it("puts the usage tooltip on a job's progress count only when the job has usage", () => {
+    const job: BatchJobView = {
+      id: "job-1",
+      collection: "posts",
+      locales: ["fr"],
+      total: 10,
+      status: "finished",
+      createdAt: "2026-03-04T15:30:00.000Z",
+      publish: false,
+      updateExisting: false,
+      listing: false,
+      truncated: false,
+      entryCount: 10,
+      counts: { created: 10, updated: 0, skipped: 0, failed: 0 },
+      settings: null,
+      retryOf: null,
+    };
+    const usage = { calls: 1, inputTokens: 10, cachedInputTokens: 0, outputTokens: 5, reasoningTokens: 0, unreportedCalls: 0 };
+    const render = (view: BatchJobView) =>
+      renderToStaticMarkup(createElement(BatchJobs, { jobs: [view], collectionLabels: {}, urlContexts: {}, onChange: () => {} }));
+    expect(render({ ...job, usage })).toMatch(/<button[^>]*>10\/10<\/button>/);
+    expect(render(job)).not.toMatch(/<button[^>]*>10\/10<\/button>/);
+  });
+
   it("names the job a retry came from while it's still listed", () => {
     const original: BatchJobView = {
       id: "job-1",
@@ -184,6 +246,31 @@ describe("run settings", () => {
   it("summarizes with the short model name and a formatted token limit", () => {
     expect(jobSettingsSummary(settings)).toBe(`glm-4.7-flash, ${(16_384).toLocaleString()} max output tokens`);
     expect(jobSettingsSummary(null)).toBeNull();
+  });
+
+  it("names each change for the closed Run settings row", () => {
+    const empty = { model: null, reasoning: null, maxTokens: null, instructions: "" };
+    expect(jobSettingsChanges(empty)).toEqual([]);
+    expect(jobSettingsChanges({ ...empty, instructions: "  " })).toEqual([]);
+    expect(jobSettingsChanges({ ...settings, instructions: "Be brief." })).toEqual([
+      "Model: glm-4.7-flash",
+      `Max tokens: ${(16_384).toLocaleString()}`,
+      "Instructions",
+    ]);
+  });
+
+  it("shows a closed Run settings row with its changes and Reset", () => {
+    const render = (value: BatchJobSettings) =>
+      renderToStaticMarkup(createElement(JobSettingsSection, { value, disabled: false, onChange: () => {} }));
+    const unchanged = render({ model: null, reasoning: null, maxTokens: null, instructions: "" });
+    expect(unchanged).toContain('aria-expanded="false"');
+    expect(unchanged).not.toContain("Same as translation settings");
+    expect(unchanged).not.toContain("Reset");
+    const changed = render(settings);
+    expect(changed).toContain("Model: glm-4.7-flash");
+    expect(changed).toContain("Reset");
+    expect(changed).not.toContain("Same as translation settings");
+    expect(changed).not.toContain("For this run only");
   });
 
   it("blocks a token limit outside the allowed range", () => {
@@ -219,13 +306,13 @@ describe("retry form", () => {
   const text = (html: string) => html.replace(/<[^>]*>/g, "").replace(/<!-- -->/g, "");
 
   it("explains the settings are for this retry only", () => {
-    expect(render()).toContain("Change Translation settings for this retry only");
+    expect(render()).toContain("Change these for this retry only. Anything left empty uses the translation settings.");
     expect(render()).toContain("Loading translation settings...");
   });
 
   it("offers the redo switch only when the run wrote translations", () => {
     expect(render()).not.toContain("Also redo");
-    expect(render({ written: 3 })).toContain("Also redo the 3 translations it wrote");
+    expect(render({ written: 3 })).toContain("Also redo the 3 translations this run created or updated");
   });
 
   it("counts failed, not-run, and (when redo is on) written translations on the button", () => {
@@ -253,6 +340,7 @@ describe("retry form", () => {
 
 describe("batch run page", () => {
   afterEach(() => vi.unstubAllGlobals());
+  const text = (html: string) => html.replace(/<[^>]*>/g, "").replace(/<!-- -->/g, "");
 
   it("says the run expired when the tab has no stored plan", () => {
     vi.stubGlobal("window", { location: { search: "" } });
@@ -260,5 +348,40 @@ describe("batch run page", () => {
     expect(html).toContain("already started or has expired");
     expect(html).toContain("Batch translation");
     expect(html).not.toContain("Start translating");
+  });
+
+  it("lists the run's settings once as label and value pairs", () => {
+    const plan = {
+      collection: "pages",
+      collectionLabel: "Pages",
+      scope: "selected",
+      items: [{ id: "a", title: "A", slug: null, locale: "en" }],
+      targets: [{ locale: "sv-SE", code: "sv-SE" }],
+      options: {
+        collection: "pages",
+        sourceLocale: "en",
+        fields: ["title"],
+        updateExisting: false,
+        publish: false,
+        settings: { model: "@cf/zai-org/glm-4.7-flash", reasoning: null, maxTokens: 16_000, instructions: "Be brief." },
+      },
+      createdAt: Date.now(),
+    };
+    vi.stubGlobal("window", {
+      location: { search: "?run=r1" },
+      localStorage: { getItem: () => JSON.stringify(plan) },
+    });
+    const html = renderToStaticMarkup(createElement(BatchRunPage));
+    const flat = text(html);
+    expect(flat).toContain("Entries1");
+    expect(flat).toContain("Translations1");
+    expect(flat).toContain("ExistingSkipped");
+    expect(flat).toContain("Save asDrafts");
+    expect(flat).toContain("Modelglm-4.7-flash");
+    expect(flat).toContain(`Max tokens${(16_000).toLocaleString()}`);
+    expect(flat).toContain("InstructionsAdded");
+    expect(flat).not.toContain(" × ");
+    expect(flat).not.toContain("Settings:");
+    expect(flat).toContain("Start translating");
   });
 });

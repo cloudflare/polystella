@@ -32,13 +32,25 @@ const RETRY_DELAY_MS = 100;
 
 class PermanentGlossaryResponseError extends Error {}
 
+export interface LoadedGlossary {
+  glossary: Glossary;
+  /** The YAML text exactly as read or fetched; absent for inline glossaries. Never part of the glossary hash. */
+  source?: string | undefined;
+}
+
 export async function loadGlossaries(opts: LoadGlossariesOptions): Promise<Map<string, Glossary>> {
+  const loaded = await loadGlossariesWithSources(opts);
+  return new Map([...loaded].map(([locale, { glossary }]) => [locale, glossary]));
+}
+
+/** Like `loadGlossaries`, keeping each glossary's YAML text for display. */
+export async function loadGlossariesWithSources(opts: LoadGlossariesOptions): Promise<Map<string, LoadedGlossary>> {
   const { config, projectRoot } = opts;
   if (config.glossary === undefined) return new Map();
   opts.signal?.throwIfAborted();
   assertSingleGlossarySource(config.glossary);
 
-  const result = new Map<string, Glossary>();
+  const result = new Map<string, LoadedGlossary>();
   if (config.glossary.file !== undefined) {
     const template = config.glossary.file;
     requireLocalePlaceholder(template, "glossary.file");
@@ -54,14 +66,14 @@ export async function loadGlossaries(opts: LoadGlossariesOptions): Promise<Map<s
         if (isNotFound(error)) continue;
         throw error;
       }
-      result.set(locale, parseGlossaryYaml(raw, absPath));
+      result.set(locale, { glossary: parseGlossaryYaml(raw, absPath), source: raw });
     }
     return result;
   }
 
   if (config.glossary.inline !== undefined) {
     for (const [locale, data] of Object.entries(config.glossary.inline)) {
-      result.set(locale, validateGlossary(data, `inline glossary for locale "${locale}"`));
+      result.set(locale, { glossary: validateGlossary(data, `inline glossary for locale "${locale}"`) });
     }
     return result;
   }
@@ -86,7 +98,7 @@ async function loadHttpGlossaries(
   locales: ReadonlyArray<string>,
   config: Extract<CatalogGlossaryConfig, { http: unknown }>,
   opts: LoadGlossariesOptions,
-): Promise<Map<string, Glossary>> {
+): Promise<Map<string, LoadedGlossary>> {
   requireLocalePlaceholder(config.http.url, "glossary.http.url");
   let headers: Headers;
   try {
@@ -107,7 +119,7 @@ async function loadHttpGlossaries(
         if (error instanceof PermanentGlossaryResponseError) throw error;
         throw new Error(`[polystella] failed to load glossary for locale "${locale}" from ${label}`);
       }
-      return [locale, parseGlossaryYaml(raw, label)] as const;
+      return [locale, { glossary: parseGlossaryYaml(raw, label), source: raw }] as const;
     }),
   );
   return new Map(entries);
@@ -117,7 +129,7 @@ async function loadR2Glossaries(
   locales: ReadonlyArray<string>,
   config: Extract<CatalogGlossaryConfig, { r2: unknown }>,
   opts: LoadGlossariesOptions,
-): Promise<Map<string, Glossary>> {
+): Promise<Map<string, LoadedGlossary>> {
   requireLocalePlaceholder(config.r2.key, "glossary.r2.key");
   const baseEndpoint = config.r2.endpoint ?? `https://${config.r2.accountId}.r2.cloudflarestorage.com`;
   const endpoint = `${validateR2Endpoint(baseEndpoint)}/${config.r2.bucket}`;
@@ -140,7 +152,7 @@ async function loadR2Glossaries(
         if (error instanceof PermanentGlossaryResponseError) throw error;
         throw new Error(`[polystella] failed to load glossary for locale "${locale}" from ${label}`);
       }
-      return [locale, parseGlossaryYaml(raw, label)] as const;
+      return [locale, { glossary: parseGlossaryYaml(raw, label), source: raw }] as const;
     }),
   );
   return new Map(entries);
