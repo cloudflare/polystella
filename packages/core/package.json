@@ -1,6 +1,6 @@
 {
   "name": "@cloudflare/polystella-core",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "type": "module",
   "sideEffects": false,
   "description": "Platform-neutral translation primitives, portable format adapters, AI provider transports, and shared catalog CLI commands for PolyStella.",
