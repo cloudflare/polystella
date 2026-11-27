@@ -17,6 +17,15 @@ export {
   type CatalogOverrideState,
 } from "./catalog.js";
 export {
+  setPolystellaEventSink,
+  type BatchResultEvent,
+  type PolystellaEvent,
+  type PolystellaEventSink,
+  type PolystellaEventSurface,
+  type ProviderCallErrorKind,
+  type ProviderCallEvent,
+} from "./server/events.js";
+export {
   type BlockFieldPath,
   type EmDashCatalogLocale,
   type EmDashCatalogOptions,

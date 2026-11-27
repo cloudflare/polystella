@@ -2,7 +2,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { EMPTY_GLOSSARY } from "../index.js";
+import { addTokenUsage, EMPTY_GLOSSARY, formatUsageSummary, summarizeUsage, usageFor, type TokenUsage } from "../index.js";
 import { detectCatalogFormat, flattenCatalog, resolveLocaleTag } from "../catalog/index.js";
 import {
   DEFAULT_UI_STRING_BATCH_SIZE,
@@ -22,7 +22,7 @@ import {
 } from "./config.js";
 import { loadGlossaries } from "./glossary.js";
 import { runWithConcurrency } from "../pool.js";
-import { createTranslator } from "./provider.js";
+import { createPriceLookup, createTranslator } from "./provider.js";
 import { applySyncToDisk, formatLocaleFile, formatNestedLocaleFile, formatSyncSummary, parseSourceLayout, syncLocaleDict } from "./sync.js";
 
 const DEFAULT_CATALOG_BASE = "./src/content/i18n";
@@ -226,6 +226,7 @@ export async function runTranslateUi(args: TranslateUiArgs, deps: TranslateUiDep
     `[polystella] translate-ui: translating ${pending.length} locale(s) out of ${targets.length} checked (concurrency ${activeConcurrency}, max ${TRANSLATE_UI_MAX_CONCURRENCY}).`,
   );
   let startedCount = 0;
+  const usageByModel = new Map<string, TokenUsage>();
 
   await runWithConcurrency(pending, activeConcurrency, async (job) => {
     const progress = `${progressLabel(++startedCount, pending.length)} to translate, ${progressLabel(job.position, targets.length)} total`;
@@ -252,6 +253,7 @@ export async function runTranslateUi(args: TranslateUiArgs, deps: TranslateUiDep
         onRetry: ({ attempt, totalAttempts, error }) => {
           deps.warn(`[polystella]   ${progress} — ${job.locale}: attempt ${attempt}/${totalAttempts} failed: ${error.message}`);
         },
+        onBatchAttempt: ({ modelId, providerResponse }) => addTokenUsage(usageFor(usageByModel, modelId), providerResponse),
       });
       const reconciled = syncLocaleDict({ source: sourceDict, existing: result.dict, sourceKeyOrder });
       const files = { dict: reconciled.dict, source: sourceObject, existing: job.localeParsed, ignoreKey };
@@ -282,6 +284,13 @@ export async function runTranslateUi(args: TranslateUiArgs, deps: TranslateUiDep
       deps.err(`[polystella] translate-ui: ${progress} — ${job.locale} failed: ${errorMessage(error)}`);
     }
   });
+
+  if (usageByModel.size > 0) {
+    const prices = createPriceLookup(provider, (modelId, error) =>
+      deps.warn(`[polystella] translate-ui: could not read the price of ${modelId}: ${errorMessage(error)}`),
+    );
+    deps.log(`[polystella] translate-ui: usage — ${formatUsageSummary(await summarizeUsage(usageByModel, prices))}.`);
+  }
 
   return outcomes.some((outcome) => outcome.tokenFailures.length > 0 || outcome.error !== undefined) ? 2 : 0;
 }

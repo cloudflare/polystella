@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { PolystellaEmdashOptions } from "../src/index.js";
-import { clearReasoningCapabilities, parseCapability, reasoningCapability } from "../src/server/reasoning.js";
+import { clearReasoningCapabilities, modelPrice, parseCapability, reasoningCapability } from "../src/server/reasoning.js";
 import type { PluginRouteDependencies } from "../src/server/routes/provider.js";
 
 const entry = (name: string, value?: unknown) => ({
@@ -184,5 +184,55 @@ describe("reasoningCapability", () => {
     const deps = { ...dependencies, fetchImpl: fetchImpl as unknown as typeof fetch };
     await expect(reasoningCapability(options, { ACCOUNT: "a", TOKEN: "t" }, "glm", deps)).resolves.toBeNull();
     expect(fetchImpl).not.toHaveBeenCalled();
+  });
+});
+
+describe("modelPrice", () => {
+  beforeEach(clearReasoningCapabilities);
+
+  const priced = (name: string, input = 0.152, output = 0.5) => ({
+    name,
+    properties: [
+      {
+        property_id: "price",
+        value: [
+          { unit: "per M input tokens", price: input, currency: "USD" },
+          { unit: "per M output tokens", price: output, currency: "USD" },
+        ],
+      },
+    ],
+  });
+
+  it("prefers models.prices and does not call the catalog", async () => {
+    const models = vi.fn();
+    const price = { inputPerMillion: 1, outputPerMillion: 2 };
+    const options = bindingOptions({ prices: { glm: price } });
+    await expect(modelPrice(options, { AI: { models } }, "glm", dependencies)).resolves.toBe(price);
+    expect(models).not.toHaveBeenCalled();
+  });
+
+  it("reads the exact model's price from the catalog and shares the lookup with the reasoning capability", async () => {
+    const models = vi
+      .fn()
+      .mockResolvedValue([
+        priced("glm-other", 9, 9),
+        { ...priced("glm"), ...glm, properties: [...glm.properties, ...priced("glm").properties] },
+      ]);
+    const env = { AI: { models } };
+    await expect(modelPrice(bindingOptions(), env, "glm", dependencies)).resolves.toEqual({
+      inputPerMillion: 0.152,
+      outputPerMillion: 0.5,
+    });
+    await expect(reasoningCapability(bindingOptions(), env, "glm", dependencies)).resolves.not.toBeNull();
+    expect(models).toHaveBeenCalledOnce();
+  });
+
+  it("is undefined for an unknown model, an unpriced entry, or a catalog that fails", async () => {
+    const env = { AI: { models: async () => [glm] } };
+    await expect(modelPrice(bindingOptions(), env, "glm", dependencies)).resolves.toBeUndefined();
+    await expect(modelPrice(bindingOptions(), env, "kimi", dependencies)).resolves.toBeUndefined();
+    clearReasoningCapabilities();
+    await expect(modelPrice(bindingOptions(), { AI: {} }, "glm", dependencies)).resolves.toBeUndefined();
+    await expect(modelPrice(httpOptions(), {}, "glm", dependencies)).resolves.toBeUndefined();
   });
 });

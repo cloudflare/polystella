@@ -1,4 +1,5 @@
 export * from "./batch.js";
+export * from "./cost.js";
 export * from "./glossary.js";
 export type { InlineMarkup } from "./inline-markup.js";
 export * from "./logger.js";

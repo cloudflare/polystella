@@ -9,7 +9,7 @@ the apply step:
 
 ```yaml
 aiTranslated: true
-aiTranslationModel: "@cf/meta/llama-3.1-8b-instruct"
+aiTranslationModel: "@cf/deepseek-ai/deepseek-v4.1-flash-1017"
 aiTranslatedAt: "2025-04-12T14:23:01.000Z"
 ```
 

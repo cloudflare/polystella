@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -7,6 +7,7 @@ import { resolveOptions } from "../../src/config/options.js";
 import { runTranslationPass } from "../../src/translation/run.js";
 import type { Logger, Translator } from "@cloudflare/polystella-core";
 import type { R2Client, R2GetResult } from "../../src/storage/r2.js";
+import { computeBuildReportTotals } from "../../src/storage/report.js";
 
 /**
  * `runTranslationPass` integration tests.
@@ -1499,5 +1500,145 @@ describe("runTranslationPass — batching wire-through", () => {
     // 1 H1 + 3 H2 sections + frontmatter = 5 groups; under a tight
     // budget each becomes its own batch (or fewer if neighbours fit).
     expect(calls.length).toBeGreaterThan(1);
+  });
+});
+
+describe("runTranslationPass — token usage and cost", () => {
+  const PRICE = { inputPerMillion: 1, outputPerMillion: 4 };
+  // 1M input + 0.5M output tokens at `PRICE`.
+  const REPORTED = { inputTokens: 1_000_000, outputTokens: 500_000 };
+
+  /** Echoes like the stub translator, then reports `info` (when given) for every call. */
+  function makeReportingTranslator(modelId: string, info: Record<string, number> | undefined, reply?: string) {
+    const stub = makeStubTranslator(modelId);
+    const translator: Translator = {
+      modelId,
+      async translate(systemPrompt, userPrompt, signal, onResponse) {
+        const text = await stub.translate(systemPrompt, userPrompt);
+        if (info !== undefined) onResponse?.(info);
+        return reply ?? text;
+      },
+    };
+    return translator;
+  }
+
+  async function setup(provider: Record<string, unknown>, maxRetries = 0) {
+    const { rootDir, stagingDir } = await makeProjectFixture({ files: { "content/publications/sample.md": SAMPLE_MD } });
+    const resolved = resolveOptions(
+      { sourceDir: "./content", include: ["**/*.md"], maxRetries },
+      { defaultLocale: "en-US", locales: ["en-US", "pt-BR"] },
+    );
+    resolved.provider = {
+      kind: "workers-ai",
+      accountId: "fake",
+      apiToken: "fake",
+      model: "stub/m1",
+      maxTokens: 8192,
+      batchInputTokenBudget: 4000,
+      endpoint: "https://gateway.test/workers-ai",
+      ...provider,
+    } as NonNullable<typeof resolved.provider>;
+    const r2 = makeInMemoryR2();
+    const logs: string[] = [];
+    const warnings: string[] = [];
+    const logger: Logger = { ...NULL_LOGGER, info: (message) => logs.push(message), warn: (message) => warnings.push(message) };
+    const run = (translator: Translator) =>
+      runTranslationPass({
+        resolved,
+        rootDir,
+        stagingDir,
+        logger,
+        polystellaVersion: "0.2.0",
+        r2Override: r2.client,
+        translatorOverrides: new Map([["pt-BR", translator]]),
+      });
+    return { run, logs, warnings, stagingDir };
+  }
+
+  it("puts tokens and list-price cost on ai-translated entries, none on cache hits, and logs a cost line", async () => {
+    const { run, logs, stagingDir } = await setup({ prices: { "stub/m1": PRICE } });
+    const translator = makeReportingTranslator("stub/m1", REPORTED);
+
+    const first = await run(translator);
+    expect(first.entries).toHaveLength(1);
+    expect(first.entries[0]).toMatchObject({ outcome: "ai-translated", tokens: { in: 1_000_000, out: 500_000 }, estimatedCostUsd: 3 });
+    expect(logs).toContain("AI usage: 1 model call, 1,000,000 input / 500,000 output tokens, estimated cost $3.0000 (tokens × list price)");
+
+    logs.length = 0;
+    // Without the local index the second run reaches the R2 cache instead of skipping locally.
+    await rm(path.join(stagingDir, ".polystella-index.json"));
+    const second = await run(translator);
+    expect(second.entries[0]?.outcome).toBe("cache-hit");
+    expect(second.entries[0]).not.toHaveProperty("tokens");
+    expect(second.entries[0]).not.toHaveProperty("estimatedCostUsd");
+    expect(logs.some((line) => line.startsWith("AI usage:"))).toBe(false);
+  });
+
+  it("bills cached input tokens at the cached rate", async () => {
+    const { run } = await setup({ prices: { "stub/m1": { ...PRICE, cachedInputPerMillion: 0.5 } } });
+    const result = await run(makeReportingTranslator("stub/m1", { ...REPORTED, cachedInputTokens: 600_000 }));
+    expect(result.entries[0]?.estimatedCostUsd).toBeCloseTo(0.4 + 0.3 + 2);
+  });
+
+  it("reports tokens without a cost, and names the model, when it has no price", async () => {
+    const { run, logs } = await setup({ prices: { "other/model": PRICE } });
+    const result = await run(makeReportingTranslator("stub/m1", REPORTED));
+    expect(result.entries[0]).toMatchObject({ tokens: { in: 1_000_000, out: 500_000 } });
+    expect(result.entries[0]).not.toHaveProperty("estimatedCostUsd");
+    expect(logs.find((line) => line.startsWith("AI usage:"))).toMatch(/, no price for stub\/m1 \(left out of the estimate\)$/);
+  });
+
+  it("reports neither tokens nor cost when the provider reported no token counts", async () => {
+    const { run, logs } = await setup({ prices: { "stub/m1": PRICE } });
+    const result = await run(makeReportingTranslator("stub/m1", undefined));
+    expect(result.entries[0]?.outcome).toBe("ai-translated");
+    expect(result.entries[0]).not.toHaveProperty("tokens");
+    expect(result.entries[0]).not.toHaveProperty("estimatedCostUsd");
+    expect(logs).toContain("AI usage: 1 model call, 0 input / 0 output tokens, 1 without token counts");
+  });
+
+  it("keeps the tokens and cost of a failed attempt on the error entry", async () => {
+    const { run } = await setup({ prices: { "stub/m1": PRICE } });
+    const result = await run(makeReportingTranslator("stub/m1", REPORTED, "no segment markers here"));
+    expect(result.counts.failed).toBe(1);
+    expect(result.entries[0]).toMatchObject({ outcome: "error", tokens: { in: 1_000_000, out: 500_000 }, estimatedCostUsd: 3 });
+  });
+
+  it("does not count a pair's usage twice when staging fails after a successful translation", async () => {
+    const { run, logs, stagingDir } = await setup({ prices: { "stub/m1": PRICE } });
+    // A file where the locale directory belongs makes the staging write fail.
+    await mkdir(stagingDir, { recursive: true });
+    await writeFile(path.join(stagingDir, "pt-BR"), "not a directory", "utf8");
+
+    const result = await run(makeReportingTranslator("stub/m1", REPORTED));
+
+    expect(result.counts.failed).toBe(1);
+    expect(result.entries.some((entry) => entry.outcome === "error")).toBe(true);
+    const entries = result.entries.filter((entry) => entry.tokens !== undefined);
+    expect(entries.reduce((sum, entry) => sum + (entry.tokens?.in ?? 0), 0)).toBe(1_000_000);
+    expect(entries.reduce((sum, entry) => sum + (entry.estimatedCostUsd ?? 0), 0)).toBe(3);
+    expect(computeBuildReportTotals(result.entries)).toMatchObject({ tokensIn: 1_000_000, tokensOut: 500_000, estimatedCostUsd: 3 });
+    expect(logs).toContain("AI usage: 1 model call, 1,000,000 input / 500,000 output tokens, estimated cost $3.0000 (tokens × list price)");
+  });
+
+  it("sums the tokens of every retry attempt", async () => {
+    const { run } = await setup({ prices: { "stub/m1": PRICE } }, 1);
+    const result = await run(makeReportingTranslator("stub/m1", REPORTED, "no segment markers here"));
+    expect(result.entries[0]).toMatchObject({ outcome: "error", tokens: { in: 2_000_000, out: 1_000_000 }, estimatedCostUsd: 6 });
+  });
+
+  it("reads the Workers AI catalog for a model without an override, and survives its failure", async () => {
+    const fetchMock = vi.fn(async () => new Response("nope", { status: 500 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { run, warnings } = await setup({ endpoint: undefined });
+    const result = await run(makeReportingTranslator("stub/m1", REPORTED));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0]).toEqual([
+      expect.stringContaining("/accounts/fake/ai/models/search?search=stub%2Fm1"),
+      expect.anything(),
+    ]);
+    expect(result.counts.failed).toBe(0);
+    expect(result.entries[0]).not.toHaveProperty("estimatedCostUsd");
+    expect(warnings).toEqual(["estimated cost: could not read the price of stub/m1: the Workers AI model catalog returned HTTP 500"]);
   });
 });

@@ -79,6 +79,22 @@ const maxPromptTokensSchema = z
     "Ceiling for one whole prompt (instructions, matched glossary terms, style rules, notes and segments), default 8000. A batch over it is split; a single segment over it fails.",
   );
 
+const pricesSchema = z
+  .record(
+    z.string().min(1),
+    z
+      .object({
+        inputPerMillion: z.number().nonnegative(),
+        outputPerMillion: z.number().nonnegative(),
+        cachedInputPerMillion: z.number().nonnegative().optional(),
+      })
+      .strict(),
+  )
+  .optional()
+  .describe(
+    "USD list prices per million tokens, keyed by model id, for estimated costs (tokens × list price) in the build log and report. Workers AI models default to the Workers AI catalog's prices.",
+  );
+
 const workersAiProviderSchema = z.object({
   kind: z.literal("workers-ai").describe("Discriminator selecting the Workers AI provider."),
   accountId: z.string().min(1, "provider.accountId is required").describe("Cloudflare account ID that owns the Workers AI usage."),
@@ -92,20 +108,18 @@ const workersAiProviderSchema = z.object({
   model: z
     .union([z.string().min(1), z.object({ default: z.string().min(1) }).catchall(z.string().min(1))])
     .describe(
-      "Single model id (e.g. `@cf/meta/llama-3.1-8b-instruct`) or per-locale map with a `default` key. Model id is part of the cache key.",
+      "Single model id (e.g. `@cf/deepseek-ai/deepseek-v4.1-flash-1017`) or per-locale map with a `default` key. Model id is part of the cache key.",
     ),
   /**
    * Max output tokens. Workers AI's default ceiling (~256) truncates
-   * multi-segment translations. 8192 fits under llama-3.1-8b's cap.
+   * multi-segment translations.
    */
   maxTokens: z
     .number()
     .int()
     .positive()
     .default(8192)
-    .describe(
-      "Max output tokens per call. The Workers AI default (~256) truncates multi-segment translations; 8192 fits under llama-3.1-8b's cap.",
-    ),
+    .describe("Max output tokens per call. The Workers AI default (~256) truncates multi-segment translations."),
   /**
    * Soft cap on per-batch input tokens. The translation pipeline
    * packs adapter-grouped segments (see `markdownAdapter.groupSegments`)
@@ -121,6 +135,7 @@ const workersAiProviderSchema = z.object({
     .default(4000)
     .describe("Soft cap on per-batch input tokens. The pipeline packs adapter-grouped segments into batches that fit under this budget."),
   maxPromptTokens: maxPromptTokensSchema,
+  prices: pricesSchema,
 });
 
 const anthropicProviderSchema = z.object({
@@ -145,6 +160,7 @@ const anthropicProviderSchema = z.object({
     .default(4000)
     .describe("Soft cap on per-batch input tokens. See the Workers AI provider's identical field for the rationale."),
   maxPromptTokens: maxPromptTokensSchema,
+  prices: pricesSchema,
 });
 
 const providerSchema = z.discriminatedUnion("kind", [workersAiProviderSchema, anthropicProviderSchema]);

@@ -26,6 +26,7 @@ import { workersAIParamsProblem } from "@cloudflare/polystella-core/providers/wo
 const objectCache = vi.hoisted(() => ({ invalidateObjectCache: vi.fn() }));
 vi.mock("emdash", async (importOriginal) => ({ ...(await importOriginal<object>()), ...objectCache }));
 import type { CatalogOverride, PolystellaEmdashOptions } from "../src/index.js";
+import { setPolystellaEventSink, type PolystellaEvent } from "../src/server/events.js";
 import { hashFields } from "../src/ai-translations.js";
 
 function options(): PolystellaEmdashOptions {
@@ -256,6 +257,27 @@ async function enablePosts(kv: KVAccess): Promise<void> {
   await kv.set("settings:collectionPolicies", {
     posts: { fields: ["title", "body"] },
   });
+}
+
+// Collects events for one call; the sink is always removed, even when the call throws.
+async function captureEvents(run: () => Promise<unknown>): Promise<PolystellaEvent[]> {
+  const events: PolystellaEvent[] = [];
+  setPolystellaEventSink((event) => {
+    events.push(event);
+  });
+  try {
+    await run();
+  } catch {
+    // The caller asserts on the route's own outcome.
+  } finally {
+    setPolystellaEventSink(undefined);
+  }
+  return events;
+}
+
+function expectNoTranslationText(events: PolystellaEvent[]): void {
+  const serialized = JSON.stringify(events);
+  for (const text of ["Hello", "Bonjour", "secret-token", "@@"]) expect(serialized).not.toContain(text);
 }
 
 async function enableDebug(routes: Record<string, PluginRoute>, kv: KVAccess, storage: StorageCollection): Promise<void> {
@@ -705,6 +727,186 @@ describe("EmDash plugin routes", () => {
         context({ collection: "posts", entryId: "entry-1", targetLocale: "fr-FR", fields: ["secret"] }, "POST", kv, storage),
       ),
     ).rejects.toThrow("enabled in PolyStella collection settings");
+  });
+
+  it("sends a provider_call event per model request, without prompts or text", async () => {
+    const events: PolystellaEvent[] = [];
+    setPolystellaEventSink((event) => {
+      events.push(event);
+    });
+    try {
+      const routes = createPluginRoutes(options(), dependencies());
+      const kv = createKv();
+      await enablePosts(kv);
+      await route(routes, "translate-content").handler(
+        context({ collection: "posts", entryId: "entry-1", targetLocale: "fr-FR", fields: ["title"] }, "POST", kv, createStorage()),
+      );
+    } finally {
+      setPolystellaEventSink(undefined);
+    }
+
+    expect(events).toEqual([
+      {
+        type: "provider_call",
+        v: 1,
+        surface: "content",
+        locale: "fr-FR",
+        model: "model-b",
+        ok: true,
+        durationMs: expect.any(Number),
+        segmentCount: 1,
+      },
+    ]);
+  });
+
+  describe("provider_call cost", () => {
+    const reply = {
+      choices: [{ message: { content: "@@field:0@@\nBonjour" } }],
+      usage: { prompt_tokens: 1_000_000, completion_tokens: 500_000, prompt_tokens_details: { cached_tokens: 400_000 } },
+    };
+    const catalogPrice = {
+      name: "model-b",
+      properties: [
+        {
+          property_id: "price",
+          value: [
+            { unit: "per M input tokens", price: 2, currency: "USD" },
+            { unit: "per M output tokens", price: 8, currency: "USD" },
+            { unit: "per M cached input tokens", price: 1, currency: "USD" },
+          ],
+        },
+      ],
+    };
+
+    async function translateWith(configured: PolystellaEmdashOptions, env: Record<string, unknown>) {
+      clearReasoningCapabilities();
+      const routes = createPluginRoutes(configured, { ...dependencies(), getEnv: async () => env });
+      const kv = createKv();
+      await enablePosts(kv);
+      return captureEvents(() =>
+        route(routes, "translate-content").handler(
+          context({ collection: "posts", entryId: "entry-1", targetLocale: "fr-FR", fields: ["title"] }, "POST", kv, createStorage()),
+        ),
+      );
+    }
+
+    it("prices the call from models.prices, with cached tokens at the cached rate", async () => {
+      const configured = options();
+      configured.models.prices = { "model-b": { inputPerMillion: 1, outputPerMillion: 4, cachedInputPerMillion: 0.5 } };
+      const events = await translateWith(configured, { AI: { run: async () => reply } });
+      expect(events).toEqual([
+        expect.objectContaining({
+          type: "provider_call",
+          model: "model-b",
+          inputTokens: 1_000_000,
+          cachedInputTokens: 400_000,
+          outputTokens: 500_000,
+        }),
+      ]);
+      expect((events[0] as { estimatedCostUsd?: number }).estimatedCostUsd).toBeCloseTo(0.6 + 0.2 + 2);
+    });
+
+    it("falls back to the Workers AI catalog price, and omits estimatedCostUsd when it has none", async () => {
+      const run = async () => reply;
+      const priced = await translateWith(options(), { AI: { run, models: async () => [catalogPrice] } });
+      expect((priced[0] as { estimatedCostUsd?: number }).estimatedCostUsd).toBeCloseTo(1.2 + 0.4 + 4);
+
+      const unpriced = await translateWith(options(), { AI: { run, models: async () => [] } });
+      expect(unpriced[0]).toMatchObject({ type: "provider_call", inputTokens: 1_000_000 });
+      expect(unpriced[0]).not.toHaveProperty("estimatedCostUsd");
+
+      const broken = await translateWith(options(), { AI: { run, models: async () => Promise.reject(new Error("down")) } });
+      expect(broken[0]).toMatchObject({ type: "provider_call", ok: true });
+      expect(broken[0]).not.toHaveProperty("estimatedCostUsd");
+    });
+  });
+
+  it("sends a failed provider_call event and still fails the route as before", async () => {
+    const routes = createPluginRoutes(options(), {
+      ...dependencies(),
+      getEnv: async () => ({
+        AI: {
+          run: async () => {
+            throw new Error("Authorization: secret-token");
+          },
+        },
+      }),
+    });
+    const kv = createKv();
+    await enablePosts(kv);
+    const input = { collection: "posts", entryId: "entry-1", targetLocale: "fr-FR", fields: ["title"] };
+    let failure: unknown;
+
+    const events = await captureEvents(() =>
+      route(routes, "translate-content")
+        .handler(context(input, "POST", kv, createStorage()))
+        .catch((error: unknown) => {
+          failure = error;
+          throw error;
+        }),
+    );
+
+    expect(failure).toBeInstanceOf(Error);
+    expect(String(failure)).not.toContain("secret-token");
+    expect(events.length).toBeGreaterThan(0);
+    for (const event of events) {
+      expect(event).toMatchObject({ type: "provider_call", surface: "content", locale: "fr-FR", ok: false, errorKind: "provider" });
+    }
+    expectNoTranslationText(events);
+  });
+
+  it("sends provider_call events while the administrator debug trace still fills in", async () => {
+    const routes = createPluginRoutes(options(), dependencies());
+    const kv = createKv();
+    const storage = createStorage();
+    await enablePosts(kv);
+    await enableDebug(routes, kv, storage);
+    let result: TranslateContentResponse | undefined;
+
+    const events = await captureEvents(async () => {
+      result = (await route(routes, "translate-content").handler(
+        context({ collection: "posts", entryId: "entry-1", targetLocale: "fr-FR", fields: ["title"] }, "POST", kv, storage),
+      )) as TranslateContentResponse;
+    });
+
+    expect(result).toMatchObject({
+      patch: { title: "Bonjour" },
+      debug: { providerCallCount: 1, batches: [{ attempts: [{ response: "@@field:0@@\nBonjour" }] }] },
+    });
+    expect(events).toEqual([expect.objectContaining({ type: "provider_call", surface: "content", locale: "fr-FR", ok: true })]);
+    expectNoTranslationText(events);
+  });
+
+  it("sends provider_call events for catalog generation and the sandbox, tagged by surface", async () => {
+    const routes = createPluginRoutes(options(), {
+      ...dependencies(),
+      getEnv: async () => ({
+        AI: {
+          run: async (_model: string, input: { messages: Array<{ content: string }> }) => ({
+            response: input.messages.some(({ content }) => content.includes("@@sandbox:0@@"))
+              ? "@@sandbox:0@@\nBonjour"
+              : "@@catalog:0@@\nBonjour",
+          }),
+        },
+      }),
+    });
+    const kv = createKv();
+    const storage = createStorage();
+
+    const catalogEvents = await captureEvents(() =>
+      route(routes, "catalog/generate").handler(context({ locale: "fr-FR", keys: ["greeting"] }, "POST", kv, storage)),
+    );
+    const sandboxEvents = await captureEvents(() =>
+      route(routes, "translation-sandbox").handler(
+        context({ targetLocale: "fr-FR", model: "model-a", text: "Hello" }, "POST", kv, storage),
+      ),
+    );
+
+    expect(catalogEvents).toEqual([expect.objectContaining({ type: "provider_call", surface: "catalog", locale: "fr-FR", ok: true })]);
+    expect(sandboxEvents).toEqual([
+      expect.objectContaining({ type: "provider_call", surface: "sandbox", locale: "fr-FR", model: "model-a", ok: true }),
+    ]);
+    expectNoTranslationText([...catalogEvents, ...sandboxEvents]);
   });
 
   it("translates the source-locale sibling's saved values, not the draft copy", async () => {
@@ -2292,6 +2494,86 @@ describe("EmDash batch queue routes", () => {
     expect(await jobStatus(cancelled.id)).toBe("cancelled");
     const rows = await batch.results.query({ where: { jobId: cancelled.id } });
     expect(rows.items.map(({ data }) => (data as { message: string | null }).message)).toEqual(["Finished after the job was cancelled."]);
+  });
+
+  it("sends a batch_result event for each recorded row, and none for a record it drops", async () => {
+    const { kv, call } = batchSetup();
+    await enablePosts(kv);
+    const job = (await call("batch/start", { collection: "posts", locales: ["fr-FR"], entryIds: ["a"] })) as BatchJobView;
+    const events: PolystellaEvent[] = [];
+    setPolystellaEventSink((event) => {
+      events.push(event);
+    });
+    try {
+      await call("batch/record", { jobId: job.id, entryId: "a", locale: "fr-FR", outcome: "created", message: null });
+      // A duplicate delivery's conflict after a saved row is not recorded.
+      await call("batch/record", { jobId: job.id, entryId: "a", locale: "fr-FR", outcome: "skipped", message: null });
+    } finally {
+      setPolystellaEventSink(undefined);
+    }
+
+    expect(events).toEqual([
+      { type: "batch_result", v: 1, jobId: job.id, collection: "posts", entryId: "a", locale: "fr-FR", outcome: "created" },
+    ]);
+  });
+
+  it("sends batch_result and job-tagged provider_call events from batch/translate", async () => {
+    const { kv, call } = batchSetup();
+    await enablePosts(kv);
+    const job = (await call("batch/start", { collection: "posts", locales: ["fr-FR"], entryIds: ["entry-src"] })) as BatchJobView;
+    const message = { jobId: job.id, entryId: "entry-src", locale: "fr-FR" };
+
+    const events = await captureEvents(() => call("batch/translate", message, "POST", (routeContext) => sourceEntry(routeContext)));
+
+    // A returned draft is recorded by batch/record once the consumer saves it, so no row is stored yet.
+    expect(events).toEqual([
+      expect.objectContaining({ type: "provider_call", surface: "batch", locale: "fr-FR", jobId: job.id, ok: true }),
+    ]);
+    expectNoTranslationText(events);
+  });
+
+  it("sends a batch_result when batch/translate records a skip or failure inline", async () => {
+    const { kv, call } = batchSetup({ AI: { run: async () => ({ response: "no markers @@" }) } });
+    await enablePosts(kv);
+    const job = (await call("batch/start", { collection: "posts", locales: ["fr-FR"], entryIds: ["a", "b"] })) as BatchJobView;
+    const base = { type: "batch_result", v: 1, jobId: job.id, collection: "posts", locale: "fr-FR" };
+
+    const skipped = await captureEvents(() =>
+      call("batch/translate", { jobId: job.id, entryId: "a", locale: "fr-FR" }, "POST", (routeContext) =>
+        sourceEntry(routeContext, [{ id: "entry-fr", locale: "fr-FR" }]),
+      ),
+    );
+    const failed = await captureEvents(() =>
+      call("batch/translate", { jobId: job.id, entryId: "b", locale: "fr-FR" }, "POST", (routeContext) => sourceEntry(routeContext)),
+    );
+    // A redelivery of a recorded row does nothing, so it sends nothing.
+    const redelivered = await captureEvents(() =>
+      call("batch/translate", { jobId: job.id, entryId: "a", locale: "fr-FR" }, "POST", (routeContext) => sourceEntry(routeContext)),
+    );
+
+    expect(skipped).toEqual([{ ...base, entryId: "a", outcome: "skipped" }]);
+    expect(failed.filter(({ type }) => type === "batch_result")).toEqual([{ ...base, entryId: "b", outcome: "failed" }]);
+    expect(failed.filter(({ type }) => type === "provider_call")).not.toHaveLength(0);
+    for (const event of failed.filter(({ type }) => type === "provider_call")) {
+      expect(event).toMatchObject({ surface: "batch", jobId: job.id, ok: false, errorKind: "invalid_response" });
+    }
+    expect(redelivered).toEqual([]);
+    expectNoTranslationText([...skipped, ...failed]);
+  });
+
+  it("sends a failed batch_result when the collection has no translatable fields", async () => {
+    const { kv, call } = batchSetup();
+    await enablePosts(kv);
+    const job = (await call("batch/start", { collection: "posts", locales: ["fr-FR"], entryIds: ["a"] })) as BatchJobView;
+    await kv.set("settings:collectionPolicies", { posts: { fields: ["sku"] } });
+
+    const events = await captureEvents(() =>
+      call("batch/translate", { jobId: job.id, entryId: "a", locale: "fr-FR" }, "POST", (routeContext) => sourceEntry(routeContext)),
+    );
+
+    expect(events).toEqual([
+      { type: "batch_result", v: 1, jobId: job.id, collection: "posts", entryId: "a", locale: "fr-FR", outcome: "failed" },
+    ]);
   });
 
   it("lists a whole collection a page at a time from the queue", async () => {

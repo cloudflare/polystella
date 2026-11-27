@@ -24,7 +24,7 @@ PolyStella ships thirty-three public import paths across three packages.
 | Core   | `@cloudflare/polystella-core/cli/sync`             | Catalog key reconciliation and layout-aware writing.                                                      | `import { syncLocaleDict } from "@cloudflare/polystella-core/cli/sync";`                            |
 | Core   | `@cloudflare/polystella-core/cli/sync-ui`          | Catalog sync command parser and handler.                                                                  | `import { runSyncUi } from "@cloudflare/polystella-core/cli/sync-ui";`                              |
 | Core   | `@cloudflare/polystella-core/cli/translate-ui`     | Catalog AI translation command parser and handler.                                                        | `import { runTranslateUi } from "@cloudflare/polystella-core/cli/translate-ui";`                    |
-| EmDash | `@cloudflare/polystella-emdash`                    | Native EmDash descriptor, routes, administrator policy, and catalog override helpers.                     | `import { polystellaEmdash } from "@cloudflare/polystella-emdash";`                                 |
+| EmDash | `@cloudflare/polystella-emdash`                    | Native EmDash descriptor, routes, administrator policy, catalog override helpers, and the event sink.     | `import { polystellaEmdash } from "@cloudflare/polystella-emdash";`                                 |
 | EmDash | `@cloudflare/polystella-emdash/admin`              | Native React catalog, settings, and content-editor panel entry consumed by EmDash.                        | `import { contentEditorPanels } from "@cloudflare/polystella-emdash/admin";`                        |
 | EmDash | `@cloudflare/polystella-emdash/astro`              | Companion Astro integration for runtime catalog locals and enabled overrides.                             | `import { polystellaEmdashAstro } from "@cloudflare/polystella-emdash/astro";`                      |
 | EmDash | `@cloudflare/polystella-emdash/client`             | Astro locals augmentation and the runtime `TranslateFn` type.                                             | `/// <reference types="@cloudflare/polystella-emdash/client" />`                                    |
@@ -70,7 +70,7 @@ const segments = jsonAdapter.extractSegments(parsed, source, {
 const translator = createWorkersAIHttpTranslator({
   accountId: "your-account-id",
   apiToken: "your-api-token",
-  modelId: "@cf/meta/llama-3.1-8b-instruct",
+  modelId: "@cf/deepseek-ai/deepseek-v4.1-flash-1017",
   maxTokens: 8192,
 });
 const { translations } = await translateSegments({

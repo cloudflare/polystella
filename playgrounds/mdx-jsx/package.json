@@ -11,7 +11,8 @@
     "audit-mdx": "node ./node_modules/@cloudflare/polystella-astro/dist/cli.js audit-mdx",
     "translate:dry-run": "node ./node_modules/@cloudflare/polystella-astro/dist/cli.js translate --dry-run --report ./i18n-r2-report.json",
     "translate:local": "node ./scripts/translate-local.mjs",
-    "translate:workers-ai": "node ./scripts/translate-workers-ai.mjs"
+    "translate:workers-ai": "node ./scripts/translate-workers-ai.mjs",
+    "link-env": "node ./scripts/link-shared-env.mjs"
   },
   "dependencies": {
     "@astrojs/mdx": "^7.0.8",

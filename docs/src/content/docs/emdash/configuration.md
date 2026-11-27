@@ -71,11 +71,12 @@ Catalog page's placeholder hint and the runtime `t()`.
 
 The model bounds for translation.
 
-| Field            | Type                               | Notes                                                                                                                                                                                                                                          |
-| ---------------- | ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `allowed`        | string[]                           | Non-empty, unique. Administrators cannot select a model outside this list. Cannot contain the reserved `__polystella_code_default__`.                                                                                                          |
-| `defaults`       | string or `ModelSpec`              | Optional fallback. A single model id, or `{ default, <locale>: model }`. A model can be `{ model, enable_thinking }` (see [Thinking](#thinking)). Every locale key must match a configured catalog locale and every model appear in `allowed`. |
-| `reasoningInput` | `{ <model>: { <choice>: input } }` | Optional. The exact input to send for each admin thinking choice of a model, instead of what the Workers AI catalog says (see [Admin thinking choice](#admin-thinking-choice)). Keys must be in `allowed`.                                     |
+| Field            | Type                               | Notes                                                                                                                                                                                                                                           |
+| ---------------- | ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `allowed`        | string[]                           | Non-empty, unique. Administrators cannot select a model outside this list. Cannot contain the reserved `__polystella_code_default__`.                                                                                                           |
+| `defaults`       | string or `ModelSpec`              | Optional fallback. A single model id, or `{ default, <locale>: model }`. A model can be `{ model, enable_thinking }` (see [Thinking](#thinking)). Every locale key must match a configured catalog locale and every model appear in `allowed`.  |
+| `reasoningInput` | `{ <model>: { <choice>: input } }` | Optional. The exact input to send for each admin thinking choice of a model, instead of what the Workers AI catalog says (see [Admin thinking choice](#admin-thinking-choice)). Keys must be in `allowed`.                                      |
+| `prices`         | `{ <model>: ModelPrice }`          | Optional. USD list price per million tokens, `{ inputPerMillion, outputPerMillion, cachedInputPerMillion? }`, for the `estimatedCostUsd` of [events](#events-and-metrics). Wins over the Workers AI catalog's price. Keys must be in `allowed`. |
 
 Administrators pick the default model in **Translation settings**, and
 each language uses it unless they pick another model for that
@@ -341,6 +342,67 @@ Translation errors are recorded as failed rows that
 translation updates it with `runtime.handleContentUpdate` and EmDash's
 `_rev` token, so an edit made while it translates is kept. Infrastructure errors (for example, the
 database is unreachable) use the queue's own retries.
+
+## Events and metrics
+
+PolyStella emits two events. Neither carries prompts, source text, model
+output, or user identity:
+
+| `type`          | When                                                                | Fields                                                                                                                                                                                                   |
+| --------------- | ------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `provider_call` | Once per model request on every surface, each retry its own event   | `surface` (`content`, `catalog`, `sandbox`, `batch`), `locale`, `model`, `ok`, `errorKind`, `durationMs`, `segmentCount`, `finishReason`, token counts, `cachedInputTokens`, `estimatedCostUsd`, `jobId` |
+| `batch_result`  | Each time a batch result is written: the translation's real outcome | `jobId`, `collection`, `entryId`, `locale`, `outcome` (`created`, `updated`, `skipped`, `failed`)                                                                                                        |
+
+Every event has `v: 1`; later versions only add fields. `ok` means the
+provider replied and the reply parsed; a later check, such as
+placeholder validation, can still reject it. `errorKind` is one of
+`permanent_provider`, `timeout`, `aborted`, `truncated`,
+`invalid_response`, or `provider`. Fields the provider does not report
+are absent. Join token counts to batch outcomes by `jobId`.
+
+`inputTokens` includes `cachedInputTokens`, and `outputTokens` includes
+`reasoningTokens`.
+
+> **Estimates, not your bill.** `estimatedCostUsd` is tokens × the model's public list price, from
+> `models.prices` or the Workers AI catalog. It is not what Cloudflare
+> bills you: free allocations and discounts are left out. For what you
+> actually pay, use the Cloudflare dashboard.
+
+`estimatedCostUsd` is absent when
+the price is unknown, such as with a custom `endpoint`, where the API
+token is never sent to the Cloudflare catalog. See
+[Cost estimates](/providers/workers-ai/#cost-estimates).
+
+Both events can repeat. A queue can deliver a message twice, and a
+`failed` row is translated again on redelivery, so one
+`jobId`/`entryId`/`locale` can emit `failed` and then `created`. Count
+the last `batch_result` per row.
+
+Each event is logged through EmDash's plugin logger as
+`polystella.<type>`, so Workers Logs, Logpush, and OpenTelemetry export
+see it with no setup. To send events somewhere else, set a sink once at
+Worker module scope. This example assumes an `analytics_engine_datasets`
+binding named `POLYSTELLA_ANALYTICS` in `wrangler.jsonc`, with types
+from `wrangler types`:
+
+```ts
+// src/worker.ts
+import { env } from "cloudflare:workers";
+import { setPolystellaEventSink } from "@cloudflare/polystella-emdash";
+
+setPolystellaEventSink((event) => {
+  if (event.type !== "provider_call") return;
+  env.POLYSTELLA_ANALYTICS.writeDataPoint({
+    indexes: [event.model],
+    blobs: [event.type, event.surface, event.locale, event.ok ? "ok" : (event.errorKind ?? "error")],
+    doubles: [event.durationMs, event.inputTokens ?? 0, event.outputTokens ?? 0, event.estimatedCostUsd ?? 0],
+  });
+});
+```
+
+The sink is not awaited. If it throws or rejects, PolyStella logs a
+warning and the translation carries on. There is one sink per Worker;
+setting another replaces it, and `undefined` removes it.
 
 ## Collections are not a config option
 

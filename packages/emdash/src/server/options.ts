@@ -1,4 +1,11 @@
-import { resolveModelId, type Glossary, type ModelChoice, type ModelChoiceSpec } from "@cloudflare/polystella-core";
+import {
+  modelPriceProblem,
+  resolveModelId,
+  type Glossary,
+  type ModelChoice,
+  type ModelChoiceSpec,
+  type ModelPrice,
+} from "@cloudflare/polystella-core";
 import {
   checkLocaleTags,
   compileIgnoreKeys,
@@ -71,6 +78,8 @@ export interface PolystellaEmdashOptions {
     params?: Readonly<Record<string, Readonly<Record<string, unknown>>>> | undefined;
     /** Model id → admin thinking choice → the exact input to send. Overrides the Workers AI catalog for that model. */
     reasoningInput?: Readonly<Record<string, Readonly<Record<string, Readonly<Record<string, unknown>>>>>> | undefined;
+    /** USD list prices per allowed model, for the `estimatedCostUsd` of `provider_call` events. Overrides the Workers AI catalog. */
+    prices?: Readonly<Record<string, ModelPrice>> | undefined;
   };
   glossaryDefaults?: Readonly<Record<string, Glossary>> | undefined;
   /** Let any letters follow a glossary term when deciding whether a batch uses it, so `Worker` matches "Workers". Default false. */
@@ -186,6 +195,14 @@ export function validatePolystellaEmdashOptions(value: unknown): asserts value i
     }
   }
 
+  if (models.prices !== undefined) {
+    for (const [model, price] of Object.entries(readRecord(models.prices, "options.models.prices"))) {
+      if (!allowedModels.includes(model)) fail(`options.models.prices.${model} must exist in options.models.allowed`);
+      const problem = modelPriceProblem(price);
+      if (problem !== undefined) fail(`options.models.prices.${model} ${problem}`);
+    }
+  }
+
   if (options.glossaryDefaults !== undefined) {
     const defaults = readRecord(options.glossaryDefaults, "options.glossaryDefaults");
     for (const [locale, glossary] of Object.entries(defaults)) {
@@ -265,6 +282,7 @@ export function serializeOptions(options: PolystellaEmdashOptions): SerializedPo
       ...(options.models.defaults === undefined ? {} : { defaults: structuredClone(options.models.defaults) }),
       ...(options.models.params === undefined ? {} : { params: structuredClone(options.models.params) }),
       ...(options.models.reasoningInput === undefined ? {} : { reasoningInput: structuredClone(options.models.reasoningInput) }),
+      ...(options.models.prices === undefined ? {} : { prices: structuredClone(options.models.prices) }),
     },
     ...(options.glossaryDefaults === undefined
       ? {}
